@@ -580,7 +580,10 @@ void SexyApp::InitPropertiesHook()
 	}
 
 	mProdName = GetString("ProdName", mProdName);
-	mIsWindowed = GetBoolean("DefaultWindowed", mIsWindowed);	
+	mIsWindowed = GetBoolean("DefaultWindowed", mIsWindowed);
+	// @pvz-online: force windowed for development — Steam partner.xml defaults to
+	// exclusive fullscreen, which hijacks the whole display and survives crashes badly
+	mIsWindowed = true;
 
 	std::string aNewTitle = GetString("Title", "");
 	if (aNewTitle.length() > 0)

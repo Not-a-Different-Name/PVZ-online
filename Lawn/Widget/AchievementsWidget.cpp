@@ -17,6 +17,9 @@
 #include "../../Sexy.TodLib/TodParticle.h"
 #include "widget/Dialog.h"
 #include "widget/WidgetManager.h"
+#include <cstdio>
+#include <cstdlib>
+#include <climits>
 
 Rect aBackButtonRect = { 120, 35, 130, 80 };
 
@@ -47,13 +50,27 @@ AchievementItem gAchievementList[MAX_ACHIEVEMENTS] = {
 AchievementsWidget::AchievementsWidget(LawnApp* theApp) {
 	mApp = theApp;
 	mWidth = 800;
-	mHeight = IMAGE_ACHEESEMENTS_CHINA->mHeight + IMAGE_SELECTORSCREEN_ACHIEVEMENTS_BG->mHeight + 15700;
+	// @pvz-online: was CHINA->mHeight + BG->mHeight + 15700 == 16150, a scrolling wall of
+	// which the top ~750px was the only part that ever had anything on it. With that
+	// height, Update()'s clamp computes aMaxScroll == 2*600 + 50 - 16150 == -14900, so the
+	// first wheel tick or arrow key flung the whole page 14900px off-screen and the player
+	// was left looking at an empty wall - the "achievements page has no content" bug.
+	// The page is one screen tall now: 20 achievements in a 3x7 grid (laid out in Draw).
+	mHeight = mApp->mHeight;
 	mScrollDirection = -1;
 	mScrollValue = 0;
 	mDefaultScrollValue = 30;
 	mScrollDecay = 1;
 	mDidPressMoreButton = false;
-	mMoreRockRect = Rect(710, 470, IMAGE_ACHEESEMENTS_MORE_ROCK->mWidth - 25, IMAGE_ACHEESEMENTS_MORE_ROCK->mHeight - 50);
+	// Nothing to scroll to, so the more/scroll button is retired: the zero rect makes
+	// every Contains() in MouseDown/MouseUp below false.
+	mMoreRockRect = Rect(0, 0, 0, 0);
+	// The page had no visible exit: Resources.h only ever had the *hover highlight* for
+	// this button (IMAGE_ACHEESEMENTS_BACK does not exist), and Draw only drew that
+	// highlight, so there was nothing on screen to click. Use the menu's own BACK sign
+	// instead, in a box of our choosing so it is always fully on screen, placed
+	// bottom-right the way the menu itself places it.
+	aBackButtonRect = Rect(mApp->mWidth - 156, mApp->mHeight - 100, 144, 88);
 }
 
 // GOTY @Patoke: 0x4010E0
@@ -63,6 +80,33 @@ AchievementsWidget::~AchievementsWidget() {
 
 // GOTY @Patoke: 0x401A10
 void AchievementsWidget::Update() {
+	// @pvz-online debug: PVZ_GEO=1 reports every scroll step. The clamp below uses
+	// aMaxScroll = 2*mApp->mHeight + 50 - mHeight, so any bogus mHeight throws the
+	// whole page far off-screen the first time the player scrolls.
+	if (getenv("PVZ_GEO"))
+	{
+		static int sLastY = INT_MIN;
+		if (mY != sLastY)
+		{
+			sLastY = mY;
+			int aMaxScroll = 2 * mApp->mHeight + 50 - mHeight;
+			fprintf(stderr, "[ach] mY=%d scrollVal=%d dir=%d h=%d maxScroll=%d\n",
+				mY, mScrollValue, mScrollDirection, mHeight, aMaxScroll);
+			fflush(stderr);
+		}
+	}
+
+	// @pvz-online: the page is exactly one screen tall now, so there is nothing to scroll.
+	// This guard is not just an optimisation - the clamp further down is wrong once the
+	// page fits: aMaxScroll becomes 2*600 + 50 - 600 == 650, and `aNewY <= aMaxScroll` is
+	// then true for every reachable value, so the page gets thrown *down* to y=650, i.e.
+	// off the bottom of the screen, on the first wheel tick.
+	if (mHeight <= mApp->mHeight)
+	{
+		mScrollValue = 0;
+		return;
+	}
+
 	if (mScrollValue <= 0)
 		return;
 
@@ -81,9 +125,10 @@ void AchievementsWidget::Update() {
 	if (aNewY <= aMaxScroll)
 		aNewY = aMaxScroll;
 
-	mY = aNewY;
-
+	// @pvz-online: aDelta was computed *after* mY = aNewY, so it was always 0 and the
+	// back/more rects never followed the scroll at all.
 	int aDelta = aNewY - mY;
+	mY = aNewY;
 	mMoreRockRect.mY += aDelta;
 	aBackButtonRect.mY += aDelta;
 
@@ -93,69 +138,129 @@ void AchievementsWidget::Update() {
 
 // GOTY @Patoke: 0x401160
 void AchievementsWidget::Draw(Graphics* g) {
+	// @pvz-online debug: PVZ_GEO=1 prints the achievements page geometry once, so the
+	// panel can be placed against the real screen instead of guessed at.
+	if (getenv("PVZ_GEO"))
+	{
+		static bool sAchGeoDumped = false;
+		if (!sAchGeoDumped)
+		{
+			sAchGeoDumped = true;
+			fprintf(stderr, "[geo] ach mX=%d mY=%d %dx%d scrollVal=%d dir=%d app=%dx%d\n",
+				mX, mY, mWidth, mHeight, mScrollValue, mScrollDirection, mApp->mWidth, mApp->mHeight);
+			fprintf(stderr, "[geo] ach backRect=(%d,%d) %dx%d  bgImage=%dx%d china=%dx%d\n",
+				aBackButtonRect.mX, aBackButtonRect.mY, aBackButtonRect.mWidth, aBackButtonRect.mHeight,
+				IMAGE_SELECTORSCREEN_ACHIEVEMENTS_BG ? IMAGE_SELECTORSCREEN_ACHIEVEMENTS_BG->mWidth : -1,
+				IMAGE_SELECTORSCREEN_ACHIEVEMENTS_BG ? IMAGE_SELECTORSCREEN_ACHIEVEMENTS_BG->mHeight : -1,
+				IMAGE_ACHEESEMENTS_CHINA ? IMAGE_ACHEESEMENTS_CHINA->mWidth : -1,
+				IMAGE_ACHEESEMENTS_CHINA ? IMAGE_ACHEESEMENTS_CHINA->mHeight : -1);
+			fflush(stderr);
+		}
+	}
+
+	// @pvz-online: vanilla drew the wall once and then 70 hole tiles down a 16150px
+	// surface, with the Bejeweled/Zuma gallery art pinned at y=1125..11250 and the CHINA
+	// piece at mHeight-875. Here the tiles simply stop at the screen edge; the gallery
+	// pieces are dropped, since at those offsets they were decoration nobody could
+	// reach. (CHINA->mHeight - 875 also went negative once mHeight became 600.)
+	// The page has to erase what is underneath before it draws itself. WidgetManager never
+	// clears its persistent 800x600 surface - ordinarily that is fine because a full-screen
+	// widget paints over all of it - but this page cannot: the wall art carries alpha, so
+	// drawing it only blends onto whatever was already there. What was already there is the
+	// menu as it stood during the slide-in plus earlier frames of this very page, which is
+	// what made the page look like it "had no content": it was mostly stale pixels showing
+	// through. SetColor + FillRect is the same idiom AwardScreen uses to erase the board.
+	// @pvz-online probe: with PVZ_ACHFILL set, paint the page solid magenta and skip the
+	// wall art entirely. Diagnostic on purpose - if the page does not come out magenta,
+	// FillRect is not reaching the surface (or something draws over the page) and the wall
+	// art is not the problem at all.
+	bool aProbe = getenv("PVZ_ACHFILL") != nullptr;
+	g->SetColorizeImages(true);
+	g->SetColor(aProbe ? Color(255, 0, 255) : Color(72, 60, 44));
+	g->FillRect(0, 0, mWidth, mHeight);
+	g->SetColorizeImages(false);
+
+	if (aProbe)
+		return;
+
+	if (!aProbe)
+	{
 	g->DrawImage(IMAGE_SELECTORSCREEN_ACHIEVEMENTS_BG, 0, 0);
+	int aTileHeight = IMAGE_ACHEESEMENTS_HOLE_TILE->mHeight;
+	if (getenv("PVZ_GEO"))
+	{
+		static bool sWallDumped = false;
+		if (!sWallDumped)
+		{
+			sWallDumped = true;
+			fprintf(stderr, "[geo] wall bg=%dx%d tile=%dx%d tilesDrawn=%d mHeight=%d\n",
+				IMAGE_SELECTORSCREEN_ACHIEVEMENTS_BG->mWidth, IMAGE_SELECTORSCREEN_ACHIEVEMENTS_BG->mHeight,
+				IMAGE_ACHEESEMENTS_HOLE_TILE->mWidth, IMAGE_ACHEESEMENTS_HOLE_TILE->mHeight,
+				aTileHeight > 0 ? (mHeight - IMAGE_SELECTORSCREEN_ACHIEVEMENTS_BG->mHeight + aTileHeight - 1) / aTileHeight : 0,
+				mHeight);
+			fflush(stderr);
+		}
+	}
+	// Fall back to the wall art if the hole tile is missing: tile height 0 would leave
+	// everything below the first 225px unpainted.
+	if (aTileHeight <= 0)
+		aTileHeight = IMAGE_SELECTORSCREEN_ACHIEVEMENTS_BG->mHeight;
+	if (aTileHeight > 0)
+	{
+		for (int aY = IMAGE_SELECTORSCREEN_ACHIEVEMENTS_BG->mHeight; aY < mHeight; aY += aTileHeight)
+			g->DrawImage(aTileHeight == IMAGE_ACHEESEMENTS_HOLE_TILE->mHeight ? IMAGE_ACHEESEMENTS_HOLE_TILE : IMAGE_SELECTORSCREEN_ACHIEVEMENTS_BG, 0, aY);
+	}
+	}
 
-	int aHeight = IMAGE_SELECTORSCREEN_ACHIEVEMENTS_BG->mHeight;
-	for (int i = 1; i <= 70; i++)
-		g->DrawImage(IMAGE_ACHEESEMENTS_HOLE_TILE, 0, aHeight * i);
-
-	g->DrawImage(IMAGE_ACHEESEMENTS_BOOKWORM, 0, 1125);
-	g->DrawImage(IMAGE_ACHEESEMENTS_BEJEWELED, 0, 2250);
-	g->DrawImage(IMAGE_ACHEESEMENTS_CHUZZLE, 0, 4500);
-	g->DrawImage(IMAGE_ACHEESEMENTS_PEGGLE, 0, 6750);
-	g->DrawImage(IMAGE_ACHEESEMENTS_PIPE, 0, 9000);
-	g->DrawImage(IMAGE_ACHEESEMENTS_ZUMA, 0, 11250);
-
-	g->DrawImage(IMAGE_ACHEESEMENTS_CHINA, 0, mHeight - IMAGE_ACHEESEMENTS_CHINA->mHeight - /*50*/ 650);
-	
-	if (aBackButtonRect.Contains(mWidgetManager->mLastMouseX - mX, mWidgetManager->mLastMouseY - mY))
-		g->DrawImage(IMAGE_ACHEESEMENTS_BACK_HIGHLIGHT, 128, 55);
-
+	// @pvz-online: 20 achievements in 3 columns x 7 rows, which is what fits one screen.
+	// The row pitch is the readability fix: vanilla used 57px in a 2-column layout while
+	// each entry draws a 15pt title plus a 12pt description that wraps to up to 3 lines,
+	// so every row overlapped the one below it.
 	for (int i = 0; i < MAX_ACHIEVEMENTS; i++) {
 		bool aHasAchievement;
 		if (mApp->mPlayerInfo) aHasAchievement = mApp->mPlayerInfo->mEarnedAchievements[i];
 		else aHasAchievement = false;
 
-		int aCurrAchievementOff = 57 * int(i / 2);
-		int aImageXPos = i % 2 == 0 ? 120 : 410;
-		int aImageYPos = 178 + aCurrAchievementOff;
-		int aTextXPos = aImageXPos + 70;
-		int aTextYPos = aImageYPos + 16;
+		int aImageXPos = 12 + (i % 3) * 208;
+		int aImageYPos = 82 + (i / 3) * 64;
+		int aTextXPos = aImageXPos + 62;
+		int aTextYPos = aImageYPos + 2;
 
 		// Achievement images
 		Rect aSrcRect(70 * (i % 7), 70 * (i / 7), 70, 70);
 		Rect aDestRect(aImageXPos, aImageYPos, 56, 56);
-		
+
 		g->SetColorizeImages(true);
 		g->SetColor(aHasAchievement ? Color(255, 255, 255) : Color(255, 255, 255, 32));
 
 		g->DrawImage(IMAGE_ACHEESEMENTS_ICONS, aDestRect, aSrcRect);
 		g->SetColorizeImages(false);
-		
+
 		// Achievement titles
 		g->SetFont(FONT_DWARVENTODCRAFT15);
 		g->SetColor(Color(21, 175, 0));
 
 		g->DrawString(gAchievementList[i].name, aTextXPos, aTextYPos);
 
-		// Achievement descriptions	
-		Rect aPos = Rect(aTextXPos, aTextYPos + 3, 212, 60);
-		
+		// Achievement descriptions
+		Rect aPos = Rect(aTextXPos, aTextYPos + 18, 146, 46);
+
 		g->SetFont(FONT_DWARVENTODCRAFT12);
 		g->SetColor(Color(255, 255, 255));
 
 		g->WriteWordWrapped(aPos, gAchievementList[i].description, 12);
 	}
 
-	g->DrawImage(IMAGE_ACHEESEMENTS_MORE_ROCK, 700, 450);
-
-	bool aIsHighlight = mMoreRockRect.Contains(mWidgetManager->mLastMouseX - mX, mWidgetManager->mLastMouseY - mY);
-	if (mDidPressMoreButton) {
-		g->DrawImage(aIsHighlight ? IMAGE_ACHEESEMENTS_TOP_BUTTON_HIGHLIGHT : IMAGE_ACHEESEMENTS_TOP_BUTTON, 700, 450);
-	}
-	else {
-		g->DrawImage(aIsHighlight ? IMAGE_ACHEESEMENTS_MORE_BUTTON_HIGHLIGHT : IMAGE_ACHEESEMENTS_MORE_BUTTON, 700, 450);
-	}
+	// @pvz-online: the exit. Drawn last so it sits over the wall, and drawn as a *sign*
+	// rather than only the hover highlight - that was the original bug, the page had no
+	// visible way out at all. Stretched into aBackButtonRect so the art always lands
+	// fully on screen regardless of its natural size.
+	bool aBackHighlight = aBackButtonRect.Contains(mWidgetManager->mLastMouseX - mX, mWidgetManager->mLastMouseY - mY);
+	g->DrawImage(IMAGE_QUICKPLAY_BACK_BUTTON, aBackButtonRect,
+		Rect(0, 0, IMAGE_QUICKPLAY_BACK_BUTTON->mWidth, IMAGE_QUICKPLAY_BACK_BUTTON->mHeight));
+	if (aBackHighlight)
+		g->DrawImage(IMAGE_ACHEESEMENTS_BACK_HIGHLIGHT, aBackButtonRect,
+			Rect(0, 0, IMAGE_ACHEESEMENTS_BACK_HIGHLIGHT->mWidth, IMAGE_ACHEESEMENTS_BACK_HIGHLIGHT->mHeight));
 }
 
 // GOTY @Patoke: 0x4019D0
@@ -167,6 +272,13 @@ void AchievementsWidget::KeyDown(KeyCode theKey) {
 	else if (theKey == KEYCODE_DOWN) {
 		mScrollValue = mDefaultScrollValue;
 		mScrollDirection = -1;
+	}
+	// @pvz-online: leaving the page used to depend on ESC reaching the GameSelector, so
+	// the only exit that reliably worked was the one the player could not see. Handle it
+	// here too, the same way the back button returns.
+	else if (theKey == KEYCODE_ESCAPE) {
+		mApp->mGameSelector->SlideTo(0, 0);
+		mWidgetManager->SetFocus(mApp->mGameSelector);
 	}
 }
 

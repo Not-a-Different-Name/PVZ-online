@@ -1080,6 +1080,22 @@ bool DDInterface::Redraw(Rect* theClipRect)
 			aResult = mPrimarySurface->Blt(&aDestRect, mSecondarySurface, &aSrcRect, DDBLT_WAIT, &aBltFX);
 		}
 
+		// @pvz-online debug: trace the windowed presentation blit
+		{
+			static int sRedrawCount = 0;
+			if ((++sRedrawCount % 120) == 1)
+			{
+				fprintf(stderr, "[redraw] #%d windowed=%d widescreen=%d videoOnly=%d drawSurface=%dx%d clip=(%d,%d,%d,%d) dest=(%d,%d,%d,%d) presentation=(%d,%d,%d,%d) result=0x%08X\n",
+					sRedrawCount, (int)mIsWindowed, (int)mIsWidescreen, (int)mVideoOnlyDraw, mWidth, mHeight,
+					theClipRect ? theClipRect->mX : -1, theClipRect ? theClipRect->mY : -1,
+					theClipRect ? theClipRect->mWidth : -1, theClipRect ? theClipRect->mHeight : -1,
+					aDestRect.left, aDestRect.top, aDestRect.right, aDestRect.bottom,
+					mPresentationRect.mX, mPresentationRect.mY, mPresentationRect.mWidth, mPresentationRect.mHeight,
+					(unsigned)aResult);
+				fflush(stderr);
+			}
+		}
+
 		mInRedraw = false;
 		return !GotDXError(aResult,"Redraw Windowed");
 	}

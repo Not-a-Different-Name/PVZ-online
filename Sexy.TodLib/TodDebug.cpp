@@ -158,6 +158,9 @@ void TodTrace(const char* theFormat, ...)
 	}
 
 	OutputDebugStringA(aButter);
+	// @pvz-online debug: mirror traces to stderr so redirected runs leave a trail
+	fputs(aButter, stderr);
+	fflush(stderr);
 }
 
 void TodHesitationTrace(...)

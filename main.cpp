@@ -1,15 +1,48 @@
 #include "LawnApp.h"
 #include "Resources.h"
 #include "Sexy.TodLib/TodStringFile.h"
+#include <crtdbg.h>
 using namespace Sexy;
 
 bool (*gAppCloseRequest)();				//[0x69E6A0]
 bool (*gAppHasUsedCheatKeys)();			//[0x69E6A4]
 SexyString (*gGetCurrentLevelName)();
 
+// @pvz-online debug: heap-corruption hunting. CRT asserts always go to stderr (no modal
+// dialogs). Full per-alloc heap validation only when PVZ_HEAPCHECK=1 — it is ~100x
+// slower and can make fullscreen boot look like a black-screen hang.
+static void PvzDebugHeapInit()
+{
+	_CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE | _CRTDBG_MODE_DEBUG);
+	_CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
+	_CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_FILE | _CRTDBG_MODE_DEBUG);
+	_CrtSetReportFile(_CRT_ERROR, _CRTDBG_FILE_STDERR);
+	if (GetEnvironmentVariableA("PVZ_HEAPCHECK", nullptr, 0) > 0)
+		_CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_CHECK_ALWAYS_DF);
+}
+
 //0x44E8F0
 int WINAPI WinMain(_In_ HINSTANCE /* hInstance */, _In_opt_ HINSTANCE /* hPrevInstance */, _In_ LPSTR /* lpCmdLine */, _In_ int /* nCmdShow */)
 {
+	// @pvz-online: the game ships no manifest, so on a scaled display (125% here) Windows
+	// treats it as DPI-unaware: it creates an 800x600 *logical* window but gives it a
+	// 1000x750 *physical* client and upsamples our 800x600 framebuffer by 1.25x. That is
+	// where the mystery 1000x750 came from - nothing in the engine ever sets that size
+	// (DDInterface's widescreen resize needs mEnableWindowAspect, which is false
+	// everywhere), and GetDpiForWindow still answers 96 because the process is unaware.
+	// Declaring awareness before any window exists keeps the client at exactly
+	// mWidth x mHeight, so the framebuffer maps 1:1 and the art stops being resampled.
+	// Scaling only - this never affects the windowed/fullscreen decision.
+	// (Bound at runtime: the SDK headers hide SetProcessDPIAware behind WINVER >= 0x0600,
+	// and this project still targets the Win98-era version the original was built for.)
+	typedef BOOL (WINAPI *SetProcessDPIAwareFn)();
+	if (HMODULE aUser32 = ::LoadLibraryA("user32.dll"))
+	{
+		if (SetProcessDPIAwareFn aSetDpiAware = (SetProcessDPIAwareFn)::GetProcAddress(aUser32, "SetProcessDPIAware"))
+			aSetDpiAware();
+	}
+
+	PvzDebugHeapInit();
 	TodStringListSetColors(gLawnStringFormats, gLawnStringFormatCount);
 	gGetCurrentLevelName = LawnGetCurrentLevelName;
 	gAppCloseRequest = LawnGetCloseRequest;

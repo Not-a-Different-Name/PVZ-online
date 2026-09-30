@@ -90,6 +90,9 @@ public:
     int                         mDestY;                     //+GOTY @Patoke: 0x164
     //ZombatarScreen*           mZombatarScreen;            //+GOTY @Patoke: 0x168
     AchievementsWidget*       mAchievementsWidget;        //+GOTY @Patoke: 0x16C
+    // @pvz-online: the menu buttons are siblings of the achievements page, not children,
+    // so they have to be hidden explicitly while the page is up (see Update).
+    bool                        mMenuHiddenForAchievements;
 
 public:
     GameSelector(LawnApp* theApp);

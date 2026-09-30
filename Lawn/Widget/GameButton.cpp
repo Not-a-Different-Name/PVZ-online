@@ -7,6 +7,8 @@
 #include "graphics/Graphics.h"
 #include "../../Sexy.TodLib/TodStringFile.h"
 #include "widget/WidgetManager.h"
+#include <cstdio>
+#include <cstdlib>
 
 static Color gGameButtonColors[6] = { Color(0, 0, 0), Color(0, 0, 0), Color(0, 0, 0), Color(255, 255, 255), Color(132, 132, 132), Color(212, 212, 212) };
 
@@ -147,7 +149,7 @@ void GameButton::Draw(Graphics* g)
 			DrawButtonImage(g, mDisabledImage, mDisabledRect, 0, 0);
 		else if (mOverAlpha > 0.0f && HaveButtonImage(mOverImage, mOverRect))
 		{
-			if (HaveButtonImage(mButtonImage, mNormalRect) && mOverAlpha < 1.0f)  // Î´ÍêÈ«¹ý¶É½áÊø
+			if (HaveButtonImage(mButtonImage, mNormalRect) && mOverAlpha < 1.0f)  // Î´ï¿½ï¿½È«ï¿½ï¿½ï¿½É½ï¿½ï¿½ï¿½
 				DrawButtonImage(g, mButtonImage, mNormalRect, 0, 0);
 
 			g->SetColorizeImages(true);
@@ -323,6 +325,18 @@ void NewLawnButton::Draw(Graphics* g)
 	if (mBtnNoDraw)
 		return;
 
+	// @pvz-online debug: PVZ_BTNTRACE=1 prints the transform the button is actually
+	// drawn with, to tell a layout error apart from a draw error.
+	if (getenv("PVZ_BTNTRACE") && mWidth > 200)
+	{
+		static int sTraceCount = 0;
+		if ((++sTraceCount % 240) == 1)
+			fprintf(stderr, "[btn] mX=%-5d mY=%-5d %dx%d off=%d,%d gTrans=(%.1f,%.1f) img=%dx%d\n",
+				mX, mY, mWidth, mHeight, mButtonOffsetX, mButtonOffsetY,
+				g->mTransX, g->mTransY,
+				mButtonImage ? mButtonImage->mWidth : -1, mButtonImage ? mButtonImage->mHeight : -1);
+	}
+
 	bool isDown = (mIsDown && mIsOver && !mDisabled) ^ mInverted;
 	int aFontX = mTextOffsetX + mTranslateX;
 	int aFontY = mTextOffsetY + mTranslateY;
@@ -344,7 +358,7 @@ void NewLawnButton::Draw(Graphics* g)
 			DrawButtonImage(g, mDisabledImage, mDisabledRect, mButtonOffsetX, mButtonOffsetY);
 		else if (mOverAlpha > 0.0f && HaveButtonImage(mOverImage, mOverRect))
 		{
-			if (HaveButtonImage(mButtonImage, mNormalRect) && mOverAlpha < 1.0f)  // Î´ÍêÈ«¹ý¶É½áÊø
+			if (HaveButtonImage(mButtonImage, mNormalRect) && mOverAlpha < 1.0f)  // Î´ï¿½ï¿½È«ï¿½ï¿½ï¿½É½ï¿½ï¿½ï¿½
 				DrawButtonImage(g, mButtonImage, mNormalRect, mButtonOffsetX, mButtonOffsetY);
 
 			g->mColor.mAlpha = mOverAlpha * 255;

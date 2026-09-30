@@ -4893,6 +4893,8 @@ void SexyAppBase::LoadingThreadProcStub(void *theArg)
 	char aStr[256];
 	sprintf(aStr, "Resource Loading Time: %ld\r\n", (GetTickCount() - aSexyApp->mTimeLoaded));
 	OutputDebugStringA(aStr);
+	fprintf(stderr, "[load-thread] COMPLETED, total %ld ms\n", (GetTickCount() - aSexyApp->mTimeLoaded));
+	fflush(stderr);
 
 	aSexyApp->mLoadingThreadCompleted = true;
 }
@@ -5210,6 +5212,22 @@ bool SexyAppBase::Process(bool allowSleep)
 	{
 		aFrameFTime = mFrameTime / mUpdateMultiplier;
 		anUpdatesPerUpdateF = 1.0;
+	}
+
+	// @pvz-online debug: one-shot dump of the frame-pacing state, to rule out a
+	// bogus aFrameFTime (e.g. mSyncRefreshRate==0 in windowed mode) making
+	// aTimeToNextFrame astronomically large and parking the main loop in Sleep()
+	{
+		static bool sDumpedTiming = false;
+		if (!sDumpedTiming && mUpdateCount > 5)
+		{
+			sDumpedTiming = true;
+			fprintf(stderr, "[timing] vsyncUpdates=%d syncRefreshRate=%d frameTime=%d updateMultiplier=%.3f isPhysWindowed=%d waitForVSync=%d softVSyncWait=%d yieldMainThread=%d aFrameFTime=%.4f accum=%.4f\n",
+				(int)mVSyncUpdates, mSyncRefreshRate, mFrameTime, mUpdateMultiplier,
+				(int)mIsPhysWindowed, (int)mWaitForVSync, (int)mSoftVSyncWait, (int)mYieldMainThread,
+				aFrameFTime, mUpdateFTimeAcc);
+			fflush(stderr);
+		}
 	}
 
 	// Do we need to fast forward?
@@ -6097,9 +6115,8 @@ void SexyAppBase::Init()
 	if (!ChangeDirHook(mChangeDirTo.c_str()))
 		chdir(mChangeDirTo.c_str());
 
-	/*
 	gPakInterface->AddPakFile("main.pak");
-	*/
+	// @pvz-online todo: FOpen 先查 pak 再回退散装文件；若需散装覆盖 pak，须调整 PakInterface::FOpen 顺序
 
 	// Create a message we can use to talk to ourselves inter-process
 	mNotifyGameMessage = RegisterWindowMessage((_S("Notify") + StringToSexyString(mProdName)).c_str());

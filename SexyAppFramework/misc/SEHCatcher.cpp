@@ -399,14 +399,22 @@ void SEHCatcher::DoHandleDebugEvent(LPEXCEPTION_POINTERS lpEP)
 
 	aDebugDump += "\r\n";
 
+#ifdef _WIN64
 	sprintf(aBuffer, ("RAX:%016llX RBX:%016llX RCX:%016llX RDX:%016llX RSI:%016llX RDI:%016llX\r\n"),
 			lpEP->ContextRecord->Rax, lpEP->ContextRecord->Rbx, lpEP->ContextRecord->Rcx, lpEP->ContextRecord->Rdx, lpEP->ContextRecord->Rsi, lpEP->ContextRecord->Rdi);
 	aDebugDump += aBuffer;
 	sprintf(aBuffer, ("R8:%016llX R9:%016llX R10:%016llX R11:%016llX R12:%016llX R13:%016llX R14:%016llX R15:%016llX\r\n"),
 			lpEP->ContextRecord->R8, lpEP->ContextRecord->R9, lpEP->ContextRecord->R10, lpEP->ContextRecord->R11, lpEP->ContextRecord->R12, lpEP->ContextRecord->R13, lpEP->ContextRecord->R14, lpEP->ContextRecord->R15);
 	aDebugDump += aBuffer;
-	sprintf(aBuffer, "RIP:%016llX RSP:%016llX  RBP:%016llX\r\n", lpEP->ContextRecord->Rip, lpEP->ContextRecord->Rsp, lpEP->ContextRecord->Rbp); 
+	sprintf(aBuffer, "RIP:%016llX RSP:%016llX  RBP:%016llX\r\n", lpEP->ContextRecord->Rip, lpEP->ContextRecord->Rsp, lpEP->ContextRecord->Rbp);
 	aDebugDump += aBuffer;
+#else
+	sprintf(aBuffer, ("EAX:%08lX EBX:%08lX ECX:%08lX EDX:%08lX ESI:%08lX EDI:%08lX\r\n"),
+			lpEP->ContextRecord->Eax, lpEP->ContextRecord->Ebx, lpEP->ContextRecord->Ecx, lpEP->ContextRecord->Edx, lpEP->ContextRecord->Esi, lpEP->ContextRecord->Edi);
+	aDebugDump += aBuffer;
+	sprintf(aBuffer, "EIP:%08lX ESP:%08lX  EBP:%08lX\r\n", lpEP->ContextRecord->Eip, lpEP->ContextRecord->Esp, lpEP->ContextRecord->Ebp);
+	aDebugDump += aBuffer;
+#endif
 	sprintf(aBuffer, "CS:%04X SS:%04X DS:%04X ES:%04X FS:%04X GS:%04X\r\n", lpEP->ContextRecord->SegCs, lpEP->ContextRecord->SegSs, lpEP->ContextRecord->SegDs, lpEP->ContextRecord->SegEs, lpEP->ContextRecord->SegFs, lpEP->ContextRecord->SegGs );
 	aDebugDump += aBuffer;
 	sprintf(aBuffer, "Flags:%08lX\r\n", lpEP->ContextRecord->EFlags );
@@ -474,10 +482,17 @@ std::string SEHCatcher::IntelWalk(PCONTEXT theContext)
 	std::string aDebugDump;
 	char aBuffer[2048];
 
+#ifdef _WIN64
 	intptr_t pc = theContext->Rip;
 	intptr_t *pFrame, *pPrevFrame;
-	
+
 	pFrame = (intptr_t*)theContext->Rbp;
+#else
+	intptr_t pc = theContext->Eip;
+	intptr_t *pFrame, *pPrevFrame;
+
+	pFrame = (intptr_t*)theContext->Ebp;
+#endif
 
 	for (;;)
 	{
@@ -487,7 +502,7 @@ std::string SEHCatcher::IntelWalk(PCONTEXT theContext)
 		GetLogicalAddress((PVOID)pc, szModule, sizeof(szModule), section, offset);
 
 		sprintf(aBuffer, "%016llX  %p  %04lX:%08lX %s\r\n",
-				  pc, pFrame, section, offset, GetFilename(szModule).c_str());
+				  (unsigned long long)pc, pFrame, section, offset, GetFilename(szModule).c_str());
 		aDebugDump += aBuffer;
 
 		pc = pFrame[1];
@@ -512,6 +527,13 @@ std::string SEHCatcher::IntelWalk(PCONTEXT theContext)
 
 std::string SEHCatcher::ImageHelpWalk(PCONTEXT theContext, int theSkipCount)
 {
+#ifndef _WIN64
+	// the dbghelp function-pointer typedefs (uintptr_t-based) only match the
+	// x64 exports; on x86 fall back to IntelWalk's frame-pointer walk instead
+	(void)theContext;
+	(void)theSkipCount;
+	return "";
+#else
 	char aBuffer[2048];
 	std::string aDebugDump;
 
@@ -589,6 +611,7 @@ std::string SEHCatcher::ImageHelpWalk(PCONTEXT theContext, int theSkipCount)
 	}
 
 	return aDebugDump;
+#endif // _WIN64
 }
 
 bool SEHCatcher::GetLogicalAddress(void* addr, char* szModule, DWORD len, DWORD& section, DWORD& offset)

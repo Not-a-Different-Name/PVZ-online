@@ -20,8 +20,46 @@
 #include "../../Sexy.TodLib/TodParticle.h"
 #include "widget/Dialog.h"
 #include "widget/WidgetManager.h"
+#include <climits>
+#include <cstdlib>
+#include <cstring>
 
 static float gFlowerCenter[3][2] = { { 765.0f, 483.0f }, { 663.0f, 455.0f }, { 701.0f, 439.0f } };  //0x665430
+
+// @pvz-online: upstream parks the selector at x=-800 and never rolls it in, so the
+// menu is drawn entirely off-screen (the "stuck at Click to Start" bug). The roll-in
+// cannot simply be re-enabled: Sexy's dirty-rect tracking never erases the pixels a
+// widget vacates while it is still off-screen, so every one of the 75 slide frames
+// leaves a permanent ghost of the menu (verified by A/B screenshot). Until the render
+// path is reworked the selector is parked where it belongs instead. PVZ_SELECTOR_X
+// overrides the parking x, PVZ_SELECTOR_BGDX the Draw() background shift.
+static bool sDumped = false;  // @pvz-online debug: PVZ_DUMP one-shot guard
+static int sDumpFrame = 0;    // @pvz-online debug: frame counter for the PVZ_DUMP delay
+
+static int EnvInt(const char* theName, int theDefault)
+{
+	const char* aEnv = getenv(theName);
+	return (aEnv != nullptr) ? atoi(aEnv) : theDefault;
+}
+
+static int SelectorParkedX()
+{
+	static int sX = INT_MIN;
+	if (sX == INT_MIN)
+		sX = EnvInt("PVZ_SELECTOR_X", 0);
+	return sX;
+}
+
+// The background shift must equal -SelectorParkedX() to keep the reanim art where it
+// is authored while the child widgets move with the widget. Parking at 0 means no
+// shift at all.
+static int SelectorBGOffsetX()
+{
+	static int sDX = INT_MIN;
+	if (sDX == INT_MIN)
+		sDX = EnvInt("PVZ_SELECTOR_BGDX", -SelectorParkedX());
+	return sDX;
+}
 
 //0x448C80
 void GameSelectorOverlay::Draw(Graphics* g)
@@ -332,6 +370,7 @@ GameSelector::GameSelector(LawnApp* theApp)
 	mStartY = 0;
 	mDestX = 0;
 	mDestY = 0;
+	mMenuHiddenForAchievements = false;
 	//mZombatarWidget = new ZombatarWidget(this);
 	//mZombatarWidget->Resize(800, 0, mApp->mWidth, mApp->mHeight);
 	mAchievementsWidget = new AchievementsWidget(this->mApp);
@@ -361,42 +400,14 @@ GameSelector::GameSelector(LawnApp* theApp)
 //0x449D00、0x449D20
 GameSelector::~GameSelector()
 {
-	if (mAdventureButton)
-		delete mAdventureButton;
-	if (mMinigameButton)
-		delete mMinigameButton;
-	if (mPuzzleButton)
-		delete mPuzzleButton;
-	if (mOptionsButton)
-		delete mOptionsButton;
-	if (mQuitButton)
-		delete mQuitButton;
-	if (mHelpButton)
-		delete mHelpButton;
-	if (mOverlayWidget)
-		delete mOverlayWidget;
-	if (mStoreButton)
-		delete mStoreButton;
-	if (mAlmanacButton)
-		delete mAlmanacButton;
-	if (mZenGardenButton)
-		delete mZenGardenButton;
-	if (mSurvivalButton)
-		delete mSurvivalButton;
-	if (mChangeUserButton)
-		delete mChangeUserButton;
-	// @Patoke: new widgets
-	if (mZombatarButton)
-		delete mZombatarButton;
-	//if (mZombatarWidget) // todo @Patoke: add zombatar
-	//	delete mZombatarWidget;
-	if (mAchievementsButton)
-		delete mAchievementsButton;
-	if (mAchievementsWidget)
-		delete mAchievementsWidget;
-	if (mQuickPlayButton)
-		delete mQuickPlayButton;
+	// @pvz-online: every button below was handed to AddWidget() in the constructor, so
+	// each one still holds mParent == this. Deleting a child without first removing it
+	// trips WidgetContainer's "call RemoveWidget before you delete it!" assertion
+	// (WidgetContainer.cpp:~32) and the game dies the moment the selector is torn down.
+	// RemoveAllWidgets() detaches and deletes every child in one pass, clearing mParent.
+	RemoveAllWidgets(true);
 
+	// mToolTip is owned here but was never AddWidget()'d, so it is not covered above.
 	delete mToolTip;
 }
 
@@ -579,13 +590,42 @@ void GameSelector::SyncProfile(bool theShowLoading)
 // GOTY @Patoke: 0x44D700
 void GameSelector::Draw(Graphics* g)
 {
+	// @pvz-online debug: is the selector screen actually being drawn?
+	{
+		static int sDrawCount = 0;
+		if ((++sDrawCount % 60) == 1)
+			TodTrace("GameSelector::Draw #%d state=%d pos=%d,%d size=%dx%d reanim=%d dialogs=%p/%p",
+				sDrawCount, (int)mSelectorState, mX, mY, mWidth, mHeight, (int)mSelectorReanimID,
+				(void*)mApp->GetDialog(Dialogs::DIALOG_STORE), (void*)mApp->GetDialog(Dialogs::DIALOG_ALMANAC));
+	}
+
+	// @pvz-online debug: PVZ_GEO=1 prints, once, the coordinate facts that decide where
+	// the menu art lands: the app's logical size versus the widget manager's, and the
+	// transform/clip the Graphics arrives with. Guessing these from screenshots was
+	// what made every earlier layout measurement wrong.
+	if (getenv("PVZ_GEO"))
+	{
+		static bool sGeoDumped = false;
+		if (!sGeoDumped)
+		{
+			sGeoDumped = true;
+			fprintf(stderr, "[geo] app=%dx%d widgetManager=%dx%d\n",
+				mApp->mWidth, mApp->mHeight, mWidgetManager->mWidth, mWidgetManager->mHeight);
+			fprintf(stderr, "[geo] g trans=(%.1f,%.1f) clip=(%d,%d,%d,%d) colorize=%d\n",
+				g->mTransX, g->mTransY, g->mClipRect.mX, g->mClipRect.mY,
+				g->mClipRect.mWidth, g->mClipRect.mHeight, (int)g->GetColorizeImages());
+			fprintf(stderr, "[geo] selector mX=%d mY=%d %dx%d\n", mX, mY, mWidth, mHeight);
+			fflush(stderr);
+		}
+	}
+
 	if (mApp->GetDialog(Dialogs::DIALOG_STORE) || mApp->GetDialog(Dialogs::DIALOG_ALMANAC))
 		return;
 
 	// @Patoke: decided to manually inline these methods as i cannot be arsed to figure out what the name of the 2 functions called in here are
 	// GOTY @Patoke: 0x44FD20
 	g->SetLinearBlend(true);
-	g->Translate(800, 0);
+	g->Translate(SelectorBGOffsetX(), 0);
 
 	Reanimation* aSelectorReanim = mApp->ReanimationGet(mSelectorReanimID);
 	aSelectorReanim->DrawRenderGroup(g, 1);  // "SelectorScreen_BG"
@@ -593,7 +633,16 @@ void GameSelector::Draw(Graphics* g)
 		mApp->ReanimationGet(mCloudReanimID[i])->Draw(g);
 	aSelectorReanim->DrawRenderGroup(g, RENDER_GROUP_NORMAL);
 
-	g->Translate(-800, 0);
+	g->Translate(-SelectorBGOffsetX(), 0);
+	// @pvz-online debug: PVZ_MARKER=1 lays a magenta ruler over the menu - a vertical
+	// line every 100 client pixels, the one at x=400 made thick. Reading the menu off
+	// the ruler tells a layout error apart from a coordinate error by eye.
+	if (getenv("PVZ_MARKER"))
+	{
+		g->SetColor(Color(255, 0, 255));
+		for (int aX = 0; aX < 800; aX += 100)
+			g->FillRect(aX, 0, (aX == 400) ? 9 : 3, 600);
+	}
 	if (mSelectorState == SelectorAnimState::SELECTOR_OPEN)
 	{
 		int aBGIdx = aSelectorReanim->FindTrackIndex("SelectorScreen_BG_Right");
@@ -725,12 +774,18 @@ void GameSelector::DrawOverlay(Graphics* g)
 		g->ClearClipRect();
 	}
 
-	g->Translate(-(mX + 800), 0);
-	mApp->ReanimationGet(mLeafReanimID)->Draw(g);
-	g->Translate(mX + 800, 0);
+	// @pvz-online: same reason as the buttons hidden in Update - these reanims draw at
+	// absolute positions, so sliding the selector up left them on screen growing over the
+	// achievements page.
+	if (!(mAchievementsWidget && mAchievementsWidget->mY <= 0))
+	{
+		g->Translate(-(mX + 800), 0);
+		mApp->ReanimationGet(mLeafReanimID)->Draw(g);
+		g->Translate(mX + 800, 0);
 
-	for (int i = 0; i < 3; i++)
-		mApp->ReanimationGet(mFlowerReanimID[i])->Draw(g);
+		for (int i = 0; i < 3; i++)
+			mApp->ReanimationGet(mFlowerReanimID[i])->Draw(g);
+	}
 
 	if (mApp->mBetaValidate)
 	{
@@ -805,9 +860,63 @@ void GameSelector::UpdateTooltip()
 // GOTY @Patoke: 0x44E030
 void GameSelector::Update()
 {
+	// @pvz-online debug: is the selector screen actually updating?
+	{
+		static int sUpdateCount = 0;
+		if ((++sUpdateCount % 60) == 1)
+			TodTrace("GameSelector::Update #%d state=%d slide=%d pos=%d,%d starting=%d",
+				sUpdateCount, (int)mSelectorState, mSlideCounter, mX, mY, (int)mStartingGame);
+	}
+
 	Widget::Update();
 	MarkDirty();
 	UpdateTooltip();
+
+	// @pvz-online debug: PVZ_DUMP=1 prints the runtime position of every component once
+	// the layout has settled (PVZ_DUMPFRAME, default 300 updates), so the menu can be
+	// checked against the background art instead of guessed at.
+	if (getenv("PVZ_DUMP") && !sDumped && ++sDumpFrame > EnvInt("PVZ_DUMPFRAME", 300))
+	{
+		sDumped = true;
+		fprintf(stderr, "[dump] selector mX=%d mY=%d %dx%d state=%d\n",
+			mX, mY, mWidth, mHeight, (int)mSelectorState);
+		Reanimation* aR = mApp->ReanimationGet(mSelectorReanimID);
+		if (aR)
+			fprintf(stderr, "[dump] reanim overlay=(%.1f,%.1f) loops=%d\n",
+				aR->mOverlayMatrix.m02, aR->mOverlayMatrix.m12, aR->mLoopCount);
+		// Every track with the render group it currently belongs to. GameSelector::Draw
+		// only issues DrawRenderGroup(g, 1) and DrawRenderGroup(g, RENDER_GROUP_NORMAL),
+		// so anything sitting in another group is invisible no matter where it is.
+		if (aR)
+		{
+			int aGroupCounts[8] = { 0 };
+			for (int i = 0; i < aR->mDefinition->mTracks.count; i++)
+			{
+				int aGroup = aR->mTrackInstances[i].mRenderGroup;
+				if (aGroup >= 0 && aGroup < 8)
+					aGroupCounts[aGroup]++;
+				fprintf(stderr, "[dump] track %-38s group=%d trans=(%.1f,%.1f)\n",
+					aR->mDefinition->mTracks.tracks[i].mName, aGroup,
+					aR->mTrackInstances[i].mBlendTransform.mTransX,
+					aR->mTrackInstances[i].mBlendTransform.mTransY);
+			}
+			fprintf(stderr, "[dump] groups:");
+			for (int i = 0; i < 8; i++)
+				fprintf(stderr, " %d=%d", i, aGroupCounts[i]);
+			fprintf(stderr, "  RENDER_GROUP_NORMAL=%d (total tracks=%d)\n",
+				(int)RENDER_GROUP_NORMAL, aR->mDefinition->mTracks.count);
+		}
+		#define PVZ_DUMP_BTN(n) fprintf(stderr, "[dump] %-18s mX=%-5d mY=%-5d %dx%d noDraw=%d vis=%d\n", \
+			#n, n->mX, n->mY, n->mWidth, n->mHeight, n->mBtnNoDraw, n->mVisible)
+		PVZ_DUMP_BTN(mAdventureButton); PVZ_DUMP_BTN(mMinigameButton);
+		PVZ_DUMP_BTN(mPuzzleButton);    PVZ_DUMP_BTN(mSurvivalButton);
+		PVZ_DUMP_BTN(mZenGardenButton); PVZ_DUMP_BTN(mOptionsButton);
+		PVZ_DUMP_BTN(mQuitButton);      PVZ_DUMP_BTN(mHelpButton);
+		PVZ_DUMP_BTN(mStoreButton);     PVZ_DUMP_BTN(mAlmanacButton);
+		PVZ_DUMP_BTN(mChangeUserButton); PVZ_DUMP_BTN(mAchievementsButton);
+		#undef PVZ_DUMP_BTN
+		fflush(stderr);
+	}
 
 	// @Patoke: implemented this
 	if (mSlideCounter > 0) {
@@ -818,6 +927,10 @@ void GameSelector::Update()
 		// @Patoke: not from the original binaries but fixes bugs
 		mOverlayWidget->Move(aNewX, aNewY);
 		mAchievementsWidget->mY = aNewY + mApp->mHeight - 1;
+		// @pvz-online: assign mY directly (not Move()) and the widget is never marked
+		// dirty, so the page was only redrawn on the frames something else happened to
+		// dirty it - which left several stale copies of it on screen at once.
+		mAchievementsWidget->MarkDirty();
 		mAdventureButton->SetOffset(aNewX, aNewY);
 		mMinigameButton->SetOffset(aNewX, aNewY);
 		mPuzzleButton->SetOffset(aNewX, aNewY);
@@ -841,6 +954,32 @@ void GameSelector::Update()
 		mStoreButton->MarkDirty();
 
 		mSlideCounter--;
+	}
+
+	// @pvz-online: the achievements page is a separate screen, but the menu's buttons are
+	// *siblings* of it, not children, and their mX/mY are absolute - sliding the selector
+	// up never moved them. That is the "menu with no background" report: the selector's
+	// own Draw went to y=-600 while the buttons stayed put, and the boards then drew over
+	// the achievements page. Hide them for exactly as long as the page is up. The page
+	// slides in from below (mAchievementsWidget->mY walks 599 -> -1), so keying on its
+	// position means the menu reappears as the page leaves, which is the slide you want.
+	{
+		bool aPageUp = mAchievementsWidget && mAchievementsWidget->mY <= 0;
+		if (aPageUp != mMenuHiddenForAchievements)
+		{
+			mMenuHiddenForAchievements = aPageUp;
+			NewLawnButton* aMenuButtons[] = {
+				mAdventureButton, mMinigameButton, mPuzzleButton, mSurvivalButton,
+				mZenGardenButton, mOptionsButton, mQuitButton, mHelpButton,
+				mStoreButton, mAlmanacButton, mChangeUserButton, mZombatarButton,
+				mAchievementsButton, mQuickPlayButton
+			};
+			for (int i = 0; i < (int)(sizeof(aMenuButtons) / sizeof(aMenuButtons[0])); i++)
+			{
+				aMenuButtons[i]->mVisible = !aPageUp;
+				aMenuButtons[i]->MarkDirty();
+			}
+		}
 	}
 
 	mApp->mZenGarden->UpdatePlantNeeds();
@@ -897,16 +1036,32 @@ void GameSelector::Update()
 			mWidgetManager->RehupMouse();
 		if (aSelectorReanim->mLoopCount > 0)
 		{
-			aSelectorReanim->AssignRenderGroupToTrack("SelectorScreen_Adventure_button", RENDER_GROUP_HIDDEN);
-			aSelectorReanim->AssignRenderGroupToTrack("SelectorScreen_StartAdventure_button", RENDER_GROUP_HIDDEN);
-			aSelectorReanim->AssignRenderGroupToTrack("SelectorScreen_Survival_button", RENDER_GROUP_HIDDEN);
-			aSelectorReanim->AssignRenderGroupToTrack("SelectorScreen_Challenges_button", RENDER_GROUP_HIDDEN);
-			aSelectorReanim->AssignRenderGroupToTrack("SelectorScreen_ZenGarden_button", RENDER_GROUP_HIDDEN);
-			mAdventureButton->mBtnNoDraw = false;
-			mMinigameButton->mBtnNoDraw = false;
-			mPuzzleButton->mBtnNoDraw = false;
-			mSurvivalButton->mBtnNoDraw = false;
-			mZenGardenButton->mBtnNoDraw = false;
+			// @pvz-online: the roll-in is intentionally NOT triggered here. Sexy's
+			// dirty-rect tracking cannot erase the pixels a widget vacates while it is
+			// still off-screen, so each of the 75 slide frames left a permanent ghost
+			// of the menu (verified by A/B screenshot). The selector is parked at its
+			// final position in AddedToManager instead.
+			// @pvz-online debug: PVZ_BOARDS=reanim draws the reanim's own button art and
+			// hides the ButtonWidgets instead, so the two coordinate spaces can be
+			// compared directly (the buttons are supposed to land exactly on top of the
+			// reanim tracks that TrackButton() reads its positions from).
+			const char* aBoardsEnv = getenv("PVZ_BOARDS");
+			bool aBoardsFromReanim = (aBoardsEnv != nullptr) && (strcmp(aBoardsEnv, "reanim") == 0);
+			bool aBoardsFromWidget = !aBoardsFromReanim;
+
+			if (!aBoardsFromReanim)
+			{
+				aSelectorReanim->AssignRenderGroupToTrack("SelectorScreen_Adventure_button", RENDER_GROUP_HIDDEN);
+				aSelectorReanim->AssignRenderGroupToTrack("SelectorScreen_StartAdventure_button", RENDER_GROUP_HIDDEN);
+				aSelectorReanim->AssignRenderGroupToTrack("SelectorScreen_Survival_button", RENDER_GROUP_HIDDEN);
+				aSelectorReanim->AssignRenderGroupToTrack("SelectorScreen_Challenges_button", RENDER_GROUP_HIDDEN);
+				aSelectorReanim->AssignRenderGroupToTrack("SelectorScreen_ZenGarden_button", RENDER_GROUP_HIDDEN);
+			}
+			mAdventureButton->mBtnNoDraw = !aBoardsFromWidget;
+			mMinigameButton->mBtnNoDraw = !aBoardsFromWidget;
+			mPuzzleButton->mBtnNoDraw = !aBoardsFromWidget;
+			mSurvivalButton->mBtnNoDraw = !aBoardsFromWidget;
+			mZenGardenButton->mBtnNoDraw = !aBoardsFromWidget;
 			mHelpButton->mBtnNoDraw = false;
 			mOptionsButton->mBtnNoDraw = false;
 			mQuitButton->mBtnNoDraw = false;
@@ -1043,7 +1198,7 @@ void GameSelector::TrackButton(DialogButton* theButton, const char* theTrackName
 void GameSelector::AddedToManager(WidgetManager* theWidgetManager)
 {
 	Widget::AddedToManager(theWidgetManager);
-	this->Move(-800, 0);
+	this->Move(SelectorParkedX(), 0);
 }
 
 //0x44BCA0

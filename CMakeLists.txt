@@ -15,7 +15,8 @@ set(CMAKE_CXX_STANDARD 23)
 
 # @Patoke todo: probably add MSVC counterparts?
 if(MSVC)
-    set(universal_compiler_flags "")
+    # sources are UTF-8 (no BOM); MSVC defaults to system codepage and misparses CJK comments
+    set(universal_compiler_flags "/utf-8")
 else()
     #set(universal_compiler_flags "-fsanitize=undefined -fsanitize-trap -pthread -fuse-ld=lld -fno-omit-frame-pointer -fstack-protector-all -fms-extensions -fdiagnostics-color=always -gdwarf-2 -O0")
     set(universal_compiler_flags "-pthread -fuse-ld=lld -fms-extensions -march=native -fdiagnostics-color=always -O3")
@@ -34,7 +35,9 @@ set(CMAKE_C_FLAGS   "${universal_cflags} ${warn_flags}")
 set(CMAKE_BUILD_TYPE Debug)
 set(CMAKE_EXPORT_COMPILE_COMMANDS 1)
 
-set(CMAKE_RC_COMPILER_INIT windres)
+if(NOT MSVC)
+    set(CMAKE_RC_COMPILER_INIT windres)
+endif()
 ENABLE_LANGUAGE(RC)
 
 ################################################################################

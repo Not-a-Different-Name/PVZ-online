@@ -406,6 +406,10 @@ bool WidgetManager::DrawScreen()
 	bool drewStuff = false;	
 	
 	int aDirtyCount = 0;
+	// @pvz-online debug: PVZ_FULLREDRAW=1 wipes the persistent draw surface every frame
+	// and forces every widget to redraw. Whatever still shows afterwards is genuinely
+	// drawn by a widget; whatever turns magenta was stale pixels nothing repainted.
+	bool aFullRedraw = getenv("PVZ_FULLREDRAW") != nullptr;
 	// unused
 	//bool hasTransients = false;
 	//bool hasDirtyTransients = false;
@@ -415,6 +419,8 @@ bool WidgetManager::DrawScreen()
 	while (anItr != mWidgets.end())
 	{
 		Widget* aWidget = *anItr;
+		if (aFullRedraw)
+			aWidget->mDirty = true;
 		if (aWidget->mDirty)
 			aDirtyCount++;
 		++anItr;
@@ -425,6 +431,12 @@ bool WidgetManager::DrawScreen()
 
 	Graphics aScrG(mImage);
 	mCurG = &aScrG;
+
+	if (aFullRedraw)
+	{
+		aScrG.SetColor(Color(255, 0, 255));
+		aScrG.FillRect(0, 0, mWidth, mHeight);
+	}
 
 	DDImage* aDDImage = dynamic_cast<DDImage*>(mImage);
 	bool surfaceLocked = false;

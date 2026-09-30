@@ -129,7 +129,7 @@ void BassMusicInterface::PlayMusic(int theSongId, int theOffset, bool noLoop)
 		aMusicInfo->mVolume = aMusicInfo->mVolumeCap;
 		aMusicInfo->mVolumeAdd = 0.0;
 		aMusicInfo->mStopOnFade = noLoop;
-		gBass->BASS_ChannelSetAttribute(aMusicInfo->GetHandle(), BASS_ATTRIB_VOL, (int) (aMusicInfo->mVolume));
+		gBass->BASS_ChannelSetAttribute(aMusicInfo->GetHandle(), BASS_ATTRIB_VOL, (float) (aMusicInfo->mVolume));
 
 		gBass->BASS_ChannelStop(aMusicInfo->GetHandle());
 		if (aMusicInfo->mHMusic)
@@ -255,7 +255,7 @@ void BassMusicInterface::FadeIn(int theSongId, int theOffset, double theSpeed, b
 		aMusicInfo->mStopOnFade = noLoop;
 
 		gBass->BASS_ChannelStop(aMusicInfo->GetHandle());
-		gBass->BASS_ChannelSetAttribute(aMusicInfo->GetHandle(), BASS_ATTRIB_VOL, (int) (aMusicInfo->mVolume));
+		gBass->BASS_ChannelSetAttribute(aMusicInfo->GetHandle(), BASS_ATTRIB_VOL, (float) (aMusicInfo->mVolume));
 		if (aMusicInfo->mHMusic)
 		{
 			if (theOffset == -1)
@@ -321,7 +321,7 @@ void BassMusicInterface::SetSongVolume(int theSongId, double theVolume)
 		BassMusicInfo* aMusicInfo = &anItr->second;
 
 		aMusicInfo->mVolume = theVolume;
-		gBass->BASS_ChannelSetAttribute(aMusicInfo->GetHandle(), BASS_ATTRIB_VOL, (int) (aMusicInfo->mVolume));
+		gBass->BASS_ChannelSetAttribute(aMusicInfo->GetHandle(), BASS_ATTRIB_VOL, (float) (aMusicInfo->mVolume));
 	}
 }
 
@@ -334,7 +334,7 @@ void BassMusicInterface::SetSongMaxVolume(int theSongId, double theMaxVolume)
 
 		aMusicInfo->mVolumeCap = theMaxVolume;
 		aMusicInfo->mVolume = std::min(aMusicInfo->mVolume, theMaxVolume);
-		gBass->BASS_ChannelSetAttribute(aMusicInfo->GetHandle(), BASS_ATTRIB_VOL, (int) (aMusicInfo->mVolume));
+		gBass->BASS_ChannelSetAttribute(aMusicInfo->GetHandle(), BASS_ATTRIB_VOL, (float) (aMusicInfo->mVolume));
 	}
 }
 
@@ -386,7 +386,7 @@ void BassMusicInterface::Update()
 			}
 
 			//gBass->BASS_ChannelSetAttributes(aMusicInfo->GetHandle(), -1, (int) (aMusicInfo->mVolume*100), -101);
-			gBass->BASS_ChannelSetAttribute(aMusicInfo->GetHandle(), BASS_ATTRIB_VOL, (int) (aMusicInfo->mVolume));
+			gBass->BASS_ChannelSetAttribute(aMusicInfo->GetHandle(), BASS_ATTRIB_VOL, (float) (aMusicInfo->mVolume));
 		}
 
 		++anItr;

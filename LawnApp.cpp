@@ -504,11 +504,14 @@ void LawnApp::ShowGameSelector()
 	}
 
 	mGameScene = GameScenes::SCENE_MENU;
+	TodTrace("ShowGameSelector: constructing GameSelector");
 	mGameSelector = new GameSelector(this);
+	TodTrace("ShowGameSelector: GameSelector constructed %p", (void*)mGameSelector);
 	mGameSelector->Resize(0, 0, mWidth, mHeight);
 	mWidgetManager->AddWidget(mGameSelector);
 	mWidgetManager->BringToBack(mGameSelector);
 	mWidgetManager->SetFocus(mGameSelector);
+	TodTrace("ShowGameSelector: added to manager");
 
 	//if (NeedRegister())
 	//{
@@ -1782,7 +1785,9 @@ void LawnApp::LoadingThreadProc()
 	aTimer.Start();
 
 	GetNumPreloadingTasks();
+	aTimer.Start();
 	LoadGroup("LoadingSounds", 54);
+	TodTrace("loading '%s' %d ms", "sounds", (int)aTimer.GetDuration());
 	TodHesitationTrace("finished loading");
 }
 
@@ -1807,13 +1812,16 @@ void LawnApp::LoadingThreadCompleted()
 // GOTY @Patoke: 0x456150
 void LawnApp::LoadingCompleted()
 {
+	TodTrace("LawnApp::LoadingCompleted enter (titleScreen=%p)", (void*)mTitleScreen);
 	mWidgetManager->RemoveWidget(mTitleScreen);
 	SafeDeleteWidget(mTitleScreen);
 	mTitleScreen = nullptr;
 
 	mResourceManager->DeleteImage("IMAGE_TITLESCREEN");
 
+	TodTrace("LawnApp::LoadingCompleted -> ShowGameSelector");
 	ShowGameSelector();
+	TodTrace("LawnApp::LoadingCompleted done");
 }
 
 //0x452D80

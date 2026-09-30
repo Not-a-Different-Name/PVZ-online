@@ -4,6 +4,12 @@
 
 include(ExternalProject)
 
+# MSVC has no bundled NASM; disable JPEG SIMD assembly
+set(libjpeg_extra_args "")
+if(MSVC)
+    list(APPEND libjpeg_extra_args "-DWITH_SIMD=0")
+endif()
+
 # support for windows
 if(MSVC)
     set(libjpeg_binary "jpeg-static.lib")
@@ -17,7 +23,7 @@ endif()
 
 set(libjpeg_dir "${CMAKE_BINARY_DIR}/libjpeg")
 ExternalProject_Add(libjpeg-src
-    GIT_REPOSITORY      https://github.com/libjpeg-turbo/libjpeg-turbo.git
+    GIT_REPOSITORY      C:/Users/ThinkPad/pvz-online/third_party/libjpeg-turbo # github.com/libjpeg-turbo/libjpeg-turbo.git
     GIT_TAG             3.0.1
     SOURCE_DIR          "${libjpeg_dir}"
     BINARY_DIR          "${libjpeg_dir}"
@@ -27,6 +33,7 @@ ExternalProject_Add(libjpeg-src
                         "-DCMAKE_C_FLAGS=${universal_cflags}"
                         "-DENABLE_SHARED=FALSE"
                         "-DWITH_TURBOJPEG=FALSE"
+                        ${libjpeg_extra_args}
                         "-Wno-dev"
 
     INSTALL_COMMAND     ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/include/jpeg/;
@@ -52,7 +59,7 @@ ExternalProject_Add(libjpeg-src
 
 set(zlib_dir "${CMAKE_BINARY_DIR}/zlib")
 ExternalProject_Add(zlib-src
-    GIT_REPOSITORY          https://github.com/madler/zlib.git
+    GIT_REPOSITORY          C:/Users/ThinkPad/pvz-online/third_party/zlib # github.com/madler/zlib.git
     GIT_TAG                 v1.3
     SOURCE_DIR              "${zlib_dir}"
     CMAKE_ARGS              "-DCMAKE_TOOLCHAIN_FILE:FILEPATH=${CMAKE_TOOLCHAIN_FILE}"
@@ -84,7 +91,7 @@ ExternalProject_Add(zlib-src
 
 set(libpng_dir "${CMAKE_BINARY_DIR}/libpng")
 ExternalProject_Add(libpng-src
-    GIT_REPOSITORY          https://github.com/glennrp/libpng.git
+    GIT_REPOSITORY          C:/Users/ThinkPad/pvz-online/third_party/libpng # github.com/glennrp/libpng.git
     GIT_TAG                 v1.6.40
     DEPENDS                 zlib-src
     SOURCE_DIR              "${libpng_dir}"
