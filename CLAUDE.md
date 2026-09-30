@@ -3,6 +3,9 @@
 基于 Patoke/re-plants-vs-zombies（PvZ GOTY 逆向重制，CC0）开发四人合作联机 mod。
 上游 README 说明编码风格（m/the/a 前缀、@Contributor 注释标记）。
 
+> **动手前必读**：`docs/规范.md`（项目约束）与 `docs/README.md`（文档索引）。
+> 换电脑：根目录 `../TRANSFER.md` → `docs/01-转移与重建.md`。
+
 ## 构建（Windows + MSVC x86）
 
 ```
@@ -11,9 +14,12 @@ cmd /c C:\Users\ThinkPad\pvz-online\build-msvc.bat reconfig  # 删除 build-x86 
 ```
 
 - 产物：`build-x86/SexyAppFramework.exe`（目标名固定，勿改）
-- 运行时把 exe 放在解包后的游戏资源目录旁（读取散装文件，见下）
+- 覆盖 `runtime/` 里的 exe **前必须先杀进程**（`taskkill //F //IM SexyAppFramework.exe`），
+  否则报 `Device or resource busy`；**必须以 `runtime/` 为工作目录启动**
 - VS2022 Community 自带 CMake/Ninja，勿用 `cmake` 裸命令（不在 PATH）
-- 工作分支 `pvz-online`，勿直接提交到 main
+- 工作分支 `pvz-online`，勿直接提交到 main；基线提交 `11950d5`
+- ⚠️ 本构建脚本与 `imagelib/CMakeLists.txt` 含**硬编码绝对路径**，换机器必看 `docs/01-转移与重建.md`
+- 一次只改一处、一次构建只验一处；见 `docs/规范.md`
 
 ### 本仓库对上游的构建补丁（保持最小化）
 
@@ -32,9 +38,15 @@ cmd /c C:\Users\ThinkPad\pvz-online\build-msvc.bat reconfig  # 删除 build-x86 
 
 ## 运行资源（重要）
 
-- exe 不含任何素材；`SexyAppBase.cpp` 中 `AddPakFile("main.pak")` 已被上游注释，
-  游戏直接 fopen 散装文件：需要 Steam 正版 PvZ GOTY 的 main.pak 解包内容放在 exe 目录
-- 用户目前未安装原版（全盘无 main.pak）；购买 Steam 版后用 LawnProject/PakPacker 解包
+- `main.pak` **是在运行时真的被加载的**：`SexyAppFramework/SexyAppBase.cpp:6118`
+  `gPakInterface->AddPakFile("main.pak");`
+  （**更正**：本文档此前写「已被上游注释掉」，是错的。）
+- **散装文件只是回退**：`paklib/PakInterface.cpp:194-220`（`FOpen` 先查 pak 索引，
+  查不到才 `fopen`）。所以资源优先走 pak，散装只在缺 pak 时兜底。
+- 用户已安装 **Steam 正版 PvZ GOTY**，素材解包在 `C:\Users\ThinkPad\pvz-online\runtime\`，
+  **仅供本机测试**；**PopCap 资源绝不随 mod 分发、绝不上传**（见 `docs/规范.md` §6）。
+- 看原版素材用 `tools/pakx.pl`（格式：整文件字节 XOR `0xF7`，magic `0xBAC04AC0`，
+  条目 = flags/nameWidth/name/size/FILETIME，数据区紧跟结束标记；**文件名是反斜杠**）。
 
 ## 代码地图（M1 裁剪/改造入口）
 
