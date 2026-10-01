@@ -789,8 +789,7 @@ void LawnApp::UpdateOnlinePause()
 }
 
 // @pvz-online: 会话事件的收口。以前没人取 PollEvent，事件在队列里越堆越多，掉线这件事
-// 就只写在状态行上。现在至少取走 + 打一行日志；局中掉线的处理（提示、回主菜单）
-// 留给 C6。
+// 就只写在状态行上。
 void LawnApp::UpdateOnlineEvents()
 {
 	if (!mOnlineSession) return;
@@ -806,6 +805,19 @@ void LawnApp::UpdateOnlineEvents()
 
 		case NetSession::EventType::DISCONNECTED:
 			TodLog("[net] connection lost: %s", mOnlineSession->GetStatusText().c_str());
+			// 局中掉线：这一局打不下去了。让人留在一盘打不完的棋盘上比收摊更糟——
+			// 漏怪传不出去（怪走到房子直接算输），"全队过关/全队败"又都得有对面才算数。
+			// 所以照 M2 定的规矩收摊：提示一句 + 回主菜单。会话死在谁身上都不挡单机
+			// （见 IsOnlineStartAllowed），玩家想自己开一局随时可以。
+			// 顺序要紧：先退干净再弹框——弹框是阻塞的（WaitForResult 会泵主循环），
+			// 退到一半的状态会在这期间被别的更新碰到；反面例子见 DoBackToMain 的注释。
+			if (mBoard != nullptr)
+			{
+				std::string aReason = mOnlineSession->GetStatusText();
+				DoBackToMain(false);
+				LawnMessageBox(Dialogs::DIALOG_MESSAGE, "Disconnected",
+					(aReason + "\nBack to the main menu.").c_str(), "OK", "", Dialog::BUTTONS_FOOTER);
+			}
 			break;
 
 		default:
