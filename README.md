@@ -1,95 +1,120 @@
+# PvZ Online — 四人合作 PVE 联机改版
 
-# re-plants-vs-zombies
+> 基于 [Patoke/re-plants-vs-zombies](https://github.com/Patoke/re-plants-vs-zombies)（《植物大战僵尸》GOTY 版
+> 逆向重制工程，原工程以 CC0 发布）开发的**联机 mod**。
+>
+> **本仓库只包含代码，不含任何 PopCap 游戏资源。** 运行本 mod 需要你**自备正版
+> PvZ GOTY 的游戏文件**（见下方[合规声明](#️-合规声明)）。
 
-A project focused on decompiling the latest functionality from the first PvZ title and expand upon the game and its engine
+引擎为 2005 年的 SexyAppFramework；上游正在推进引擎现代化（C++23、以 GLFW 替换旧渲染后端，均在进行中）。
+本项目当前以 **x86 / MSVC / Windows 窗口化** 为唯一目标平台。
 
-The SexyAppFramework dating as back as 2005 is a very old game engine and it does not follow proper C++ conventions as per modern standards nor does it use a modern renderer backend
+---
 
-This project aims to modernize the engine by using features from the latest C++ standards aswell as replacing the old legacy DirectDraw and Direct3D7 renderers for the modern [GLFW](https://www.glfw.org/) cross-platform wrapper aswell as expanding upon an old (now deleted) decompilation project of PvZ version 0.9.9 by [Miya aka Kopie](https://github.com/rspforhp) to get the best possible PvZ experience both for modders and players alike
+## 玩法定位
 
-# DISCLAIMER
+把原版 PvZ 改造成 **4 人合作 PVE**：每位玩家拥有**自己的一块棋盘**，
+阵亡漏怪不会立刻结束，而是**传送给下一位玩家的棋盘**继续进攻；
+4 号位漏怪才算全队失败。过关后全队获得肉鸽式成长（三选一）。
 
-This project does not condone piracy
+### 三模式规划
 
-This project does not include any IP from PopCap outside of their open source game engine, this will only output the executable for a decompiled, fan version of PvZ
+| 模式 | 主菜单入口 | 内容 | 状态 |
+|---|---|---|---|
+| **关卡模式联机** | Adventure（复用） | 原版冒险流程，5 种环境（前院昼 / 前院夜 / 泳池昼 / 泳池雾夜 / 屋顶昼，含 5-10 Boss 夜战） | M1 规划 |
+| **无尽联机** | Survival（只留 Endless） | `SURVIVAL_ENDLESS_STAGE_1..5`（与上同 5 环境） | M1 规划 |
+| **PVP（互相送怪）** | 灰置占位按钮 | 击杀传播玩法，待设计 | 仅占位 |
 
-To play the game using this project you need to have access to the original game files by [purchasing it](https://store.steampowered.com/app/3590/Plants_vs_Zombies_GOTY_Edition/)
+M1 将**隐藏**小游戏、解谜、生存 Normal/Hard、商店、禅境花园、僵尸工坊入口；
+**保留**图鉴、成就、换用户、选项、退出、帮助。
 
-## Roadmap
+### 联机架构（已定，M2 起实现）
 
-#### Currently focused on
-- [x] Add x64 support for the base game **(Partial)**
-- [ ] Replace the old renderer backend for GLFW **(WIP)**
-- [ ] Replace all Windows only code for cross-platform GLFW counterparts **(WIP)**
+- **棋盘主权分离**：每个客户端权威模拟自己的棋盘，跨棋盘只传离散事件（漏怪传递等）
+- **服务器无状态**：Go 写的房间 + 事件中继，可跑在 1G 内存的小型云服务器上
+- **刷怪分布**：4 席位自然刷怪比例 8:4:2:1；无除草机；漏怪保留剩余血量、从同行右侧入场
 
-#### Left for when we have a working x64 build using GLFW
-- [ ] Add all functionality from the GOTY version of the game
-  - [x] Achievements **(Partial)**
-  - [ ] Zombatar
+---
 
-#### Possible future features
-- [ ] Create an easy to use modding API for the game
-  - [ ] Parse zombies from files
-  - [ ] Parse plants from files
-  - [ ] Parse maps from files
-  - [ ] Add scripting for custom sequences
+## 当前状态（2026-10）
 
-## Installation
+- ✅ **M0 编译跑通**，主菜单三处缺陷已修复并实机验收：
+  - 背景被 Quick-Play 场景覆盖（`65d1ecb`）
+  - 成就页重构为顶层控件（`88e1f34`）
+  - 主菜单滑动错位（`2007637`）
+- ✅ 菜单阶段的历史堆断言（`_CrtIsValidHeapPointer`）在当前构建下**不复现，已结案**
+  （结案方法与代码审查见 `docs/03-过程与问题.md` §4.4）
+- ⏭ **下一步：M1 模式裁剪**（仅留上表三个入口）→ M2 双人局域网联机
 
-### Visual Studio Community
+---
 
-Open the folder containing the `CMakeSettings.json`, wait until cache finishes generating and build the project
+## 构建
 
-### Other (Sublime, Visual Studio Code, etc..)
+**前置**：Visual Studio 2022（勾选「使用 C++ 的桌面开发」工作负载）。
+无需单独装 CMake/Ninja（用 VS 自带的）。
 
-Run the following commands (assuming you have CMake installed with Ninja) where the `CMakeSettings.json` file is located
+**目录要求**：`third_party/`（zlib / libpng / libjpeg-turbo 三个本地依赖仓库）
+必须与 `re-plants-vs-zombies/` **并列**存放。
 
-`cmake -G Ninja -B cmake-build`
+```bat
+:: 1. 构建（首次或改了 CMakeLists 时加 reconfig）
+cmd /c <pvz-online 根>\build-msvc.bat
 
-`cmake --build cmake-build`
+:: 2. 覆盖 exe 前先杀进程，否则报 Device or resource busy
+taskkill /F /IM SexyAppFramework.exe
+copy re-plants-vs-zombies\build-x86\SexyAppFramework.exe runtime\
 
-If running these commands does not create a successful build please [create an issue](https://github.com/Patoke/re-plants-vs-zombies/issue) and detail your problem
+:: 3. 必须以 runtime\ 为工作目录启动（靠它找 properties\resources.xml 与 main.pak）
+cd runtime
+SexyAppFramework.exe
+```
 
-After you build, the output executable should be in the `Debug` or `Release` (depending on your build target) folder inside `SexyAppFramework`
+产物固定为 `re-plants-vs-zombies/build-x86/SexyAppFramework.exe`（目标名勿改）。
+更多细节（换机器、依赖准备、法律边界）见 [`docs/01-转移与重建.md`](docs/01-转移与重建.md)。
 
-Then you want to copy that executable inside of the original game's root folder (or copy the contents of the original game folder inside the previously mentioned folder)
+---
 
-After that you should be able to just open the built executable and enjoy re-pvz!
+## 仓库结构
 
-## Contributing
+| 路径 | 内容 |
+|---|---|
+| `SexyAppFramework/` | 引擎（上游代码）+ 本项目的构建补丁（`imagelib/CMakeLists.txt` 等，见 `CLAUDE.md`） |
+| `Lawn/` | 游戏逻辑（棋盘 `Board`、实体、界面 `Widget/GameSelector` 等） |
+| `docs/` | **交接文档**（转移重建 / 技术总结 / 问题结论 / 项目规范）——动手前先读 `docs/规范.md` |
+| `CLAUDE.md` | 项目指南（构建命令、代码地图、联机架构摘要） |
+| `.gitignore` | 已排除 `build-x86/`、`../runtime/`（游戏资源） |
 
-When contributing please follow the following guides:
+> 上游原版 README（英文，含引擎路线图与贡献规范）见
+> [Patoke/re-plants-vs-zombies](https://github.com/Patoke/re-plants-vs-zombies)。
+> 本项目遵循上游的编码风格与 `@Contributor` 注释标记规范；本项目自己的改动标 `@pvz-online`。
 
-<details><summary>SexyAppFramework coding philosophy</summary>
+---
 
-#### From the SexyAppFramework docs:
+## ⚖️ 合规声明
 
-<br>
-The framework differs from many other APIs in that some class properties are not wrapped in accessor methods, but rather are made to be accessed directly through public member data.   The window caption of your application, for example, is set by assigning a value to the std::string mTitle in the application object before the application’s window is created.  We felt that in many cases this reduced the code required to implement a class.  Also of note is the prefix notation used on variables: “m” denotes a class member, “the” denotes a parameter passed to a method or function, and “a” denotes a local variable.
-</br>
-</details>
+- 本项目**不包含、不分发任何 PopCap 游戏资源**（美术 / 音频 / `main.pak` 等）。
+  发布物**只有代码**。
+- 运行需要你自己**合法购买**的《植物大战僵尸 GOTY 版》——从
+  [Steam](https://store.steampowered.com/app/3590/Plants_vs_Zombies_GOTY_Edition/) 购买后，
+  把游戏文件放到本地的 `runtime/` 目录（该目录已在 `.gitignore` 中排除，**永远不会入库**）。
+- 请勿以任何形式上传、分享或重新分发游戏资源文件。
+- 上游重制工程为 CC0；本项目同样**不宽恕盗版**。
 
-<details><summary>Contributor markings</summary>
+---
 
-<br>
-Whenever you need to leave a comment for other developers to find you should do so with the following grammar:
+## 致谢
 
-* Always include the name of the contributor as in:
-  * `@Contributor`
-* For todos include the todo marking as in:
-  * `@Contributor todo`
-* Always add a colon to specify that the start of the comment starts there
-  * `@Contributor todo: Thing went wrong!`
-* If a new function has been reversed and you have found the address in the latest version of the game (or have reversed a certain class member offset) please note it as follows:
-  * `@Contributor GOTY: 0xADDRESS`
-</br>
-</details>
+- [@Patoke](https://github.com/Patoke) 与 [re-plants-vs-zombies](https://github.com/Patoke/re-plants-vs-zombies)
+  全体贡献者——本项目的全部基础
+- [@rspforhp](https://github.com/rspforhp)（0.9.9 版反编译）、[@ruslan831](https://github.com/ruslan831)（存档）
+- GLFW 团队（上游引擎的现代渲染路线）
+- PopCap——创造了 PvZ，并公开了 SexyAppFramework
 
+---
 
-## Thanks to
+## 已知问题
 
-- [@rspforhp](https://www.github.com/octokatherine) for their amazing work decompiling the 0.9.9 version of PvZ
-- [@ruslan831](https://github.com/ruslan831) for archiving the [0.9.9 decompilation of PvZ](https://github.com/ruslan831/PlantsVsZombies-decompilation)
-- The GLFW team for their amazing work
-- PopCap for creating the amazing PvZ franchise (and making their game engine public)
-- All the contributors which have worked or are actively working in this amazing project
+- **仅测试过窗口化 800×600**（DPI 感知已修）；不要强制全屏。
+- 主菜单三条修复之外的旧 UI 缺陷尚未逐一体检（见 `docs/03-过程与问题.md` 待办）。
+- 关卡内对局尚未做过堆检查长跑（菜单阶段已结案）。
+- 调试用环境变量 `PVZ_HEAPCHECK=late` 会在运行期周期性校验堆（仅在排查内存问题时使用）。
