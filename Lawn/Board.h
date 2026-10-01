@@ -310,6 +310,9 @@ public:
 	void							AddGraveStones(int theGridX, int theCount, MTRand& theLevelRNG);
 	int								GetGraveStoneCount();
 	void							ZombiesWon(Zombie* theZombie = nullptr);
+	// @pvz-online: 漏怪传递。僵尸走到房子前先问这里：传成了就从本棋盘消失（不算漏），
+	// 返回 false 才走原版判负。单机、队友没了、末席（没人可传）都是 false。
+	bool							TryRelayEscapedZombie(Zombie* theZombie);
 	void							DrawLevel(Graphics* g);
 	void							DrawShovel(Graphics* g);
 	void							UpdateZombieSpawning();

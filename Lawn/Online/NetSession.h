@@ -76,6 +76,17 @@ public:
 	// 主机侧：队友的 START_ACK 到了没有（取一次就清）。主机等这条才进场。
 	bool			TakeStartAck();
 
+	// 我方棋盘上的漏怪该传给谁。M2 是两席位：主机（1）→ 客户端（2）；
+	// 客户端是末席，没有下一席位（返回 SEAT_UNSET）——末席漏怪就是全队败，没得传。
+	uint8_t			GetRelayTargetSeat() const;
+
+	// 把一只漏怪交出去（席位由会话层填好）。末席、没连上、编码失败都返回 false——
+	// 返回 false 就是"没传成"，调用方要按原版判负处理，绝不能悄悄让怪消失。
+	bool			SendEscapedZombie(const NetProto::MsgEscapedZombie& theMsg);
+
+	// 收下的漏怪（先进先出，一只都不许丢）。没有就返回 false。
+	bool			TakePendingEscapedZombie(NetProto::MsgEscapedZombie& theMsg);
+
 	State			GetState() const { return mState; }
 	Role			GetRole() const { return mRole; }
 	bool			IsConnected() const { return mState == State::CONNECTED; }
@@ -127,6 +138,7 @@ private:
 	bool				mHasPendingStart;
 	NetProto::MsgStartLevel	mPendingStart;
 	bool				mHasStartAck;
+	std::vector<NetProto::MsgEscapedZombie>	mPendingEscapedZombies;
 
 	NetSession(const NetSession&);
 	NetSession& operator=(const NetSession&);

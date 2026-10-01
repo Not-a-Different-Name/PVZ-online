@@ -25,7 +25,8 @@ const uint16_t	PROTOCOL_VERSION	= 1;
 // 凡是改动"需要两台机器一起更新"的东西（新增消息、开局/漏怪等行为）就 +1：
 // 忘了 +1 的后果是新旧包互相认成同版，故障会以最难查的方式出现在棋盘上。
 // 1 → 2：开局同步（主机广播开局命令后等客户端 START_ACK 才进场）。
-const uint16_t	MOD_BUILD			= 2;
+// 2 → 3：漏怪传递（ESCAPED_ZOMBIE 开始真的发、真的收）。
+const uint16_t	MOD_BUILD			= 3;
 
 const uint16_t	DEFAULT_PORT		= 27777;
 
@@ -250,6 +251,36 @@ inline bool DecodeStartAck(const uint8_t* theData, int theSize, MsgStartAck& the
 	Reader aReader(theData, theSize);
 	theMsg.mSrcSeat = aReader.U8();
 	theMsg.mDstSeat = aReader.U8();
+	return !aReader.Overflowed();
+}
+
+inline int EncodeEscapedZombie(uint8_t* theBuffer, int theCapacity, const MsgEscapedZombie& theMsg)
+{
+	Writer aWriter(theBuffer, theCapacity);
+	aWriter.U8(theMsg.mSrcSeat);
+	aWriter.U8(theMsg.mDstSeat);
+	aWriter.U8(theMsg.mRow);
+	aWriter.U16(theMsg.mZombieType);
+	aWriter.U8(theMsg.mFlags);
+	aWriter.I32(theMsg.mBodyHealth);
+	aWriter.I32(theMsg.mHelmHealth);
+	aWriter.I32(theMsg.mShieldHealth);
+	aWriter.I32(theMsg.mFlyingHealth);
+	return aWriter.Overflowed() ? -1 : aWriter.Size();
+}
+
+inline bool DecodeEscapedZombie(const uint8_t* theData, int theSize, MsgEscapedZombie& theMsg)
+{
+	Reader aReader(theData, theSize);
+	theMsg.mSrcSeat = aReader.U8();
+	theMsg.mDstSeat = aReader.U8();
+	theMsg.mRow = aReader.U8();
+	theMsg.mZombieType = aReader.U16();
+	theMsg.mFlags = aReader.U8();
+	theMsg.mBodyHealth = aReader.I32();
+	theMsg.mHelmHealth = aReader.I32();
+	theMsg.mShieldHealth = aReader.I32();
+	theMsg.mFlyingHealth = aReader.I32();
 	return !aReader.Overflowed();
 }
 

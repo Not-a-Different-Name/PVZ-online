@@ -11,6 +11,7 @@ const int	HELLO_PAYLOAD_SIZE		= 6;	// src, dst, u16 version, u16 build
 const int	HELLO_ACK_PAYLOAD_SIZE	= 7;	// src, dst, u16 version, u16 build, u8 accepted
 const int	START_LEVEL_PAYLOAD_SIZE = 11;	// src, dst, u8 mode, u32 level, i32 seed
 const int	START_ACK_PAYLOAD_SIZE	= 2;	// src, dst
+const int	ESCAPED_ZOMBIE_PAYLOAD_SIZE = 22;	// src, dst, u8 row, u16 type, u8 flags, i32 ×4 血量
 const int	HEARTBEAT_PAYLOAD_SIZE	= 6;	// src, dst, u32 tick
 const int	BYE_PAYLOAD_SIZE		= 3;	// src, dst, u8 reason
 
@@ -184,6 +185,43 @@ bool NetSession::TakeStartAck()
 	return true;
 }
 
+uint8_t NetSession::GetRelayTargetSeat() const
+{
+	// M2 只有两个席位，队形就是一环：1 → 2。客户端是末席——它漏怪就是全队败，
+	// 没有可传的人（这条规则由调用方处理：收到 SEAT_UNSET 就走原版判负）。
+	return (mLocalSeat == NetProto::SEAT_HOST) ? NetProto::SEAT_CLIENT : NetProto::SEAT_UNSET;
+}
+
+bool NetSession::SendEscapedZombie(const NetProto::MsgEscapedZombie& theMsg)
+{
+	uint8_t aTarget = GetRelayTargetSeat();
+	if (aTarget == NetProto::SEAT_UNSET || !IsConnected()) return false;
+
+	NetProto::MsgEscapedZombie aMsg = theMsg;
+	aMsg.mSrcSeat = mLocalSeat;
+	aMsg.mDstSeat = aTarget;
+
+	uint8_t aPayload[NetProto::MAX_PAYLOAD];
+	int aSize = NetProto::EncodeEscapedZombie(aPayload, (int)sizeof(aPayload), aMsg);
+	if (aSize <= 0) return false;
+
+	TodLog("[net] passing a zombie on: row %u type %u hp %d/%d/%d/%d",
+		(unsigned)aMsg.mRow, (unsigned)aMsg.mZombieType,
+		(int)aMsg.mBodyHealth, (int)aMsg.mHelmHealth,
+		(int)aMsg.mShieldHealth, (int)aMsg.mFlyingHealth);
+	return SendRaw(NetProto::MSG_ESCAPED_ZOMBIE, aPayload, aSize);
+}
+
+bool NetSession::TakePendingEscapedZombie(NetProto::MsgEscapedZombie& theMsg)
+{
+	if (mPendingEscapedZombies.empty()) return false;
+
+	// 先进先出：漏怪是"又来了几只"的事件，顺序不能乱（队列里一只都不许丢）
+	theMsg = mPendingEscapedZombies.front();
+	mPendingEscapedZombies.erase(mPendingEscapedZombies.begin());
+	return true;
+}
+
 // ====================================================================================================
 // ★ 状态与文案
 // ====================================================================================================
@@ -204,6 +242,7 @@ void NetSession::ResetToOff()
 	mEvents.clear();
 	mHasPendingStart = false;
 	mHasStartAck = false;
+	mPendingEscapedZombies.clear();
 }
 
 void NetSession::SetConnected()
@@ -412,6 +451,25 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 		}
 		break;
 
+	case NetProto::MSG_ESCAPED_ZOMBIE:
+		{
+			NetProto::MsgEscapedZombie aMsg;
+			if (aPayloadSize != ESCAPED_ZOMBIE_PAYLOAD_SIZE || !NetProto::DecodeEscapedZombie(aPayload, aPayloadSize, aMsg))
+			{
+				SetDead("The other player sent a malformed packet.");
+				return;
+			}
+
+			// 跟开局命令一样：收包链里不建僵尸（那要动棋盘、加载美术），
+			// 只排队；LawnApp 每帧取走。队列不清空的话迟到的怪会在下一关冒出来。
+			mPendingEscapedZombies.push_back(aMsg);
+			TodLog("[net] the teammate passed a zombie: row %u type %u hp %d/%d/%d/%d",
+				(unsigned)aMsg.mRow, (unsigned)aMsg.mZombieType,
+				(int)aMsg.mBodyHealth, (int)aMsg.mHelmHealth,
+				(int)aMsg.mShieldHealth, (int)aMsg.mFlyingHealth);
+		}
+		break;
+
 	case NetProto::MSG_START_ACK:
 		{
 			if (mRole != Role::HOST) return;		// 只有主机在等这条
@@ -429,8 +487,8 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 		break;
 
 	default:
-		// START_LEVEL / LEVEL_DONE / ESCAPED_ZOMBIE / GAME_OVER 是 C2 起的消息，
-		// 这一版还没接，直接忽略（长度合法性已经在头上查过了）。
+		// LEVEL_DONE / GAME_OVER 是后面的步骤的事，这一版还没接，
+		// 直接忽略（长度合法性已经在头上查过了）。
 		break;
 	}
 }

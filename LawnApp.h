@@ -193,6 +193,7 @@ public:
 	// 主机正等队友确认进场（面板/小条据此显示"等队友就位"）。
 	bool							IsOnlineWaitingStartAck() const { return mOnlineWaitingStartAck; }
 	void							UpdateOnlineStart();
+	void							UpdateOnlineRelay();
 	void							ShowGameSelector();
 	void							KillGameSelector();
 	void							ShowAwardScreen(AwardType theAwardType, bool theShowAchievements); // @Patoke: add argument

@@ -4564,7 +4564,12 @@ void Zombie::CheckForBoardEdge()
         }
         else
         {
-            mBoard->ZombiesWon(this);
+            // @pvz-online: 联机局里先试传递给队友。传成了这只怪就从本棋盘消失、不算漏；
+            // 传不成（单机 / 队友没了 / 我是末席）才走原版判负。
+            if (!mBoard->TryRelayEscapedZombie(this))
+            {
+                mBoard->ZombiesWon(this);
+            }
         }
     }
     if (mX <= aEdgeX + 70 && !mHasHead)

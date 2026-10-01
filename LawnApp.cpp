@@ -586,6 +586,33 @@ void LawnApp::UpdateOnlineStart()
 	NewGame();
 }
 
+// @pvz-online: 队友传过来的漏怪。收包链里不建僵尸（要动棋盘、加载美术），这里每帧
+// 把队列取空——棋盘不在（主菜单、换关的空档）就直接丢掉：迟到的怪绝不能等下一关
+// 的棋盘建好了再冒出来。
+//
+// 现在只把收到的怪写进日志，还没让它落到棋盘上——建僵尸、覆写当前血量那些
+// 是漏怪接收侧（C4）的事。
+void LawnApp::UpdateOnlineRelay()
+{
+	if (!mOnlineSession) return;
+
+	NetProto::MsgEscapedZombie aMsg;
+	while (mOnlineSession->TakePendingEscapedZombie(aMsg))
+	{
+		if (mBoard == nullptr)
+		{
+			TodLog("[net] dropped a relayed zombie: no board to put it on (row %u type %u)",
+				(unsigned)aMsg.mRow, (unsigned)aMsg.mZombieType);
+			continue;
+		}
+
+		TodLog("[net] relayed zombie is here: row %u type %u hp %d/%d/%d/%d",
+			(unsigned)aMsg.mRow, (unsigned)aMsg.mZombieType,
+			(int)aMsg.mBodyHealth, (int)aMsg.mHelmHealth,
+			(int)aMsg.mShieldHealth, (int)aMsg.mFlyingHealth);
+	}
+}
+
 //0x44F5F0
 // GOTY @Patoke: 0x4528B0
 void LawnApp::MakeNewBoard()
@@ -1829,6 +1856,7 @@ void LawnApp::UpdateFrames()
 	}
 	// 开局要换场景、动一堆 UI，所以也放在循环外、widget 更新之前——收包链里干了迟早出事。
 	UpdateOnlineStart();
+	UpdateOnlineRelay();
 
 	if ((!mActive || mMinimized) && mBoard)
 	{

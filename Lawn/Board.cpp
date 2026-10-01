@@ -33,6 +33,7 @@
 //#define SEXY_PERF_ENABLED
 #include "misc/PerfTimer.h"
 #include "Widget/AchievementsWidget.h"
+#include "Online/NetSession.h"
 
 //#define SEXY_MEMTRACE
 //#include "../SexyAppFramework/memmgr.h"
@@ -5287,10 +5288,40 @@ void Board::PuzzleSaveStreak()
 	}
 }
 
+// @pvz-online: 漏怪传递——僵尸走到房子前，联机局里这只怪不算"漏"，交给队友棋盘继续走。
+// 传成了它就从这边消失（DieNoLoot，同 IZombie 漏怪的先例），返回 true 让调用处别判负；
+// 单机、队友掉线、末席（没有下一席位）这几种情况都返回 false，调用处照原样判负。
+bool Board::TryRelayEscapedZombie(Zombie* theZombie)
+{
+	if (!mApp->IsOnlineGame()) return false;
+
+	NetProto::MsgEscapedZombie aMsg;
+	aMsg.mRow = (uint8_t)theZombie->mRow;
+	aMsg.mZombieType = (uint16_t)theZombie->mZombieType;
+	aMsg.mFlags = 0;		// v1 还没用上；留一个字节是因为加字段就要再抬一次构建号
+	aMsg.mBodyHealth = theZombie->mBodyHealth;
+	aMsg.mHelmHealth = theZombie->mHelmHealth;
+	aMsg.mShieldHealth = theZombie->mShieldHealth;
+	aMsg.mFlyingHealth = theZombie->mFlyingHealth;
+
+	// 发不出去（末席没有下一席位，或者队友刚好断了、socket 坏了）就当没传成：
+	// 宁可这边判负，也不能让这只怪凭空消失——那等于把惩罚取消了。
+	if (!mApp->mOnlineSession->SendEscapedZombie(aMsg)) return false;
+
+	theZombie->DieNoLoot();
+	return true;
+}
+
 //0x413400
 void Board::ZombiesWon(Zombie* theZombie)
 {
 	if (mApp->mGameScene == GameScenes::SCENE_ZOMBIES_WON)
+		return;
+
+	// @pvz-online: 联机局里的漏怪一律先走传递（见 Zombie::CheckForBoardEdge），
+	// 传不成才落到这儿——那只有末席。万一别处绕过传递直接调进来，手上还有队友可传
+	// 也不能认输：认了就是把队友也一起判了。
+	if (mApp->IsOnlineGame() && mApp->mOnlineSession->GetRelayTargetSeat() != NetProto::SEAT_UNSET)
 		return;
 
 	ClearAdvice(AdviceType::ADVICE_NONE);
