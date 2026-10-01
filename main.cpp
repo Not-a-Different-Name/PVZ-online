@@ -2,6 +2,7 @@
 #include "Resources.h"
 #include "Sexy.TodLib/TodStringFile.h"
 #include <crtdbg.h>
+#include <string.h>
 using namespace Sexy;
 
 bool (*gAppCloseRequest)();				//[0x69E6A0]
@@ -9,16 +10,24 @@ bool (*gAppHasUsedCheatKeys)();			//[0x69E6A4]
 SexyString (*gGetCurrentLevelName)();
 
 // @pvz-online debug: heap-corruption hunting. CRT asserts always go to stderr (no modal
-// dialogs). Full per-alloc heap validation only when PVZ_HEAPCHECK=1 — it is ~100x
-// slower and can make fullscreen boot look like a black-screen hang.
+// dialogs). PVZ_HEAPCHECK=1 validates the whole heap on every allocation — ~100x slower
+// and quadratic as the heap grows, so the loading screen never finishes; PVZ_HEAPCHECK=late
+// skips that and instead walks the heap periodically from LawnApp::UpdateApp.
 static void PvzDebugHeapInit()
 {
 	_CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE | _CRTDBG_MODE_DEBUG);
 	_CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
 	_CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_FILE | _CRTDBG_MODE_DEBUG);
 	_CrtSetReportFile(_CRT_ERROR, _CRTDBG_FILE_STDERR);
-	if (GetEnvironmentVariableA("PVZ_HEAPCHECK", nullptr, 0) > 0)
-		_CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_CHECK_ALWAYS_DF);
+
+	char aHeapCheck[16] = {0};
+	if (GetEnvironmentVariableA("PVZ_HEAPCHECK", aHeapCheck, 15) > 0)
+	{
+		if (_stricmp(aHeapCheck, "late") == 0)
+			_CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF);
+		else
+			_CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_CHECK_ALWAYS_DF);
+	}
 }
 
 //0x44E8F0
