@@ -603,6 +603,11 @@ void GameSelector::SyncProfile(bool theShowLoading)
 		}
 	}
 
+	// @pvz-online: M1 裁剪——生存按钮现在是「无尽联机」的唯一入口，原版的解锁条件
+	//（通关冒险 / 存档里的 mHasUnlockedSurvivalMode / 试玩锁）在裁剪后不成立，直接解锁。
+	// 不这么做的话点它只会弹 [MODE_LOCKED]（ButtonDepress 会拦下）
+	mSurvivalLocked = false;
+
 	if (mApp->HasFinishedAdventure() && !mApp->IsTrialStageLocked())
 		mHasTrophy = true;
 	else
