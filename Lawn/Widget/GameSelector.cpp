@@ -400,6 +400,10 @@ GameSelector::GameSelector(LawnApp* theApp)
 	this->AddWidget(mAchievementsButton);
 	// (mAchievementsWidget is added to the manager, not here - see the constructor note.)
 	this->AddWidget(mQuickPlayButton);
+	// @pvz-online: the BACK button belongs to the (still stubbed) Quick-Play screen. On the
+	// real main menu the bottom-right corner shows the OPTIONS/HELP/QUIT vases (reanim art),
+	// not a BACK sign - hide it until ShowQuickPlayScreen() exists and can own it.
+	mQuickPlayButton->mVisible = false;
 	this->AddWidget(mOverlayWidget);
 
 	TodHesitationTrace("gameselectorinit");
@@ -696,10 +700,19 @@ void GameSelector::Draw(Graphics* g)
 	}
 	 
 	// GOTY @Patoke: 0x4500E0
-	g->DrawImage(IMAGE_SELECTORSCREEN_MOREWAYSTOPLAY_BG, M(0), M(0));
-	g->DrawImage(IMAGE_QUICKPLAY_MINIGAMES_CLOUD, M(20), M(40));
-	g->DrawImage(IMAGE_QUICKPLAY_PUZZLES_CLOUD, M(350), M(285));
-	g->DrawImage(IMAGE_QUICKPLAY_SURVIVAL_CLOUD, M(130), M(135));
+	// @pvz-online: these four draws are the QUICK-PLAY screen's own backdrop (opaque
+	// 800x600 painting, tree on the RIGHT) and its three cloud sprites. In the GOTY binary
+	// they came from a separate routine (0x4500E0) that only ran while that screen was up;
+	// this decomp inlined it here WITHOUT its condition, so every main-menu frame painted
+	// the Quick-Play scene straight over the reanim backdrop - the "tree ended up on the
+	// right, tombstone/dirt path gone" report. The Quick-Play screen is still stubbed
+	// (GameSelector_QuickPlay handler below has ShowQuickPlayScreen() commented out), so
+	// nothing needs these drawn here; when that screen is implemented, move these lines
+	// into it behind its mode flag.
+	//g->DrawImage(IMAGE_SELECTORSCREEN_MOREWAYSTOPLAY_BG, M(0), M(0));
+	//g->DrawImage(IMAGE_QUICKPLAY_MINIGAMES_CLOUD, M(20), M(40));
+	//g->DrawImage(IMAGE_QUICKPLAY_PUZZLES_CLOUD, M(350), M(285));
+	//g->DrawImage(IMAGE_QUICKPLAY_SURVIVAL_CLOUD, M(130), M(135));
 }
 
 //0x44AB50
@@ -984,11 +997,13 @@ void GameSelector::Update()
 		if (aPageUp != mMenuHiddenForAchievements)
 		{
 			mMenuHiddenForAchievements = aPageUp;
+			// (mQuickPlayButton is deliberately absent: it stays hidden until the
+			// Quick-Play screen exists, so this loop must never restore it to visible.)
 			NewLawnButton* aMenuButtons[] = {
 				mAdventureButton, mMinigameButton, mPuzzleButton, mSurvivalButton,
 				mZenGardenButton, mOptionsButton, mQuitButton, mHelpButton,
 				mStoreButton, mAlmanacButton, mChangeUserButton, mZombatarButton,
-				mAchievementsButton, mQuickPlayButton
+				mAchievementsButton
 			};
 			for (int i = 0; i < (int)(sizeof(aMenuButtons) / sizeof(aMenuButtons[0])); i++)
 			{
