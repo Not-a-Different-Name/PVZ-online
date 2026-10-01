@@ -26,7 +26,8 @@ const uint16_t	PROTOCOL_VERSION	= 1;
 // 忘了 +1 的后果是新旧包互相认成同版，故障会以最难查的方式出现在棋盘上。
 // 1 → 2：开局同步（主机广播开局命令后等客户端 START_ACK 才进场）。
 // 2 → 3：漏怪传递（ESCAPED_ZOMBIE 开始真的发、真的收）。
-const uint16_t	MOD_BUILD			= 3;
+// 3 → 4：位置交换（开始前 P1/P2 对调，SWAP_SEATS）。
+const uint16_t	MOD_BUILD			= 4;
 
 const uint16_t	DEFAULT_PORT		= 27777;
 
@@ -48,7 +49,8 @@ enum MessageType : uint16_t
 	MSG_GAME_OVER		= 6,	// 双向：全队败北
 	MSG_HEARTBEAT		= 7,	// 双向：1 秒一次，5 秒收不到判掉线
 	MSG_BYE				= 8,	// 双向：主动离开
-	MSG_START_ACK		= 9		// C→H：开局命令收到并已进场（主机等这条才进）
+	MSG_START_ACK		= 9,	// C→H：开局命令收到并已进场（主机等这条才进）
+	MSG_SWAP_SEATS		= 10	// 双向：开始前对调两边的席位（P1 ↔ P2）
 };
 
 enum ByeReason : uint8_t
@@ -173,6 +175,16 @@ struct MsgStartAck
 	uint8_t			mDstSeat;
 };
 
+// SWAP_SEATS：{ srcSeat, dstSeat }
+// 开始前把 P1 / P2 对调（漏怪往哪边传跟着换）。语义是"两边各换成另一个席位"，
+// 所以不带参数——两席位的世界里"对调"是唯一的一种换法；将来扩到四席位要重做成
+// 带明确座次的置换。
+struct MsgSwapSeats
+{
+	uint8_t			mSrcSeat;
+	uint8_t			mDstSeat;
+};
+
 // ESCAPED_ZOMBIE：{ srcSeat, dstSeat, u8 row, u16 zombieType, u8 flags, i32 ×4 当前血量 }
 // 只传"当前值"。上限/入场动画等由接收方按 zombieType 重新初始化后覆写。
 struct MsgEscapedZombie
@@ -247,6 +259,22 @@ inline int EncodeStartAck(uint8_t* theBuffer, int theCapacity, const MsgStartAck
 }
 
 inline bool DecodeStartAck(const uint8_t* theData, int theSize, MsgStartAck& theMsg)
+{
+	Reader aReader(theData, theSize);
+	theMsg.mSrcSeat = aReader.U8();
+	theMsg.mDstSeat = aReader.U8();
+	return !aReader.Overflowed();
+}
+
+inline int EncodeSwapSeats(uint8_t* theBuffer, int theCapacity, const MsgSwapSeats& theMsg)
+{
+	Writer aWriter(theBuffer, theCapacity);
+	aWriter.U8(theMsg.mSrcSeat);
+	aWriter.U8(theMsg.mDstSeat);
+	return aWriter.Overflowed() ? -1 : aWriter.Size();
+}
+
+inline bool DecodeSwapSeats(const uint8_t* theData, int theSize, MsgSwapSeats& theMsg)
 {
 	Reader aReader(theData, theSize);
 	theMsg.mSrcSeat = aReader.U8();

@@ -76,8 +76,14 @@ public:
 	// 主机侧：队友的 START_ACK 到了没有（取一次就清）。主机等这条才进场。
 	bool			TakeStartAck();
 
-	// 我方棋盘上的漏怪该传给谁。M2 是两席位：主机（1）→ 客户端（2）；
-	// 客户端是末席，没有下一席位（返回 SEAT_UNSET）——末席漏怪就是全队败，没得传。
+	// 开始前对调位置：P1 ↔ P2（漏怪往哪边传跟着换）。任一边都能按；发出去的一瞬间
+	// 本机就生效，对端收到后跟着换。换的只是接力顺位——房主角色不受影响
+	// （谁选关还是谁选关）。没连上返回 false。开局之后别按（面板会灰掉按钮）。
+	bool			SwapSeats();
+
+	// 我方棋盘上的漏怪该传给谁。M2 是两席位：1 → 2；2 号位是末席，
+	// 没有下一席位（返回 SEAT_UNSET）——末席漏怪就是全队败，没得传。
+	// 只看席位号、不看谁建的房：换过位置后方向跟着换。
 	uint8_t			GetRelayTargetSeat() const;
 
 	// 把一只漏怪交出去（席位由会话层填好）。末席、没连上、编码失败都返回 false——
@@ -113,6 +119,8 @@ private:
 	void			UpdateStatusText();
 	void			HandlePacket(const NetLink::Packet& thePacket);
 	void			PushEvent(EventType theType);
+	// 把两边的席位对调（本机 + 记在心里的对端席位）。发/收 SWAP_SEATS 时用。
+	void			ApplySeatSwap();
 
 	bool			SendRaw(uint16_t theType, const uint8_t* thePayload, int thePayloadSize);
 	void			SendHello();

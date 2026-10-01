@@ -11,6 +11,7 @@ const int	HELLO_PAYLOAD_SIZE		= 6;	// src, dst, u16 version, u16 build
 const int	HELLO_ACK_PAYLOAD_SIZE	= 7;	// src, dst, u16 version, u16 build, u8 accepted
 const int	START_LEVEL_PAYLOAD_SIZE = 11;	// src, dst, u8 mode, u32 level, i32 seed
 const int	START_ACK_PAYLOAD_SIZE	= 2;	// src, dst
+const int	SWAP_SEATS_PAYLOAD_SIZE = 2;	// src, dst
 const int	ESCAPED_ZOMBIE_PAYLOAD_SIZE = 22;	// src, dst, u8 row, u16 type, u8 flags, i32 ×4 血量
 const int	HEARTBEAT_PAYLOAD_SIZE	= 6;	// src, dst, u32 tick
 const int	BYE_PAYLOAD_SIZE		= 3;	// src, dst, u8 reason
@@ -185,10 +186,42 @@ bool NetSession::TakeStartAck()
 	return true;
 }
 
+bool NetSession::SwapSeats()
+{
+	if (!IsConnected()) return false;
+
+	NetProto::MsgSwapSeats aMsg;
+	aMsg.mSrcSeat = mLocalSeat;
+	aMsg.mDstSeat = mPeerSeat;
+
+	uint8_t aPayload[NetProto::MAX_PAYLOAD];
+	int aSize = NetProto::EncodeSwapSeats(aPayload, (int)sizeof(aPayload), aMsg);
+	if (aSize <= 0) return false;
+
+	// 先发再换：发不出去（socket 已经坏了）就谁都不换，两边保持一致；发出去了才
+	// 本地先生效、对面收到后跟着换——按下去就是新的，不用等一个来回。
+	// 两边同时按是各换两次、换回原样，中间也不会各说各话（对调是对称的）。
+	if (!SendRaw(NetProto::MSG_SWAP_SEATS, aPayload, aSize)) return false;
+
+	ApplySeatSwap();
+	return true;
+}
+
+void NetSession::ApplySeatSwap()
+{
+	// 两席位就是 1 和 2，对调 = 各自换成另一个。四席位时代这里要换成带座次的
+	// 置换（消息也要重做），现在先别想太远。
+	mLocalSeat = (mLocalSeat == NetProto::SEAT_HOST) ? NetProto::SEAT_CLIENT : NetProto::SEAT_HOST;
+	mPeerSeat = (mPeerSeat == NetProto::SEAT_HOST) ? NetProto::SEAT_CLIENT : NetProto::SEAT_HOST;
+	TodLog("[net] positions swapped - local seat %u, peer seat %u",
+		(unsigned)mLocalSeat, (unsigned)mPeerSeat);
+}
+
 uint8_t NetSession::GetRelayTargetSeat() const
 {
-	// M2 只有两个席位，队形就是一环：1 → 2。客户端是末席——它漏怪就是全队败，
+	// M2 只有两个席位，队形就是一环：1 → 2。2 号位是末席——它漏怪就是全队败，
 	// 没有可传的人（这条规则由调用方处理：收到 SEAT_UNSET 就走原版判负）。
+	// 只看席位号，不看谁建的房：开始前换过位置的话，方向跟着换。
 	return (mLocalSeat == NetProto::SEAT_HOST) ? NetProto::SEAT_CLIENT : NetProto::SEAT_UNSET;
 }
 
@@ -298,6 +331,11 @@ void NetSession::UpdateStatusText()
 		mStatusText = (mRole == Role::HOST)
 			? "Connected. Pick a level from the menu."
 			: "Connected. Waiting for the host to pick a level.";
+		// 提示行借来写清"我是几号位、漏怪往哪走"：连上之后 IP 已经没用了
+		// （输入框里还留着），而位置是开局前要拿主意的事（面板里的 Swap）。
+		mHintText = (mLocalSeat == NetProto::SEAT_HOST)
+			? "You are P1 - your leaks pass to your teammate."
+			: "You are P2 - you take your teammate's leaks.";
 		break;
 	case State::DEAD:
 	default:
@@ -483,6 +521,23 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 			// 存下来就走：开局要换场景、动一堆 UI，那是主循环的活。
 			mHasStartAck = true;
 			TodLog("[net] the teammate is ready, the host may enter the level");
+		}
+		break;
+
+	case NetProto::MSG_SWAP_SEATS:
+		{
+			// 没连上就谈不上换位置（也顺手把迟到的这类包挡在外面）
+			if (!IsConnected()) return;
+
+			NetProto::MsgSwapSeats aMsg;
+			if (aPayloadSize != SWAP_SEATS_PAYLOAD_SIZE || !NetProto::DecodeSwapSeats(aPayload, aPayloadSize, aMsg))
+			{
+				SetDead("The other player sent a malformed packet.");
+				return;
+			}
+			// 对面按了 Swap：这边跟着换。两边各自"对调"就还是一样的。
+			TodLog("[net] the teammate swapped positions");
+			ApplySeatSwap();
 		}
 		break;
 

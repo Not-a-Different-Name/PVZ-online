@@ -97,10 +97,24 @@ std::string OnlineStatusWidget::GetIdentityLine()
 	// mName 是玩家自己在建档时敲的，位图字体画不出来的字符最多是空白——
 	// 名字和 IP 谁缺了都还有另一半顶着。
 	std::string aName = mApp->mPlayerInfo ? mApp->mPlayerInfo->mName : std::string();
-	if (aName.empty()) return mIpText;
 
-	if (mIpText.empty()) return aName;
-	return aName + "  " + mIpText;
+	std::string aBody;
+	if (aName.empty())
+		aBody = mIpText;
+	else if (mIpText.empty())
+		aBody = aName;
+	else
+		aBody = aName + "  " + mIpText;
+
+	// 前面挂上席位号：漏怪往哪边走看的就是它，开局前可以在面板里换（Swap）。
+	// 名字和 IP 都没有的时候剩一行光秃秃的 "P1"，也比什么都不说强。
+	NetSession* aSession = mApp->mOnlineSession;
+	if (aSession && aSession->GetLocalSeat() == NetProto::SEAT_HOST)
+		return aBody.empty() ? "P1" : "P1  " + aBody;
+	if (aSession && aSession->GetLocalSeat() == NetProto::SEAT_CLIENT)
+		return aBody.empty() ? "P2" : "P2  " + aBody;
+
+	return aBody;
 }
 
 // 一行短状态：详细说法在面板里（那两行 NetSession 的状态/提示足够啰嗦了），

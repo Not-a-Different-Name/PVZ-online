@@ -24,6 +24,7 @@ OnlineDialog::OnlineDialog(LawnApp* theApp) :
 	mJoinButton = MakeButton(OnlineDialog::OnlineDialog_Join, this, _S("Join"));
 	mCloseButton = MakeButton(OnlineDialog::OnlineDialog_Close, this, _S("Close"));
 	mDisconnectButton = MakeButton(OnlineDialog::OnlineDialog_Disconnect, this, _S("Disconnect"));
+	mSwapButton = MakeButton(OnlineDialog::OnlineDialog_Swap, this, _S("Swap"));
 
 	mIpEditWidget = CreateEditWidget(OnlineDialog::OnlineDialog_IpEdit, this, this);
 	mIpEditWidget->mMaxChars = 15;			// "255.255.255.255"
@@ -45,6 +46,7 @@ OnlineDialog::~OnlineDialog()
 	delete mJoinButton;
 	delete mCloseButton;
 	delete mDisconnectButton;
+	delete mSwapButton;
 	delete mIpEditWidget;
 }
 
@@ -65,6 +67,8 @@ void OnlineDialog::Resize(int theX, int theY, int theWidth, int theHeight)
 	mCloseButton->Resize(aLeft + (aButtonWidth + aButtonGap) * 2, aButtonY, aButtonWidth, aButtonHeight);
 	// 连接中它顶掉 Host 那一格：同一时刻 Host 本来就是灰的，占着地方也是白占
 	mDisconnectButton->Resize(aLeft, aButtonY, aButtonWidth, aButtonHeight);
+	// Swap 占中间那格：会话活着的时候 Join 藏着，正好空出来
+	mSwapButton->Resize(aLeft + aButtonWidth + aButtonGap, aButtonY, aButtonWidth, aButtonHeight);
 
 	int anEditWidth = anInnerWidth - LABEL_WIDTH;
 	if (anEditWidth > 300) anEditWidth = 300;
@@ -78,6 +82,7 @@ void OnlineDialog::AddedToManager(WidgetManager* theWidgetManager)
 	AddWidget(mJoinButton);
 	AddWidget(mCloseButton);
 	AddWidget(mDisconnectButton);
+	AddWidget(mSwapButton);
 	AddWidget(mIpEditWidget);
 	theWidgetManager->SetFocus(mIpEditWidget);
 }
@@ -89,6 +94,7 @@ void OnlineDialog::RemovedFromManager(WidgetManager* theWidgetManager)
 	RemoveWidget(mJoinButton);
 	RemoveWidget(mCloseButton);
 	RemoveWidget(mDisconnectButton);
+	RemoveWidget(mSwapButton);
 	RemoveWidget(mIpEditWidget);
 }
 
@@ -122,6 +128,13 @@ void OnlineDialog::Update()
 	mHostButton->mVisible = !anActive;
 	mJoinButton->mVisible = !anActive;
 	mDisconnectButton->mVisible = anActive;
+	mSwapButton->mVisible = anActive;
+
+	// 换位置只在自己这局开局前有意义：棋盘一开（或主机已在等队友就位），
+	// 顺位就定下了，按钮灰掉免得中途换了位置两边都糊涂。
+	bool aCanSwap = aSession && aSession->IsConnected()
+		&& mApp->mBoard == nullptr && !mApp->IsOnlineWaitingStartAck();
+	mSwapButton->SetDisabled(!aCanSwap);
 }
 
 void OnlineDialog::Draw(Graphics* g)
@@ -176,6 +189,15 @@ void OnlineDialog::ButtonDepress(int theId)
 		if (mApp->mOnlineSession)
 		{
 			mApp->mOnlineSession->Close();
+		}
+		break;
+
+	case OnlineDialog::OnlineDialog_Swap:
+		// 发不出去就谁都不换（会话内部先发后换），面板这边不用管结果：
+		// 换成了下一帧的提示行就是新的。
+		if (mApp->mOnlineSession)
+		{
+			mApp->mOnlineSession->SwapSeats();
 		}
 		break;
 	}

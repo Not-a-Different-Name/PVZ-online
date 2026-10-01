@@ -23,6 +23,7 @@ public:
 		OnlineDialog_Join		= 1201,
 		OnlineDialog_Close		= 1202,
 		OnlineDialog_Disconnect	= 1203,
+		OnlineDialog_Swap		= 1204,
 		OnlineDialog_IpEdit		= 1210
 	};
 
@@ -36,6 +37,9 @@ public:
 	// 就是灰的），Close 则永远只是"关面板"——不然想看一眼状态就得把连接断掉，
 	// 而组队成功后玩家多半就是从小状态条点进来瞄一眼的。
 	LawnStoneButton*	mDisconnectButton;
+	// @pvz-online: 开局前对调位置（P1 ↔ P2）。和 Disconnect 一样只在会话活着时露面、
+	// 占中间那一格——那时 Join 本来就藏着，两把键不会抢位子。
+	LawnStoneButton*	mSwapButton;
 
 public:
 	OnlineDialog(LawnApp* theApp);
