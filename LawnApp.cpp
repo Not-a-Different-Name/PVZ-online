@@ -389,6 +389,11 @@ void LawnApp::GotFocus()
 //0x44F460
 void LawnApp::LostFocus()
 {
+	// @pvz-online: 联机局里切出去不暂停。这个简化暂停框开的 DIALOG_PAUSED 本来就不参与
+	// 暂停同步（同步只认 DIALOG_NEWOPTIONS），一弹就是"只停自己"：队友还在打，僵尸照样
+	// 往这边漏。要暂停请按 ESC 走同步的那条路。单机保留原版行为。
+	if (IsOnlineGame()) return;
+
 	if (!mTodCheatKeys && CanPauseNow())
 	{
 		DoPauseDialog();
