@@ -9,6 +9,7 @@
 
 class LawnApp;
 class ToolTipWidget;
+class OnlineStatusWidget;
 namespace Sexy
 {
     class DialogButton;
@@ -66,6 +67,9 @@ public:
     NewLawnButton*              mQuickPlayButton;           //+GOTY @Patoke: 0xC8
     NewLawnButton*              mPvpButton;                 //+@pvz-online: M1 PVP 灰置占位
     NewLawnButton*              mOnlineButton;              //+@pvz-online: M2 联机入口
+    // @pvz-online: 组队状态小条。是主菜单的子控件，跟着菜单一起滑进滑出；
+    // 没有会话时它把自己藏起来（既不画也不吃点击）。
+    OnlineStatusWidget*         mOnlineStatus;
     Widget*                     mOverlayWidget;             //+0xBC
     bool                        mStartingGame;              //+0xC0
     int                         mStartingGameCounter;       //+0xC4

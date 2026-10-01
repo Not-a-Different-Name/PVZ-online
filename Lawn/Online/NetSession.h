@@ -78,13 +78,20 @@ public:
 
 	const std::string&	GetStatusText() const { return mStatusText; }
 	const std::string&	GetHintText() const { return mHintText; }
+	// 死因的一行短标签（主菜单小状态条那种一行宽的地方用）。没给短标签就是默认的
+	// "Connection lost"——版本/构建不符这类要玩家动手的原因得自带短标签，
+	// 否则在小条上看起来和"网线掉了"一模一样。
+	const std::string&	GetShortStatus() const { return mShortStatus; }
+	// 已经试到第几轮连接。连不上不再有上限，所以这是"还在试"和"卡死了"的唯一区别，
+	// 状态行和主菜单小状态条都要用。
+	int				GetConnectAttempts() const { return mLink.GetConnectAttempts(); }
 
 	bool			PollEvent(Event& theEvent);
 
 private:
 	void			ResetToOff();
 	void			SetConnected();
-	void			SetDead(const char* theReason);
+	void			SetDead(const char* theReason, const char* theShortReason = nullptr);
 	void			UpdateStatusText();
 	void			HandlePacket(const NetLink::Packet& thePacket);
 	void			PushEvent(EventType theType);
@@ -108,6 +115,7 @@ private:
 	uint16_t			mConnectPort;
 	std::string			mStatusText;
 	std::string			mHintText;
+	std::string			mShortStatus;
 	std::vector<Event>	mEvents;
 	bool				mHasPendingStart;
 	NetProto::MsgStartLevel	mPendingStart;

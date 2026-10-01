@@ -155,6 +155,7 @@ LawnApp::LawnApp()
 	mHasOnlineStart = false;
 	mOnlineStartLevel = 0;
 	mOnlineStartSeed = 0;
+	mOnlineWasConnected = false;
 }
 
 //0x44EDD0、0x44EDF0
@@ -1768,6 +1769,19 @@ void LawnApp::UpdateFrames()
 	if (mOnlineSession)
 	{
 		mOnlineSession->Update();
+
+		// @pvz-online: 组队成功就把联机面板收起来。面板是模态对话框，它在的时候后面
+		// 所有牌子一个都点不着，而"组队成功后还要回主菜单点关卡牌开局"是必经的一步——
+		// 玩家就是被这一点挡住的。状态收摊后由主菜单左侧的小状态条接着说
+		// （OnlineStatusWidget），面板随时点小状态条能再叫回来。
+		//
+		// 只在"刚变成已连接"那一下收，不是连着就一直收：玩家自己点开面板看状态时
+		// 不能被它按回去（那样面板就永远打不开了）。在这里关而不是在面板自己的
+		// Update 里关：KillDialog 是当场 delete，不能在自己 Update 的中途把自己删掉。
+		bool aConnected = mOnlineSession->IsConnected();
+		if (aConnected && !mOnlineWasConnected)
+			KillDialog(Dialogs::DIALOG_ONLINE);
+		mOnlineWasConnected = aConnected;
 	}
 	// 开局要换场景、动一堆 UI，所以也放在循环外、widget 更新之前——收包链里干了迟早出事。
 	UpdateOnlineStart();

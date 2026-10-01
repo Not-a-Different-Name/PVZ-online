@@ -19,10 +19,11 @@ class OnlineDialog : public LawnDialog, public EditListener
 public:
 	enum
 	{
-		OnlineDialog_Host	= 1200,
-		OnlineDialog_Join	= 1201,
-		OnlineDialog_Close	= 1202,
-		OnlineDialog_IpEdit	= 1210
+		OnlineDialog_Host		= 1200,
+		OnlineDialog_Join		= 1201,
+		OnlineDialog_Close		= 1202,
+		OnlineDialog_Disconnect	= 1203,
+		OnlineDialog_IpEdit		= 1210
 	};
 
 public:
@@ -31,6 +32,10 @@ public:
 	LawnStoneButton*	mJoinButton;
 	LawnStoneButton*	mCloseButton;
 	LawnEditWidget*		mIpEditWidget;
+	// @pvz-online: 断开连接单独一个键。连接中时它顶掉 Host 那一格（Host/Join 这时本来
+	// 就是灰的），Close 则永远只是"关面板"——不然想看一眼状态就得把连接断掉，
+	// 而组队成功后玩家多半就是从小状态条点进来瞄一眼的。
+	LawnStoneButton*	mDisconnectButton;
 
 public:
 	OnlineDialog(LawnApp* theApp);

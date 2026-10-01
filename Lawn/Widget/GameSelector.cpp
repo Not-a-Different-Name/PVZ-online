@@ -1,5 +1,6 @@
 #include "../Board.h"
 #include "GameButton.h"
+#include "OnlineStatusWidget.h"
 #include "StoreScreen.h"
 #include "../ZenGarden.h"
 #include "GameSelector.h"
@@ -446,6 +447,12 @@ GameSelector::GameSelector(LawnApp* theApp)
 	this->AddWidget(mQuickPlayButton);
 	this->AddWidget(mPvpButton); // @pvz-online: M1 PVP 灰置占位
 	this->AddWidget(mOnlineButton); // @pvz-online: M2 联机入口
+
+	// @pvz-online: 组队状态小条。挂在左边缘：右边整片是牌子，左下角是成就底座，
+	// 只有这一角不压任何可点的东西。作为子控件，它跟着菜单一起滑进滑出。
+	mOnlineStatus = new OnlineStatusWidget(mApp);
+	mOnlineStatus->Move(8, 8);
+	this->AddWidget(mOnlineStatus);
 	// @pvz-online: the BACK button belongs to the (still stubbed) Quick-Play screen. On the
 	// real main menu the bottom-right corner shows the OPTIONS/HELP/QUIT vases (reanim art),
 	// not a BACK sign - hide it until ShowQuickPlayScreen() exists and can own it.

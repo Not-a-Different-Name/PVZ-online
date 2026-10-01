@@ -23,6 +23,7 @@ OnlineDialog::OnlineDialog(LawnApp* theApp) :
 	mHostButton = MakeButton(OnlineDialog::OnlineDialog_Host, this, _S("Host"));
 	mJoinButton = MakeButton(OnlineDialog::OnlineDialog_Join, this, _S("Join"));
 	mCloseButton = MakeButton(OnlineDialog::OnlineDialog_Close, this, _S("Close"));
+	mDisconnectButton = MakeButton(OnlineDialog::OnlineDialog_Disconnect, this, _S("Disconnect"));
 
 	mIpEditWidget = CreateEditWidget(OnlineDialog::OnlineDialog_IpEdit, this, this);
 	mIpEditWidget->mMaxChars = 15;			// "255.255.255.255"
@@ -43,6 +44,7 @@ OnlineDialog::~OnlineDialog()
 	delete mHostButton;
 	delete mJoinButton;
 	delete mCloseButton;
+	delete mDisconnectButton;
 	delete mIpEditWidget;
 }
 
@@ -61,6 +63,8 @@ void OnlineDialog::Resize(int theX, int theY, int theWidth, int theHeight)
 	mHostButton->Resize(aLeft, aButtonY, aButtonWidth, aButtonHeight);
 	mJoinButton->Resize(aLeft + aButtonWidth + aButtonGap, aButtonY, aButtonWidth, aButtonHeight);
 	mCloseButton->Resize(aLeft + (aButtonWidth + aButtonGap) * 2, aButtonY, aButtonWidth, aButtonHeight);
+	// 连接中它顶掉 Host 那一格：同一时刻 Host 本来就是灰的，占着地方也是白占
+	mDisconnectButton->Resize(aLeft, aButtonY, aButtonWidth, aButtonHeight);
 
 	int anEditWidth = anInnerWidth - LABEL_WIDTH;
 	if (anEditWidth > 300) anEditWidth = 300;
@@ -73,6 +77,7 @@ void OnlineDialog::AddedToManager(WidgetManager* theWidgetManager)
 	AddWidget(mHostButton);
 	AddWidget(mJoinButton);
 	AddWidget(mCloseButton);
+	AddWidget(mDisconnectButton);
 	AddWidget(mIpEditWidget);
 	theWidgetManager->SetFocus(mIpEditWidget);
 }
@@ -83,6 +88,7 @@ void OnlineDialog::RemovedFromManager(WidgetManager* theWidgetManager)
 	RemoveWidget(mHostButton);
 	RemoveWidget(mJoinButton);
 	RemoveWidget(mCloseButton);
+	RemoveWidget(mDisconnectButton);
 	RemoveWidget(mIpEditWidget);
 }
 
@@ -107,8 +113,10 @@ void OnlineDialog::Update()
 
 	mHostButton->SetDisabled(anActive);
 	mJoinButton->SetDisabled(anActive);
-	// 有连接时这个键改叫 Disconnect：先把连接收掉，再点一次才是关面板
-	mCloseButton->SetLabel(anActive ? _S("Disconnect") : _S("Close"));
+	// 会话活着的时候：Host/Join 让位给 Disconnect，Close 就只是关面板
+	mHostButton->mVisible = !anActive;
+	mJoinButton->mVisible = !anActive;
+	mDisconnectButton->mVisible = anActive;
 }
 
 void OnlineDialog::Draw(Graphics* g)
@@ -155,13 +163,14 @@ void OnlineDialog::ButtonDepress(int theId)
 		break;
 
 	case OnlineDialog::OnlineDialog_Close:
-		if (mApp->mOnlineSession && mApp->mOnlineSession->IsActive())
+		// 关面板不动连接：连接活在会话里，面板只是遥控器
+		mApp->KillDialog(Dialogs::DIALOG_ONLINE);
+		break;
+
+	case OnlineDialog::OnlineDialog_Disconnect:
+		if (mApp->mOnlineSession)
 		{
 			mApp->mOnlineSession->Close();
-		}
-		else
-		{
-			mApp->KillDialog(Dialogs::DIALOG_ONLINE);
 		}
 		break;
 	}

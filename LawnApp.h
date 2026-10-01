@@ -133,6 +133,9 @@ public:
 	bool							mHasOnlineStart;
 	int								mOnlineStartLevel;
 	int								mOnlineStartSeed;
+	// 上一帧是不是已连接：联机面板只在"刚连上"那一下自动收起，之后玩家再点开就留在
+	// 屏幕上（不然面板一开就被按回去，等于打不开）。
+	bool							mOnlineWasConnected;
 
 public:
 	LawnApp();

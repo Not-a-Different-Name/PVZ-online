@@ -27,6 +27,7 @@ NetSession::NetSession()
 	mConnectPort = NetProto::DEFAULT_PORT;
 	mStatusText = "Not connected.";
 	mHintText = "Host a game, or type the host's IP and join.";
+	mShortStatus = "Connection lost";
 	mHasPendingStart = false;
 }
 
@@ -204,12 +205,13 @@ void NetSession::SetConnected()
 	PushEvent(EventType::CONNECTED);
 }
 
-void NetSession::SetDead(const char* theReason)
+void NetSession::SetDead(const char* theReason, const char* theShortReason)
 {
 	if (mState == State::DEAD) return;
 
 	mState = State::DEAD;
 	mStatusText = (theReason && theReason[0]) ? theReason : "Connection lost.";
+	mShortStatus = (theShortReason && theShortReason[0]) ? theShortReason : "Connection lost";
 	mHintText.clear();
 	TodLog("[net] session dead: %s", mStatusText.c_str());
 	PushEvent(EventType::DISCONNECTED);
@@ -227,7 +229,7 @@ void NetSession::UpdateStatusText()
 		break;
 	case State::CONNECTING:
 		{
-			int anAttempts = mLink.GetConnectAttempts();
+			int anAttempts = GetConnectAttempts();
 			mStatusText = "Connecting to " + mConnectHost + "...";
 			// 连不上会一直重试（没有时间上限了），所以重试次数得露出来，
 			// 不然"还在试"看起来和"卡死了"一模一样。
