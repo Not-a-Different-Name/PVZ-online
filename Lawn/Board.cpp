@@ -824,6 +824,12 @@ void Board::PickZombieWaves()
 //0x40A110
 int Board::GetLevelRandSeed()
 {
+	// @pvz-online: 联机局里两边的波表必须同源，客户端直接用主机广播的那一份——
+	// 本机自己算永远对不上（这个式子里有各自的存档 ID 和各自的开局随机数）。
+	int anOnlineLevel = 0, anOnlineSeed = 0;
+	if (mApp->GetOnlineStartOverride(anOnlineLevel, anOnlineSeed))
+		return anOnlineSeed;
+
 	int aRndSeed = mApp->mPlayerInfo->mId + mBoardRandSeed;
 	if (mApp->IsAdventureMode())
 	{
@@ -1408,7 +1414,13 @@ void Board::InitLevel()
 		mApp->mMusic->StopAllMusic();
 	}
 	// 赋值当前关卡
-	mLevel = mApp->IsAdventureMode() ? mApp->mPlayerInfo->mLevel : 0;
+	// @pvz-online: 联机局的关卡由主机广播决定（客户端跑的是主机那一关），
+	// 但 mPlayerInfo->mLevel 一个字都不动——那是本机自己的存档进度，成长是 M4 的事。
+	int anOnlineLevel = 0, anOnlineSeed = 0;
+	if (mApp->GetOnlineStartOverride(anOnlineLevel, anOnlineSeed))
+		mLevel = anOnlineLevel;
+	else
+		mLevel = mApp->IsAdventureMode() ? mApp->mPlayerInfo->mLevel : 0;
 	// 设定关卡背景
 	PickBackground();
 	// 设定关卡出怪
@@ -1672,7 +1684,9 @@ void Board::InitLawnMowers()
 {
 	GameMode aGameMode = mApp->mGameMode;
 	// 这里优化一下原版的代码，事先列举一些不创建小推车的关卡
-	if (aGameMode == GameMode::GAMEMODE_CHALLENGE_BEGHOULED || aGameMode == GameMode::GAMEMODE_CHALLENGE_BEGHOULED_TWIST ||
+	// @pvz-online: 联机局一律没有小推车——漏怪要传到队友那边去，房前不留兜底。
+	if (mApp->IsOnlineGame() ||
+		aGameMode == GameMode::GAMEMODE_CHALLENGE_BEGHOULED || aGameMode == GameMode::GAMEMODE_CHALLENGE_BEGHOULED_TWIST ||
 		aGameMode == GameMode::GAMEMODE_CHALLENGE_ZEN_GARDEN || aGameMode == GameMode::GAMEMODE_TREE_OF_WISDOM ||
 		aGameMode == GameMode::GAMEMODE_CHALLENGE_LAST_STAND || aGameMode == GameMode::GAMEMODE_CHALLENGE_ZOMBIQUARIUM ||
 		mApp->IsSquirrelLevel() || mApp->IsIZombieLevel() || (StageHasRoof() && !mApp->mPlayerInfo->mPurchases[StoreItem::STORE_ITEM_ROOF_CLEANER]))

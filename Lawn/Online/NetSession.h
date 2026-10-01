@@ -62,6 +62,13 @@ public:
 
 	void			Update();			// 主线程每帧调一次
 
+	// 主机开局：把这一局的模式、关卡、波表种子告诉队友。没连上时返回 false。
+	bool			SendStartLevel(uint8_t theGameMode, uint32_t theLevel, int32_t theLevelSeed);
+
+	// 客户端侧：取出主机发来的开局命令（同时清掉）。没有就返回 false。
+	// 单槽而不是队列：开局命令只有"最新那条"有意义，堆着旧的开局命令没有用处。
+	bool			TakePendingStartLevel(NetProto::MsgStartLevel& theMsg);
+
 	State			GetState() const { return mState; }
 	Role			GetRole() const { return mRole; }
 	bool			IsConnected() const { return mState == State::CONNECTED; }
@@ -102,6 +109,8 @@ private:
 	std::string			mStatusText;
 	std::string			mHintText;
 	std::vector<Event>	mEvents;
+	bool				mHasPendingStart;
+	NetProto::MsgStartLevel	mPendingStart;
 
 	NetSession(const NetSession&);
 	NetSession& operator=(const NetSession&);

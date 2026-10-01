@@ -9,6 +9,7 @@ namespace
 
 const int	HELLO_PAYLOAD_SIZE		= 4;	// src, dst, u16 version
 const int	HELLO_ACK_PAYLOAD_SIZE	= 5;	// src, dst, u16 version, u8 accepted
+const int	START_LEVEL_PAYLOAD_SIZE = 11;	// src, dst, u8 mode, u32 level, i32 seed
 const int	HEARTBEAT_PAYLOAD_SIZE	= 6;	// src, dst, u32 tick
 const int	BYE_PAYLOAD_SIZE		= 3;	// src, dst, u8 reason
 
@@ -26,6 +27,7 @@ NetSession::NetSession()
 	mConnectPort = NetProto::DEFAULT_PORT;
 	mStatusText = "Not connected.";
 	mHintText = "Host a game, or type the host's IP and join.";
+	mHasPendingStart = false;
 }
 
 NetSession::~NetSession()
@@ -162,6 +164,15 @@ bool NetSession::PollEvent(Event& theEvent)
 	return true;
 }
 
+bool NetSession::TakePendingStartLevel(NetProto::MsgStartLevel& theMsg)
+{
+	if (!mHasPendingStart) return false;
+
+	theMsg = mPendingStart;
+	mHasPendingStart = false;
+	return true;
+}
+
 // ====================================================================================================
 // ★ 状态与文案
 // ====================================================================================================
@@ -180,6 +191,7 @@ void NetSession::ResetToOff()
 	mStatusText = "Not connected.";
 	mHintText = "Host a game, or type the host's IP and join.";
 	mEvents.clear();
+	mHasPendingStart = false;
 }
 
 void NetSession::SetConnected()
@@ -229,7 +241,11 @@ void NetSession::UpdateStatusText()
 		mStatusText = "Connected. Shaking hands...";
 		break;
 	case State::CONNECTED:
-		mStatusText = "Connected. Start a level from the menu.";
+		// 关卡由主机定：面板是双方唯一共用的提示位，就把各自的下一步写清楚，
+		// 免得客户端点了冒险按钮却什么反馈都没有（局面板照旧不冻心跳）。
+		mStatusText = (mRole == Role::HOST)
+			? "Connected. Pick a level from the menu."
+			: "Connected. Waiting for the host to pick a level.";
 		break;
 	case State::DEAD:
 	default:
@@ -309,6 +325,25 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 		}
 		break;
 
+	case NetProto::MSG_START_LEVEL:
+		{
+			NetProto::MsgStartLevel aMsg;
+			if (aPayloadSize != START_LEVEL_PAYLOAD_SIZE || !NetProto::DecodeStartLevel(aPayload, aPayloadSize, aMsg))
+			{
+				SetDead("The other player sent a malformed packet.");
+				return;
+			}
+			if (mRole != Role::CLIENT) return;		// 只有客户端听主机的
+
+			// 不在收包链里直接开局：开局要动游戏场景和一堆 UI，那是主循环的活。
+			// 这里只把命令存下来，LawnApp 每帧 TakePendingStartLevel 取走。
+			mPendingStart = aMsg;
+			mHasPendingStart = true;
+			TodLog("[net] host started: mode %u level %u seed %d",
+				(unsigned)aMsg.mGameMode, (unsigned)aMsg.mLevel, (int)aMsg.mLevelSeed);
+		}
+		break;
+
 	case NetProto::MSG_HEARTBEAT:
 		{
 			NetProto::MsgHeartbeat aMsg;
@@ -385,6 +420,26 @@ void NetSession::SendHelloAck(bool theAccepted)
 	uint8_t aPayload[NetProto::MAX_PAYLOAD];
 	int aSize = NetProto::EncodeHelloAck(aPayload, (int)sizeof(aPayload), aMsg);
 	if (aSize > 0) SendRaw(NetProto::MSG_HELLO_ACK, aPayload, aSize);
+}
+
+bool NetSession::SendStartLevel(uint8_t theGameMode, uint32_t theLevel, int32_t theLevelSeed)
+{
+	if (mRole != Role::HOST || !IsConnected()) return false;
+
+	NetProto::MsgStartLevel aMsg;
+	aMsg.mSrcSeat = mLocalSeat;
+	aMsg.mDstSeat = mPeerSeat;
+	aMsg.mGameMode = theGameMode;
+	aMsg.mLevel = theLevel;
+	aMsg.mLevelSeed = theLevelSeed;
+
+	uint8_t aPayload[NetProto::MAX_PAYLOAD];
+	int aSize = NetProto::EncodeStartLevel(aPayload, (int)sizeof(aPayload), aMsg);
+	if (aSize <= 0) return false;
+
+	TodLog("[net] telling the client to start: mode %u level %u seed %d",
+		(unsigned)theGameMode, (unsigned)theLevel, (int)theLevelSeed);
+	return SendRaw(NetProto::MSG_START_LEVEL, aPayload, aSize);
 }
 
 void NetSession::SendHeartbeat()

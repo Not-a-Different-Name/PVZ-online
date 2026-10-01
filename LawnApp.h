@@ -128,6 +128,11 @@ public:
 	// @pvz-online: M2 联机会话。放在类尾：上面的 //+0x… 是反编译出来的偏移，不扰动它们。
 	// 只有 DoOnlineDialog 会按需 new，连着的是哪台机器都记在 NetSession 里。
 	NetSession*						mOnlineSession;
+	// @pvz-online: 联机开局参数（主机广播来的关卡 + 波表种子）。只有客户端用得上：
+	// Board 建棋盘时来取，取完就清；全程不碰 mPlayerInfo，客户端自己的存档进度不动。
+	bool							mHasOnlineStart;
+	int								mOnlineStartLevel;
+	int								mOnlineStartSeed;
 
 public:
 	LawnApp();
@@ -172,6 +177,14 @@ public:
 	bool							TryLoadGame();
 	void							NewGame();
 	void							PreNewGame(GameMode theGameMode, bool theLookForSavedGame);
+	// @pvz-online: 联机相关。IsOnlineGame = 双方已连上（这局就是联机局）；
+	// IsOnlineStartAllowed = 现在能不能开局（单机永远可以；联机只有已连上的主机可以）。
+	bool							IsOnlineGame();
+	bool							IsOnlineStartAllowed();
+	void							SetOnlineStartOverride(int theLevel, int theSeed);
+	bool							GetOnlineStartOverride(int& theLevel, int& theSeed);
+	void							ClearOnlineStartOverride();
+	void							UpdateOnlineStart();
 	void							ShowGameSelector();
 	void							KillGameSelector();
 	void							ShowAwardScreen(AwardType theAwardType, bool theShowAchievements); // @Patoke: add argument

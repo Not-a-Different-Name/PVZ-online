@@ -1503,6 +1503,15 @@ void GameSelector::ButtonPress(int theId)
 // GOTY @Patoke: 0x44F270
 void GameSelector::ClickedAdventure()
 {
+	// @pvz-online: 联机局的关卡由主机定，而且要先连上人才能开。不满足就把联机面板调出来——
+	// 面板的状态行正好写着卡在哪一步（等人加入 / 正在连 / 等主机选关）。
+	// 用面板而不是模态框：模态框是 WaitForResult，会把主循环连同心跳一起冻住。
+	if (!mApp->IsOnlineStartAllowed())
+	{
+		mApp->DoOnlineDialog();
+		return;
+	}
+
 	if (mApp->IsTrialStageLocked() && (mLevel >= 25 || mApp->HasFinishedAdventure()))
 	{
 		if (mApp->LawnMessageBox(

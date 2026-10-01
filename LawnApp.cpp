@@ -152,6 +152,9 @@ LawnApp::LawnApp()
 	mBigArrowCursor = LoadCursor(GetModuleHandle(nullptr), MAKEINTRESOURCE(IDC_CURSOR1));
 	mDRM = nullptr;
 	mOnlineSession = nullptr;
+	mHasOnlineStart = false;
+	mOnlineStartLevel = 0;
+	mOnlineStartSeed = 0;
 }
 
 //0x44EDD0、0x44EDF0
@@ -451,11 +454,90 @@ void LawnApp::PreNewGame(GameMode theGameMode, bool theLookForSavedGame)
 	}
 
 	mGameMode = theGameMode;
+
+	// @pvz-online: 会话开着的时候一律按联机规矩来：
+	//   能开局（已连上的主机）→ 不读档也不删档，开完局就把关卡和波表种子广播出去；
+	//   不能开局（没连上 / 客户端）→ 什么都不做。
+	// 客户端的关卡是主机说了算，所以客户端在这条路上永远不会自己开出一局来。
+	if (mOnlineSession && mOnlineSession->IsActive())
+	{
+		if (!IsOnlineStartAllowed())
+		{
+			TodTrace("PreNewGame: online session cannot start right now, ignored");
+			return;
+		}
+
+		NewGame();
+		mOnlineSession->SendStartLevel((uint8_t)mGameMode, (uint32_t)mBoard->mLevel, mBoard->GetLevelRandSeed());
+		return;
+	}
+
 	if (theLookForSavedGame && TryLoadGame())
 		return;
 
 	std::string aFileName = GetSavedGameName(mGameMode, mPlayerInfo->mId);
 	EraseFile(aFileName);
+	NewGame();
+}
+
+// @pvz-online: 联机三连问。没有会话 = 单机，一律走原版行为，联机代码不参与。
+bool LawnApp::IsOnlineGame()
+{
+	return mOnlineSession != nullptr && mOnlineSession->IsConnected();
+}
+
+// 谁能开局：单机随便；联机局里只有已经连上的主机能定关卡。
+// 没连上（面板上正写着"等人加入 / 正在连"）和客户端都返回 false。
+bool LawnApp::IsOnlineStartAllowed()
+{
+	if (!mOnlineSession || !mOnlineSession->IsActive()) return true;
+
+	return mOnlineSession->IsConnected() && mOnlineSession->GetRole() == NetSession::Role::HOST;
+}
+
+void LawnApp::SetOnlineStartOverride(int theLevel, int theSeed)
+{
+	mHasOnlineStart = true;
+	mOnlineStartLevel = theLevel;
+	mOnlineStartSeed = theSeed;
+}
+
+bool LawnApp::GetOnlineStartOverride(int& theLevel, int& theSeed)
+{
+	if (!mHasOnlineStart) return false;
+
+	theLevel = mOnlineStartLevel;
+	theSeed = mOnlineStartSeed;
+	return true;
+}
+
+void LawnApp::ClearOnlineStartOverride()
+{
+	mHasOnlineStart = false;
+}
+
+// @pvz-online: 主机开局了——客户端跟着开自己那块棋盘。每条开局命令只能用一次，
+// 用过就清；清掉之后 GetLevelRandSeed 又回到本机自己的算法。
+void LawnApp::UpdateOnlineStart()
+{
+	if (!mOnlineSession) return;
+
+	NetProto::MsgStartLevel aStart;
+	if (!mOnlineSession->TakePendingStartLevel(aStart)) return;
+
+	if (mGameScene != GameScenes::SCENE_MENU)
+	{
+		// 不在主菜单就先不接这条（"局打到一半主机又开了一局"留到 C6 处理）
+		TodTrace("online start ignored: scene %d is not the menu", (int)mGameScene);
+		return;
+	}
+
+	KillDialog(Dialogs::DIALOG_ONLINE);
+	KillGameSelector();
+	SetOnlineStartOverride((int)aStart.mLevel, (int)aStart.mLevelSeed);
+	mGameMode = (GameMode)aStart.mGameMode;
+	TodTrace("online start: mode %d level %u seed %d",
+		(int)mGameMode, (unsigned)aStart.mLevel, (int)aStart.mLevelSeed);
 	NewGame();
 }
 
@@ -530,6 +612,9 @@ void LawnApp::NewGame()
 void LawnApp::ShowGameSelector()
 {
 	KillBoard();
+	// @pvz-online: 回主菜单就把联机开局参数扔掉。它在整局里都得留着（选卡界面也会用
+	// GetLevelRandSeed 抽植物），所以只能在这个"一局已经结束"的点上清。
+	ClearOnlineStartOverride();
 	//UpdateRegisterInfo();
 	if (mGameSelector)
 	{
@@ -1684,6 +1769,8 @@ void LawnApp::UpdateFrames()
 	{
 		mOnlineSession->Update();
 	}
+	// 开局要换场景、动一堆 UI，所以也放在循环外、widget 更新之前——收包链里干了迟早出事。
+	UpdateOnlineStart();
 
 	if ((!mActive || mMinimized) && mBoard)
 	{

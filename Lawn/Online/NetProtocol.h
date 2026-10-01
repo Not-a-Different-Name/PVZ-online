@@ -192,8 +192,30 @@ struct MsgBye
 };
 
 // ====================================================================================================
-// ★ 编解码（握手 + 心跳 + 离开；其余消息随各自那一步一起加）
+// ★ 编解码（用到哪条加哪条）
 // ====================================================================================================
+
+inline int EncodeStartLevel(uint8_t* theBuffer, int theCapacity, const MsgStartLevel& theMsg)
+{
+	Writer aWriter(theBuffer, theCapacity);
+	aWriter.U8(theMsg.mSrcSeat);
+	aWriter.U8(theMsg.mDstSeat);
+	aWriter.U8(theMsg.mGameMode);
+	aWriter.U32(theMsg.mLevel);
+	aWriter.I32(theMsg.mLevelSeed);
+	return aWriter.Overflowed() ? -1 : aWriter.Size();
+}
+
+inline bool DecodeStartLevel(const uint8_t* theData, int theSize, MsgStartLevel& theMsg)
+{
+	Reader aReader(theData, theSize);
+	theMsg.mSrcSeat = aReader.U8();
+	theMsg.mDstSeat = aReader.U8();
+	theMsg.mGameMode = aReader.U8();
+	theMsg.mLevel = aReader.U32();
+	theMsg.mLevelSeed = aReader.I32();
+	return !aReader.Overflowed();
+}
 
 inline int EncodeHello(uint8_t* theBuffer, int theCapacity, const MsgHello& theMsg)
 {
