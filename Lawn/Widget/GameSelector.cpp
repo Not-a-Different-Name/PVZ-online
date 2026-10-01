@@ -1535,6 +1535,9 @@ void GameSelector::ClickedAdventure()
 	mZenGardenButton->SetDisabled(true);
 	mZombatarButton->SetDisabled(true); // @Patoke: added new widgets
 	mAchievementsButton->SetDisabled(true);
+	// @pvz-online: M2 联机入口也得一起禁——转场那 4.5 秒里它还挂在主位上，
+	// 不禁的话能在墓碑闪动的同时点开联机面板，面板就压在开局动画上了。
+	mOnlineButton->SetDisabled(true);
 
 	Reanimation* aHandReanim = mApp->AddReanimation(-70.0f, 10.0f, 0, ReanimationType::REANIM_ZOMBIE_HAND);
 	aHandReanim->mLoopType = ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD;
