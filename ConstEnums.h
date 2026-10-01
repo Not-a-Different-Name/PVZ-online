@@ -300,6 +300,7 @@ enum Dialogs
     DIALOG_SHOWSAVEZOMBATAR,
     DIALOG_DELETEZOMBATAR,
     DIALOG_ZOMBATAR_TOS,
+    DIALOG_ONLINE,                              // @pvz-online: M2 联机面板（建房/加入）
     NUM_DIALOGS
 };
 enum DebugTextMode

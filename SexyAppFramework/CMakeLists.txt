@@ -57,6 +57,20 @@ set(Lawn__Common__Common_Source
 )
 source_group("Lawn\\Common\\Common Source" FILES ${Lawn__Common__Common_Source})
 
+# @pvz-online: M2 联机（协议 / 传输 / 会话）
+set(Lawn__Online__Online_Include
+    "../Lawn/Online/NetProtocol.h"
+    "../Lawn/Online/NetLink.h"
+    "../Lawn/Online/NetSession.h"
+)
+source_group("Lawn\\Online\\Online Include" FILES ${Lawn__Online__Online_Include})
+
+set(Lawn__Online__Online_Source
+    "../Lawn/Online/NetLink.cpp"
+    "../Lawn/Online/NetSession.cpp"
+)
+source_group("Lawn\\Online\\Online Source" FILES ${Lawn__Online__Online_Source})
+
 set(Lawn__System__System_Include
     "../Lawn/System/DataSync.h"
     "../Lawn/System/Music.h"
@@ -97,6 +111,7 @@ set(Lawn__Widget__Widget_Include
     "../Lawn/Widget/LawnDialog.h"
     "../Lawn/Widget/NewOptionsDialog.h"
     "../Lawn/Widget/NewUserDialog.h"
+    "../Lawn/Widget/OnlineDialog.h"
     "../Lawn/Widget/SeedChooserScreen.h"
     "../Lawn/Widget/StoreScreen.h"
     "../Lawn/Widget/TitleScreen.h"
@@ -122,6 +137,7 @@ set(Lawn__Widget__Widget_Source
     "../Lawn/Widget/LawnDialog.cpp"
     "../Lawn/Widget/NewOptionsDialog.cpp"
     "../Lawn/Widget/NewUserDialog.cpp"
+    "../Lawn/Widget/OnlineDialog.cpp"
     "../Lawn/Widget/SeedChooserScreen.cpp"
     "../Lawn/Widget/StoreScreen.cpp"
     "../Lawn/Widget/TitleScreen.cpp"
@@ -182,6 +198,8 @@ set(ALL_FILES
     ${Lawn__Board__Board_Source}
     ${Lawn__Common__Common_Include}
     ${Lawn__Common__Common_Source}
+    ${Lawn__Online__Online_Include}
+    ${Lawn__Online__Online_Source}
     ${Lawn__System__System_Include}
     ${Lawn__System__System_Source}
     ${Lawn__Widget__Widget_Include}

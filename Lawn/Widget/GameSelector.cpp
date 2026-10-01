@@ -88,23 +88,25 @@ GameSelector::GameSelector(LawnApp* theApp)
 	mToolTip = new ToolTipWidget();
 
 	mAdventureButton = MakeNewButton(
-		GameSelector::GameSelector_Adventure, 
-		this, 
-		"", 
-		nullptr, 
-		Sexy::IMAGE_REANIM_SELECTORSCREEN_ADVENTURE_BUTTON, 
-		Sexy::IMAGE_REANIM_SELECTORSCREEN_ADVENTURE_HIGHLIGHT, 
-		Sexy::IMAGE_REANIM_SELECTORSCREEN_ADVENTURE_HIGHLIGHT
+		GameSelector::GameSelector_Adventure,
+		this,
+		"",
+		nullptr,
+		Sexy::IMAGE_REANIM_SELECTORSCREEN_CHALLENGES_BUTTON,
+		Sexy::IMAGE_REANIM_SELECTORSCREEN_CHALLENGES_HIGHLIGHT,
+		Sexy::IMAGE_REANIM_SELECTORSCREEN_CHALLENGES_HIGHLIGHT
 	);
-	
-	mAdventureButton->Resize(0, 0, Sexy::IMAGE_REANIM_SELECTORSCREEN_ADVENTURE_BUTTON->mWidth, 125);
+	// @pvz-online: M2 —— 冒险入口挪到第三槽（原「解谜」牌位）供后续战斗测试用。
+	// 牌子上的字是烤进图里的，用户拍板「不用改字、直接占用」：槽位美术保持原样，
+	// 于是第三槽是块写着 PUZZLE 的石板，点它进的是冒险。尺寸/可点形状照抄 mPuzzleButton。
+	mAdventureButton->Resize(0, 0, Sexy::IMAGE_REANIM_SELECTORSCREEN_CHALLENGES_BUTTON->mWidth, 121);
 	mAdventureButton->mClip = false;
 	mAdventureButton->mBtnNoDraw = true;
 	mAdventureButton->mMouseVisible = false;
-	mAdventureButton->mPolygonShape[0] = SexyVector2(7.0f, 1.0f);
-	mAdventureButton->mPolygonShape[1] = SexyVector2(328.0f, 30.0f);
-	mAdventureButton->mPolygonShape[2] = SexyVector2(314.0f, 125.0f);
-	mAdventureButton->mPolygonShape[3] = SexyVector2(1.0f, 78.0f);
+	mAdventureButton->mPolygonShape[0] = SexyVector2(2.0f, 0.0f);
+	mAdventureButton->mPolygonShape[1] = SexyVector2(281.0f, 55.0f);
+	mAdventureButton->mPolygonShape[2] = SexyVector2(268.0f, 121.0f);
+	mAdventureButton->mPolygonShape[3] = SexyVector2(3.0f, 60.0f);
 	mAdventureButton->mUsePolygonShape = true;
 
 	mMinigameButton = MakeNewButton(
@@ -326,6 +328,27 @@ GameSelector::GameSelector(LawnApp* theApp)
 	mPvpButton->mDisabled = true;
 	mPvpButton->SetColor(ButtonWidget::COLOR_LABEL, Color(128, 128, 128));
 
+	// @pvz-online: M2 联机入口——占主位（冒险原来的大墓碑槽位，见 TrackButton）。美术/尺寸/
+	// 可点形状全照抄冒险按钮，只换 id 与挂的轨道：牌子写什么字无所谓，谁占这个槽谁就是它。
+	mOnlineButton = MakeNewButton(
+		GameSelector::GameSelector_Online,
+		this,
+		"",
+		nullptr,
+		Sexy::IMAGE_REANIM_SELECTORSCREEN_ADVENTURE_BUTTON,
+		Sexy::IMAGE_REANIM_SELECTORSCREEN_ADVENTURE_HIGHLIGHT,
+		Sexy::IMAGE_REANIM_SELECTORSCREEN_ADVENTURE_HIGHLIGHT
+	);
+	mOnlineButton->Resize(0, 0, Sexy::IMAGE_REANIM_SELECTORSCREEN_ADVENTURE_BUTTON->mWidth, 125);
+	mOnlineButton->mClip = false;
+	mOnlineButton->mBtnNoDraw = true;
+	mOnlineButton->mMouseVisible = false;
+	mOnlineButton->mPolygonShape[0] = SexyVector2(7.0f, 1.0f);
+	mOnlineButton->mPolygonShape[1] = SexyVector2(328.0f, 30.0f);
+	mOnlineButton->mPolygonShape[2] = SexyVector2(314.0f, 125.0f);
+	mOnlineButton->mPolygonShape[3] = SexyVector2(1.0f, 78.0f);
+	mOnlineButton->mUsePolygonShape = true;
+
 	mApp->mMusic->MakeSureMusicIsPlaying(MusicTune::MUSIC_TUNE_TITLE_CRAZY_DAVE_MAIN_THEME);
 
 	mStartingGame = false;
@@ -422,6 +445,7 @@ GameSelector::GameSelector(LawnApp* theApp)
 	// (mAchievementsWidget is added to the manager, not here - see the constructor note.)
 	this->AddWidget(mQuickPlayButton);
 	this->AddWidget(mPvpButton); // @pvz-online: M1 PVP 灰置占位
+	this->AddWidget(mOnlineButton); // @pvz-online: M2 联机入口
 	// @pvz-online: the BACK button belongs to the (still stubbed) Quick-Play screen. On the
 	// real main menu the bottom-right corner shows the OPTIONS/HELP/QUIT vases (reanim art),
 	// not a BACK sign - hide it until ShowQuickPlayScreen() exists and can own it.
@@ -1040,7 +1064,7 @@ void GameSelector::Update()
 				mAdventureButton, mPvpButton, mSurvivalButton,
 				mOptionsButton, mQuitButton, mHelpButton,
 				mAlmanacButton, mChangeUserButton,
-				mAchievementsButton
+				mAchievementsButton, mOnlineButton
 			};
 			for (int i = 0; i < (int)(sizeof(aMenuButtons) / sizeof(aMenuButtons[0])); i++)
 			{
@@ -1130,6 +1154,8 @@ void GameSelector::Update()
 			mPuzzleButton->mBtnNoDraw = !aBoardsFromWidget;
 			mSurvivalButton->mBtnNoDraw = !aBoardsFromWidget;
 			mZenGardenButton->mBtnNoDraw = !aBoardsFromWidget;
+			// @pvz-online: M2 联机入口也是画自己牌子的实心按钮（牌子美术来自冒险槽位）
+			mOnlineButton->mBtnNoDraw = !aBoardsFromWidget;
 			mHelpButton->mBtnNoDraw = false;
 			mOptionsButton->mBtnNoDraw = false;
 			mQuitButton->mBtnNoDraw = false;
@@ -1148,6 +1174,9 @@ void GameSelector::Update()
 			mChangeUserButton->mMouseVisible = true;
 			mZombatarButton->mMouseVisible = true; // @Patoke: new widgets
 			mAchievementsButton->mMouseVisible = true;
+			// @pvz-online: M2 联机入口——这句才是"能点"的开关：mMouseVisible=false 时
+			// WidgetManager 的命中测试直接跳过它，字画得出来也点不到。
+			mOnlineButton->mMouseVisible = true;
 
 			if (mApp->mPlayerInfo == nullptr)
 			{
@@ -1232,13 +1261,18 @@ void GameSelector::Update()
 	if (aHandReanim)
 		aHandReanim->Update();
 
-	TrackButton(mAdventureButton, mShowStartButton ? "SelectorScreen_StartAdventure_button" : "SelectorScreen_Adventure_button", 0.0f, 0.0f);
+	// @pvz-online: M2 —— 主菜单第一/第三槽对调：联机入口坐主位（原冒险的大墓碑轨道），
+	// 冒险挪去第三槽（原解谜轨道）留着测战斗。id 与点击行为都没动，只是换了槽位。
+	// 冒险不再随 mShowStartButton 切 START ADVENTURE 牌子：那块牌子在主位，而主位现在
+	// 归联机；联机不需要「开始/继续」的区分。
+	TrackButton(mOnlineButton, "SelectorScreen_Adventure_button", 0.0f, 0.0f);
 	TrackButton(mMinigameButton, "SelectorScreen_Survival_button", 0.0f, 0.0f);
 	TrackButton(mPuzzleButton, "SelectorScreen_Challenges_button", 0.0f, 0.0f);
 	TrackButton(mSurvivalButton, "SelectorScreen_ZenGarden_button", 0.0f, 0.0f);
 	// @pvz-online: M1 PVP 占位——挂在小游戏牌子被腾空的槽位（TrackButton 只读轨道的
 	// 当前位置，轨道本身已被 SELECTOR_OPEN 设为隐藏，不会画出原版小游戏牌子）
 	TrackButton(mPvpButton, "SelectorScreen_Survival_button", 0.0f, 0.0f);
+	TrackButton(mAdventureButton, "SelectorScreen_Challenges_button", 0.0f, 0.0f);
 	TrackButton(mZenGardenButton, "SelectorScreen_BG_Right", 100.0f, 360.0f);
 	TrackButton(mOptionsButton, "SelectorScreen_BG_Right", 494.0f, 434.0f);
 	TrackButton(mQuitButton, "SelectorScreen_BG_Right", 644.0f, 469.0f);
@@ -1564,6 +1598,9 @@ void GameSelector::ButtonDepress(int theId)
 		break;
 	case GameSelector::GameSelector_QuickPlay:
 		// GameSelector::ShowQuickPlayScreen();
+		break;
+	case GameSelector::GameSelector_Online:
+		mApp->DoOnlineDialog();
 		break;
 	}
 }

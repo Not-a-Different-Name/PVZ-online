@@ -44,7 +44,8 @@ private:
         GameSelector_AchievementsBack = 112,
         GameSelector_Achievements = 113,
         GameSelector_QuickPlay = 114,
-        GameSelector_PvP = 115 // @pvz-online: M1 PVP 占位（无 ButtonDepress 分支）
+        GameSelector_PvP = 115, // @pvz-online: M1 PVP 占位（无 ButtonDepress 分支）
+        GameSelector_Online = 116 // @pvz-online: M2 联机面板
     };
 
 public:
@@ -64,6 +65,7 @@ public:
     NewLawnButton*              mAchievementsButton;        //+GOTY @Patoke: 0xC4
     NewLawnButton*              mQuickPlayButton;           //+GOTY @Patoke: 0xC8
     NewLawnButton*              mPvpButton;                 //+@pvz-online: M1 PVP 灰置占位
+    NewLawnButton*              mOnlineButton;              //+@pvz-online: M2 联机入口
     Widget*                     mOverlayWidget;             //+0xBC
     bool                        mStartingGame;              //+0xC0
     int                         mStartingGameCounter;       //+0xC4

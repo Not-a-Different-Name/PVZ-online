@@ -29,6 +29,8 @@
 #include "Lawn/Widget/TitleScreen.h"
 #include "Lawn/Widget/StoreScreen.h"
 #include "Lawn/Widget/CheatDialog.h"
+#include "Lawn/Widget/OnlineDialog.h"
+#include "Lawn/Online/NetSession.h"
 #include "Lawn/Widget/GameSelector.h"
 #include "Lawn/Widget/CreditScreen.h"
 #include "Sexy.TodLib/EffectSystem.h"
@@ -149,6 +151,7 @@ LawnApp::LawnApp()
 	mCrazyDaveMessageIndex = -1;
 	mBigArrowCursor = LoadCursor(GetModuleHandle(nullptr), MAKEINTRESOURCE(IDC_CURSOR1));
 	mDRM = nullptr;
+	mOnlineSession = nullptr;
 }
 
 //0x44EDD0、0x44EDF0
@@ -176,6 +179,10 @@ LawnApp::~LawnApp()
 
 	delete mSoundSystem;
 	delete mMusic;
+
+	// @pvz-online: 联机会话先于其它 UI 收掉——它会等收包线程退出（最多 2 秒）
+	delete mOnlineSession;
+	mOnlineSession = nullptr;
 
 	if (mKonamiCheck)
 	{
@@ -1102,6 +1109,22 @@ void LawnApp::DoCheatDialog()
 	AddDialog(Dialogs::DIALOG_CHEAT, aDialog);
 }
 
+// @pvz-online: M2 联机面板。会话本身活在 mOnlineSession 里，关掉面板不会掐连接——
+// 建房之后还要回主菜单点关卡才能开局。
+void LawnApp::DoOnlineDialog()
+{
+	if (!mOnlineSession)
+	{
+		mOnlineSession = new NetSession();
+	}
+
+	KillDialog(Dialogs::DIALOG_ONLINE);
+
+	OnlineDialog* aDialog = new OnlineDialog(this);
+	CenterDialog(aDialog, aDialog->mWidth, aDialog->mHeight);
+	AddDialog(Dialogs::DIALOG_ONLINE, aDialog);
+}
+
 void LawnApp::FinishCheatDialog(bool isYes)
 {
 	CheatDialog* aCheatDialog = (CheatDialog*)GetDialog(Dialogs::DIALOG_CHEAT);
@@ -1655,6 +1678,13 @@ void LawnApp::UpdatePlayTimeStats()
 //0x452650
 void LawnApp::UpdateFrames()
 {
+	// @pvz-online: 联机会话按真实帧推进，故意放在 aUpdateCount 循环外——心跳和超时算的是
+	// 挂钟时间，不该跟着 slow/fast-mo 一起变快变慢。
+	if (mOnlineSession)
+	{
+		mOnlineSession->Update();
+	}
+
 	if ((!mActive || mMinimized) && mBoard)
 	{
 		mBoard->ResetFPSStats();

@@ -28,6 +28,7 @@ class ChallengeScreen;
 class StoreScreen;
 class AlmanacDialog;
 class TypingCheck;
+class NetSession;
 
 namespace Sexy
 {
@@ -124,6 +125,9 @@ public:
 	TrialType						mTrialType;										//+0x8C0
 	bool							mDebugTrialLocked;								//+0x8C4
 	bool							mMuteSoundsForCutscene;							//+0x8C5
+	// @pvz-online: M2 联机会话。放在类尾：上面的 //+0x… 是反编译出来的偏移，不扰动它们。
+	// 只有 DoOnlineDialog 会按需 new，连着的是哪台机器都记在 NetSession 里。
+	NetSession*						mOnlineSession;
 
 public:
 	LawnApp();
@@ -150,6 +154,7 @@ public:
 	void							FinishUserDialog(bool isYes);
 	void							DoCreateUserDialog();
 	void							DoCheatDialog();
+	void							DoOnlineDialog(); // @pvz-online: M2 联机面板
 	void							FinishCheatDialog(bool isYes);
 	void							FinishCreateUserDialog(bool isYes);
 	void							DoConfirmDeleteUserDialog(const SexyString& theName);
