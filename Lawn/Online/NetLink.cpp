@@ -16,7 +16,7 @@
 namespace
 {
 
-const int	CONNECT_TIMEOUT_MS	= 5000;		// 连不上的话最多等这么久
+const int	CONNECT_RETRY_DELAY_MS	= 1000;	// 一轮连不上之后歇多久再试
 const int	IO_SLICE_MS			= 100;		// select / recv 的分片，决定停线程的延迟上限
 const int	MAX_QUEUED_PACKETS	= 256;
 const int	SEND_RETRY_LIMIT	= 50;		// × IO_SLICE_MS = 发送最多重试 5 秒
@@ -42,12 +42,21 @@ struct NetLink::Impl
 	HANDLE				mThread;
 	volatile LONG		mStop;
 	volatile LONG		mState;
+	volatile LONG		mConnectAttempts;	// 客户端已经试到第几次（主线程只读，用来写状态行）
 	CRITICAL_SECTION	mQueueLock;
 	std::vector<Packet>	mQueue;
 	char				mHost[64];
 	uint16_t			mPort;
 	char				mLastError[160];
 	bool				mWsaReady;
+
+	// 一次连接尝试的结果
+	enum AttemptResult
+	{
+		ATTEMPT_CONNECTED,	// 连上了，socket 已发布
+		ATTEMPT_RETRY,		// 这一轮没成，歇一下再来
+		ATTEMPT_STOP			// 停止位置上了，或者彻底没救了（错误已写进 mLastError）
+	};
 
 	State	GetStateValue() const { return (State)mState; }
 	void	SetStateValue(State theState) { InterlockedExchange(&mState, (LONG)theState); }
@@ -134,6 +143,82 @@ struct NetLink::Impl
 		TodLog("[net] accepted a peer");
 	}
 
+	// 一次完整的连接尝试：建 socket → 非阻塞 connect → 等结果 → 看 SO_ERROR。
+	// 只有"连上了"和"停止位"能让调用方收手，其余一概交回 ATTEMPT_RETRY。
+	AttemptResult	ConnectOnce(const addrinfo* theAddress)
+	{
+		SOCKET aSocket = socket(theAddress->ai_family, theAddress->ai_socktype, theAddress->ai_protocol);
+		if (aSocket == INVALID_SOCKET)
+		{
+			Fail("Cannot create a socket.");
+			return ATTEMPT_STOP;
+		}
+
+		u_long aNonBlocking = 1;
+		ioctlsocket(aSocket, FIONBIO, &aNonBlocking);
+
+		int aConnectResult = connect(aSocket, theAddress->ai_addr, (int)theAddress->ai_addrlen);
+		if (aConnectResult == SOCKET_ERROR)
+		{
+			int aConnectError = WSAGetLastError();
+			if (aConnectError != WSAEWOULDBLOCK && aConnectError != WSAEINPROGRESS &&
+				aConnectError != WSAEALREADY)
+			{
+				// 地址不合规、眼下没路由之类——都是下一次可能就好了的事，退回去重试
+				closesocket(aSocket);
+				TodLog("[net] connect attempt failed (WSA %d), retrying", aConnectError);
+				return ATTEMPT_RETRY;
+			}
+		}
+
+		// 可写 = 连接有结果（成功或失败，靠 SO_ERROR 分辨）。按 100ms 分片等，好响应停止位。
+		// 这里刻意不设总时限：等多久由 OS 自己对这次 SYN 的处置决定（不可达主机大约二十来秒），
+		// 那也只是"这一轮"结束——是不是还要试下去，只由玩家点不点 Disconnect 说了算。
+		for (;;)
+		{
+			if (mStop) { closesocket(aSocket); return ATTEMPT_STOP; }
+
+			// 失败（被拒、不可达）在 Windows 上落在 except 集合里，不在 write 集合里——
+			// 只盯 write 的话，"对面没开门"永远等不到任何信号（老代码就是因此一直靠超时兜底，
+			// 那句 "Cannot connect to the host" 其实从没机会显示）。
+			fd_set aWrite;
+			FD_ZERO(&aWrite);
+			FD_SET(aSocket, &aWrite);
+			fd_set aExcept;
+			FD_ZERO(&aExcept);
+			FD_SET(aSocket, &aExcept);
+			timeval aTimeout;
+			aTimeout.tv_sec = 0;
+			aTimeout.tv_usec = IO_SLICE_MS * 1000;
+
+			int aReady = select(0, nullptr, &aWrite, &aExcept, &aTimeout);
+			if (aReady == SOCKET_ERROR)
+			{
+				int anError = WSAGetLastError();
+				closesocket(aSocket);
+				FailWithError("Cannot connect to the host", anError);
+				return ATTEMPT_STOP;
+			}
+			if (aReady > 0) break;
+		}
+
+		int aSoError = 0;
+		int aSoErrorSize = (int)sizeof(aSoError);
+		getsockopt(aSocket, SOL_SOCKET, SO_ERROR, (char*)&aSoError, &aSoErrorSize);
+		if (aSoError != 0)
+		{
+			closesocket(aSocket);
+			TodLog("[net] connect attempt failed (WSA %d), retrying", aSoError);
+			return ATTEMPT_RETRY;
+		}
+
+		mSocket = aSocket;
+		SetupConnectedSocket(mSocket);
+		SetStateValue(State::CONNECTED);
+		TodLog("[net] connected to %s:%u", mHost, (unsigned)mPort);
+		return ATTEMPT_CONNECTED;
+	}
+
 	void	DoConnect()
 	{
 		char aPortText[16];
@@ -149,78 +234,29 @@ struct NetLink::Impl
 		int aLookupError = getaddrinfo(mHost, aPortText, &aHints, &aResult);
 		if (aLookupError != 0 || aResult == nullptr)
 		{
+			// 面板只让输入 IPv4 字面量，解析不出来就是地址本身写错了，重试也没用
 			Fail("Cannot resolve that address.");
 			return;
 		}
 
-		SOCKET aSocket = socket(aResult->ai_family, aResult->ai_socktype, aResult->ai_protocol);
-		if (aSocket == INVALID_SOCKET)
-		{
-			freeaddrinfo(aResult);
-			Fail("Cannot create a socket.");
-			return;
-		}
-
-		u_long aNonBlocking = 1;
-		ioctlsocket(aSocket, FIONBIO, &aNonBlocking);
-
-		int aConnectResult = connect(aSocket, aResult->ai_addr, (int)aResult->ai_addrlen);
-		int aConnectError = (aConnectResult == SOCKET_ERROR) ? WSAGetLastError() : 0;
-		freeaddrinfo(aResult);
-
-		if (aConnectError != 0 && aConnectError != WSAEWOULDBLOCK &&
-			aConnectError != WSAEINPROGRESS && aConnectError != WSAEALREADY)
-		{
-			closesocket(aSocket);
-			FailWithError("Cannot connect to the host", aConnectError);
-			return;
-		}
-
-		// 可写 = 连接有结果（成功或失败，靠 SO_ERROR 分辨）。按 100ms 分片等，好响应停止位。
-		DWORD aStart = GetTickCount();
+		// 连不上就一直试，试到连上或者玩家点 Disconnect（停止位）为止。
 		for (;;)
 		{
-			if (mStop) { closesocket(aSocket); return; }
+			if (mStop) break;
 
-			fd_set aWrite;
-			FD_ZERO(&aWrite);
-			FD_SET(aSocket, &aWrite);
-			timeval aTimeout;
-			aTimeout.tv_sec = 0;
-			aTimeout.tv_usec = IO_SLICE_MS * 1000;
+			AttemptResult anOutcome = ConnectOnce(aResult);
+			if (anOutcome != ATTEMPT_RETRY) break;
 
-			int aReady = select(0, nullptr, &aWrite, nullptr, &aTimeout);
-			if (aReady == SOCKET_ERROR)
+			InterlockedIncrement(&mConnectAttempts);
+
+			// 分段睡：停止位一到就能立刻收摊，不用等这一觉睡完
+			for (int aSlept = 0; aSlept < CONNECT_RETRY_DELAY_MS && !mStop; aSlept += IO_SLICE_MS)
 			{
-				int anError = WSAGetLastError();
-				closesocket(aSocket);
-				FailWithError("Cannot connect to the host", anError);
-				return;
-			}
-			if (aReady > 0) break;
-
-			if (GetTickCount() - aStart > (DWORD)CONNECT_TIMEOUT_MS)
-			{
-				closesocket(aSocket);
-				Fail("Timed out connecting to the host.");
-				return;
+				Sleep(IO_SLICE_MS);
 			}
 		}
 
-		int aSoError = 0;
-		int aSoErrorSize = (int)sizeof(aSoError);
-		getsockopt(aSocket, SOL_SOCKET, SO_ERROR, (char*)&aSoError, &aSoErrorSize);
-		if (aSoError != 0)
-		{
-			closesocket(aSocket);
-			FailWithError("Cannot connect to the host", aSoError);
-			return;
-		}
-
-		mSocket = aSocket;
-		SetupConnectedSocket(mSocket);
-		SetStateValue(State::CONNECTED);
-		TodLog("[net] connected to %s:%u", mHost, (unsigned)mPort);
+		freeaddrinfo(aResult);
 	}
 
 	// 返回 true = 读满；false = 连接已不可用（错误/停止位，状态已置好）
@@ -315,6 +351,7 @@ NetLink::NetLink()
 	mImpl->mThread = nullptr;
 	mImpl->mStop = 0;
 	mImpl->mState = (LONG)State::IDLE;
+	mImpl->mConnectAttempts = 0;
 	mImpl->mHost[0] = '\0';
 	mImpl->mPort = 0;
 	mImpl->mLastError[0] = '\0';
@@ -401,6 +438,7 @@ bool NetLink::Connect(const char* theHost, uint16_t thePort)
 	strncpy_s(anImpl->mHost, theHost, _TRUNCATE);
 	anImpl->mPort = thePort;
 	anImpl->mLastError[0] = '\0';
+	InterlockedExchange(&anImpl->mConnectAttempts, 1);
 	anImpl->SetStateValue(State::CONNECTING);
 	return anImpl->StartThread();
 }
@@ -447,6 +485,12 @@ NetLink::State NetLink::GetState() const
 bool NetLink::IsConnected() const
 {
 	return GetState() == State::CONNECTED;
+}
+
+int NetLink::GetConnectAttempts() const
+{
+	// InterlockedCompareExchange(x, 0, 0) 就是一次原子的读，跟写一头的 InterlockedIncrement 配对
+	return mImpl ? (int)InterlockedCompareExchange(&mImpl->mConnectAttempts, 0, 0) : 1;
 }
 
 bool NetLink::Send(const void* theData, int theSize)

@@ -45,11 +45,16 @@ public:
 	~NetLink();
 
 	bool			Listen(uint16_t thePort);
+	// 连不上不会放弃：一轮失败歇 1 秒就再来，直到连上或者 Close()。面板上的 Disconnect
+	// 是唯一的中止方式（对调用方来说，这就是"取消连接等待时限"）。
 	bool			Connect(const char* theHost, uint16_t thePort);
 	void			Close();						// 收摊；之后可以重新 Listen/Connect
 
 	State			GetState() const;
 	bool			IsConnected() const;
+
+	// 客户端已经试到第几次连接（从 1 起）。Connect() 之前恒为 1。
+	int				GetConnectAttempts() const;
 
 	// 主线程调用。false = 没发出去（连接多半已经不可用了）。
 	bool			Send(const void* theData, int theSize);

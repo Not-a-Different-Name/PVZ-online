@@ -134,12 +134,8 @@ void NetSession::Update()
 
 	mFramesSincePacket++;
 
-	if (mState == State::HANDSHAKING && mFramesSincePacket > HANDSHAKE_TIMEOUT_FRAMES)
-	{
-		SetDead("The other player did not answer.");
-		return;
-	}
-
+	// 握手阶段不掐表：TCP 通了就一直等对方的 HELLO，等多久都行——对端真走了 socket 层会报，
+	// 玩家不想等了面板上的 Disconnect 也是现成的。这里原先有个 3 秒上限，已按需求取消。
 	if (mState == State::CONNECTED)
 	{
 		if (++mFramesSinceHeartbeat >= HEARTBEAT_FRAMES)
@@ -218,7 +214,16 @@ void NetSession::UpdateStatusText()
 		mStatusText = "Waiting for the other player...";
 		break;
 	case State::CONNECTING:
-		mStatusText = "Connecting to " + mConnectHost + "...";
+		{
+			int anAttempts = mLink.GetConnectAttempts();
+			mStatusText = "Connecting to " + mConnectHost + "...";
+			// 连不上会一直重试（没有时间上限了），所以重试次数得露出来，
+			// 不然"还在试"看起来和"卡死了"一模一样。
+			if (anAttempts > 1)
+			{
+				mStatusText += " (attempt " + std::to_string((unsigned)anAttempts) + ")";
+			}
+		}
 		break;
 	case State::HANDSHAKING:
 		mStatusText = "Connected. Shaking hands...";

@@ -49,7 +49,6 @@ public:
 	// 帧计数按主循环固定 10ms 一拍折算：100 帧 ≈ 1 秒
 	static const int	HEARTBEAT_FRAMES			= 100;
 	static const int	TIMEOUT_FRAMES				= 500;
-	static const int	HANDSHAKE_TIMEOUT_FRAMES	= 300;
 
 public:
 	NetSession();
