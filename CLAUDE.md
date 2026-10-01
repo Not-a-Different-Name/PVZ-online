@@ -9,8 +9,8 @@
 ## 构建（Windows + MSVC x86）
 
 ```
-cmd /c C:\Users\ThinkPad\pvz-online\build-msvc.bat          # 增量构建
-cmd /c C:\Users\ThinkPad\pvz-online\build-msvc.bat reconfig  # 删除 build-x86 重新配置
+cmd /c <pvz-online 根>\build-msvc.bat           # 增量构建（本机：C:\Users\18611\Desktop\pvz-online）
+cmd /c <pvz-online 根>\build-msvc.bat reconfig  # 删除 build-x86 重新配置
 ```
 
 - 产物：`build-x86/SexyAppFramework.exe`（目标名固定，勿改）
@@ -18,7 +18,9 @@ cmd /c C:\Users\ThinkPad\pvz-online\build-msvc.bat reconfig  # 删除 build-x86 
   否则报 `Device or resource busy`；**必须以 `runtime/` 为工作目录启动**
 - VS2022 Community 自带 CMake/Ninja，勿用 `cmake` 裸命令（不在 PATH）
 - 工作分支 `pvz-online`，勿直接提交到 main；基线提交 `11950d5`
-- ⚠️ 本构建脚本与 `imagelib/CMakeLists.txt` 含**硬编码绝对路径**，换机器必看 `docs/01-转移与重建.md`
+- 构建链已迁移化（8c4204e）：脚本自动探测 VS2022，`imagelib/CMakeLists.txt` 用
+  `${THIRD_PARTY_DIR}` 相对引用本地依赖仓库——**换机器不再需要改任何路径**，
+  但 `third_party/` 必须与 `re-plants-vs-zombies/` 并列（见 `docs/01-转移与重建.md`）
 - 一次只改一处、一次构建只验一处；见 `docs/规范.md`
 
 ### 本仓库对上游的构建补丁（保持最小化）
@@ -29,8 +31,9 @@ cmd /c C:\Users\ThinkPad\pvz-online\build-msvc.bat reconfig  # 删除 build-x86 
 3. `SexyAppFramework/misc/SEHCatcher.cpp`：x64 寄存器引用加 `#ifdef _WIN64` 分支
    （x86 用 Eip/Ebp；`ImageHelpWalk` 在 x86 返回空，dbghelp 指针 typedef 仅 x64 兼容）
 4. `SexyAppFramework/imagelib/CMakeLists.txt`：三个 ExternalProject 的
-   GIT_REPOSITORY 指向本地 `C:/Users/ThinkPad/pvz-online/third_party/{zlib,libpng,libjpeg-turbo}`
-   （预下载自 codeload.github.com 并 git init+tag，绕开 github.com 443 不稳）；
+   GIT_REPOSITORY 指向本地 `${THIRD_PARTY_DIR}/{zlib,libpng,libjpeg-turbo}`
+   （`THIRD_PARTY_DIR` = 仓库根上两级的 `third_party/`；这三个是预下载自
+   codeload.github.com 并 git init+tag 的本地仓库，绕开 github.com 443 不稳）；
    MSVC 下额外传 `-DWITH_SIMD=0`（无 NASM）
    - 升级依赖版本时改这里 + 重新准备 third_party 下对应本地仓库（需含同名 tag）
    - 注意：仓库内文件编码混杂（多数 UTF-8，个别如 Cutscene.h 是 GBK），
@@ -43,7 +46,7 @@ cmd /c C:\Users\ThinkPad\pvz-online\build-msvc.bat reconfig  # 删除 build-x86 
   （**更正**：本文档此前写「已被上游注释掉」，是错的。）
 - **散装文件只是回退**：`paklib/PakInterface.cpp:194-220`（`FOpen` 先查 pak 索引，
   查不到才 `fopen`）。所以资源优先走 pak，散装只在缺 pak 时兜底。
-- 用户已安装 **Steam 正版 PvZ GOTY**，素材解包在 `C:\Users\ThinkPad\pvz-online\runtime\`，
+- 用户已安装 **Steam 正版 PvZ GOTY**，素材解包在 `C:\Users\18611\Desktop\pvz-online\runtime\`，
   **仅供本机测试**；**PopCap 资源绝不随 mod 分发、绝不上传**（见 `docs/规范.md` §6）。
 - 看原版素材用 `tools/pakx.pl`（格式：整文件字节 XOR `0xF7`，magic `0xBAC04AC0`，
   条目 = flags/nameWidth/name/size/FILETIME，数据区紧跟结束标记；**文件名是反斜杠**）。
