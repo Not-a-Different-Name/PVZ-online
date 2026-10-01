@@ -305,6 +305,27 @@ GameSelector::GameSelector(LawnApp* theApp)
 	);
 	mQuickPlayButton->Resize(mApp->mWidth - 150, 455, Sexy::IMAGE_QUICKPLAY_BACK_BUTTON->mWidth, Sexy::IMAGE_QUICKPLAY_BACK_BUTTON->mHeight);
 
+	// @pvz-online: M1 裁剪——PVP「互相送怪」目前只有协议挂点，玩法与美术未定，入口先做成
+	// 灰置占位：可见、不可点、点了没有任何反应（ButtonDepress 故意没有它的分支）。
+	// 底图用 IMAGE_BLANK = 不画牌子壳，只让 BrianneTod12 把字画在被腾空的小游戏牌位上；
+	// 位图字体没有中文字形，且这条路径走 g->DrawString 不经 TodStringTranslate，所以文案
+	// 直接写英文即可。mDisabled 之后 WidgetManager::GetWidgetAt 对禁用控件返回 NULL，
+	// 悬停/点击事件都不会派发过来，所以颜色只要改 COLOR_LABEL（HILITE 永远用不上）。
+	mPvpButton = MakeNewButton(
+		GameSelector::GameSelector_PvP,
+		this,
+		"PVP - COMING SOON",
+		nullptr,
+		Sexy::IMAGE_BLANK,
+		Sexy::IMAGE_BLANK,
+		Sexy::IMAGE_BLANK
+	);
+	mPvpButton->Resize(0, 0, 313, 130);
+	mPvpButton->mClip = false;
+	mPvpButton->mMouseVisible = false;
+	mPvpButton->mDisabled = true;
+	mPvpButton->SetColor(ButtonWidget::COLOR_LABEL, Color(128, 128, 128));
+
 	mApp->mMusic->MakeSureMusicIsPlaying(MusicTune::MUSIC_TUNE_TITLE_CRAZY_DAVE_MAIN_THEME);
 
 	mStartingGame = false;
@@ -400,6 +421,7 @@ GameSelector::GameSelector(LawnApp* theApp)
 	this->AddWidget(mAchievementsButton);
 	// (mAchievementsWidget is added to the manager, not here - see the constructor note.)
 	this->AddWidget(mQuickPlayButton);
+	this->AddWidget(mPvpButton); // @pvz-online: M1 PVP 灰置占位
 	// @pvz-online: the BACK button belongs to the (still stubbed) Quick-Play screen. On the
 	// real main menu the bottom-right corner shows the OPTIONS/HELP/QUIT vases (reanim art),
 	// not a BACK sign - hide it until ShowQuickPlayScreen() exists and can own it.
@@ -1015,7 +1037,7 @@ void GameSelector::Update()
 			// reason: this loop runs when the page slides away and would otherwise
 			// restore buttons the cull just removed.)
 			NewLawnButton* aMenuButtons[] = {
-				mAdventureButton, mSurvivalButton,
+				mAdventureButton, mPvpButton, mSurvivalButton,
 				mOptionsButton, mQuitButton, mHelpButton,
 				mAlmanacButton, mChangeUserButton,
 				mAchievementsButton
@@ -1214,6 +1236,9 @@ void GameSelector::Update()
 	TrackButton(mMinigameButton, "SelectorScreen_Survival_button", 0.0f, 0.0f);
 	TrackButton(mPuzzleButton, "SelectorScreen_Challenges_button", 0.0f, 0.0f);
 	TrackButton(mSurvivalButton, "SelectorScreen_ZenGarden_button", 0.0f, 0.0f);
+	// @pvz-online: M1 PVP 占位——挂在小游戏牌子被腾空的槽位（TrackButton 只读轨道的
+	// 当前位置，轨道本身已被 SELECTOR_OPEN 设为隐藏，不会画出原版小游戏牌子）
+	TrackButton(mPvpButton, "SelectorScreen_Survival_button", 0.0f, 0.0f);
 	TrackButton(mZenGardenButton, "SelectorScreen_BG_Right", 100.0f, 360.0f);
 	TrackButton(mOptionsButton, "SelectorScreen_BG_Right", 494.0f, 434.0f);
 	TrackButton(mQuitButton, "SelectorScreen_BG_Right", 644.0f, 469.0f);
