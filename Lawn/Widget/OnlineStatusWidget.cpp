@@ -1,5 +1,6 @@
 #include "OnlineStatusWidget.h"
 #include "../Online/NetSession.h"
+#include "../System/PlayerInfo.h"
 #include "../../LawnApp.h"
 #include "../../Resources.h"
 #include "graphics/Font.h"
@@ -8,7 +9,7 @@ namespace
 {
 	const int	CHIP_PAD_X		= 8;		// 文字到小条边缘
 	const int	CHIP_PAD_Y		= 5;
-	const int	CHIP_LINES		= 2;
+	const int	CHIP_LINES		= 3;		// 标题 / 名字+IP / 状态
 }
 
 OnlineStatusWidget::OnlineStatusWidget(LawnApp* theApp)
@@ -35,12 +36,17 @@ void OnlineStatusWidget::Update()
 	{
 		mVisible = aShow;
 		MarkDirty();
+		// 刚开会话：顺手把本机 IP 取一次。它要枚举网卡，不是每帧该干的活，
+		// 而会话开着这段时间地址不会变。
+		if (aShow) mIpText = NetLink::GetLocalIPv4Text();
 	}
 	if (!aShow) return;
 
-	// 宽度按当前两行文字量出来：状态行有长有短（"Hosting - waiting for player" 最长），
-	// 写死宽度不是勒着字就是留一大块空底。
+	// 宽度按三行里最宽的那行量出来：状态行有长有短（"Hosting - waiting for player" 最长），
+	// 名字那行还看玩家自己叫什么，写死宽度不是勒着字就是留一大块空底。
 	int aWidth = FONT_DWARVENTODCRAFT12->StringWidth(_S("CO-OP ONLINE"));
+	int anIdentityWidth = FONT_DWARVENTODCRAFT12->StringWidth(GetIdentityLine());
+	if (anIdentityWidth > aWidth) aWidth = anIdentityWidth;
 	int aStateWidth = FONT_DWARVENTODCRAFT12->StringWidth(GetStateLine());
 	if (aStateWidth > aWidth) aWidth = aStateWidth;
 	aWidth += CHIP_PAD_X * 2;
@@ -68,6 +74,10 @@ void OnlineStatusWidget::Draw(Graphics* g)
 	g->DrawString(_S("CO-OP ONLINE"), CHIP_PAD_X, aLineY);
 
 	aLineY += FONT_DWARVENTODCRAFT12->GetLineSpacing();
+	g->SetColor(Color(205, 230, 255));
+	g->DrawString(GetIdentityLine(), CHIP_PAD_X, aLineY);
+
+	aLineY += FONT_DWARVENTODCRAFT12->GetLineSpacing();
 	g->SetColor(Color(255, 255, 255));
 	g->DrawString(GetStateLine(), CHIP_PAD_X, aLineY);
 }
@@ -81,12 +91,29 @@ void OnlineStatusWidget::MouseUp(int x, int y, int theClickCount)
 	mApp->DoOnlineDialog();
 }
 
+// 本机是谁、在哪台机器上：名字取自本机存档（建房的那位把它念给队友，队友才好输 IP）。
+std::string OnlineStatusWidget::GetIdentityLine()
+{
+	// mName 是玩家自己在建档时敲的，位图字体画不出来的字符最多是空白——
+	// 名字和 IP 谁缺了都还有另一半顶着。
+	std::string aName = mApp->mPlayerInfo ? mApp->mPlayerInfo->mName : std::string();
+	if (aName.empty()) return mIpText;
+
+	if (mIpText.empty()) return aName;
+	return aName + "  " + mIpText;
+}
+
 // 一行短状态：详细说法在面板里（那两行 NetSession 的状态/提示足够啰嗦了），
 // 这里只回答"我现在是什么身份、卡在哪一步"。
 std::string OnlineStatusWidget::GetStateLine()
 {
 	NetSession* aSession = mApp->mOnlineSession;
 	if (!aSession || !aSession->IsActive()) return "";
+
+	// 主机按了关卡、正等队友就位。这时候会话还是 CONNECTED，不单独说一句的话
+	// 小条还写着 "pick a level"，看着像压根没点上。
+	if (mApp->IsOnlineWaitingStartAck())
+		return "Starting - waiting for teammate";
 
 	switch (aSession->GetState())
 	{
