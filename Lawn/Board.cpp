@@ -325,6 +325,11 @@ int Board::CountUntriggerLawnMowers()
 //0x408C30
 void Board::TryToSaveGame()
 {
+	// @pvz-online: 联机局不写档。这里存的是"这一局打到哪儿了、下次接着打"的续玩存档，
+	// 联机的一盘棋是两边一起走的，没有"下次我一个人接着打"这回事。三个调用点
+	// （退关、清桌面、关窗）都从这一个口子走，所以在这儿早退就够。
+	if (mApp->IsOnlineGame()) return;
+
 	std::string aFileName = GetSavedGameName(mApp->mGameMode, mApp->mPlayerInfo->mId);
 
 	if (NeedSaveGame())
@@ -1928,6 +1933,13 @@ void Board::CompleteEndLevelSequenceForSaving()
 //0x40C3E0
 void Board::FadeOutLevel()
 {
+	// @pvz-online: 联机局不淡出。淡出一开始这块棋盘就锁上了（mBoardFadeOutCounter >= 0
+	// 挡住鼠标），可"我这块草坪清干净了"不等于这一关结束——队友那儿漏过来的怪随时还会
+	// 走上我这块草坪，得能接着种。棋盘就停在"波次打完、怪随时会来"的状态里，
+	// 收摊由 LawnApp::UpdateOnlineEnd 按"所有席位都清完"统一做。
+	// （刷怪不会因此重开：mLevelAwardSpawned 一置位，UpdateZombieSpawning 就永远早退了。）
+	if (mApp->IsOnlineGame()) return;
+
 	if (mApp->mGameScene != GameScenes::SCENE_PLAYING)
 	{
 		RefreshSeedPacketFromCursor();
@@ -5353,6 +5365,14 @@ void Board::ZombiesWon(Zombie* theZombie)
 	// 也不能认输：认了就是把队友也一起判了。
 	if (mApp->IsOnlineGame() && mApp->mOnlineSession->GetRelayTargetSeat() != NetProto::SEAT_UNSET)
 		return;
+
+	// @pvz-online: 到了这儿就是全队败——最后一名席位漏怪，没有下一家可传。输的不是
+	// "谁漏谁出局"，是所有人，所以先把话告诉队友（他们收到就一起收摊，见 UpdateOnlineEnd），
+	// 本机再照原版把"房子被吃"演完。mBoardResult 已经输了就不用再报一遍。
+	if (mApp->IsOnlineGame() && mApp->mBoardResult != BoardResult::BOARDRESULT_LOST)
+	{
+		mApp->mOnlineSession->SendGameOver(NetProto::GAMEOVER_ZOMBIES_WON);
+	}
 
 	ClearAdvice(AdviceType::ADVICE_NONE);
 	mApp->mBoardResult = BoardResult::BOARDRESULT_LOST;

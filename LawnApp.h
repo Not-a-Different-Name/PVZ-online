@@ -147,6 +147,9 @@ public:
 	// 每个开合入口挂钩子）；掉线时要收掉的是"替队友弹的那张"，玩家自己按的不动。
 	bool							mPauseMenuWasOpen;
 	bool							mPauseMenuFromPeer;
+	// 棋盘上那句"等队友们"是不是我们挂上去的。是的话状态一变要由我们收掉——
+	// 不记这一笔就会把别人（戴夫、波次提示）的 advice 一起擦掉。
+	bool							mOnlineWaitingAdviceOn;
 
 public:
 	LawnApp();
@@ -213,6 +216,9 @@ public:
 	void							UpdateOnlinePause();
 	// @pvz-online: 会话事件（连上了 / 掉线了）的收口。以前没人取，事件在队列里越堆越多。
 	void							UpdateOnlineEvents();
+	// @pvz-online: 这一关对全队结束没有——报"我清完了"、全队清完就一起回菜单、
+	// 队友那边报了全队败就跟着收摊。棋盘侧的收口都在这儿（见函数上的注释）。
+	void							UpdateOnlineEnd();
 	void							ShowGameSelector();
 	void							KillGameSelector();
 	void							ShowAwardScreen(AwardType theAwardType, bool theShowAchievements); // @Patoke: add argument

@@ -205,11 +205,15 @@ struct MsgStartLevel
 	int32_t			mLevelSeed;
 };
 
-// LEVEL_DONE：{ srcSeat, dstSeat }
+// LEVEL_DONE：{ srcSeat, dstSeat, u8 done }（1 = 我这块草坪清完了，0 = 又不清净了）
+// 两态而不是"报一次就完"：漏怪本来就是往下一席位那块草坪送的，队友那儿漏过来的怪一落地，
+// 收的那一方就又不算清完了——末席尤其明显，它清完还能再吃一记漏怪。一个位就能让各家的
+// "谁清完了"始终是当下的事实，不用再为"撤回"开一条消息。
 struct MsgLevelDone
 {
 	uint8_t			mSrcSeat;
 	uint8_t			mDstSeat;
+	uint8_t			mDone;
 };
 
 // START_ACK：{ srcSeat, dstSeat, u8 accepted }
@@ -333,6 +337,7 @@ inline int EncodeLevelDone(uint8_t* theBuffer, int theCapacity, const MsgLevelDo
 	Writer aWriter(theBuffer, theCapacity);
 	aWriter.U8(theMsg.mSrcSeat);
 	aWriter.U8(theMsg.mDstSeat);
+	aWriter.U8(theMsg.mDone);
 	return aWriter.Overflowed() ? -1 : aWriter.Size();
 }
 
@@ -341,6 +346,7 @@ inline bool DecodeLevelDone(const uint8_t* theData, int theSize, MsgLevelDone& t
 	Reader aReader(theData, theSize);
 	theMsg.mSrcSeat = aReader.U8();
 	theMsg.mDstSeat = aReader.U8();
+	theMsg.mDone = aReader.U8();
 	return !aReader.Overflowed();
 }
 

@@ -18,7 +18,7 @@ const int	HEARTBEAT_PAYLOAD_SIZE	= 6;	// src, dst, u32 tick
 const int	BYE_PAYLOAD_SIZE		= 3;	// src, dst, u8 reason
 const int	LEVEL_EXIT_PAYLOAD_SIZE	= 3;	// src, dst, u8 reason
 const int	PAUSE_PAYLOAD_SIZE		= 3;	// src, dst, u8 paused
-const int	LEVEL_DONE_PAYLOAD_SIZE	= 2;	// src, dst
+const int	LEVEL_DONE_PAYLOAD_SIZE	= 3;	// src, dst, u8 done
 const int	GAME_OVER_PAYLOAD_SIZE	= 3;	// src, dst, u8 reason
 
 // M2 就两个席位。换位规则按"环上的后一位"写，所以扩到四席位时只要把这个数
@@ -273,15 +273,16 @@ bool NetSession::TakePendingLevelExit(NetProto::MsgLevelExit& theMsg)
 // ★ 全队判胜 / 全队败
 // ====================================================================================================
 
-// 我这边清完了。棋盘每帧都会问一次，所以去重放在这里：一局里"我清完了"只说一次。
-bool NetSession::SendLevelDone()
+// 我这边草坪清干净了没有。棋盘每帧都会问一次，所以去重放在这里：跟上次发出去的值一样就不发。
+bool NetSession::SendLevelDone(bool theDone)
 {
 	if (mRole == Role::NONE || !IsConnected()) return false;
-	if (mSeatDone[mLocalSeat]) return false;		// 已经报过了
+	if (mSeatDone[mLocalSeat] == theDone) return false;		// 状态没变，队友那边本来就是对的
 
 	NetProto::MsgLevelDone aMsg;
 	aMsg.mSrcSeat = mLocalSeat;
 	aMsg.mDstSeat = mPeerSeat;
+	aMsg.mDone = theDone ? 1 : 0;
 
 	uint8_t aPayload[NetProto::MAX_PAYLOAD];
 	int aSize = NetProto::EncodeLevelDone(aPayload, (int)sizeof(aPayload), aMsg);
@@ -290,8 +291,9 @@ bool NetSession::SendLevelDone()
 	// 发出去了才记账：没发出去（socket 坏了）下一帧还要再试
 	if (!SendRaw(NetProto::MSG_LEVEL_DONE, aPayload, aSize)) return false;
 
-	mSeatDone[mLocalSeat] = true;
-	TodLog("[net] told the teammates my lawn is clear (seat %u)", (unsigned)mLocalSeat);
+	mSeatDone[mLocalSeat] = theDone;
+	TodLog("[net] told the teammates my lawn is %s (seat %u)", theDone ? "clear" : "busy again",
+		(unsigned)mLocalSeat);
 	return true;
 }
 
@@ -922,8 +924,11 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 				break;
 			}
 
-			mSeatDone[aMsg.mSrcSeat] = true;
-			TodLog("[net] seat %u says its lawn is clear", (unsigned)aMsg.mSrcSeat);
+			mSeatDone[aMsg.mSrcSeat] = aMsg.mDone != 0;
+			// 有人又不清净了，"全队过关"要重新攒——不然那句已经收过的摊会挡住下一次
+			if (!aMsg.mDone) mAllDoneTaken = false;
+			TodLog("[net] seat %u says its lawn is %s", (unsigned)aMsg.mSrcSeat,
+				aMsg.mDone ? "clear" : "busy again");
 		}
 		break;
 

@@ -97,10 +97,10 @@ public:
 	// 对面退出了这一局没有（取一次就清）。
 	bool			TakePendingLevelExit(NetProto::MsgLevelExit& theMsg);
 
-	// 我这边清完了（草坪上再没有僵尸）。全队判胜靠这条：**所有上座席位**都报过
-	// "清完了"，这一关才算过。棋盘每帧都会问一次，所以这里自己去重——一局只说一次。
-	// 真的发出去了才返回 true。
-	bool			SendLevelDone();
+	// 我这块草坪清干净了没有（theDone=1 清完了 / 0 又来了怪）。全队判胜靠这条：
+	// **所有上座席位**都报着"清完了"，这一关才算过。棋盘每帧都会问一次，所以这里
+	// 按"上次发出去的值"去重，值没变就不发。真的发出去了才返回 true。
+	bool			SendLevelDone(bool theDone);
 
 	// 我这边清完了没有 / 其他席位是不是都清完了（棋盘上那句"等队友"看这个）。
 	bool			IsLocalLevelDone() const;
@@ -239,8 +239,9 @@ private:
 	bool				mStartAckAccepted;	// 上一条 START_ACK 是"进场"还是"现在不行"
 	bool				mHasPendingLevelExit;
 	NetProto::MsgLevelExit	mPendingLevelExit;
-	// 一局里"谁清完了"，按下标=席位号（0 号位不用）。用数组而不是两个布尔：
+	// 各席位"草坪清干净了没有"，按下标=席位号（0 号位不用）。用数组而不是两个布尔：
 	// M2 只有两个席位，M3 是四个，判胜的写法不该跟着席位数量重写一遍。
+	// 自己那一格同时是"上次发出去的值"，发送去重就靠它。
 	bool				mSeatDone[NetProto::MAX_PLAYERS + 1];
 	bool				mAllDoneTaken;		// "全队都清完了"已经收过摊了
 	bool				mHasPendingGameOver;

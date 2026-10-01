@@ -4,6 +4,7 @@
 #include <string.h>
 #include "LawnApp.h"
 #include "Lawn/Board.h"
+#include "Lawn/MessageWidget.h"
 #include "Lawn/Plant.h"
 #include "Lawn/Zombie.h"
 #include "Lawn/Cutscene.h"
@@ -160,6 +161,7 @@ LawnApp::LawnApp()
 	mOnlineStartWaitFrames = 0;
 	mPauseMenuWasOpen = false;
 	mPauseMenuFromPeer = false;
+	mOnlineWaitingAdviceOn = false;
 }
 
 //0x44EDD0、0x44EDF0
@@ -808,6 +810,71 @@ void LawnApp::UpdateOnlineEvents()
 
 		default:
 			break;
+		}
+	}
+}
+
+// @pvz-online: 这一关对全队结束了没有。三条出路都汇在这儿：
+//   ① 我这块草坪清干净了 → 告诉队友（会话层按"上次发出去的值"去重，每帧问也只发一次）；
+//   ② 所有席位都清完了 → 两边各自回主菜单（不发奖杯、不写档）；
+//   ③ 队友报的全队败（末席漏怪）→ 跟着收摊。
+//
+// "清干净了"看的是棋盘自己的判据 mLevelAwardSpawned（波次打完、场上没怪，和原版掉过关
+// 种子包是同一个条件），**并且**眼前真的一只怪都没有——队友那儿漏过来的怪一落地，
+// 我这句"清完了"就得当场撤回，不然会赢在一只还在走的僵尸上。
+void LawnApp::UpdateOnlineEnd()
+{
+	if (!mOnlineSession) return;
+
+	// ①
+	if (mBoard != nullptr)
+	{
+		bool aClear = mBoard->mLevelAwardSpawned && !mBoard->AreEnemyZombiesOnScreen();
+		mOnlineSession->SendLevelDone(aClear);
+
+		// 单方先清完：棋盘上挂一句"等队友们"，别让人以为卡住了。这条消息自己会过期
+		// （15 秒），所以在快到期时续一次，让等待期间一直看得见。
+		bool aWaiting = aClear && !mOnlineSession->IsPeerLevelDone();
+		if (aWaiting && (!mBoard->mAdvice->IsBeingDisplayed() || mBoard->mAdvice->mDuration < 50))
+		{
+			mBoard->DisplayAdvice(_S("Waiting for the teammates..."),
+				MessageStyle::MESSAGE_STYLE_BIG_MIDDLE, AdviceType::ADVICE_NONE);
+			mOnlineWaitingAdviceOn = true;
+		}
+		else if (!aWaiting && mOnlineWaitingAdviceOn)
+		{
+			mBoard->ClearAdvice(AdviceType::ADVICE_NONE);
+			mOnlineWaitingAdviceOn = false;
+		}
+	}
+
+	// ② 全队清完
+	if (mOnlineSession->TakeAllLevelsDone())
+	{
+		mOnlineWaitingAdviceOn = false;
+		if (mBoard != nullptr)
+		{
+			TodLog("[net] every lawn is clear - back to the main menu");
+			DoBackToMain(false);
+			LawnMessageBox(Dialogs::DIALOG_MESSAGE, "Level complete",
+				"All lawns are clear - the level is over for the whole team.\nBack to the main menu.",
+				"OK", "", Dialog::BUTTONS_FOOTER);
+		}
+		return;
+	}
+
+	// ③ 队友那边的末席漏了怪（或是他主动收摊）
+	NetProto::MsgGameOver aOver;
+	if (mOnlineSession->TakePendingGameOver(aOver))
+	{
+		mOnlineWaitingAdviceOn = false;
+		if (mBoard != nullptr)
+		{
+			TodLog("[net] the team lost (reason %u) - back to the main menu", (unsigned)aOver.mReason);
+			DoBackToMain(false);
+			LawnMessageBox(Dialogs::DIALOG_MESSAGE, "Team defeated",
+				"The zombies got through on a teammate's lawn.\nBack to the main menu.",
+				"OK", "", Dialog::BUTTONS_FOOTER);
 		}
 	}
 }
@@ -1821,6 +1888,11 @@ void LawnApp::HandleCmdLineParam(const std::string& theParamName, const std::str
 // GOTY @Patoke: 0x41E420
 bool LawnApp::UpdatePlayerProfileForFinishingLevel()
 {
+	// @pvz-online: 联机局不写档。这里是"过关推进存档"的唯一闸口——CheckForGameEnd 和
+	// Board::CompleteEndLevelSequenceForSaving 都汇到这儿——所以在这儿早退最省事、也最不漏。
+	// 联机这一局不推进 mLevel、不发奖杯，两边各打各的、打完各回各的菜单（成长留 M4）。
+	if (IsOnlineGame()) return false;
+
 	bool aUnlockedNewChallenge = false;
 
 	if (IsAdventureMode())
@@ -1908,6 +1980,12 @@ bool LawnApp::UpdatePlayerProfileForFinishingLevel()
 void LawnApp::CheckForGameEnd()
 {
 	if (mBoard == nullptr || !mBoard->mLevelComplete)
+		return;
+
+	// @pvz-online: 联机局不在这儿收摊。下面那套是单机的"过关"：发奖杯、进下一关、推存档。
+	// 联机里一块棋盘打完只说明"我这块草坪清了"，全队判胜要等所有席位都报过，由
+	// UpdateOnlineEnd 统一收。联机局的 mLevelComplete 本来就是冷的（FadeOutLevel 早退了）。
+	if (IsOnlineGame())
 		return;
 
 	bool aGotPostGameAchievements = mBoard->CheckForPostGameAchievements();
@@ -2084,6 +2162,7 @@ void LawnApp::UpdateFrames()
 	UpdateOnlineLevelExit();
 	UpdateOnlinePause();
 	UpdateOnlineEvents();
+	UpdateOnlineEnd();
 
 	if ((!mActive || mMinimized) && mBoard)
 	{
