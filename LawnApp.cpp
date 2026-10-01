@@ -465,7 +465,10 @@ void LawnApp::PreNewGame(GameMode theGameMode, bool theLookForSavedGame)
 	//     然后等队友回 START_ACK 再进场（见 UpdateOnlineStart）；
 	//   不能开局（没连上 / 客户端）→ 什么都不做。
 	// 客户端的关卡是主机说了算，所以客户端在这条路上永远不会自己开出一局来。
-	if (mOnlineSession && mOnlineSession->IsActive())
+	// 掉线的会话按"没有会话"算：这时候点关卡该开一局单机，而不是被一句
+	// "联机局不能开局"永远挡在门外（那正是"只能断开连接才恢复"的老毛病）。
+	if (mOnlineSession && mOnlineSession->IsActive()
+		&& mOnlineSession->GetState() != NetSession::State::DEAD)
 	{
 		// 上一次开局还在等队友回应：这次的请求按下不表（不然等待期间每触发一次就重发一条
 		// START_LEVEL，对面收到一串）。等出头了再说。
@@ -530,9 +533,11 @@ bool LawnApp::IsOnlineGame()
 
 // 谁能开局：单机随便；联机局里只有已经连上的主机能定关卡。
 // 没连上（面板上正写着"等人加入 / 正在连"）和客户端都返回 false。
+// 例外：掉线（DEAD）的会话已经不联机了，这时候一律放行——让人能接着开单机局。
 bool LawnApp::IsOnlineStartAllowed()
 {
 	if (!mOnlineSession || !mOnlineSession->IsActive()) return true;
+	if (mOnlineSession->GetState() == NetSession::State::DEAD) return true;
 
 	return mOnlineSession->IsConnected() && mOnlineSession->GetRole() == NetSession::Role::HOST;
 }
@@ -763,6 +768,32 @@ void LawnApp::UpdateOnlinePause()
 		KillNewOptionsDialog();
 		mPauseMenuWasOpen = false;
 		mPauseMenuFromPeer = false;
+	}
+}
+
+// @pvz-online: 会话事件的收口。以前没人取 PollEvent，事件在队列里越堆越多，掉线这件事
+// 就只写在状态行上。现在至少取走 + 打一行日志；局中掉线的处理（提示、回主菜单）
+// 留给 C6。
+void LawnApp::UpdateOnlineEvents()
+{
+	if (!mOnlineSession) return;
+
+	NetSession::Event anEvent;
+	while (mOnlineSession->PollEvent(anEvent))
+	{
+		switch (anEvent.mType)
+		{
+		case NetSession::EventType::CONNECTED:
+			TodLog("[net] the teammate is here - you can pick a level now");
+			break;
+
+		case NetSession::EventType::DISCONNECTED:
+			TodLog("[net] connection lost: %s", mOnlineSession->GetStatusText().c_str());
+			break;
+
+		default:
+			break;
+		}
 	}
 }
 
@@ -2037,6 +2068,7 @@ void LawnApp::UpdateFrames()
 	UpdateOnlineRelay();
 	UpdateOnlineLevelExit();
 	UpdateOnlinePause();
+	UpdateOnlineEvents();
 
 	if ((!mActive || mMinimized) && mBoard)
 	{

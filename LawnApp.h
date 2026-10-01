@@ -211,6 +211,8 @@ public:
 	// @pvz-online: 队友暂停/继续了，本机跟着弹/收暂停菜单；本机自己开了关了也告诉队友。
 	// 任一方都能暂停、也任一方都能继续（共识模型，不搞请求/同意）。
 	void							UpdateOnlinePause();
+	// @pvz-online: 会话事件（连上了 / 掉线了）的收口。以前没人取，事件在队列里越堆越多。
+	void							UpdateOnlineEvents();
 	void							ShowGameSelector();
 	void							KillGameSelector();
 	void							ShowAwardScreen(AwardType theAwardType, bool theShowAchievements); // @Patoke: add argument
