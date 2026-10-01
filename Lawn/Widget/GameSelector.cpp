@@ -404,6 +404,18 @@ GameSelector::GameSelector(LawnApp* theApp)
 	// real main menu the bottom-right corner shows the OPTIONS/HELP/QUIT vases (reanim art),
 	// not a BACK sign - hide it until ShowQuickPlayScreen() exists and can own it.
 	mQuickPlayButton->mVisible = false;
+	// @pvz-online: M1 模式裁剪——主菜单只留「关卡(冒险) / 无尽(生存) / 图鉴 / 成就 / 换用户 /
+	// 选项 / 帮助 / 退出」。小游戏、解谜、商店、禅境花园、僵尸工坊的入口整体下架。
+	// 隐藏即不可点：WidgetContainer 只把鼠标事件派发给 mVisible 的子控件。
+	// 美术：这五个按钮里小游戏/解谜/商店/禅境花园都用真图（IMAGE_*）画自己，隐藏
+	// widget 即隐藏美术；僵尸工坊是例外——它用 IMAGE_BLANK，木牌由 reanim 的
+	// woodsign3 轨道画，必须单独隐藏该轨道（woodsign2=换用户，保留）。
+	mMinigameButton->mVisible = false;
+	mPuzzleButton->mVisible = false;
+	mStoreButton->mVisible = false;
+	mZenGardenButton->mVisible = false;
+	mZombatarButton->mVisible = false;
+	aSelectorReanim->AssignRenderGroupToTrack("woodsign3", RENDER_GROUP_HIDDEN);
 	this->AddWidget(mOverlayWidget);
 
 	TodHesitationTrace("gameselectorinit");
@@ -437,10 +449,12 @@ void GameSelector::SyncButtons()
 
 	mAlmanacButton->mDisabled = !aAlmanacAvailable;
 	mAlmanacButton->mVisible = aAlmanacAvailable;
+	// @pvz-online: M1 裁剪——商店 / 禅境花园 / 僵尸工坊入口下架，不随解锁状态再显示
+	//（mDisabled 照旧跟随解锁状态，只影响已隐藏按钮的颜色，无副作用）
 	mStoreButton->mDisabled = !aStoreOpen;
-	mStoreButton->mVisible = aStoreOpen;
+	mStoreButton->mVisible = false;
 	mZombatarButton->mDisabled = false; // @Patoke: added these
-	mZombatarButton->mVisible = true;
+	mZombatarButton->mVisible = false;
 
 	Reanimation* aSelectorReanim = mApp->ReanimationGet(mSelectorReanimID);
 	if (aAlmanacAvailable)
@@ -460,7 +474,7 @@ void GameSelector::SyncButtons()
 		aSelectorReanim->AssignRenderGroupToPrefix("almanac_key_shadow", RENDER_GROUP_HIDDEN);
 
 	mZenGardenButton->mDisabled = !aZenGardenOpen;
-	mZenGardenButton->mVisible = aZenGardenOpen;
+	mZenGardenButton->mVisible = false; // @pvz-online: M1 裁剪——禅境花园入口下架
 
 	// @Patoke: all of these are already assigned in the constructor, why assign them here? (this fixes the hover highlight)
 	if (mMinigamesLocked)
@@ -990,11 +1004,15 @@ void GameSelector::Update()
 		{
 			mMenuHiddenForAchievements = aPageUp;
 			// (mQuickPlayButton is deliberately absent: it stays hidden until the
-			// Quick-Play screen exists, so this loop must never restore it to visible.)
+			// Quick-Play screen exists, so this loop must never restore it to visible.
+			// @pvz-online: the M1-culled entries - mMinigameButton, mPuzzleButton,
+			// mStoreButton, mZenGardenButton, mZombatarButton - are absent for the same
+			// reason: this loop runs when the page slides away and would otherwise
+			// restore buttons the cull just removed.)
 			NewLawnButton* aMenuButtons[] = {
-				mAdventureButton, mMinigameButton, mPuzzleButton, mSurvivalButton,
-				mZenGardenButton, mOptionsButton, mQuitButton, mHelpButton,
-				mStoreButton, mAlmanacButton, mChangeUserButton, mZombatarButton,
+				mAdventureButton, mSurvivalButton,
+				mOptionsButton, mQuitButton, mHelpButton,
+				mAlmanacButton, mChangeUserButton,
 				mAchievementsButton
 			};
 			for (int i = 0; i < (int)(sizeof(aMenuButtons) / sizeof(aMenuButtons[0])); i++)
@@ -1474,16 +1492,8 @@ bool GameSelector::ShouldDoZenTuturialBeforeAdventure()
 // GOTY @Patoke: 0x44F5C0
 void GameSelector::ButtonDepress(int theId)
 {
-	if (theId == GameSelector::GameSelector_Minigame && mMinigamesLocked)
-	{
-		mApp->LawnMessageBox(Dialogs::DIALOG_MESSAGE, _S("[MODE_LOCKED]"), _S("[MINIGAME_LOCKED_MESSAGE]"), _S("[DIALOG_BUTTON_OK]"), _S(""), Dialog::BUTTONS_FOOTER);
-		return;
-	}
-	if (theId == GameSelector::GameSelector_Puzzle && mPuzzleLocked)
-	{
-		mApp->LawnMessageBox(Dialogs::DIALOG_MESSAGE, _S("[MODE_LOCKED]"), _S("[PUZZLE_LOCKED_MESSAGE]"), _S("[DIALOG_BUTTON_OK]"), _S(""), Dialog::BUTTONS_FOOTER);
-		return;
-	}
+	// @pvz-online: M1 裁剪——小游戏/解谜的锁定提示随入口一起下架（这两个按钮已
+	// mVisible=false，收不到点击）。生存按钮保留（无尽联机入口）。
 	if (theId == GameSelector::GameSelector_Survival && mSurvivalLocked)
 	{
 		mApp->LawnMessageBox(Dialogs::DIALOG_MESSAGE, _S("[MODE_LOCKED]"), _S("[SURVIVAL_LOCKED_MESSAGE]"), _S("[DIALOG_BUTTON_OK]"), _S(""), Dialog::BUTTONS_FOOTER);
@@ -1494,14 +1504,6 @@ void GameSelector::ButtonDepress(int theId)
 	{
 	case GameSelector::GameSelector_Adventure:
 		ClickedAdventure();
-		break;
-	case GameSelector::GameSelector_Minigame:
-		mApp->KillGameSelector();
-		mApp->ShowChallengeScreen(ChallengePage::CHALLENGE_PAGE_CHALLENGE);
-		break;
-	case GameSelector::GameSelector_Puzzle:
-		mApp->KillGameSelector();
-		mApp->ShowChallengeScreen(ChallengePage::CHALLENGE_PAGE_PUZZLE);
 		break;
 	case GameSelector::GameSelector_Survival:
 		mApp->KillGameSelector();
@@ -1520,35 +1522,9 @@ void GameSelector::ButtonDepress(int theId)
 	case GameSelector::GameSelector_ChangeUser:
 		mApp->DoUserDialog();
 		break;
-	case GameSelector::GameSelector_Store:
-	{
-		StoreScreen* aStore = mApp->ShowStoreScreen();
-		aStore->WaitForResult(true);
-		if (aStore->mGoToTreeNow)
-		{
-			mApp->KillGameSelector();
-			mApp->PreNewGame(GameMode::GAMEMODE_TREE_OF_WISDOM, false);
-		}
-		else
-			mApp->mMusic->MakeSureMusicIsPlaying(MusicTune::MUSIC_TUNE_TITLE_CRAZY_DAVE_MAIN_THEME);
-
-		break;
-	}
 	case GameSelector::GameSelector_Almanac:
 		mApp->DoAlmanacDialog()->WaitForResult(true);
 		mApp->mMusic->MakeSureMusicIsPlaying(MusicTune::MUSIC_TUNE_TITLE_CRAZY_DAVE_MAIN_THEME);
-		break;
-	case GameSelector::GameSelector_ZenGarden:
-		mApp->KillGameSelector();
-		mApp->PreNewGame(GameMode::GAMEMODE_CHALLENGE_ZEN_GARDEN, false);
-		if (ShouldDoZenTuturialBeforeAdventure())
-			mApp->mZenGarden->SetupForZenTutorial();
-		break;
-	case GameSelector::GameSelector_Zombatar:
-		//if (mApp->mPlayerInfo->mAckZombatarTOS)
-		//	GameSelector::ShowZombatarScreen();
-		//else
-		//	LawnApp::ShowZombatarTOS();
 		break;
 	case GameSelector::GameSelector_AchievementsBack: // @Patoke: seems to be unused
 		SlideTo(0, 0);

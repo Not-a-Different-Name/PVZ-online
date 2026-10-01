@@ -408,6 +408,21 @@ bool LawnApp::WriteCurrentUserConfig()
 	return true;
 }
 
+// @pvz-online: M1 裁剪下架的玩法范围（见 PreNewGame）。GAMEMODE_CHALLENGE_ICE 与
+// GAMEMODE_CHALLENGE_ZEN_GARDEN 虽然落在挑战区间内，但前者是 Ice Demo 的流程、
+// 后者是冒险 45 关的奖励教学，都保留可达，故显式排除
+static bool IsPvzModeCulled(GameMode theGameMode)
+{
+	if (theGameMode >= GAMEMODE_SURVIVAL_NORMAL_STAGE_1 && theGameMode <= GAMEMODE_SURVIVAL_HARD_STAGE_5)
+		return true;
+	if (theGameMode >= GAMEMODE_CHALLENGE_WAR_AND_PEAS && theGameMode <= GAMEMODE_CHALLENGE_SQUIRREL
+		&& theGameMode != GAMEMODE_CHALLENGE_ICE && theGameMode != GAMEMODE_CHALLENGE_ZEN_GARDEN)
+		return true;
+	if (theGameMode >= GAMEMODE_SCARY_POTTER_1 && theGameMode <= GAMEMODE_PUZZLE_I_ZOMBIE_ENDLESS)
+		return true;
+	return false;
+}
+
 //0x44F560
 // GOTY @Patoke: 0x452820
 void LawnApp::PreNewGame(GameMode theGameMode, bool theLookForSavedGame)
@@ -417,6 +432,16 @@ void LawnApp::PreNewGame(GameMode theGameMode, bool theLookForSavedGame)
 	//	ShowGameSelector();
 	//	return;
 	//}
+
+	// @pvz-online: M1 模式裁剪——拦住已下架的玩法，作为入口隐藏之外的第二道防线
+	//（正常流程走不到这里）。用"黑名单"而不是严格白名单，是为了不打断仍然保留的内部流：
+	//冒险 45 关的禅境花园教学（AwardScreen 的通关奖励分支 → CHALLENGE_ZEN_GARDEN）、
+	//商店 / 智慧树的 TREE_OF_WISDOM 内部跳转，以及 Ice Demo 的 CHALLENGE_ICE。
+	if (IsPvzModeCulled(theGameMode))
+	{
+		TodTrace("PreNewGame: mode %d is culled in M1, ignored", (int)theGameMode);
+		return;
+	}
 
 	mGameMode = theGameMode;
 	if (theLookForSavedGame && TryLoadGame())
