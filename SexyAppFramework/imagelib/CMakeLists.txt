@@ -4,6 +4,14 @@
 
 include(ExternalProject)
 
+# Pre-vendored third-party sources live one level above the repo checkout
+# (<root>/third_party next to <root>/re-plants-vs-zombies), referenced relatively so
+# no machine-specific absolute path is baked in (see TRANSFER.md).
+get_filename_component(THIRD_PARTY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../third_party" ABSOLUTE)
+if(NOT EXISTS "${THIRD_PARTY_DIR}")
+    message(FATAL_ERROR "third_party not found at ${THIRD_PARTY_DIR} - keep the third_party/ folder next to re-plants-vs-zombies/")
+endif()
+
 # MSVC has no bundled NASM; disable JPEG SIMD assembly
 set(libjpeg_extra_args "")
 if(MSVC)
@@ -23,7 +31,7 @@ endif()
 
 set(libjpeg_dir "${CMAKE_BINARY_DIR}/libjpeg")
 ExternalProject_Add(libjpeg-src
-    GIT_REPOSITORY      C:/Users/ThinkPad/pvz-online/third_party/libjpeg-turbo # github.com/libjpeg-turbo/libjpeg-turbo.git
+    GIT_REPOSITORY      "${THIRD_PARTY_DIR}/libjpeg-turbo" # github.com/libjpeg-turbo/libjpeg-turbo.git
     GIT_TAG             3.0.1
     SOURCE_DIR          "${libjpeg_dir}"
     BINARY_DIR          "${libjpeg_dir}"
@@ -59,7 +67,7 @@ ExternalProject_Add(libjpeg-src
 
 set(zlib_dir "${CMAKE_BINARY_DIR}/zlib")
 ExternalProject_Add(zlib-src
-    GIT_REPOSITORY          C:/Users/ThinkPad/pvz-online/third_party/zlib # github.com/madler/zlib.git
+    GIT_REPOSITORY          "${THIRD_PARTY_DIR}/zlib" # github.com/madler/zlib.git
     GIT_TAG                 v1.3
     SOURCE_DIR              "${zlib_dir}"
     CMAKE_ARGS              "-DCMAKE_TOOLCHAIN_FILE:FILEPATH=${CMAKE_TOOLCHAIN_FILE}"
@@ -91,7 +99,7 @@ ExternalProject_Add(zlib-src
 
 set(libpng_dir "${CMAKE_BINARY_DIR}/libpng")
 ExternalProject_Add(libpng-src
-    GIT_REPOSITORY          C:/Users/ThinkPad/pvz-online/third_party/libpng # github.com/glennrp/libpng.git
+    GIT_REPOSITORY          "${THIRD_PARTY_DIR}/libpng" # github.com/glennrp/libpng.git
     GIT_TAG                 v1.6.40
     DEPENDS                 zlib-src
     SOURCE_DIR              "${libpng_dir}"
