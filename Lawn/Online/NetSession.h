@@ -58,6 +58,18 @@ public:
 	bool			StartHost(uint16_t thePort = NetProto::DEFAULT_PORT);
 	bool			StartJoin(const char* theHost, uint16_t thePort = NetProto::DEFAULT_PORT);
 
+	// 本机玩家名：握手时报给对面，名册 UI 靠它显示"谁坐在几号位"。
+	// 名字是"这台机器是谁"，跟某一局无关——StartHost 第一件事就是 ResetToOff，
+	// 所以它不能放在那里面清（清了就变成"每次开局都得重设"，忘一次名册就空了）。
+	void			SetLocalName(const char* theName);
+
+	// 名册：某个席位上的人叫什么。空席位返回空串。
+	// 席位号从 1 数到 NetProto::MAX_PLAYERS，UI 从上往下照着画就是顺位顺序。
+	std::string		GetSeatName(uint8_t theSeat) const;
+	// 这个席位上现在有没有人。自己那席只要有身份就算有人（建房/加入那一刻起），
+	// 对面那席要真连上才算——还在等人进来的时候那个位子是空的。
+	bool			IsSeatOccupied(uint8_t theSeat) const;
+
 	// 主动收摊（先给对方发 BYE）。之后可以重新 StartHost / StartJoin。
 	void			Close();
 
@@ -154,6 +166,8 @@ private:
 	State				mState;
 	uint8_t				mLocalSeat;
 	uint8_t				mPeerSeat;
+	std::string			mLocalName;			// 不随 ResetToOff 清（见 SetLocalName）
+	std::string			mPeerName;			// 对面报的名字，连接作废时跟着一起清
 	int					mFramesSincePacket;
 	int					mFramesSinceHeartbeat;
 	uint32_t			mHeartbeatTick;

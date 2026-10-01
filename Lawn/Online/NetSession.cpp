@@ -7,8 +7,8 @@
 namespace
 {
 
-const int	HELLO_PAYLOAD_SIZE		= 6;	// src, dst, u16 version, u16 build
-const int	HELLO_ACK_PAYLOAD_SIZE	= 7;	// src, dst, u16 version, u16 build, u8 accepted
+const int	HELLO_PAYLOAD_SIZE		= 6 + NetProto::NAME_SIZE;		// src, dst, u16 version, u16 build, 名字
+const int	HELLO_ACK_PAYLOAD_SIZE	= 7 + NetProto::NAME_SIZE;		// src, dst, u16 version, u16 build, u8 accepted, 名字
 const int	START_LEVEL_PAYLOAD_SIZE = 11;	// src, dst, u8 mode, u32 level, i32 seed
 const int	START_ACK_PAYLOAD_SIZE	= 2;	// src, dst
 const int	SWAP_REQUEST_PAYLOAD_SIZE = 2;	// src, dst
@@ -25,6 +25,21 @@ const uint8_t	SEAT_COUNT		= 2;
 uint8_t NextSeatInRing(uint8_t theSeat)
 {
 	return (theSeat >= SEAT_COUNT) ? NetProto::SEAT_HOST : (uint8_t)(theSeat + 1);
+}
+
+// 名字只留可打印 ASCII：位图字体没有别的字形，画出来只能是空白或乱码；何况这是对面
+// 发来的东西，控制字符更不能原样进绘制。剔掉而不是截断——"Alice玩家" 至少还认得出 Alice。
+std::string SanitizeName(const char* theName, int theMaxBytes)
+{
+	std::string aResult;
+	if (!theName) return aResult;
+
+	for (int i = 0; i < theMaxBytes && theName[i]; i++)
+	{
+		unsigned char aChar = (unsigned char)theName[i];
+		if (aChar >= 32 && aChar < 127) aResult += (char)aChar;
+	}
+	return aResult;
 }
 
 }
@@ -103,6 +118,28 @@ bool NetSession::StartJoin(const char* theHost, uint16_t thePort)
 	mHintText = "Port " + std::to_string((unsigned)thePort);
 	UpdateStatusText();
 	return true;
+}
+
+void NetSession::SetLocalName(const char* theName)
+{
+	// 截到定长字段放得下的长度：线上字段就这么大，留着更长的名字只会让两边看到的不一样
+	mLocalName = SanitizeName(theName, NetProto::NAME_SIZE - 1);
+}
+
+std::string NetSession::GetSeatName(uint8_t theSeat) const
+{
+	if (theSeat == NetProto::SEAT_UNSET) return std::string();
+	if (theSeat == mLocalSeat) return mLocalName;
+	if (theSeat == mPeerSeat) return mPeerName;
+	return std::string();
+}
+
+bool NetSession::IsSeatOccupied(uint8_t theSeat) const
+{
+	if (theSeat == NetProto::SEAT_UNSET) return false;
+	if (theSeat == mLocalSeat) return true;		// 建房/加入那一刻起，自己那席就有人了
+	// 对面那席要真连上才算：还在等人进来的时候，名册上那个位子该是空的
+	return theSeat == mPeerSeat && IsConnected();
 }
 
 void NetSession::Close()
@@ -314,6 +351,7 @@ void NetSession::ResetToOff()
 	mState = State::OFF;
 	mLocalSeat = NetProto::SEAT_UNSET;
 	mPeerSeat = NetProto::SEAT_UNSET;
+	mPeerName.clear();			// 对面的名字跟着这一局作废；自己的名字留着（见 SetLocalName）
 	mFramesSincePacket = 0;
 	mFramesSinceHeartbeat = 0;
 	mHeartbeatTick = 0;
@@ -336,8 +374,8 @@ void NetSession::SetConnected()
 	mState = State::CONNECTED;
 	mFramesSincePacket = 0;
 	mFramesSinceHeartbeat = 0;
-	TodLog("[net] handshake complete - local seat %u, peer seat %u",
-		(unsigned)mLocalSeat, (unsigned)mPeerSeat);
+	TodLog("[net] handshake complete - local seat %u (%s), peer seat %u (%s)",
+		(unsigned)mLocalSeat, mLocalName.c_str(), (unsigned)mPeerSeat, mPeerName.c_str());
 	PushEvent(EventType::CONNECTED);
 }
 
@@ -480,6 +518,7 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 			}
 
 			mPeerSeat = aMsg.mSrcSeat;
+			mPeerName = SanitizeName(aMsg.mName, NetProto::NAME_SIZE);
 			SendHelloAck(true);
 			SetConnected();
 		}
@@ -512,6 +551,7 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 				SetDead("Build mismatch - update both machines to the same build.", "Build mismatch");
 				return;
 			}
+			mPeerName = SanitizeName(aMsg.mName, NetProto::NAME_SIZE);
 			SetConnected();
 		}
 		break;
@@ -694,6 +734,7 @@ void NetSession::SendHello()
 	aMsg.mDstSeat = mPeerSeat;
 	aMsg.mVersion = NetProto::PROTOCOL_VERSION;
 	aMsg.mBuild = NetProto::MOD_BUILD;
+	NetProto::SetName(aMsg.mName, mLocalName.c_str());
 
 	uint8_t aPayload[NetProto::MAX_PAYLOAD];
 	int aSize = NetProto::EncodeHello(aPayload, (int)sizeof(aPayload), aMsg);
@@ -708,6 +749,7 @@ void NetSession::SendHelloAck(bool theAccepted)
 	aMsg.mVersion = NetProto::PROTOCOL_VERSION;
 	aMsg.mBuild = NetProto::MOD_BUILD;
 	aMsg.mAccepted = theAccepted ? 1 : 0;
+	NetProto::SetName(aMsg.mName, mLocalName.c_str());
 
 	uint8_t aPayload[NetProto::MAX_PAYLOAD];
 	int aSize = NetProto::EncodeHelloAck(aPayload, (int)sizeof(aPayload), aMsg);

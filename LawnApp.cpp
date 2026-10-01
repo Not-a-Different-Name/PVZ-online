@@ -1273,6 +1273,9 @@ void LawnApp::DoOnlineDialog()
 	if (!mOnlineSession)
 	{
 		mOnlineSession = new NetSession();
+		// 名字取本机档案里的玩家名：握手里报给对面，小条名册上"谁坐在几号位"就是它。
+		// 会话只在这里新建，名字设一次就够——它不随每局收摊清掉（见 SetLocalName）。
+		if (mPlayerInfo) mOnlineSession->SetLocalName(mPlayerInfo->mName.c_str());
 	}
 
 	KillDialog(Dialogs::DIALOG_ONLINE);

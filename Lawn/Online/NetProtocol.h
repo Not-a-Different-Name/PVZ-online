@@ -2,6 +2,7 @@
 #define __NETPROTOCOL_H__
 
 #include <cstdint>
+#include <cstring>
 
 // @pvz-online: M2 联机协议 v1。
 //
@@ -28,13 +29,22 @@ const uint16_t	PROTOCOL_VERSION	= 1;
 // 2 → 3：漏怪传递（ESCAPED_ZOMBIE 开始真的发、真的收）。
 // 3 → 4：位置交换（SWAP_SEATS）。
 // 4 → 5：换位改成"和后一位换、对面同意才生效"（SWAP_REQUEST + SWAP_REPLY）。
-const uint16_t	MOD_BUILD			= 5;
+// 5 → 6：握手里互报玩家名（名册 UI 要显示每个席位上是谁）。
+const uint16_t	MOD_BUILD			= 6;
 
 const uint16_t	DEFAULT_PORT		= 27777;
 
 const uint8_t	SEAT_UNSET			= 0;
 const uint8_t	SEAT_HOST			= 1;	// 建房方
 const uint8_t	SEAT_CLIENT			= 2;	// 加入方
+
+// @pvz-online: 一局的席位上限。M2 实际只开两个席位（见 NetSession.cpp 的 SEAT_COUNT），
+// 但名册 UI 按这个数把位子全画出来——上下顺序就是顺位，空着的位子也得看得见。
+const uint8_t	MAX_PLAYERS			= 4;
+
+// 名字字段定长：这样"长度对不上 = 对面是别的构建版"那条检测还是准的（见 NetSession 收包），
+// 改名长短不会把包长带得忽长忽短。位图字体只有 ASCII 字形，名字也够用。
+const int		NAME_SIZE			= 16;
 
 const int		HEADER_SIZE			= 4;
 const int		MAX_PAYLOAD			= 256;
@@ -116,6 +126,13 @@ public:
 	uint16_t		U16() { uint16_t aLow = U8(); uint16_t aHigh = U8(); return (uint16_t)(aLow | (aHigh << 8)); }
 	uint32_t		U32() { uint32_t aLow = U16(); uint32_t aHigh = U16(); return aLow | (aHigh << 16); }
 	int32_t			I32() { return (int32_t)U32(); }
+	// 读一段原始字节（定长字段）。读不够时 U8 会置溢出位并给 0，所以目标先被补成 0，
+	// 不越界地把字段填满——长度不对由调用方按"构建不符"拦下。
+	void			Bytes(void* theDest, int theCount)
+	{
+		uint8_t* aDest = (uint8_t*)theDest;
+		for (int i = 0; i < theCount; i++) aDest[i] = U8();
+	}
 
 	int				Remain() const { return mSize - mPos; }
 	bool			Overflowed() const { return mOverflow; }
@@ -131,16 +148,25 @@ private:
 // ★ 载荷（v1 全集；编解码函数按需在用到的那一步补上）
 // ====================================================================================================
 
-// HELLO：{ srcSeat=2, dstSeat=1, u16 version, u16 build }
+// 把名字装进定长字段：截到 NAME_SIZE-1 个字符，剩下的补 0——补 0 对面才能当 C 串读。
+inline void SetName(char* theDest, const char* theSource)
+{
+	memset(theDest, 0, NAME_SIZE);
+	if (!theSource) return;
+	for (int i = 0; i < NAME_SIZE - 1 && theSource[i]; i++) theDest[i] = theSource[i];
+}
+
+// HELLO：{ srcSeat=2, dstSeat=1, u16 version, u16 build, char name[16] }
 struct MsgHello
 {
 	uint8_t			mSrcSeat;
 	uint8_t			mDstSeat;
 	uint16_t		mVersion;
-	uint16_t		mBuild;		// MOD_BUILD；C1/C2 的旧包没有这两个字节，长度就不一样
+	uint16_t		mBuild;		// MOD_BUILD；旧包没有这两个字节也没有名字，长度就不一样
+	char			mName[NAME_SIZE];
 };
 
-// HELLO_ACK：{ srcSeat=1, dstSeat=2, u16 version, u16 build, u8 accepted }
+// HELLO_ACK：{ srcSeat=1, dstSeat=2, u16 version, u16 build, u8 accepted, char name[16] }
 struct MsgHelloAck
 {
 	uint8_t			mSrcSeat;
@@ -148,6 +174,7 @@ struct MsgHelloAck
 	uint16_t		mVersion;
 	uint16_t		mBuild;
 	uint8_t			mAccepted;
+	char			mName[NAME_SIZE];
 };
 
 // START_LEVEL：{ srcSeat, dstSeat, u8 gameMode, u32 level, i32 levelSeed }
@@ -348,6 +375,7 @@ inline int EncodeHello(uint8_t* theBuffer, int theCapacity, const MsgHello& theM
 	aWriter.U8(theMsg.mDstSeat);
 	aWriter.U16(theMsg.mVersion);
 	aWriter.U16(theMsg.mBuild);
+	aWriter.Bytes(theMsg.mName, NAME_SIZE);
 	return aWriter.Overflowed() ? -1 : aWriter.Size();
 }
 
@@ -358,6 +386,9 @@ inline bool DecodeHello(const uint8_t* theData, int theSize, MsgHello& theMsg)
 	theMsg.mDstSeat = aReader.U8();
 	theMsg.mVersion = aReader.U16();
 	theMsg.mBuild = aReader.U16();
+	aReader.Bytes(theMsg.mName, NAME_SIZE);
+	// 对面写满了 16 个字节没留结束符也不能读出去：这里自己封口，解码出来的名字永远是 C 串
+	theMsg.mName[NAME_SIZE - 1] = 0;
 	return !aReader.Overflowed();
 }
 
@@ -369,6 +400,7 @@ inline int EncodeHelloAck(uint8_t* theBuffer, int theCapacity, const MsgHelloAck
 	aWriter.U16(theMsg.mVersion);
 	aWriter.U16(theMsg.mBuild);
 	aWriter.U8(theMsg.mAccepted);
+	aWriter.Bytes(theMsg.mName, NAME_SIZE);
 	return aWriter.Overflowed() ? -1 : aWriter.Size();
 }
 
@@ -380,6 +412,8 @@ inline bool DecodeHelloAck(const uint8_t* theData, int theSize, MsgHelloAck& the
 	theMsg.mVersion = aReader.U16();
 	theMsg.mBuild = aReader.U16();
 	theMsg.mAccepted = aReader.U8();
+	aReader.Bytes(theMsg.mName, NAME_SIZE);
+	theMsg.mName[NAME_SIZE - 1] = 0;
 	return !aReader.Overflowed();
 }
 

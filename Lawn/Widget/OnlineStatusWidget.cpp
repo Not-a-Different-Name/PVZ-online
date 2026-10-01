@@ -9,7 +9,8 @@ namespace
 {
 	const int	CHIP_PAD_X		= 8;		// 文字到小条边缘
 	const int	CHIP_PAD_Y		= 5;
-	const int	CHIP_LINES		= 3;		// 标题 / 名字+IP / 状态
+	const int	CHIP_LINES		= 6;		// 标题 / P1..P4 / 状态
+	const int	TITLE_GAP		= 12;		// 标题和后面那截 IP 之间的空当
 }
 
 OnlineStatusWidget::OnlineStatusWidget(LawnApp* theApp)
@@ -42,11 +43,17 @@ void OnlineStatusWidget::Update()
 	}
 	if (!aShow) return;
 
-	// 宽度按三行里最宽的那行量出来：状态行有长有短（"Hosting - waiting for player" 最长），
+	// 宽度按六行里最宽的那行量出来：状态行有长有短（"Hosting - waiting for player" 最长），
 	// 名字那行还看玩家自己叫什么，写死宽度不是勒着字就是留一大块空底。
-	int aWidth = FONT_DWARVENTODCRAFT12->StringWidth(_S("CO-OP ONLINE"));
-	int anIdentityWidth = FONT_DWARVENTODCRAFT12->StringWidth(GetIdentityLine());
-	if (anIdentityWidth > aWidth) aWidth = anIdentityWidth;
+	int aWidth = FONT_DWARVENTODCRAFT12->StringWidth(GetTitleLine());
+	std::string aTitleIp = GetTitleIpText();
+	if (!aTitleIp.empty())
+		aWidth += TITLE_GAP + FONT_DWARVENTODCRAFT12->StringWidth(aTitleIp);
+	for (int aSeat = 1; aSeat <= NetProto::MAX_PLAYERS; aSeat++)
+	{
+		int aSeatWidth = FONT_DWARVENTODCRAFT12->StringWidth(GetSeatLine(aSeat));
+		if (aSeatWidth > aWidth) aWidth = aSeatWidth;
+	}
 	int aStateWidth = FONT_DWARVENTODCRAFT12->StringWidth(GetStateLine());
 	if (aStateWidth > aWidth) aWidth = aStateWidth;
 	aWidth += CHIP_PAD_X * 2;
@@ -69,15 +76,36 @@ void OnlineStatusWidget::Draw(Graphics* g)
 
 	g->SetFont(FONT_DWARVENTODCRAFT12);
 	int aLineY = CHIP_PAD_Y + FONT_DWARVENTODCRAFT12->GetAscent();
+	int aLineHeight = FONT_DWARVENTODCRAFT12->GetLineSpacing();
 
+	std::string aTitle = GetTitleLine();
 	g->SetColor(Color(255, 208, 80));
-	g->DrawString(_S("CO-OP ONLINE"), CHIP_PAD_X, aLineY);
+	g->DrawString(aTitle, CHIP_PAD_X, aLineY);
 
-	aLineY += FONT_DWARVENTODCRAFT12->GetLineSpacing();
-	g->SetColor(Color(205, 230, 255));
-	g->DrawString(GetIdentityLine(), CHIP_PAD_X, aLineY);
+	// 主机名后面挂着本机 IP：队友要输的就是它，念的时候得看得见
+	std::string aTitleIp = GetTitleIpText();
+	if (!aTitleIp.empty())
+	{
+		g->SetColor(Color(160, 200, 255));
+		g->DrawString(aTitleIp,
+			CHIP_PAD_X + FONT_DWARVENTODCRAFT12->StringWidth(aTitle) + TITLE_GAP, aLineY);
+	}
 
-	aLineY += FONT_DWARVENTODCRAFT12->GetLineSpacing();
+	// 名册：四个位子画满，从上到下就是顺位。自己在最亮那行，空位压暗——
+	// 一眼看得出"我在几号位、后面还有没有人"。
+	for (int aSeat = 1; aSeat <= NetProto::MAX_PLAYERS; aSeat++)
+	{
+		aLineY += aLineHeight;
+		if (aSession->GetLocalSeat() == aSeat)
+			g->SetColor(Color(255, 255, 255));
+		else if (aSession->IsSeatOccupied((uint8_t)aSeat))
+			g->SetColor(Color(205, 230, 255));
+		else
+			g->SetColor(Color(150, 150, 150));
+		g->DrawString(GetSeatLine(aSeat), CHIP_PAD_X, aLineY);
+	}
+
+	aLineY += aLineHeight;
 	g->SetColor(Color(255, 255, 255));
 	g->DrawString(GetStateLine(), CHIP_PAD_X, aLineY);
 }
@@ -91,30 +119,41 @@ void OnlineStatusWidget::MouseUp(int x, int y, int theClickCount)
 	mApp->DoOnlineDialog();
 }
 
-// 本机是谁、在哪台机器上：名字取自本机存档（建房的那位把它念给队友，队友才好输 IP）。
-std::string OnlineStatusWidget::GetIdentityLine()
+std::string OnlineStatusWidget::GetTitleLine()
 {
-	// mName 是玩家自己在建档时敲的，位图字体画不出来的字符最多是空白——
-	// 名字和 IP 谁缺了都还有另一半顶着。
-	std::string aName = mApp->mPlayerInfo ? mApp->mPlayerInfo->mName : std::string();
+	return "CO-OP ONLINE";
+}
 
-	std::string aBody;
-	if (aName.empty())
-		aBody = mIpText;
-	else if (mIpText.empty())
-		aBody = aName;
-	else
-		aBody = aName + "  " + mIpText;
-
-	// 前面挂上席位号：漏怪往哪边走看的就是它，开局前可以在面板里换（Swap）。
-	// 名字和 IP 都没有的时候剩一行光秃秃的 "P1"，也比什么都不说强。
+// 本机 IP：只有主机需要它——队友要输进 Join 框里的就是这一串，主机得念得出来。
+// 客户端念自己的地址没有用，那行就空着（空着不占宽度）。
+std::string OnlineStatusWidget::GetTitleIpText()
+{
 	NetSession* aSession = mApp->mOnlineSession;
-	if (aSession && aSession->GetLocalSeat() == NetProto::SEAT_HOST)
-		return aBody.empty() ? "P1" : "P1  " + aBody;
-	if (aSession && aSession->GetLocalSeat() == NetProto::SEAT_CLIENT)
-		return aBody.empty() ? "P2" : "P2  " + aBody;
+	if (!aSession || aSession->GetRole() != NetSession::Role::HOST) return "";
+	return mIpText;
+}
 
-	return aBody;
+// 名册的一行。位子空着就说空着（"--"），别看名字那栏是空的就以为是没画出来。
+std::string OnlineStatusWidget::GetSeatLine(int theSeat)
+{
+	NetSession* aSession = mApp->mOnlineSession;
+	std::string aText = "P" + std::to_string(theSeat);
+	if (!aSession) return aText + "  --";
+
+	bool aMine = (aSession->GetLocalSeat() == theSeat);
+	if (!aSession->IsSeatOccupied((uint8_t)theSeat))
+		return aText + "  --";
+
+	std::string aName = aSession->GetSeatName((uint8_t)theSeat);
+	// 名字一个能画的字形都没有（比如玩家建档时敲的是中文）时，自己那行还有 (you)
+	// 顶着，队友那行就得直说没名字，免得看着像个占了位子又不说话的鬼影。
+	if (aName.empty() && !aMine)
+		aName = "(no name)";
+	if (!aName.empty())
+		aText += "  " + aName;
+	if (aMine)
+		aText += " (you)";
+	return aText;
 }
 
 // 一行短状态：详细说法在面板里（那两行 NetSession 的状态/提示足够啰嗦了），
