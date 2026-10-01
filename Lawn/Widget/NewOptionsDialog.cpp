@@ -4,6 +4,7 @@
 #include "Almanac.h"
 #include "../LawnCommon.h"
 #include "../../LawnApp.h"
+#include "../Online/NetSession.h"
 #include "../System/Music.h"
 #include "../../Resources.h"
 #include "NewOptionsDialog.h"
@@ -81,13 +82,20 @@ NewOptionsDialog::NewOptionsDialog(LawnApp* theApp, bool theFromGameSelector) :
     {
         mRestartButton->SetVisible(false);
     }
-    if (!mApp->CanShowAlmanac() || 
-        mApp->mGameScene == GameScenes::SCENE_LEVEL_INTRO || 
+    if (!mApp->CanShowAlmanac() ||
+        mApp->mGameScene == GameScenes::SCENE_LEVEL_INTRO ||
         mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_ZEN_GARDEN ||
-        mApp->mGameMode == GameMode::GAMEMODE_TREE_OF_WISDOM || 
+        mApp->mGameMode == GameMode::GAMEMODE_TREE_OF_WISDOM ||
         mFromGameSelector)
     {
         mAlmanacButton->SetVisible(false);
+    }
+
+    // @pvz-online: 联机局不给重开——一边重开、另一边还在打，两边棋盘就对不上了。
+    // 这条与上面几条并列：不管走哪个分支进来，最后都以联机为准。
+    if (mApp->IsOnlineGame())
+    {
+        mRestartButton->SetVisible(false);
     }
 }
 
@@ -188,6 +196,14 @@ void NewOptionsDialog::Draw(Sexy::Graphics* g)
     TodDrawString(g, _S("Sound FX"), 186, 167 + aSfxOffset, FONT_DWARVENTODCRAFT18, aTextColor, DrawStringJustification::DS_ALIGN_RIGHT);
     TodDrawString(g, _S("3D Acceleration"), 274, 197 + a3DAccelOffset, FONT_DWARVENTODCRAFT18, aTextColor, DrawStringJustification::DS_ALIGN_RIGHT);
     TodDrawString(g, _S("Full Screen"), 274, 229 + aFullScreenOffset, FONT_DWARVENTODCRAFT18, aTextColor, DrawStringJustification::DS_ALIGN_RIGHT);
+
+    // @pvz-online: 这次暂停是队友按的，得说清楚——不然玩家会以为自己误触了。
+    // 标题是烤进背景图里的，面板上半（y≈105 起）空着，就在这画一行。
+    if (!mFromGameSelector && mApp->mOnlineSession && mApp->mOnlineSession->IsPausedByPeer())
+    {
+        TodDrawString(g, _S("Teammate paused the game"), mWidth / 2, 112,
+            FONT_DWARVENTODCRAFT18, Sexy::Color(255, 220, 100), DrawStringJustification::DS_ALIGN_CENTER);
+    }
 }
 
 //0x45CF50
@@ -334,6 +350,12 @@ void NewOptionsDialog::ButtonDepress(int theId)
 
     case NewOptionsDialog::NewOptionsDialog_Restart:
     {
+        // @pvz-online: 联机局不给重开（按钮在构造里已经藏起来了，这是兜底）
+        if (mApp->IsOnlineGame())
+        {
+            break;
+        }
+
         if (mApp->mBoard)
         {
             SexyString aDialogTitle;
