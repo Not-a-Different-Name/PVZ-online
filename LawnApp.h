@@ -139,6 +139,9 @@ public:
 	// 主机广播完开局命令、正等队友 START_ACK 的那段时间。这期间玩家还留在主菜单上
 	// （参数已经按覆盖值定好），ACK 一到才 NewGame()——两边进场只差一个单程。
 	bool							mOnlineWaitingStartAck;
+	// 这次等待已经持续了多少帧。等太久（对面卡了/忙）就当这次开局作废，人留在菜单上，
+	// 总好过盯着一个点不动的界面。
+	int								mOnlineStartWaitFrames;
 
 public:
 	LawnApp();
@@ -192,6 +195,9 @@ public:
 	void							ClearOnlineStartOverride();
 	// 主机正等队友确认进场（面板/小条据此显示"等队友就位"）。
 	bool							IsOnlineWaitingStartAck() const { return mOnlineWaitingStartAck; }
+	// 现在点开局，会不会走"广播命令、等队友 START_ACK"那条路（= 已连上的主机）。
+	// 会的话主菜单得先留着不能拆——不然等待的那几秒屏幕上什么都没有（见 GameSelector::Update）。
+	bool							WillWaitForStartAck();
 	void							UpdateOnlineStart();
 	void							UpdateOnlineRelay();
 	// @pvz-online: 队友退关了我这边跟着退。theNotifyOnline=false 用于"是我先退的/我是被通知的"，

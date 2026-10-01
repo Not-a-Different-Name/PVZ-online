@@ -1090,7 +1090,16 @@ void GameSelector::Update()
 	if (mStartingGame)
 	{
 		mStartingGameCounter++;
-		if (mStartingGameCounter > 450)
+		// @pvz-online: 联机主机点关卡之后是"广播命令、等队友确认"才进场（见 LawnApp::UpdateOnlineStart）。
+		// 等待那几秒主菜单得留着——拆了它，屏幕上既没菜单也没棋盘，就是一个只能靠断开连接
+		// 才能解开的黑屏。等待结束（进场 / 回绝 / 超时 / 掉线）由那边收拾，那时才拆。
+		// 下面这些单机分支（冰版演示 / 开场动画 / 商店 / 禅境教学）在联机局里都不适用。
+		if (mStartingGameCounter > 450 && mApp->WillWaitForStartAck())
+		{
+			if (mStartingGameCounter == 451)
+				mApp->PreNewGame(GameMode::GAMEMODE_ADVENTURE, true);
+		}
+		else if (mStartingGameCounter > 450)
 		{
 			mApp->KillGameSelector();
 

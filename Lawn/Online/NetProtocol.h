@@ -31,7 +31,9 @@ const uint16_t	PROTOCOL_VERSION	= 1;
 // 4 → 5：换位改成"和后一位换、对面同意才生效"（SWAP_REQUEST + SWAP_REPLY）。
 // 5 → 6：握手里互报玩家名（名册 UI 要显示每个席位上是谁）。
 // 6 → 7：退关同步（一方退回主菜单，对面跟着退，不再一边在关卡里一边在菜单上）。
-const uint16_t	MOD_BUILD			= 7;
+// 7 → 8：开局确认分两态（START_ACK 带 accepted：队友在关卡里时明确回绝，
+//        主机不再对着黑屏空等到天荒地老）。
+const uint16_t	MOD_BUILD			= 8;
 
 const uint16_t	DEFAULT_PORT		= 27777;
 
@@ -205,13 +207,15 @@ struct MsgLevelDone
 	uint8_t			mDstSeat;
 };
 
-// START_ACK：{ srcSeat, dstSeat }
-// 客户端说"开局命令收到了，我这就进场"。主机收到才进——两边进场只差一个单程，
-// 也顺手挡住了"客户端当时不在主菜单、命令被丢掉，主机一个人开着关跑下去"。
+// START_ACK：{ srcSeat, dstSeat, u8 accepted }
+// 客户端说"开局命令收到，我这就进场"（accepted=1）；或者"现在不行"（accepted=0，
+// 比如人还在关卡里、接不了这条命令）。主机收到才进场——两边进场只差一个单程；
+// 回绝的话主机当场把这次开局作废，不至于对着没有界面的屏幕干等。
 struct MsgStartAck
 {
 	uint8_t			mSrcSeat;
 	uint8_t			mDstSeat;
+	uint8_t			mAccepted;
 };
 
 // SWAP_REQUEST：{ srcSeat, dstSeat }（dst = 请求者的后一位，末位的后一位是首位）
@@ -313,6 +317,7 @@ inline int EncodeStartAck(uint8_t* theBuffer, int theCapacity, const MsgStartAck
 	Writer aWriter(theBuffer, theCapacity);
 	aWriter.U8(theMsg.mSrcSeat);
 	aWriter.U8(theMsg.mDstSeat);
+	aWriter.U8(theMsg.mAccepted);
 	return aWriter.Overflowed() ? -1 : aWriter.Size();
 }
 
@@ -321,6 +326,7 @@ inline bool DecodeStartAck(const uint8_t* theData, int theSize, MsgStartAck& the
 	Reader aReader(theData, theSize);
 	theMsg.mSrcSeat = aReader.U8();
 	theMsg.mDstSeat = aReader.U8();
+	theMsg.mAccepted = aReader.U8();
 	return !aReader.Overflowed();
 }
 

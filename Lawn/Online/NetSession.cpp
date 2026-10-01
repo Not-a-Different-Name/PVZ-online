@@ -10,7 +10,7 @@ namespace
 const int	HELLO_PAYLOAD_SIZE		= 6 + NetProto::NAME_SIZE;		// src, dst, u16 version, u16 build, 名字
 const int	HELLO_ACK_PAYLOAD_SIZE	= 7 + NetProto::NAME_SIZE;		// src, dst, u16 version, u16 build, u8 accepted, 名字
 const int	START_LEVEL_PAYLOAD_SIZE = 11;	// src, dst, u8 mode, u32 level, i32 seed
-const int	START_ACK_PAYLOAD_SIZE	= 2;	// src, dst
+const int	START_ACK_PAYLOAD_SIZE	= 3;	// src, dst, u8 accepted
 const int	SWAP_REQUEST_PAYLOAD_SIZE = 2;	// src, dst
 const int	SWAP_REPLY_PAYLOAD_SIZE = 3;	// src, dst, u8 accepted
 const int	ESCAPED_ZOMBIE_PAYLOAD_SIZE = 22;	// src, dst, u8 row, u16 type, u8 flags, i32 ×4 血量
@@ -60,6 +60,7 @@ NetSession::NetSession()
 	mShortStatus = "Connection lost";
 	mHasPendingStart = false;
 	mHasStartAck = false;
+	mStartAckAccepted = false;
 	mHasPendingLevelExit = false;
 	mSwapRequestPending = false;
 	mSwapAskPending = false;
@@ -235,11 +236,12 @@ bool NetSession::TakePendingStartLevel(NetProto::MsgStartLevel& theMsg)
 	return true;
 }
 
-bool NetSession::TakeStartAck()
+bool NetSession::TakeStartAck(bool& theAccepted)
 {
 	if (!mHasStartAck) return false;
 
 	mHasStartAck = false;
+	theAccepted = mStartAckAccepted;
 	return true;
 }
 
@@ -325,6 +327,7 @@ void NetSession::DiscardLevelPackets()
 {
 	mHasPendingStart = false;
 	mHasStartAck = false;
+	mStartAckAccepted = false;
 	mHasPendingLevelExit = false;
 	mPendingEscapedZombies.clear();
 }
@@ -657,7 +660,8 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 			}
 			// 存下来就走：开局要换场景、动一堆 UI，那是主循环的活。
 			mHasStartAck = true;
-			TodLog("[net] the teammate is ready, the host may enter the level");
+			mStartAckAccepted = aMsg.mAccepted != 0;
+			TodLog("[net] the teammate answered the start: %s", mStartAckAccepted ? "in" : "not now");
 		}
 		break;
 
@@ -820,19 +824,21 @@ bool NetSession::SendStartLevel(uint8_t theGameMode, uint32_t theLevel, int32_t 
 	return SendRaw(NetProto::MSG_START_LEVEL, aPayload, aSize);
 }
 
-void NetSession::SendStartAck()
+void NetSession::SendStartAck(bool theAccepted)
 {
 	if (mRole != Role::CLIENT || !IsConnected()) return;
 
 	NetProto::MsgStartAck aMsg;
 	aMsg.mSrcSeat = mLocalSeat;
 	aMsg.mDstSeat = mPeerSeat;
+	aMsg.mAccepted = theAccepted ? 1 : 0;
 
 	uint8_t aPayload[NetProto::MAX_PAYLOAD];
 	int aSize = NetProto::EncodeStartAck(aPayload, (int)sizeof(aPayload), aMsg);
 	if (aSize > 0)
 	{
-		TodLog("[net] telling the host I am entering the level");
+		TodLog(theAccepted ? "[net] telling the host I am entering the level"
+			: "[net] telling the host I cannot enter the level right now");
 		SendRaw(NetProto::MSG_START_ACK, aPayload, aSize);
 	}
 }

@@ -157,6 +157,7 @@ LawnApp::LawnApp()
 	mOnlineStartSeed = 0;
 	mOnlineWasConnected = false;
 	mOnlineWaitingStartAck = false;
+	mOnlineStartWaitFrames = 0;
 }
 
 //0x44EDD0、0x44EDF0
@@ -464,8 +465,30 @@ void LawnApp::PreNewGame(GameMode theGameMode, bool theLookForSavedGame)
 	// 客户端的关卡是主机说了算，所以客户端在这条路上永远不会自己开出一局来。
 	if (mOnlineSession && mOnlineSession->IsActive())
 	{
+		// 上一次开局还在等队友回应：这次的请求按下不表（不然等待期间每触发一次就重发一条
+		// START_LEVEL，对面收到一串）。等出头了再说。
+		if (mOnlineWaitingStartAck)
+		{
+			TodTrace("PreNewGame: still waiting for the teammate's answer, ignored");
+			return;
+		}
+
+		// 棋盘还在就来开新局（暂停菜单里的 Restart Level）：联机不给重开——两边棋盘各跑各的，
+		// 重开必然对不上。C 里把菜单上那颗按钮收掉，这儿是兜底。
+		if (mBoard != nullptr)
+		{
+			TodTrace("PreNewGame: online game, restarting a level is not allowed, ignored");
+			return;
+		}
+
 		if (!IsOnlineStartAllowed())
 		{
+			// 开不了（没连上 / 客户端）。要是主菜单已经被拆掉（点了开局又赶上队友掉线），
+			// 就地补一个回来：拆了菜单又没有棋盘，屏幕上就什么都不剩了。
+			if (mGameScene == GameScenes::SCENE_MENU && mGameSelector == nullptr)
+			{
+				ShowGameSelector();
+			}
 			TodTrace("PreNewGame: online session cannot start right now, ignored");
 			return;
 		}
@@ -483,6 +506,7 @@ void LawnApp::PreNewGame(GameMode theGameMode, bool theLookForSavedGame)
 
 		SetOnlineStartOverride(aLevel, aSeed);
 		mOnlineWaitingStartAck = true;
+		mOnlineStartWaitFrames = 0;
 		TodLog("[net] host picked level %d, waiting for the teammate before entering", aLevel);
 		mOnlineSession->SendStartLevel((uint8_t)mGameMode, (uint32_t)aLevel, aSeed);
 		return;
@@ -511,6 +535,15 @@ bool LawnApp::IsOnlineStartAllowed()
 	return mOnlineSession->IsConnected() && mOnlineSession->GetRole() == NetSession::Role::HOST;
 }
 
+// 现在点开局会不会走"广播命令、等队友 START_ACK"这条路。会的话主菜单先留着：
+// 等待的那几秒里，屏幕上至少得是个能看、等不到还能重试的菜单，而不是一片黑。
+bool LawnApp::WillWaitForStartAck()
+{
+	return mOnlineSession != nullptr
+		&& mOnlineSession->IsConnected()
+		&& mOnlineSession->GetRole() == NetSession::Role::HOST;
+}
+
 void LawnApp::SetOnlineStartOverride(int theLevel, int theSeed)
 {
 	mHasOnlineStart = true;
@@ -534,30 +567,66 @@ void LawnApp::ClearOnlineStartOverride()
 
 // @pvz-online: 两边进场都从这儿走。每条开局命令只能用一次，用过就清；
 // 清掉之后 GetLevelRandSeed 又回到本机自己的算法。
+// 主机广播完开局命令之后，队友回 START_ACK 需要的时间上限（600 帧 ≈ 6 秒）。
+// 超过就当这次开局作废——人留在主菜单上，比盯着一个点不动的界面强。
+static const int ONLINE_START_WAIT_TIMEOUT_FRAMES = 600;
+
 void LawnApp::UpdateOnlineStart()
 {
 	if (!mOnlineSession) return;
 
-	// 主机侧：开局命令已经广播出去了，等队友的 START_ACK。收到了才开自己那一局——
-	// 用的还是广播出去那份覆盖值，所以两边进场只差一个单程。等待期间队友要是没了
-	// （心跳超时 / 主动退出），这次开局作废，人还好好留在主菜单上。
+	// 主机侧：开局命令已经广播出去了，等队友的 START_ACK。等待期间主菜单留着
+	// （GameSelector::Update 会保住它），所以每条出路都得让菜单重新可用：
+	// 要么进场，要么把这次开局作废、人还好好待着。
 	if (mOnlineWaitingStartAck)
 	{
-		// 先看队友还在不在：ACK 和掉线挤在同一帧的话，宁可这一次开局作废，
+		mOnlineStartWaitFrames++;
+
+		// ① 队友没了：ACK 和掉线挤在同一帧的话，宁可这一次开局作废，
 		// 也不能一个人开着关跑下去。
 		if (!mOnlineSession->IsConnected())
 		{
 			mOnlineWaitingStartAck = false;
 			ClearOnlineStartOverride();
+			ShowGameSelector();
 			TodTrace("online start: teammate left before entering, start dropped");
+			return;
 		}
-		else if (mOnlineSession->TakeStartAck())
+
+		bool aAccepted = false;
+		if (mOnlineSession->TakeStartAck(aAccepted))
 		{
 			mOnlineWaitingStartAck = false;
-			TodTrace("online start: teammate is in, entering the level");
-			KillDialog(Dialogs::DIALOG_ONLINE);
-			KillGameSelector();
-			NewGame();
+			if (aAccepted)
+			{
+				TodTrace("online start: teammate is in, entering the level");
+				KillDialog(Dialogs::DIALOG_ONLINE);
+				KillGameSelector();
+				NewGame();
+			}
+			else
+			{
+				// ② 队友回绝（他人还在关卡里）：这次开局不作数，说清楚为什么，菜单原样可用
+				ClearOnlineStartOverride();
+				ShowGameSelector();
+				TodLog("online start: the teammate turned it down (still in a level?)");
+				LawnMessageBox(Dialogs::DIALOG_MESSAGE, "Teammate is busy",
+					"Your teammate is still in a level.\nAsk them to return to the main menu first.",
+					"OK", "", Dialog::BUTTONS_FOOTER);
+			}
+			return;
+		}
+
+		// ③ 等太久了：队友可能卡住了、或者这条命令根本没送到。作废，菜单留给玩家重试。
+		if (mOnlineStartWaitFrames > ONLINE_START_WAIT_TIMEOUT_FRAMES)
+		{
+			mOnlineWaitingStartAck = false;
+			ClearOnlineStartOverride();
+			ShowGameSelector();
+			TodLog("online start: no answer from the teammate in time, start dropped");
+			LawnMessageBox(Dialogs::DIALOG_MESSAGE, "No answer",
+				"Your teammate did not answer in time.\nTry starting the level again.",
+				"OK", "", Dialog::BUTTONS_FOOTER);
 		}
 		return;
 	}
@@ -568,10 +637,11 @@ void LawnApp::UpdateOnlineStart()
 
 	if (mGameScene != GameScenes::SCENE_MENU)
 	{
-		// 不在主菜单就先不接这条（"局打到一半主机又开了一局"留到 C6 处理）。
-		// 这时候也不能回 START_ACK：没进场就不算就位，主机会一直在那边等着——
-		// 这正是我们要的，总好过主机一个人开着关跑下去。
-		TodTrace("online start ignored: scene %d is not the menu", (int)mGameScene);
+		// 我在关卡里（比如上一局的退关还没走到这儿），这条开局命令接不了。
+		// 不能装没看见：主机在那边等 ACK，一直等不到就只能超时作废。回一句"现在不行"，
+		// 主机当场就能说清楚是队友忙，而不是干等六秒。
+		TodTrace("online start refused: scene %d is not the menu", (int)mGameScene);
+		mOnlineSession->SendStartAck(false);
 		return;
 	}
 

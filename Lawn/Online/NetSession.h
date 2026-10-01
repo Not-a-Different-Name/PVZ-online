@@ -82,12 +82,13 @@ public:
 	// 单槽而不是队列：开局命令只有"最新那条"有意义，堆着旧的开局命令没有用处。
 	bool			TakePendingStartLevel(NetProto::MsgStartLevel& theMsg);
 
-	// 客户端侧：告诉主机"开局命令收到、我进场了"。只在真的准备进场时发——
-	// 不在主菜单（命令会被丢掉）就别发，否则主机会一个人开着关跑下去。
-	void			SendStartAck();
+	// 客户端侧：告诉主机"开局命令收到、我进场了"（theAccepted=false 是"现在不行"，
+	// 比如人还在关卡里）。只在真的准备进场时发 true——不在主菜单（命令接不了）就别发 true，
+	// 否则主机会一个人开着关跑下去。
+	void			SendStartAck(bool theAccepted = true);
 
-	// 主机侧：队友的 START_ACK 到了没有（取一次就清）。主机等这条才进场。
-	bool			TakeStartAck();
+	// 主机侧：队友对开局命令的回应到了没有（取一次就清）。theAccepted 是"进场 / 现在不行"。
+	bool			TakeStartAck(bool& theAccepted);
 
 	// 我离开这一局了（回主菜单）。对面收到会跟着退——不然一边在关卡里、一边在菜单上，
 	// 退的那边再点关卡开局时还会撞上"对面不在菜单、开局命令被丢掉"的卡死。
@@ -195,6 +196,7 @@ private:
 	bool				mHasPendingStart;
 	NetProto::MsgStartLevel	mPendingStart;
 	bool				mHasStartAck;
+	bool				mStartAckAccepted;	// 上一条 START_ACK 是"进场"还是"现在不行"
 	bool				mHasPendingLevelExit;
 	NetProto::MsgLevelExit	mPendingLevelExit;
 	std::vector<NetProto::MsgEscapedZombie>	mPendingEscapedZombies;
