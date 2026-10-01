@@ -114,7 +114,12 @@ void OnlineDialog::Update()
 	LawnDialog::Update();
 
 	NetSession* aSession = mApp->mOnlineSession;
-	bool anActive = aSession && aSession->IsActive();
+	// 死了的会话（掉线 / 版本不符被拒）按"没连着"对待：Host/Join 直接给回来，
+	// 玩家不用先按一下 Disconnect 才能重开。死因不会因此丢掉——状态行照旧读
+	// GetStatusText()，小条也还把短标签挂着，直到下一次 Start 把会话复位。
+	// （ResetToOff 现在会把 NetLink 收干净，所以从这里重开局是通的，见 T19。）
+	bool anActive = aSession && aSession->IsActive()
+		&& aSession->GetState() != NetSession::State::DEAD;
 
 	// 面板是遥控器，不显示连接细节：状态行每帧跟着会话走
 	if (aSession)
