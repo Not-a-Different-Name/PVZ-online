@@ -97,6 +97,19 @@ public:
 	// 对面退出了这一局没有（取一次就清）。
 	bool			TakePendingLevelExit(NetProto::MsgLevelExit& theMsg);
 
+	// 我暂停了 / 我继续了（共识模型：任一方都能按，任一方也都能继续）。
+	// 与两边已经认可的状态相同时**不发**——这一条同时干掉了所有回声：收端为了队友
+	// 把菜单弹出来时，本机的发送检测器也会看到"菜单开了"，但那时状态已经是对的，不会回发。
+	// 发送成功（状态真的变了）返回 true。
+	bool			SendPauseState(bool thePaused);
+
+	// 对面那边暂停/继续了（取一次就清）。只对**收到**的改动返回 true，本机自己发的不会走这里。
+	bool			TakePauseState(bool& thePaused);
+
+	// 现在这个暂停是队友按的（菜单上据此注明"队友暂停了"）。
+	// 双方同时按的时候谁也不抢这个署名——只有"收到 0→1"才置真。
+	bool			IsPausedByPeer() const { return mSharedPaused && mPauseCameFromPeer; }
+
 	// 给玩家看的即时说明（几秒后自己消失）。握手/换位之外的地方也要能写一句，
 	// 所以把它开出来——UI 重建时说明不会跟着丢。
 	void			PostNotice(const char* theText);
@@ -169,6 +182,8 @@ private:
 	void			SendSwapReply(bool theAccepted);
 	// 写一条几秒后自动消失的即时说明（"对面拒绝了"这类）。
 	void			SetNotice(const char* theText, int theFrames = NOTICE_FRAMES);
+	// 把"两边暂停到哪了"整个忘掉（新一局开始、掉线、收摊时用）。
+	void			ClearPauseState();
 
 	bool			SendRaw(uint16_t theType, const uint8_t* thePayload, int thePayloadSize);
 	void			SendHello();
@@ -199,6 +214,11 @@ private:
 	bool				mStartAckAccepted;	// 上一条 START_ACK 是"进场"还是"现在不行"
 	bool				mHasPendingLevelExit;
 	NetProto::MsgLevelExit	mPendingLevelExit;
+	// 两边共同认可的暂停态（同时也是发送去重的依据），以及"这次暂停是谁按的"。
+	bool				mSharedPaused;
+	bool				mPauseCameFromPeer;
+	bool				mHasPendingPause;
+	bool				mPendingPauseValue;
 	std::vector<NetProto::MsgEscapedZombie>	mPendingEscapedZombies;
 	bool				mSwapRequestPending;	// 我发出的换位请求在等回话
 	bool				mSwapAskPending;		// 对面的换位请求在等我作答

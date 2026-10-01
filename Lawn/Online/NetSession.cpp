@@ -17,6 +17,7 @@ const int	ESCAPED_ZOMBIE_PAYLOAD_SIZE = 22;	// src, dst, u8 row, u16 type, u8 fl
 const int	HEARTBEAT_PAYLOAD_SIZE	= 6;	// src, dst, u32 tick
 const int	BYE_PAYLOAD_SIZE		= 3;	// src, dst, u8 reason
 const int	LEVEL_EXIT_PAYLOAD_SIZE	= 3;	// src, dst, u8 reason
+const int	PAUSE_PAYLOAD_SIZE		= 3;	// src, dst, u8 paused
 
 // M2 就两个席位。换位规则按"环上的后一位"写，所以扩到四席位时只要把这个数
 // 和 ApplySeatSwap 一起改成按座次置换，规则本身不用动。
@@ -62,6 +63,10 @@ NetSession::NetSession()
 	mHasStartAck = false;
 	mStartAckAccepted = false;
 	mHasPendingLevelExit = false;
+	mSharedPaused = false;
+	mPauseCameFromPeer = false;
+	mHasPendingPause = false;
+	mPendingPauseValue = false;
 	mSwapRequestPending = false;
 	mSwapAskPending = false;
 	mNoticeFrames = 0;
@@ -233,6 +238,7 @@ bool NetSession::TakePendingStartLevel(NetProto::MsgStartLevel& theMsg)
 
 	theMsg = mPendingStart;
 	mHasPendingStart = false;
+	ClearPauseState();		// 这就进场了：上一局的暂停态不带进新棋盘
 	return true;
 }
 
@@ -251,6 +257,40 @@ bool NetSession::TakePendingLevelExit(NetProto::MsgLevelExit& theMsg)
 
 	theMsg = mPendingLevelExit;
 	mHasPendingLevelExit = false;
+	return true;
+}
+
+bool NetSession::SendPauseState(bool thePaused)
+{
+	if (mRole == Role::NONE || !IsConnected()) return false;
+
+	// 状态没变就不发。这一条是暂停同步能收敛的全部秘密：收端为了队友弹菜单、
+	// 关菜单时本机检测器都会看到界面变了，但那时两边认可的状态已经是对的，不会回发。
+	if (thePaused == mSharedPaused) return false;
+
+	NetProto::MsgPause aMsg;
+	aMsg.mSrcSeat = mLocalSeat;
+	aMsg.mDstSeat = mPeerSeat;
+	aMsg.mPaused = thePaused ? 1 : 0;
+
+	uint8_t aPayload[NetProto::MAX_PAYLOAD];
+	int aSize = NetProto::EncodePause(aPayload, (int)sizeof(aPayload), aMsg);
+	if (aSize <= 0) return false;
+
+	if (!SendRaw(NetProto::MSG_PAUSE, aPayload, aSize)) return false;
+
+	mSharedPaused = thePaused;
+	mPauseCameFromPeer = false;		// 是我按的，署名归我
+	TodLog("[net] told the teammate I %s", thePaused ? "paused" : "resumed");
+	return true;
+}
+
+bool NetSession::TakePauseState(bool& thePaused)
+{
+	if (!mHasPendingPause) return false;
+
+	mHasPendingPause = false;
+	thePaused = mPendingPauseValue;
 	return true;
 }
 
@@ -330,6 +370,16 @@ void NetSession::DiscardLevelPackets()
 	mStartAckAccepted = false;
 	mHasPendingLevelExit = false;
 	mPendingEscapedZombies.clear();
+	ClearPauseState();
+}
+
+// 新的一局从头开始：上一局"暂停着"不该带进来（不然下一局一进场两边就都是停着的）。
+void NetSession::ClearPauseState()
+{
+	mSharedPaused = false;
+	mPauseCameFromPeer = false;
+	mHasPendingPause = false;
+	mPendingPauseValue = false;
 }
 
 uint8_t NetSession::GetRelayTargetSeat() const
@@ -728,6 +778,30 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 		}
 		break;
 
+	case NetProto::MSG_PAUSE:
+		{
+			if (!IsConnected()) return;
+
+			NetProto::MsgPause aMsg;
+			if (aPayloadSize != PAUSE_PAYLOAD_SIZE || !NetProto::DecodePause(aPayload, aPayloadSize, aMsg))
+			{
+				SetDead("The other player sent a malformed packet.");
+				return;
+			}
+
+			bool aPaused = aMsg.mPaused != 0;
+			// 只有"收到 0→1"才把署名记给队友：两人同时按下时两边都已经在暂停里，
+			// 谁都不该显示"是队友按的"。
+			if (aPaused && !mSharedPaused) mPauseCameFromPeer = true;
+			else if (!aPaused) mPauseCameFromPeer = false;
+
+			mSharedPaused = aPaused;
+			mPendingPauseValue = aPaused;
+			mHasPendingPause = true;
+			TodLog("[net] the teammate %s", aPaused ? "paused the game" : "resumed the game");
+		}
+		break;
+
 	case NetProto::MSG_LEVEL_EXIT:
 		{
 			if (!IsConnected()) return;
@@ -821,6 +895,7 @@ bool NetSession::SendStartLevel(uint8_t theGameMode, uint32_t theLevel, int32_t 
 
 	TodLog("[net] telling the client to start: mode %u level %u seed %d",
 		(unsigned)theGameMode, (unsigned)theLevel, (int)theLevelSeed);
+	ClearPauseState();		// 新的一局：暂停态从头开始记
 	return SendRaw(NetProto::MSG_START_LEVEL, aPayload, aSize);
 }
 

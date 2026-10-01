@@ -33,7 +33,8 @@ const uint16_t	PROTOCOL_VERSION	= 1;
 // 6 → 7：退关同步（一方退回主菜单，对面跟着退，不再一边在关卡里一边在菜单上）。
 // 7 → 8：开局确认分两态（START_ACK 带 accepted：队友在关卡里时明确回绝，
 //        主机不再对着黑屏空等到天荒地老）。
-const uint16_t	MOD_BUILD			= 8;
+// 8 → 9：暂停同步（一边暂停，两边都暂停；任一方都能暂停也能继续）。
+const uint16_t	MOD_BUILD			= 9;
 
 const uint16_t	DEFAULT_PORT		= 27777;
 
@@ -66,7 +67,7 @@ enum MessageType : uint16_t
 	MSG_START_ACK		= 9,	// C→H：开局命令收到并已进场（主机等这条才进）
 	MSG_SWAP_REQUEST	= 10,	// 双向：请求和我后一位（末位的后一位是首位）交换位置
 	MSG_SWAP_REPLY		= 11,	// 双向：对换位请求的回答；同意的话两边各自换
-	// 12 留给 MSG_PAUSE（暂停同步，下一笔提交加；先用着 13 不打乱号段）
+	MSG_PAUSE			= 12,	// 双向：我暂停了 / 我继续了
 	MSG_LEVEL_EXIT		= 13	// 双向：我离开这一局、回主菜单了
 };
 
@@ -237,6 +238,17 @@ struct MsgSwapReply
 	uint8_t			mAccepted;
 };
 
+// PAUSE：{ srcSeat, dstSeat, u8 paused }（1 = 我暂停了，0 = 我继续了）
+// 共识模型：任一方都能暂停、也能继续，不搞"请求/同意"。载荷只有两个状态，没带序号——
+// 两个席位、TCP 保序，加上发送侧"状态没变就不发"这一条，就足以让两边收敛到同一个值。
+// M3 扩到四个席位若真出现乱序需要，再补序号。
+struct MsgPause
+{
+	uint8_t			mSrcSeat;
+	uint8_t			mDstSeat;
+	uint8_t			mPaused;
+};
+
 // ESCAPED_ZOMBIE：{ srcSeat, dstSeat, u8 row, u16 zombieType, u8 flags, i32 ×4 当前血量 }
 // 只传"当前值"。上限/入场动画等由接收方按 zombieType 重新初始化后覆写。
 struct MsgEscapedZombie
@@ -361,6 +373,24 @@ inline bool DecodeSwapReply(const uint8_t* theData, int theSize, MsgSwapReply& t
 	theMsg.mSrcSeat = aReader.U8();
 	theMsg.mDstSeat = aReader.U8();
 	theMsg.mAccepted = aReader.U8();
+	return !aReader.Overflowed();
+}
+
+inline int EncodePause(uint8_t* theBuffer, int theCapacity, const MsgPause& theMsg)
+{
+	Writer aWriter(theBuffer, theCapacity);
+	aWriter.U8(theMsg.mSrcSeat);
+	aWriter.U8(theMsg.mDstSeat);
+	aWriter.U8(theMsg.mPaused);
+	return aWriter.Overflowed() ? -1 : aWriter.Size();
+}
+
+inline bool DecodePause(const uint8_t* theData, int theSize, MsgPause& theMsg)
+{
+	Reader aReader(theData, theSize);
+	theMsg.mSrcSeat = aReader.U8();
+	theMsg.mDstSeat = aReader.U8();
+	theMsg.mPaused = aReader.U8();
 	return !aReader.Overflowed();
 }
 
