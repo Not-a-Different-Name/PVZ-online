@@ -130,8 +130,9 @@ void OnlineDialog::Update()
 
 	// 主机按了关卡、正等队友就位：会话状态还是 CONNECTED，得单独说一句在等什么，
 	// 不然状态行还写着 "Pick a level from the menu"，看着像那一下没点上。
+	// 说法不点"那一个队友"：四席位时等的是所有人（ACK 全部到齐才进场，见 START_ACK）。
 	if (mApp->IsOnlineWaitingStartAck())
-		mStatusLine = "Starting - waiting for the teammate to get ready.";
+		mStatusLine = "Starting - waiting for everyone to get ready.";
 
 	mHostButton->SetDisabled(anActive);
 	mJoinButton->SetDisabled(anActive);

@@ -164,9 +164,9 @@ std::string OnlineStatusWidget::GetStateLine()
 	if (!aSession || !aSession->IsActive()) return "";
 
 	// 主机按了关卡、正等队友就位。这时候会话还是 CONNECTED，不单独说一句的话
-	// 小条还写着 "pick a level"，看着像压根没点上。
+	// 小条还写着 "pick a level"，看着像压根没点上。四席位时等的是所有还没到的人。
 	if (mApp->IsOnlineWaitingStartAck())
-		return "Starting - waiting for teammate";
+		return "Starting - waiting for players";
 
 	// 换位这件事有来有回，两种"等"得分开说：对面问我（面板会自动叫出来，
 	// 但玩家也能把它关掉，关了就靠这行提醒），还是我在等对面回话。

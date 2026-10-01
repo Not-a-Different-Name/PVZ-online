@@ -455,9 +455,7 @@ void NetSession::ApplySeatSwap()
 	mLocalSeat = mPeerSeat;
 	mPeerSeat = aMySeat;
 
-	SetNotice(mLocalSeat == NetProto::SEAT_HOST
-		? "Swapped - you are now P1."
-		: "Swapped - you are now P2.");
+	SetNotice(("Swapped - you are now P" + std::to_string((unsigned)mLocalSeat) + ".").c_str());
 	TodLog("[net] positions swapped - local seat %u, peer seat %u",
 		(unsigned)mLocalSeat, (unsigned)mPeerSeat);
 }
@@ -611,7 +609,8 @@ void NetSession::UpdateStatusText()
 		mStatusText = "Not connected.";
 		break;
 	case State::LISTENING:
-		mStatusText = "Waiting for the other player...";
+		// 不写"另一个玩家"：最多四个席位，主机等的是"人"，不是那一个特定的人。
+		mStatusText = "Waiting for players to join...";
 		break;
 	case State::CONNECTING:
 		{
@@ -646,11 +645,19 @@ void NetSession::UpdateStatusText()
 			// （输入框里还留着），而位置是开局前要拿主意的事（面板里的 Swap）。
 			// 有即时说明（刚换完 / 被拒绝）时先让说明占着，几秒后自己回到席位那行。
 			if (mNoticeFrames > 0)
+			{
 				mHintText = mNoticeText;
-			else if (mLocalSeat == NetProto::SEAT_HOST)
-				mHintText = "You are P1 - your leaks pass to your teammate.";
+			}
 			else
-				mHintText = "You are P2 - you take your teammate's leaks.";
+			{
+				// 席位号与"漏怪往哪走"都按当下的席位算：四席位时 2、3 号位的怪是要往后
+				// 接着传的，写死"你是 P2、你接队友的漏怪"就把中间席位说成了末席。
+				uint8_t aNext = GetRelayTargetSeat();
+				mHintText = "You are P" + std::to_string((unsigned)mLocalSeat);
+				mHintText += (aNext == NetProto::SEAT_UNSET)
+					? " - the last seat: a leak here loses the game."
+					: " - your leaks pass on to P" + std::to_string((unsigned)aNext) + ".";
+			}
 		}
 		break;
 	case State::DEAD:
@@ -674,7 +681,7 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 {
 	if (thePacket.mSize < NetProto::HEADER_SIZE)
 	{
-		SetDead("The other player sent a malformed packet.");
+		SetDead("A player sent a malformed packet.");
 		return;
 	}
 
@@ -682,7 +689,7 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 	uint16_t aPayloadSize = (uint16_t)(thePacket.mData[2] | (thePacket.mData[3] << 8));
 	if (NetProto::HEADER_SIZE + aPayloadSize != thePacket.mSize)
 	{
-		SetDead("The other player sent a malformed packet.");
+		SetDead("A player sent a malformed packet.");
 		return;
 	}
 
@@ -700,27 +707,27 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 			if (aPayloadSize != HELLO_PAYLOAD_SIZE)
 			{
 				SendHelloAck(false);
-				SetDead("Build mismatch - update both machines to the same build.", "Build mismatch");
+				SetDead("Build mismatch - update every machine to the same build.", "Build mismatch");
 				return;
 			}
 
 			NetProto::MsgHello aMsg;
 			if (!NetProto::DecodeHello(aPayload, aPayloadSize, aMsg))
 			{
-				SetDead("The other player sent a malformed packet.");
+				SetDead("A player sent a malformed packet.");
 				return;
 			}
 
 			if (aMsg.mVersion != NetProto::PROTOCOL_VERSION)
 			{
 				SendHelloAck(false);
-				SetDead("Version mismatch - both players must run the same build.", "Build mismatch");
+				SetDead("Version mismatch - all players must run the same build.", "Build mismatch");
 				return;
 			}
 			if (aMsg.mBuild != NetProto::MOD_BUILD)
 			{
 				SendHelloAck(false);
-				SetDead("Build mismatch - update both machines to the same build.", "Build mismatch");
+				SetDead("Build mismatch - update every machine to the same build.", "Build mismatch");
 				return;
 			}
 
@@ -737,25 +744,25 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 
 			if (aPayloadSize != HELLO_ACK_PAYLOAD_SIZE)
 			{
-				SetDead("Build mismatch - update both machines to the same build.", "Build mismatch");
+				SetDead("Build mismatch - update every machine to the same build.", "Build mismatch");
 				return;
 			}
 
 			NetProto::MsgHelloAck aMsg;
 			if (!NetProto::DecodeHelloAck(aPayload, aPayloadSize, aMsg))
 			{
-				SetDead("The other player sent a malformed packet.");
+				SetDead("A player sent a malformed packet.");
 				return;
 			}
 
 			if (!aMsg.mAccepted)
 			{
-				SetDead("The other player refused - update both machines.", "Build mismatch");
+				SetDead("A player refused - update every machine.", "Build mismatch");
 				return;
 			}
 			if (aMsg.mVersion != NetProto::PROTOCOL_VERSION || aMsg.mBuild != NetProto::MOD_BUILD)
 			{
-				SetDead("Build mismatch - update both machines to the same build.", "Build mismatch");
+				SetDead("Build mismatch - update every machine to the same build.", "Build mismatch");
 				return;
 			}
 			mPeerName = SanitizeName(aMsg.mName, NetProto::NAME_SIZE);
@@ -768,7 +775,7 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 			NetProto::MsgStartLevel aMsg;
 			if (aPayloadSize != START_LEVEL_PAYLOAD_SIZE || !NetProto::DecodeStartLevel(aPayload, aPayloadSize, aMsg))
 			{
-				SetDead("The other player sent a malformed packet.");
+				SetDead("A player sent a malformed packet.");
 				return;
 			}
 			if (mRole != Role::CLIENT) return;		// 只有客户端听主机的
@@ -788,7 +795,7 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 			NetProto::MsgHeartbeat aMsg;
 			if (aPayloadSize != HEARTBEAT_PAYLOAD_SIZE || !NetProto::DecodeHeartbeat(aPayload, aPayloadSize, aMsg))
 			{
-				SetDead("The other player sent a malformed packet.");
+				SetDead("A player sent a malformed packet.");
 				return;
 			}
 			// 收到就是活着——mFramesSincePacket 已经在调用处清零了
@@ -800,10 +807,10 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 			NetProto::MsgBye aMsg;
 			if (aPayloadSize != BYE_PAYLOAD_SIZE || !NetProto::DecodeBye(aPayload, aPayloadSize, aMsg))
 			{
-				SetDead("The other player sent a malformed packet.");
+				SetDead("A player sent a malformed packet.");
 				return;
 			}
-			SetDead("The other player left the game.");
+			SetDead("A player left the game.");
 		}
 		break;
 
@@ -812,7 +819,7 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 			NetProto::MsgEscapedZombie aMsg;
 			if (aPayloadSize != ESCAPED_ZOMBIE_PAYLOAD_SIZE || !NetProto::DecodeEscapedZombie(aPayload, aPayloadSize, aMsg))
 			{
-				SetDead("The other player sent a malformed packet.");
+				SetDead("A player sent a malformed packet.");
 				return;
 			}
 
@@ -833,7 +840,7 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 			NetProto::MsgStartAck aMsg;
 			if (aPayloadSize != START_ACK_PAYLOAD_SIZE || !NetProto::DecodeStartAck(aPayload, aPayloadSize, aMsg))
 			{
-				SetDead("The other player sent a malformed packet.");
+				SetDead("A player sent a malformed packet.");
 				return;
 			}
 			// 存下来就走：开局要换场景、动一堆 UI，那是主循环的活。
@@ -851,7 +858,7 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 			NetProto::MsgSwapRequest aMsg;
 			if (aPayloadSize != SWAP_REQUEST_PAYLOAD_SIZE || !NetProto::DecodeSwapRequest(aPayload, aPayloadSize, aMsg))
 			{
-				SetDead("The other player sent a malformed packet.");
+				SetDead("A player sent a malformed packet.");
 				return;
 			}
 
@@ -885,7 +892,7 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 			NetProto::MsgSwapReply aMsg;
 			if (aPayloadSize != SWAP_REPLY_PAYLOAD_SIZE || !NetProto::DecodeSwapReply(aPayload, aPayloadSize, aMsg))
 			{
-				SetDead("The other player sent a malformed packet.");
+				SetDead("A player sent a malformed packet.");
 				return;
 			}
 
@@ -913,7 +920,7 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 			NetProto::MsgLevelDone aMsg;
 			if (aPayloadSize != LEVEL_DONE_PAYLOAD_SIZE || !NetProto::DecodeLevelDone(aPayload, aPayloadSize, aMsg))
 			{
-				SetDead("The other player sent a malformed packet.");
+				SetDead("A player sent a malformed packet.");
 				return;
 			}
 
@@ -939,7 +946,7 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 			NetProto::MsgGameOver aMsg;
 			if (aPayloadSize != GAME_OVER_PAYLOAD_SIZE || !NetProto::DecodeGameOver(aPayload, aPayloadSize, aMsg))
 			{
-				SetDead("The other player sent a malformed packet.");
+				SetDead("A player sent a malformed packet.");
 				return;
 			}
 
@@ -956,7 +963,7 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 			NetProto::MsgPause aMsg;
 			if (aPayloadSize != PAUSE_PAYLOAD_SIZE || !NetProto::DecodePause(aPayload, aPayloadSize, aMsg))
 			{
-				SetDead("The other player sent a malformed packet.");
+				SetDead("A player sent a malformed packet.");
 				return;
 			}
 
@@ -980,7 +987,7 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 			NetProto::MsgLevelExit aMsg;
 			if (aPayloadSize != LEVEL_EXIT_PAYLOAD_SIZE || !NetProto::DecodeLevelExit(aPayload, aPayloadSize, aMsg))
 			{
-				SetDead("The other player sent a malformed packet.");
+				SetDead("A player sent a malformed packet.");
 				return;
 			}
 

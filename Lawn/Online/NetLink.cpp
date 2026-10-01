@@ -275,7 +275,7 @@ struct NetLink::Impl
 			}
 			if (aRead == 0)
 			{
-				Fail("The other player disconnected.");
+				Fail("A player disconnected.");
 				return false;
 			}
 
@@ -297,7 +297,7 @@ struct NetLink::Impl
 		uint16_t aPayloadSize = (uint16_t)(aHeader[2] | (aHeader[3] << 8));
 		if (aPayloadSize > NetProto::MAX_PAYLOAD)
 		{
-			Fail("The other player sent a malformed packet.");
+			Fail("A player sent a malformed packet.");
 			return;
 		}
 

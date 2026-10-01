@@ -154,7 +154,7 @@ public:
 	// 对面收到 REPLY 后跟着换）；拒绝则什么都不发生，对面只收到一句说明。
 	void			AnswerSwapRequest(bool theAccept);
 
-	// 一小句给玩家看的即时说明（"对面拒绝了"、"换过去了，你现在是 P2"），
+	// 一小句给玩家看的即时说明（"对面拒绝了"、"换过去了，你现在是 P3"），
 	// 过几秒自己消失。没有就返回空串。
 	const std::string&	GetNoticeText() const { return mNoticeText; }
 
