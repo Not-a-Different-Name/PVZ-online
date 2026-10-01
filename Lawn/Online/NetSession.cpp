@@ -552,6 +552,12 @@ bool NetSession::TakePendingEscapedZombie(NetProto::MsgEscapedZombie& theMsg)
 
 void NetSession::ResetToOff()
 {
+	// 收摊要把传输层一起收干净。NetLink 只认"上一个收包线程还在，就不给开新的"，
+	// 而"对面拔线 / 心跳超时"判死这条路谁都没关过它——只有玩家按 Disconnect 才走 Close()。
+	// 不收的话，掉线之后直接再点 Host/Join 会当场失败，而且状态行还挂着上一条死因，
+	// 看着像"点了没反应"。Close 幂等，Close() 里重复调到这儿也无所谓。
+	mLink.Close();
+
 	mRole = Role::NONE;
 	mState = State::OFF;
 	mLocalSeat = NetProto::SEAT_UNSET;
