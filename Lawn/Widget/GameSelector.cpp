@@ -948,10 +948,20 @@ void GameSelector::Update()
 	if (mSlideCounter > 0) {
 		int aNewX = TodAnimateCurve(75, 0, mSlideCounter, mStartX, mDestX, TodCurves::CURVE_EASE_IN_OUT);
 		int aNewY = TodAnimateCurve(75, 0, mSlideCounter, mStartY, mDestY, TodCurves::CURVE_EASE_IN_OUT);
+		// @pvz-online: Move() on the selector is the entire slide. The framework already
+		// adds a parent's mX/mY to every child, at draw AND hit-test time (WidgetManager::
+		// DrawWidgetsTo -> WidgetContainer::DrawAll / GetWidgetAtHelper), so the menu
+		// buttons and mOverlayWidget - both children, both positioned against static reanim
+		// tracks by TrackButton() - ride along by themselves. This block used to also feed
+		// the same slide offset into every button's NewLawnButton::SetOffset and into
+		// mOverlayWidget->Move: that stacked a second copy of the offset on top of the
+		// inherited one, so the buttons and the level digits slid at TWICE the stone's
+		// speed, clicks made during the slide missed (the hit rect moved once, the art
+		// twice), and the three vase buttons stayed 15/5/30 px below the vases painted into
+		// the BG_Right art for the rest of the session - SetOffset is a draw offset and
+		// nothing ever reset it.
 		Move(aNewX, aNewY);
 
-		// @Patoke: not from the original binaries but fixes bugs
-		mOverlayWidget->Move(aNewX, aNewY);
 		// @pvz-online: the page is a top-level widget riding exactly one screen below the
 		// menu (absolute y = aNewY + mHeight): it reaches y=0 - covering the screen - the
 		// moment the slide completes, and drops back below the fold on the way out. Move()
@@ -959,20 +969,6 @@ void GameSelector::Update()
 		// column means menu-bottom and page-top always share an edge and no stale band
 		// can open between them.
 		mAchievementsWidget->Move(aNewX, aNewY + mApp->mHeight);
-		mAdventureButton->SetOffset(aNewX, aNewY);
-		mMinigameButton->SetOffset(aNewX, aNewY);
-		mPuzzleButton->SetOffset(aNewX, aNewY);
-		mOptionsButton->SetOffset(aNewX, aNewY + 15);
-		mQuitButton->SetOffset(aNewX, aNewY + 5);
-		mHelpButton->SetOffset(aNewX, aNewY + 30);
-		mStoreButton->SetOffset(aNewX, aNewY);
-		mAlmanacButton->SetOffset(aNewX, aNewY);
-		mZenGardenButton->SetOffset(aNewX, aNewY);
-		mSurvivalButton->SetOffset(aNewX, aNewY);
-		mChangeUserButton->SetOffset(aNewX, aNewY);
-		mZombatarButton->SetOffset(aNewX, aNewY);
-		mAchievementsButton->SetOffset(aNewX, aNewY);
-		mQuickPlayButton->SetOffset(aNewX, aNewY);
 
 		// @Patoke: make sure these are drawn even outside of bounds (force redraw)
 		mAchievementsButton->MarkDirty();
@@ -984,14 +980,10 @@ void GameSelector::Update()
 		mSlideCounter--;
 	}
 
-	// @pvz-online: the achievements page is a separate top-level screen; the menu's
-	// buttons are children of the selector, and their mX/mY are absolute - sliding the
-	// selector up never moved them. That is the "menu with no background" report: the
-	// selector's own Draw went to y=-600 while the buttons stayed put, and the boards
-	// then drew over the achievements page. Hide them for exactly as long as the page is
-	// up. The page's mY is its absolute screen y (top-level widget): it slides in from
-	// below and reaches 0 exactly when the slide completes, so the menu reappears as the
-	// page leaves, which is the slide you want.
+	// @pvz-online: hide the menu's buttons for exactly as long as the achievements page
+	// covers the screen. They are children of the selector, so the slide already carries
+	// them off the top; hiding them as well keeps them out of hit testing while the page
+	// owns the frame, and restores them the moment the slide brings them back.
 	{
 		bool aPageUp = mAchievementsWidget && mAchievementsWidget->mY <= 0;
 		if (aPageUp != mMenuHiddenForAchievements)
