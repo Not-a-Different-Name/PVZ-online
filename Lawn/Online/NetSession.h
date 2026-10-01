@@ -89,6 +89,21 @@ public:
 	// 主机侧：队友的 START_ACK 到了没有（取一次就清）。主机等这条才进场。
 	bool			TakeStartAck();
 
+	// 我离开这一局了（回主菜单）。对面收到会跟着退——不然一边在关卡里、一边在菜单上，
+	// 退的那边再点关卡开局时还会撞上"对面不在菜单、开局命令被丢掉"的卡死。
+	bool			SendLevelExit(uint8_t theReason = NetProto::EXIT_QUIT_TO_MENU);
+
+	// 对面退出了这一局没有（取一次就清）。
+	bool			TakePendingLevelExit(NetProto::MsgLevelExit& theMsg);
+
+	// 给玩家看的即时说明（几秒后自己消失）。握手/换位之外的地方也要能写一句，
+	// 所以把它开出来——UI 重建时说明不会跟着丢。
+	void			PostNotice(const char* theText);
+
+	// 这一局结束了（回主菜单）：丢掉只对"当前这一局"有意义的收包队列。
+	// 不清的话，上一局收到的漏怪/开局命令会砸到下一局的棋盘上。
+	void			DiscardLevelPackets();
+
 	// 开始前换位置：跟"后一位"换（末位的后一位是首位），对面同意才真的换。
 	// 这一步只是把请求发出去，本机不动；同意/拒绝由对面定，见下面几条。
 	// 没连上、已经有一个请求在等回话、或对面正问着我，都返回 false（按不动）。
@@ -180,6 +195,8 @@ private:
 	bool				mHasPendingStart;
 	NetProto::MsgStartLevel	mPendingStart;
 	bool				mHasStartAck;
+	bool				mHasPendingLevelExit;
+	NetProto::MsgLevelExit	mPendingLevelExit;
 	std::vector<NetProto::MsgEscapedZombie>	mPendingEscapedZombies;
 	bool				mSwapRequestPending;	// 我发出的换位请求在等回话
 	bool				mSwapAskPending;		// 对面的换位请求在等我作答

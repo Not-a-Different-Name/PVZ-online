@@ -30,7 +30,8 @@ const uint16_t	PROTOCOL_VERSION	= 1;
 // 3 → 4：位置交换（SWAP_SEATS）。
 // 4 → 5：换位改成"和后一位换、对面同意才生效"（SWAP_REQUEST + SWAP_REPLY）。
 // 5 → 6：握手里互报玩家名（名册 UI 要显示每个席位上是谁）。
-const uint16_t	MOD_BUILD			= 6;
+// 6 → 7：退关同步（一方退回主菜单，对面跟着退，不再一边在关卡里一边在菜单上）。
+const uint16_t	MOD_BUILD			= 7;
 
 const uint16_t	DEFAULT_PORT		= 27777;
 
@@ -62,7 +63,16 @@ enum MessageType : uint16_t
 	MSG_BYE				= 8,	// 双向：主动离开
 	MSG_START_ACK		= 9,	// C→H：开局命令收到并已进场（主机等这条才进）
 	MSG_SWAP_REQUEST	= 10,	// 双向：请求和我后一位（末位的后一位是首位）交换位置
-	MSG_SWAP_REPLY		= 11	// 双向：对换位请求的回答；同意的话两边各自换
+	MSG_SWAP_REPLY		= 11,	// 双向：对换位请求的回答；同意的话两边各自换
+	// 12 留给 MSG_PAUSE（暂停同步，下一笔提交加；先用着 13 不打乱号段）
+	MSG_LEVEL_EXIT		= 13	// 双向：我离开这一局、回主菜单了
+};
+
+// LEVEL_EXIT 的 reason。0 是唯一的常规值（回主菜单）；其它留给以后
+// （重开、超时解散之类）——先定一个字段，省得将来加一种"离开"又要改包长。
+enum LevelExitReason : uint8_t
+{
+	EXIT_QUIT_TO_MENU	= 0
 };
 
 enum ByeReason : uint8_t
@@ -262,6 +272,16 @@ struct MsgBye
 	uint8_t			mReason;
 };
 
+// LEVEL_EXIT：{ srcSeat, dstSeat, u8 reason }
+// "我这一局不打了、回主菜单了"。对面收到也回主菜单（这一局对两人一起结束），
+// 会话本身留着——两人都在菜单上，主机直接点关卡就能开下一局。
+struct MsgLevelExit
+{
+	uint8_t			mSrcSeat;
+	uint8_t			mDstSeat;
+	uint8_t			mReason;
+};
+
 // ====================================================================================================
 // ★ 编解码（用到哪条加哪条）
 // ====================================================================================================
@@ -445,6 +465,24 @@ inline int EncodeBye(uint8_t* theBuffer, int theCapacity, const MsgBye& theMsg)
 }
 
 inline bool DecodeBye(const uint8_t* theData, int theSize, MsgBye& theMsg)
+{
+	Reader aReader(theData, theSize);
+	theMsg.mSrcSeat = aReader.U8();
+	theMsg.mDstSeat = aReader.U8();
+	theMsg.mReason = aReader.U8();
+	return !aReader.Overflowed();
+}
+
+inline int EncodeLevelExit(uint8_t* theBuffer, int theCapacity, const MsgLevelExit& theMsg)
+{
+	Writer aWriter(theBuffer, theCapacity);
+	aWriter.U8(theMsg.mSrcSeat);
+	aWriter.U8(theMsg.mDstSeat);
+	aWriter.U8(theMsg.mReason);
+	return aWriter.Overflowed() ? -1 : aWriter.Size();
+}
+
+inline bool DecodeLevelExit(const uint8_t* theData, int theSize, MsgLevelExit& theMsg)
 {
 	Reader aReader(theData, theSize);
 	theMsg.mSrcSeat = aReader.U8();

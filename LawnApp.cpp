@@ -613,6 +613,32 @@ void LawnApp::UpdateOnlineRelay()
 	}
 }
 
+// @pvz-online: 队友退关（回主菜单）了没有。收到就跟着退——这一局对两边一起结束，会话留着，
+// 两人都在菜单上，主机直接点关卡就能开下一局。这同时堵上了"退出方自己再开局会卡死"：
+// 任何一边退关，另一边必定跟着回菜单，主机再开局时对面一定在菜单上等着接开局命令。
+void LawnApp::UpdateOnlineLevelExit()
+{
+	if (!mOnlineSession) return;
+
+	NetProto::MsgLevelExit aMsg;
+	if (!mOnlineSession->TakePendingLevelExit(aMsg)) return;
+
+	if (mBoard != nullptr)
+	{
+		TodLog("[net] the teammate left the level - going back to the main menu too");
+		// 复用 DoBackToMain 的五步（停音乐/写配置/关暂停框/拆棋盘/回菜单）；
+		// false 是因为"我要退"这句话对面已经先说了，不用回话。
+		DoBackToMain(false);
+		LawnMessageBox(Dialogs::DIALOG_MESSAGE, "Teammate left",
+			"Your teammate left the level.\nBack to the main menu.", "OK", "", Dialog::BUTTONS_FOOTER);
+		return;
+	}
+
+	// 已经在菜单上（比如刚退完，或还没进关）：只写一句即时说明，界面不动。
+	TodLog("[net] the teammate left the level (already in the menu)");
+	mOnlineSession->PostNotice("Your teammate left the level.");
+}
+
 //0x44F5F0
 // GOTY @Patoke: 0x4528B0
 void LawnApp::MakeNewBoard()
@@ -687,6 +713,9 @@ void LawnApp::ShowGameSelector()
 	// @pvz-online: 回主菜单就把联机开局参数扔掉。它在整局里都得留着（选卡界面也会用
 	// GetLevelRandSeed 抽植物），所以只能在这个"一局已经结束"的点上清。
 	ClearOnlineStartOverride();
+	// 只对"当前这一局"有意义的收包队列（开局命令/漏怪/退关）同理：留着的话，
+	// 上一局的怪会砸到下一局的棋盘上。
+	if (mOnlineSession) mOnlineSession->DiscardLevelPackets();
 	//UpdateRegisterInfo();
 	if (mGameSelector)
 	{
@@ -856,8 +885,16 @@ void LawnApp::EndLevel()
 }
 
 //0x44FEB0
-void LawnApp::DoBackToMain()
+void LawnApp::DoBackToMain(bool theNotifyOnline)
 {
+	// @pvz-online: 退关要告诉对面——不然一边在关卡里、一边在菜单上；退的那边再点关卡
+	// 开局时会撞上"对面不在菜单、开局命令被丢掉"的卡死（见 UpdateOnlineLevelExit）。
+	// theNotifyOnline=false 是"收到对面的退关、我跟着退"，别回声。
+	if (theNotifyOnline && IsOnlineGame() && mBoard)
+	{
+		mOnlineSession->SendLevelExit(NetProto::EXIT_QUIT_TO_MENU);
+	}
+
 	mMusic->StopAllMusic();
 	mSoundSystem->CancelPausedFoley();
 	WriteCurrentUserConfig();
@@ -1871,6 +1908,7 @@ void LawnApp::UpdateFrames()
 	// 开局要换场景、动一堆 UI，所以也放在循环外、widget 更新之前——收包链里干了迟早出事。
 	UpdateOnlineStart();
 	UpdateOnlineRelay();
+	UpdateOnlineLevelExit();
 
 	if ((!mActive || mMinimized) && mBoard)
 	{

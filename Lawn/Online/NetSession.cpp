@@ -16,6 +16,7 @@ const int	SWAP_REPLY_PAYLOAD_SIZE = 3;	// src, dst, u8 accepted
 const int	ESCAPED_ZOMBIE_PAYLOAD_SIZE = 22;	// src, dst, u8 row, u16 type, u8 flags, i32 ×4 血量
 const int	HEARTBEAT_PAYLOAD_SIZE	= 6;	// src, dst, u32 tick
 const int	BYE_PAYLOAD_SIZE		= 3;	// src, dst, u8 reason
+const int	LEVEL_EXIT_PAYLOAD_SIZE	= 3;	// src, dst, u8 reason
 
 // M2 就两个席位。换位规则按"环上的后一位"写，所以扩到四席位时只要把这个数
 // 和 ApplySeatSwap 一起改成按座次置换，规则本身不用动。
@@ -59,6 +60,7 @@ NetSession::NetSession()
 	mShortStatus = "Connection lost";
 	mHasPendingStart = false;
 	mHasStartAck = false;
+	mHasPendingLevelExit = false;
 	mSwapRequestPending = false;
 	mSwapAskPending = false;
 	mNoticeFrames = 0;
@@ -241,6 +243,15 @@ bool NetSession::TakeStartAck()
 	return true;
 }
 
+bool NetSession::TakePendingLevelExit(NetProto::MsgLevelExit& theMsg)
+{
+	if (!mHasPendingLevelExit) return false;
+
+	theMsg = mPendingLevelExit;
+	mHasPendingLevelExit = false;
+	return true;
+}
+
 bool NetSession::SwapSeats()
 {
 	// 一次只谈一件事：要么我在等回话，要么对面正问我——都不许再发一条
@@ -303,6 +314,21 @@ void NetSession::SetNotice(const char* theText, int theFrames)
 	mNoticeFrames = mNoticeText.empty() ? 0 : theFrames;
 }
 
+void NetSession::PostNotice(const char* theText)
+{
+	SetNotice(theText, NOTICE_FRAMES);
+}
+
+// 这一局结束了：开局命令、漏怪、退关这些只对"当前这一局"有意义的东西全部作废。
+// 不清的话，上一局的怪会凭空出现在下一局的棋盘上（迟到包砸到新棋盘是最难查的一类）。
+void NetSession::DiscardLevelPackets()
+{
+	mHasPendingStart = false;
+	mHasStartAck = false;
+	mHasPendingLevelExit = false;
+	mPendingEscapedZombies.clear();
+}
+
 uint8_t NetSession::GetRelayTargetSeat() const
 {
 	// M2 只有两个席位，队形就是一环：1 → 2。2 号位是末席——它漏怪就是全队败，
@@ -360,9 +386,7 @@ void NetSession::ResetToOff()
 	mStatusText = "Not connected.";
 	mHintText = "Host a game, or type the host's IP and join.";
 	mEvents.clear();
-	mHasPendingStart = false;
-	mHasStartAck = false;
-	mPendingEscapedZombies.clear();
+	DiscardLevelPackets();
 	mSwapRequestPending = false;
 	mSwapAskPending = false;
 	mNoticeText.clear();
@@ -390,6 +414,8 @@ void NetSession::SetDead(const char* theReason, const char* theShortReason)
 	// 挂着的换位请求跟着连接一起作废：断了就没得换了，面板上那个问句也得收掉
 	mSwapRequestPending = false;
 	mSwapAskPending = false;
+	// 一局的收包队列同理：连都没了，上一局的开局命令/漏怪/退关再送到棋盘上是纯乱子
+	DiscardLevelPackets();
 	mNoticeText.clear();
 	mNoticeFrames = 0;
 	TodLog("[net] session dead: %s", mStatusText.c_str());
@@ -698,6 +724,24 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 		}
 		break;
 
+	case NetProto::MSG_LEVEL_EXIT:
+		{
+			if (!IsConnected()) return;
+
+			NetProto::MsgLevelExit aMsg;
+			if (aPayloadSize != LEVEL_EXIT_PAYLOAD_SIZE || !NetProto::DecodeLevelExit(aPayload, aPayloadSize, aMsg))
+			{
+				SetDead("The other player sent a malformed packet.");
+				return;
+			}
+
+			// 单槽：连着退两次只当一次（"这一局结束了"是个状态，不是一串事件）
+			mPendingLevelExit = aMsg;
+			mHasPendingLevelExit = true;
+			TodLog("[net] the teammate left the level (reason %u)", (unsigned)aMsg.mReason);
+		}
+		break;
+
 	default:
 		// LEVEL_DONE / GAME_OVER 是后面的步骤的事，这一版还没接，
 		// 直接忽略（长度合法性已经在头上查过了）。
@@ -791,6 +835,23 @@ void NetSession::SendStartAck()
 		TodLog("[net] telling the host I am entering the level");
 		SendRaw(NetProto::MSG_START_ACK, aPayload, aSize);
 	}
+}
+
+bool NetSession::SendLevelExit(uint8_t theReason)
+{
+	if (mRole == Role::NONE || !IsConnected()) return false;
+
+	NetProto::MsgLevelExit aMsg;
+	aMsg.mSrcSeat = mLocalSeat;
+	aMsg.mDstSeat = mPeerSeat;
+	aMsg.mReason = theReason;
+
+	uint8_t aPayload[NetProto::MAX_PAYLOAD];
+	int aSize = NetProto::EncodeLevelExit(aPayload, (int)sizeof(aPayload), aMsg);
+	if (aSize <= 0) return false;
+
+	TodLog("[net] telling the teammate I left the level (reason %u)", (unsigned)theReason);
+	return SendRaw(NetProto::MSG_LEVEL_EXIT, aPayload, aSize);
 }
 
 void NetSession::SendSwapReply(bool theAccepted)

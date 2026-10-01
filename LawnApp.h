@@ -194,6 +194,9 @@ public:
 	bool							IsOnlineWaitingStartAck() const { return mOnlineWaitingStartAck; }
 	void							UpdateOnlineStart();
 	void							UpdateOnlineRelay();
+	// @pvz-online: 队友退关了我这边跟着退。theNotifyOnline=false 用于"是我先退的/我是被通知的"，
+	// 免得两边互相回话形成回声。
+	void							UpdateOnlineLevelExit();
 	void							ShowGameSelector();
 	void							KillGameSelector();
 	void							ShowAwardScreen(AwardType theAwardType, bool theShowAchievements); // @Patoke: add argument
@@ -201,7 +204,7 @@ public:
 	void							ShowSeedChooserScreen();
 	void							KillSeedChooserScreen();
 	void							DoHighScoreDialog();
-	void							DoBackToMain();
+	void							DoBackToMain(bool theNotifyOnline = true);
 	void							DoConfirmBackToMain();
 	void							DoNewOptions(bool theFromGameSelector);
 	void							DoRegister();
