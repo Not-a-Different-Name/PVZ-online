@@ -136,6 +136,9 @@ public:
 	// 上一帧是不是已连接：联机面板只在"刚连上"那一下自动收起，之后玩家再点开就留在
 	// 屏幕上（不然面板一开就被按回去，等于打不开）。
 	bool							mOnlineWasConnected;
+	// 主机广播完开局命令、正等队友 START_ACK 的那段时间。这期间玩家还留在主菜单上
+	// （参数已经按覆盖值定好），ACK 一到才 NewGame()——两边进场只差一个单程。
+	bool							mOnlineWaitingStartAck;
 
 public:
 	LawnApp();
@@ -187,6 +190,8 @@ public:
 	void							SetOnlineStartOverride(int theLevel, int theSeed);
 	bool							GetOnlineStartOverride(int& theLevel, int& theSeed);
 	void							ClearOnlineStartOverride();
+	// 主机正等队友确认进场（面板/小条据此显示"等队友就位"）。
+	bool							IsOnlineWaitingStartAck() const { return mOnlineWaitingStartAck; }
 	void							UpdateOnlineStart();
 	void							ShowGameSelector();
 	void							KillGameSelector();

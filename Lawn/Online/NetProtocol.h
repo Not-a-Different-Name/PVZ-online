@@ -24,7 +24,8 @@ const uint16_t	PROTOCOL_VERSION	= 1;
 // PROTOCOL_VERSION=1 通信也可能一边是旧包（比如 C1 的包能正常连上，却不会跟着主机开局）。
 // 凡是改动"需要两台机器一起更新"的东西（新增消息、开局/漏怪等行为）就 +1：
 // 忘了 +1 的后果是新旧包互相认成同版，故障会以最难查的方式出现在棋盘上。
-const uint16_t	MOD_BUILD			= 1;
+// 1 → 2：开局同步（主机广播开局命令后等客户端 START_ACK 才进场）。
+const uint16_t	MOD_BUILD			= 2;
 
 const uint16_t	DEFAULT_PORT		= 27777;
 
@@ -45,7 +46,8 @@ enum MessageType : uint16_t
 	MSG_ESCAPED_ZOMBIE	= 5,	// 双向：漏怪传递（血量是传递那一刻的当前值）
 	MSG_GAME_OVER		= 6,	// 双向：全队败北
 	MSG_HEARTBEAT		= 7,	// 双向：1 秒一次，5 秒收不到判掉线
-	MSG_BYE				= 8		// 双向：主动离开
+	MSG_BYE				= 8,	// 双向：主动离开
+	MSG_START_ACK		= 9		// C→H：开局命令收到并已进场（主机等这条才进）
 };
 
 enum ByeReason : uint8_t
@@ -161,6 +163,15 @@ struct MsgLevelDone
 	uint8_t			mDstSeat;
 };
 
+// START_ACK：{ srcSeat, dstSeat }
+// 客户端说"开局命令收到了，我这就进场"。主机收到才进——两边进场只差一个单程，
+// 也顺手挡住了"客户端当时不在主菜单、命令被丢掉，主机一个人开着关跑下去"。
+struct MsgStartAck
+{
+	uint8_t			mSrcSeat;
+	uint8_t			mDstSeat;
+};
+
 // ESCAPED_ZOMBIE：{ srcSeat, dstSeat, u8 row, u16 zombieType, u8 flags, i32 ×4 当前血量 }
 // 只传"当前值"。上限/入场动画等由接收方按 zombieType 重新初始化后覆写。
 struct MsgEscapedZombie
@@ -223,6 +234,22 @@ inline bool DecodeStartLevel(const uint8_t* theData, int theSize, MsgStartLevel&
 	theMsg.mGameMode = aReader.U8();
 	theMsg.mLevel = aReader.U32();
 	theMsg.mLevelSeed = aReader.I32();
+	return !aReader.Overflowed();
+}
+
+inline int EncodeStartAck(uint8_t* theBuffer, int theCapacity, const MsgStartAck& theMsg)
+{
+	Writer aWriter(theBuffer, theCapacity);
+	aWriter.U8(theMsg.mSrcSeat);
+	aWriter.U8(theMsg.mDstSeat);
+	return aWriter.Overflowed() ? -1 : aWriter.Size();
+}
+
+inline bool DecodeStartAck(const uint8_t* theData, int theSize, MsgStartAck& theMsg)
+{
+	Reader aReader(theData, theSize);
+	theMsg.mSrcSeat = aReader.U8();
+	theMsg.mDstSeat = aReader.U8();
 	return !aReader.Overflowed();
 }
 

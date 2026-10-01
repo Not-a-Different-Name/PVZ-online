@@ -10,6 +10,7 @@ namespace
 const int	HELLO_PAYLOAD_SIZE		= 6;	// src, dst, u16 version, u16 build
 const int	HELLO_ACK_PAYLOAD_SIZE	= 7;	// src, dst, u16 version, u16 build, u8 accepted
 const int	START_LEVEL_PAYLOAD_SIZE = 11;	// src, dst, u8 mode, u32 level, i32 seed
+const int	START_ACK_PAYLOAD_SIZE	= 2;	// src, dst
 const int	HEARTBEAT_PAYLOAD_SIZE	= 6;	// src, dst, u32 tick
 const int	BYE_PAYLOAD_SIZE		= 3;	// src, dst, u8 reason
 
@@ -29,6 +30,7 @@ NetSession::NetSession()
 	mHintText = "Host a game, or type the host's IP and join.";
 	mShortStatus = "Connection lost";
 	mHasPendingStart = false;
+	mHasStartAck = false;
 }
 
 NetSession::~NetSession()
@@ -174,6 +176,14 @@ bool NetSession::TakePendingStartLevel(NetProto::MsgStartLevel& theMsg)
 	return true;
 }
 
+bool NetSession::TakeStartAck()
+{
+	if (!mHasStartAck) return false;
+
+	mHasStartAck = false;
+	return true;
+}
+
 // ====================================================================================================
 // ★ 状态与文案
 // ====================================================================================================
@@ -193,6 +203,7 @@ void NetSession::ResetToOff()
 	mHintText = "Host a game, or type the host's IP and join.";
 	mEvents.clear();
 	mHasPendingStart = false;
+	mHasStartAck = false;
 }
 
 void NetSession::SetConnected()
@@ -368,7 +379,8 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 			if (mRole != Role::CLIENT) return;		// 只有客户端听主机的
 
 			// 不在收包链里直接开局：开局要动游戏场景和一堆 UI，那是主循环的活。
-			// 这里只把命令存下来，LawnApp 每帧 TakePendingStartLevel 取走。
+			// 这里只把命令存下来，LawnApp 每帧 TakePendingStartLevel 取走；
+			// 它真进场的时候才回 START_ACK——没进场的命令不能让主机先进去。
 			mPendingStart = aMsg;
 			mHasPendingStart = true;
 			TodLog("[net] host started: mode %u level %u seed %d",
@@ -397,6 +409,22 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 				return;
 			}
 			SetDead("The other player left the game.");
+		}
+		break;
+
+	case NetProto::MSG_START_ACK:
+		{
+			if (mRole != Role::HOST) return;		// 只有主机在等这条
+
+			NetProto::MsgStartAck aMsg;
+			if (aPayloadSize != START_ACK_PAYLOAD_SIZE || !NetProto::DecodeStartAck(aPayload, aPayloadSize, aMsg))
+			{
+				SetDead("The other player sent a malformed packet.");
+				return;
+			}
+			// 存下来就走：开局要换场景、动一堆 UI，那是主循环的活。
+			mHasStartAck = true;
+			TodLog("[net] the teammate is ready, the host may enter the level");
 		}
 		break;
 
@@ -474,6 +502,23 @@ bool NetSession::SendStartLevel(uint8_t theGameMode, uint32_t theLevel, int32_t 
 	TodLog("[net] telling the client to start: mode %u level %u seed %d",
 		(unsigned)theGameMode, (unsigned)theLevel, (int)theLevelSeed);
 	return SendRaw(NetProto::MSG_START_LEVEL, aPayload, aSize);
+}
+
+void NetSession::SendStartAck()
+{
+	if (mRole != Role::CLIENT || !IsConnected()) return;
+
+	NetProto::MsgStartAck aMsg;
+	aMsg.mSrcSeat = mLocalSeat;
+	aMsg.mDstSeat = mPeerSeat;
+
+	uint8_t aPayload[NetProto::MAX_PAYLOAD];
+	int aSize = NetProto::EncodeStartAck(aPayload, (int)sizeof(aPayload), aMsg);
+	if (aSize > 0)
+	{
+		TodLog("[net] telling the host I am entering the level");
+		SendRaw(NetProto::MSG_START_ACK, aPayload, aSize);
+	}
 }
 
 void NetSession::SendHeartbeat()

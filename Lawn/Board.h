@@ -429,6 +429,12 @@ public:
 	int								GetLiveGargantuarCount(); // @Patoke: implemented
 	/*inline*/ int					GetNumWavesPerSurvivalStage();
 	int								GetLevelRandSeed();
+	// @pvz-online: 波表种子的算式本身。开局同步要在建棋盘之前就把种子广播出去
+	//（主机还得等队友确认才建棋盘），所以算式得能脱离棋盘实例算——两处走同一份，
+	// 免得哪天改了这里忘了那里（theBoardRandSeed 见构造函数：平时就是 mAppRandSeed）。
+	static int						ComputeLevelRandSeed(int theBoardRandSeed, bool theAdventureMode,
+										int thePlayerId, int theFinishedAdventure, int theLevel,
+										int theSurvivalStage, int theGameMode);
 	void							AddBossRenderItem(RenderItem* theRenderList, int& theCurRenderItem, Zombie* theBossZombie);
 	/*inline*/ GridItem*			GetCraterAt(int theGridX, int theGridY);
 	/*inline*/ GridItem*			GetGraveStoneAt(int theGridX, int theGridY);

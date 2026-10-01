@@ -830,14 +830,25 @@ int Board::GetLevelRandSeed()
 	if (mApp->GetOnlineStartOverride(anOnlineLevel, anOnlineSeed))
 		return anOnlineSeed;
 
-	int aRndSeed = mApp->mPlayerInfo->mId + mBoardRandSeed;
-	if (mApp->IsAdventureMode())
+	// 非冒险模式才碰 mChallenge（原式就是如此），所以先分流再取生存阶段
+	int aSurvivalStage = mApp->IsAdventureMode() ? 0 : mChallenge->mSurvivalStage;
+	return ComputeLevelRandSeed(mBoardRandSeed, mApp->IsAdventureMode(), mApp->mPlayerInfo->mId,
+		mApp->mPlayerInfo->mFinishedAdventure, mLevel, aSurvivalStage, (int)mApp->mGameMode);
+}
+
+// @pvz-online: 算式只此一份。GetLevelRandSeed 用它算本机自己的种子，
+// 主机开局广播用它算要广播出去的那一份（那时棋盘还没建，没法问 mBoard）。
+int Board::ComputeLevelRandSeed(int theBoardRandSeed, bool theAdventureMode, int thePlayerId,
+	int theFinishedAdventure, int theLevel, int theSurvivalStage, int theGameMode)
+{
+	int aRndSeed = thePlayerId + theBoardRandSeed;
+	if (theAdventureMode)
 	{
-		aRndSeed += mApp->mPlayerInfo->mFinishedAdventure * 101 + mLevel;
+		aRndSeed += theFinishedAdventure * 101 + theLevel;
 	}
 	else
 	{
-		aRndSeed += mChallenge->mSurvivalStage * 101 + mApp->mGameMode;
+		aRndSeed += theSurvivalStage * 101 + theGameMode;
 	}
 	return aRndSeed;
 }

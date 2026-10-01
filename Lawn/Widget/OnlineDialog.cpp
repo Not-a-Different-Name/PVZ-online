@@ -111,6 +111,11 @@ void OnlineDialog::Update()
 		mHintLine = "Host a game, or type the host's IP and join.";
 	}
 
+	// 主机按了关卡、正等队友就位：会话状态还是 CONNECTED，得单独说一句在等什么，
+	// 不然状态行还写着 "Pick a level from the menu"，看着像那一下没点上。
+	if (mApp->IsOnlineWaitingStartAck())
+		mStatusLine = "Starting - waiting for the teammate to get ready.";
+
 	mHostButton->SetDisabled(anActive);
 	mJoinButton->SetDisabled(anActive);
 	// 会话活着的时候：Host/Join 让位给 Disconnect，Close 就只是关面板

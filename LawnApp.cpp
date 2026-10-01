@@ -156,6 +156,7 @@ LawnApp::LawnApp()
 	mOnlineStartLevel = 0;
 	mOnlineStartSeed = 0;
 	mOnlineWasConnected = false;
+	mOnlineWaitingStartAck = false;
 }
 
 //0x44EDD0、0x44EDF0
@@ -457,7 +458,8 @@ void LawnApp::PreNewGame(GameMode theGameMode, bool theLookForSavedGame)
 	mGameMode = theGameMode;
 
 	// @pvz-online: 会话开着的时候一律按联机规矩来：
-	//   能开局（已连上的主机）→ 不读档也不删档，开完局就把关卡和波表种子广播出去；
+	//   能开局（已连上的主机）→ 不读档也不删档，把这一局的关卡和波表种子广播出去，
+	//     然后等队友回 START_ACK 再进场（见 UpdateOnlineStart）；
 	//   不能开局（没连上 / 客户端）→ 什么都不做。
 	// 客户端的关卡是主机说了算，所以客户端在这条路上永远不会自己开出一局来。
 	if (mOnlineSession && mOnlineSession->IsActive())
@@ -468,8 +470,21 @@ void LawnApp::PreNewGame(GameMode theGameMode, bool theLookForSavedGame)
 			return;
 		}
 
-		NewGame();
-		mOnlineSession->SendStartLevel((uint8_t)mGameMode, (uint32_t)mBoard->mLevel, mBoard->GetLevelRandSeed());
+		// 主场先广播、后进场：队友没收到命令的话，主机一个人开着关跑下去是最糟的结局。
+		// 广播要带关卡和种子，可这时候棋盘还没建（要等 ACK 才建）——所以按 Board 的算式
+		// 在这儿算一份，设成覆盖值；等 ACK 到了 NewGame()，InitLevel 和 GetLevelRandSeed
+		// 读的就是同一份覆盖值，和广播出去的完全一致。
+		//
+		// 生存模式的棋盘随机数取的是 Rand()（见 Board 构造函数），那种模式下这套算法对不上；
+		// 好在生存已经整段裁剪（IsPvzModeCulled），联机局开不出生存来。
+		int aLevel = IsAdventureMode() ? mPlayerInfo->mLevel : 0;
+		int aSeed = Board::ComputeLevelRandSeed(mAppRandSeed, IsAdventureMode(), mPlayerInfo->mId,
+			mPlayerInfo->mFinishedAdventure, aLevel, 0, (int)mGameMode);
+
+		SetOnlineStartOverride(aLevel, aSeed);
+		mOnlineWaitingStartAck = true;
+		TodLog("[net] host picked level %d, waiting for the teammate before entering", aLevel);
+		mOnlineSession->SendStartLevel((uint8_t)mGameMode, (uint32_t)aLevel, aSeed);
 		return;
 	}
 
@@ -517,18 +532,45 @@ void LawnApp::ClearOnlineStartOverride()
 	mHasOnlineStart = false;
 }
 
-// @pvz-online: 主机开局了——客户端跟着开自己那块棋盘。每条开局命令只能用一次，
-// 用过就清；清掉之后 GetLevelRandSeed 又回到本机自己的算法。
+// @pvz-online: 两边进场都从这儿走。每条开局命令只能用一次，用过就清；
+// 清掉之后 GetLevelRandSeed 又回到本机自己的算法。
 void LawnApp::UpdateOnlineStart()
 {
 	if (!mOnlineSession) return;
 
+	// 主机侧：开局命令已经广播出去了，等队友的 START_ACK。收到了才开自己那一局——
+	// 用的还是广播出去那份覆盖值，所以两边进场只差一个单程。等待期间队友要是没了
+	// （心跳超时 / 主动退出），这次开局作废，人还好好留在主菜单上。
+	if (mOnlineWaitingStartAck)
+	{
+		// 先看队友还在不在：ACK 和掉线挤在同一帧的话，宁可这一次开局作废，
+		// 也不能一个人开着关跑下去。
+		if (!mOnlineSession->IsConnected())
+		{
+			mOnlineWaitingStartAck = false;
+			ClearOnlineStartOverride();
+			TodTrace("online start: teammate left before entering, start dropped");
+		}
+		else if (mOnlineSession->TakeStartAck())
+		{
+			mOnlineWaitingStartAck = false;
+			TodTrace("online start: teammate is in, entering the level");
+			KillDialog(Dialogs::DIALOG_ONLINE);
+			KillGameSelector();
+			NewGame();
+		}
+		return;
+	}
+
+	// 客户端侧：主机开局了，跟着开自己那块棋盘。
 	NetProto::MsgStartLevel aStart;
 	if (!mOnlineSession->TakePendingStartLevel(aStart)) return;
 
 	if (mGameScene != GameScenes::SCENE_MENU)
 	{
-		// 不在主菜单就先不接这条（"局打到一半主机又开了一局"留到 C6 处理）
+		// 不在主菜单就先不接这条（"局打到一半主机又开了一局"留到 C6 处理）。
+		// 这时候也不能回 START_ACK：没进场就不算就位，主机会一直在那边等着——
+		// 这正是我们要的，总好过主机一个人开着关跑下去。
 		TodTrace("online start ignored: scene %d is not the menu", (int)mGameScene);
 		return;
 	}
@@ -539,6 +581,8 @@ void LawnApp::UpdateOnlineStart()
 	mGameMode = (GameMode)aStart.mGameMode;
 	TodTrace("online start: mode %d level %u seed %d",
 		(int)mGameMode, (unsigned)aStart.mLevel, (int)aStart.mLevelSeed);
+	// ACK 就是"我进关了"这句话，先把它发出去，主机才会跟着进
+	mOnlineSession->SendStartAck();
 	NewGame();
 }
 

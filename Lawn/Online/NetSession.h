@@ -69,6 +69,13 @@ public:
 	// 单槽而不是队列：开局命令只有"最新那条"有意义，堆着旧的开局命令没有用处。
 	bool			TakePendingStartLevel(NetProto::MsgStartLevel& theMsg);
 
+	// 客户端侧：告诉主机"开局命令收到、我进场了"。只在真的准备进场时发——
+	// 不在主菜单（命令会被丢掉）就别发，否则主机会一个人开着关跑下去。
+	void			SendStartAck();
+
+	// 主机侧：队友的 START_ACK 到了没有（取一次就清）。主机等这条才进场。
+	bool			TakeStartAck();
+
 	State			GetState() const { return mState; }
 	Role			GetRole() const { return mRole; }
 	bool			IsConnected() const { return mState == State::CONNECTED; }
@@ -119,6 +126,7 @@ private:
 	std::vector<Event>	mEvents;
 	bool				mHasPendingStart;
 	NetProto::MsgStartLevel	mPendingStart;
+	bool				mHasStartAck;
 
 	NetSession(const NetSession&);
 	NetSession& operator=(const NetSession&);
