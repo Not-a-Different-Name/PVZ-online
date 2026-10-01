@@ -36,7 +36,9 @@ const uint16_t	PROTOCOL_VERSION	= 1;
 // 8 → 9：暂停同步（一边暂停，两边都暂停；任一方都能暂停也能继续）。
 // 9 → 10：漏怪传递落地（收的那边真把僵尸建到棋盘上）。协议一个字没动，但旧包
 //        收到漏怪只会丢进日志——两边必须同版本，所以照样抬。
-const uint16_t	MOD_BUILD			= 10;
+// 10 → 11：全队判胜/判负（LEVEL_DONE 谁清完了、GAME_OVER 全队败）。这两条消息
+//        枚举里一直有、但从来没上过线：旧构建收到会当成没见过的消息直接断线。
+const uint16_t	MOD_BUILD			= 11;
 
 const uint16_t	DEFAULT_PORT		= 27777;
 
@@ -323,6 +325,40 @@ inline bool DecodeStartLevel(const uint8_t* theData, int theSize, MsgStartLevel&
 	theMsg.mGameMode = aReader.U8();
 	theMsg.mLevel = aReader.U32();
 	theMsg.mLevelSeed = aReader.I32();
+	return !aReader.Overflowed();
+}
+
+inline int EncodeLevelDone(uint8_t* theBuffer, int theCapacity, const MsgLevelDone& theMsg)
+{
+	Writer aWriter(theBuffer, theCapacity);
+	aWriter.U8(theMsg.mSrcSeat);
+	aWriter.U8(theMsg.mDstSeat);
+	return aWriter.Overflowed() ? -1 : aWriter.Size();
+}
+
+inline bool DecodeLevelDone(const uint8_t* theData, int theSize, MsgLevelDone& theMsg)
+{
+	Reader aReader(theData, theSize);
+	theMsg.mSrcSeat = aReader.U8();
+	theMsg.mDstSeat = aReader.U8();
+	return !aReader.Overflowed();
+}
+
+inline int EncodeGameOver(uint8_t* theBuffer, int theCapacity, const MsgGameOver& theMsg)
+{
+	Writer aWriter(theBuffer, theCapacity);
+	aWriter.U8(theMsg.mSrcSeat);
+	aWriter.U8(theMsg.mDstSeat);
+	aWriter.U8(theMsg.mReason);
+	return aWriter.Overflowed() ? -1 : aWriter.Size();
+}
+
+inline bool DecodeGameOver(const uint8_t* theData, int theSize, MsgGameOver& theMsg)
+{
+	Reader aReader(theData, theSize);
+	theMsg.mSrcSeat = aReader.U8();
+	theMsg.mDstSeat = aReader.U8();
+	theMsg.mReason = aReader.U8();
 	return !aReader.Overflowed();
 }
 

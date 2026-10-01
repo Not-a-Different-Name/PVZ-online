@@ -97,6 +97,26 @@ public:
 	// 对面退出了这一局没有（取一次就清）。
 	bool			TakePendingLevelExit(NetProto::MsgLevelExit& theMsg);
 
+	// 我这边清完了（草坪上再没有僵尸）。全队判胜靠这条：**所有上座席位**都报过
+	// "清完了"，这一关才算过。棋盘每帧都会问一次，所以这里自己去重——一局只说一次。
+	// 真的发出去了才返回 true。
+	bool			SendLevelDone();
+
+	// 我这边清完了没有 / 其他席位是不是都清完了（棋盘上那句"等队友"看这个）。
+	bool			IsLocalLevelDone() const;
+	bool			IsPeerLevelDone() const;
+
+	// 全队都清完了——这一关对所有人结束了，该回主菜单。取一次就清：
+	// 主循环每帧都会问，收摊只能收一次。
+	bool			TakeAllLevelsDone();
+
+	// 全队败（末尾席位漏怪）：输的是**全队**，不是"谁漏谁出局"。对面收到就一起收摊。
+	// reason 见 NetProto::GameOverReason。
+	bool			SendGameOver(uint8_t theReason);
+
+	// 对面报的全队败（取一次就清）。
+	bool			TakePendingGameOver(NetProto::MsgGameOver& theMsg);
+
 	// 我暂停了 / 我继续了（共识模型：任一方都能按，任一方也都能继续）。
 	// 与两边已经认可的状态相同时**不发**——这一条同时干掉了所有回声：收端为了队友
 	// 把菜单弹出来时，本机的发送检测器也会看到"菜单开了"，但那时状态已经是对的，不会回发。
@@ -184,6 +204,11 @@ private:
 	void			SetNotice(const char* theText, int theFrames = NOTICE_FRAMES);
 	// 把"两边暂停到哪了"整个忘掉（新一局开始、掉线、收摊时用）。
 	void			ClearPauseState();
+	// 把"谁清完了"整个忘掉（新一局开始、掉线、收摊时用）。
+	void			ClearLevelDoneState();
+	// 上座席位是不是都报了"清完了"。一个队友都没有的空局返回 false——
+	// 单机里没人陪你判胜。
+	bool			AreAllSeatsDone() const;
 
 	bool			SendRaw(uint16_t theType, const uint8_t* thePayload, int thePayloadSize);
 	void			SendHello();
@@ -214,6 +239,12 @@ private:
 	bool				mStartAckAccepted;	// 上一条 START_ACK 是"进场"还是"现在不行"
 	bool				mHasPendingLevelExit;
 	NetProto::MsgLevelExit	mPendingLevelExit;
+	// 一局里"谁清完了"，按下标=席位号（0 号位不用）。用数组而不是两个布尔：
+	// M2 只有两个席位，M3 是四个，判胜的写法不该跟着席位数量重写一遍。
+	bool				mSeatDone[NetProto::MAX_PLAYERS + 1];
+	bool				mAllDoneTaken;		// "全队都清完了"已经收过摊了
+	bool				mHasPendingGameOver;
+	NetProto::MsgGameOver	mPendingGameOver;
 	// 两边共同认可的暂停态（同时也是发送去重的依据），以及"这次暂停是谁按的"。
 	bool				mSharedPaused;
 	bool				mPauseCameFromPeer;

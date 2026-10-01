@@ -18,6 +18,8 @@ const int	HEARTBEAT_PAYLOAD_SIZE	= 6;	// src, dst, u32 tick
 const int	BYE_PAYLOAD_SIZE		= 3;	// src, dst, u8 reason
 const int	LEVEL_EXIT_PAYLOAD_SIZE	= 3;	// src, dst, u8 reason
 const int	PAUSE_PAYLOAD_SIZE		= 3;	// src, dst, u8 paused
+const int	LEVEL_DONE_PAYLOAD_SIZE	= 2;	// src, dst
+const int	GAME_OVER_PAYLOAD_SIZE	= 3;	// src, dst, u8 reason
 
 // M2 就两个席位。换位规则按"环上的后一位"写，所以扩到四席位时只要把这个数
 // 和 ApplySeatSwap 一起改成按座次置换，规则本身不用动。
@@ -63,6 +65,12 @@ NetSession::NetSession()
 	mHasStartAck = false;
 	mStartAckAccepted = false;
 	mHasPendingLevelExit = false;
+	mAllDoneTaken = false;
+	mHasPendingGameOver = false;
+	for (int aSeat = 0; aSeat <= NetProto::MAX_PLAYERS; aSeat++)
+	{
+		mSeatDone[aSeat] = false;
+	}
 	mSharedPaused = false;
 	mPauseCameFromPeer = false;
 	mHasPendingPause = false;
@@ -239,6 +247,7 @@ bool NetSession::TakePendingStartLevel(NetProto::MsgStartLevel& theMsg)
 	theMsg = mPendingStart;
 	mHasPendingStart = false;
 	ClearPauseState();		// 这就进场了：上一局的暂停态不带进新棋盘
+	ClearLevelDoneState();	// "谁清完了"同理
 	return true;
 }
 
@@ -257,6 +266,107 @@ bool NetSession::TakePendingLevelExit(NetProto::MsgLevelExit& theMsg)
 
 	theMsg = mPendingLevelExit;
 	mHasPendingLevelExit = false;
+	return true;
+}
+
+// ====================================================================================================
+// ★ 全队判胜 / 全队败
+// ====================================================================================================
+
+// 我这边清完了。棋盘每帧都会问一次，所以去重放在这里：一局里"我清完了"只说一次。
+bool NetSession::SendLevelDone()
+{
+	if (mRole == Role::NONE || !IsConnected()) return false;
+	if (mSeatDone[mLocalSeat]) return false;		// 已经报过了
+
+	NetProto::MsgLevelDone aMsg;
+	aMsg.mSrcSeat = mLocalSeat;
+	aMsg.mDstSeat = mPeerSeat;
+
+	uint8_t aPayload[NetProto::MAX_PAYLOAD];
+	int aSize = NetProto::EncodeLevelDone(aPayload, (int)sizeof(aPayload), aMsg);
+	if (aSize <= 0) return false;
+
+	// 发出去了才记账：没发出去（socket 坏了）下一帧还要再试
+	if (!SendRaw(NetProto::MSG_LEVEL_DONE, aPayload, aSize)) return false;
+
+	mSeatDone[mLocalSeat] = true;
+	TodLog("[net] told the teammates my lawn is clear (seat %u)", (unsigned)mLocalSeat);
+	return true;
+}
+
+bool NetSession::IsLocalLevelDone() const
+{
+	return mLocalSeat != NetProto::SEAT_UNSET && mSeatDone[mLocalSeat];
+}
+
+// 其他上座席位是不是都清完了。一个队友都没有 → false：单机里没人陪你判胜，
+// 棋盘上那句"等队友"挂在单机上也会显得莫名其妙。
+bool NetSession::IsPeerLevelDone() const
+{
+	if (!IsConnected()) return false;
+
+	bool aHasPeer = false;
+	for (uint8_t aSeat = 1; aSeat <= NetProto::MAX_PLAYERS; aSeat++)
+	{
+		if (aSeat == mLocalSeat || !IsSeatOccupied(aSeat)) continue;
+
+		aHasPeer = true;
+		if (!mSeatDone[aSeat]) return false;
+	}
+	return aHasPeer;
+}
+
+// 上座席位都报了"清完了"才算过。人数从 2 到 4 都是这一条，判胜不用跟着席位数量重写。
+bool NetSession::AreAllSeatsDone() const
+{
+	if (!IsConnected()) return false;
+
+	int aOccupied = 0;
+	for (uint8_t aSeat = 1; aSeat <= NetProto::MAX_PLAYERS; aSeat++)
+	{
+		if (!IsSeatOccupied(aSeat)) continue;
+
+		aOccupied++;
+		if (!mSeatDone[aSeat]) return false;
+	}
+
+	// 一个人不算"全队"：自己跟自己判胜没有意义，也防住"会话还在但队友已经掉了"的边角
+	return aOccupied >= 2;
+}
+
+bool NetSession::TakeAllLevelsDone()
+{
+	if (mAllDoneTaken || !AreAllSeatsDone()) return false;
+
+	mAllDoneTaken = true;
+	TodLog("[net] every lawn is clear - this level is over for the whole team");
+	return true;
+}
+
+bool NetSession::SendGameOver(uint8_t theReason)
+{
+	if (mRole == Role::NONE || !IsConnected()) return false;
+
+	NetProto::MsgGameOver aMsg;
+	aMsg.mSrcSeat = mLocalSeat;
+	aMsg.mDstSeat = mPeerSeat;
+	aMsg.mReason = theReason;
+
+	uint8_t aPayload[NetProto::MAX_PAYLOAD];
+	int aSize = NetProto::EncodeGameOver(aPayload, (int)sizeof(aPayload), aMsg);
+	if (aSize <= 0) return false;
+
+	TodLog("[net] telling the teammates we lost (reason %u)", (unsigned)theReason);
+	return SendRaw(NetProto::MSG_GAME_OVER, aPayload, aSize);
+}
+
+bool NetSession::TakePendingGameOver(NetProto::MsgGameOver& theMsg)
+{
+	if (!mHasPendingGameOver) return false;
+
+	theMsg = mPendingGameOver;
+	mHasPendingGameOver = false;
 	return true;
 }
 
@@ -371,6 +481,7 @@ void NetSession::DiscardLevelPackets()
 	mHasPendingLevelExit = false;
 	mPendingEscapedZombies.clear();
 	ClearPauseState();
+	ClearLevelDoneState();
 }
 
 // 新的一局从头开始：上一局"暂停着"不该带进来（不然下一局一进场两边就都是停着的）。
@@ -382,12 +493,27 @@ void NetSession::ClearPauseState()
 	mPendingPauseValue = false;
 }
 
+// 同理：上一局谁清完了是上一局的事，新棋盘一律从头记；全队败的通知也一并作废。
+void NetSession::ClearLevelDoneState()
+{
+	for (int aSeat = 0; aSeat <= NetProto::MAX_PLAYERS; aSeat++)
+	{
+		mSeatDone[aSeat] = false;
+	}
+	mAllDoneTaken = false;
+	mHasPendingGameOver = false;
+}
+
 uint8_t NetSession::GetRelayTargetSeat() const
 {
-	// M2 只有两个席位，队形就是一环：1 → 2。2 号位是末席——它漏怪就是全队败，
-	// 没有可传的人（这条规则由调用方处理：收到 SEAT_UNSET 就走原版判负）。
+	// 漏怪按顺位往下传：1 → 2 → 3 → 4。**末尾席位没有下一家**——它漏怪就是全队败，
+	// 调用方收到 SEAT_UNSET 就走原版判负。
+	// 注意这条链和换位那个环不是一回事：换位是环（末位的后一位是首位），漏怪是链，
+	// 链的末端就是这条规则的下限。所以这里不套 NextSeatInRing。
 	// 只看席位号，不看谁建的房：开始前换过位置的话，方向跟着换。
-	return (mLocalSeat == NetProto::SEAT_HOST) ? NetProto::SEAT_CLIENT : NetProto::SEAT_UNSET;
+	if (mLocalSeat == NetProto::SEAT_UNSET || mLocalSeat >= SEAT_COUNT) return NetProto::SEAT_UNSET;
+
+	return (uint8_t)(mLocalSeat + 1);
 }
 
 bool NetSession::SendEscapedZombie(const NetProto::MsgEscapedZombie& theMsg)
@@ -778,6 +904,46 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 		}
 		break;
 
+	case NetProto::MSG_LEVEL_DONE:
+		{
+			if (!IsConnected()) return;
+
+			NetProto::MsgLevelDone aMsg;
+			if (aPayloadSize != LEVEL_DONE_PAYLOAD_SIZE || !NetProto::DecodeLevelDone(aPayload, aPayloadSize, aMsg))
+			{
+				SetDead("The other player sent a malformed packet.");
+				return;
+			}
+
+			// 席位号越界就丢掉这一条：它是包里的一个字节，直接拿去当数组下标会写穿。
+			if (aMsg.mSrcSeat < 1 || aMsg.mSrcSeat > NetProto::MAX_PLAYERS)
+			{
+				TodLog("[net] threw away a LEVEL_DONE with a bogus seat (%u)", (unsigned)aMsg.mSrcSeat);
+				break;
+			}
+
+			mSeatDone[aMsg.mSrcSeat] = true;
+			TodLog("[net] seat %u says its lawn is clear", (unsigned)aMsg.mSrcSeat);
+		}
+		break;
+
+	case NetProto::MSG_GAME_OVER:
+		{
+			if (!IsConnected()) return;
+
+			NetProto::MsgGameOver aMsg;
+			if (aPayloadSize != GAME_OVER_PAYLOAD_SIZE || !NetProto::DecodeGameOver(aPayload, aPayloadSize, aMsg))
+			{
+				SetDead("The other player sent a malformed packet.");
+				return;
+			}
+
+			mPendingGameOver = aMsg;
+			mHasPendingGameOver = true;
+			TodLog("[net] the teammate says the team lost (reason %u)", (unsigned)aMsg.mReason);
+		}
+		break;
+
 	case NetProto::MSG_PAUSE:
 		{
 			if (!IsConnected()) return;
@@ -821,8 +987,9 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 		break;
 
 	default:
-		// LEVEL_DONE / GAME_OVER 是后面的步骤的事，这一版还没接，
-		// 直接忽略（长度合法性已经在头上查过了）。
+		// 没见过的消息类型：长度合法性已经在头上查过，帧长（头里的 len）还对得上，
+		// 所以丢掉这一条就行，不必断线。跨版本早被握手时的构建号挡住了
+		// （MOD_BUILD 不一样直接不连），这里只防串包和将来加消息时的中间态。
 		break;
 	}
 }
@@ -896,6 +1063,7 @@ bool NetSession::SendStartLevel(uint8_t theGameMode, uint32_t theLevel, int32_t 
 	TodLog("[net] telling the client to start: mode %u level %u seed %d",
 		(unsigned)theGameMode, (unsigned)theLevel, (int)theLevelSeed);
 	ClearPauseState();		// 新的一局：暂停态从头开始记
+	ClearLevelDoneState();	// "谁清完了"同理
 	return SendRaw(NetProto::MSG_START_LEVEL, aPayload, aSize);
 }
 
