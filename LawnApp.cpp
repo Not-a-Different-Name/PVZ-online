@@ -667,8 +667,8 @@ void LawnApp::UpdateOnlineStart()
 // 把队列取空——棋盘不在（主菜单、换关的空档）就直接丢掉：迟到的怪绝不能等下一关
 // 的棋盘建好了再冒出来。
 //
-// 现在只把收到的怪写进日志，还没让它落到棋盘上——建僵尸、覆写当前血量那些
-// 是漏怪接收侧（C4）的事。
+// 收到就交给 Board::AddRelayedZombie：同类型的怪从本棋盘右侧重新走进来，带着它
+// 对面挨打后剩下的血。每只都打一行日志——玩家在两边看到的必须是同一只怪。
 void LawnApp::UpdateOnlineRelay()
 {
 	if (!mOnlineSession) return;
@@ -683,7 +683,17 @@ void LawnApp::UpdateOnlineRelay()
 			continue;
 		}
 
-		TodLog("[net] relayed zombie is here: row %u type %u hp %d/%d/%d/%d",
+		Zombie* aZombie = mBoard->AddRelayedZombie((int)aMsg.mRow, (ZombieType)aMsg.mZombieType,
+			(int)aMsg.mBodyHealth, (int)aMsg.mHelmHealth, (int)aMsg.mShieldHealth, (int)aMsg.mFlyingHealth);
+		if (aZombie == nullptr)
+		{
+			// 满场或包内容越界。掉一只怪等于把队友的惩罚取消了，但除了日志没有别的办法。
+			TodLog("[net] could not put the relayed zombie on the board: row %u type %u hp %d",
+				(unsigned)aMsg.mRow, (unsigned)aMsg.mZombieType, (int)aMsg.mBodyHealth);
+			continue;
+		}
+
+		TodLog("[net] relayed zombie is on the board: row %u type %u hp %d/%d/%d/%d",
 			(unsigned)aMsg.mRow, (unsigned)aMsg.mZombieType,
 			(int)aMsg.mBodyHealth, (int)aMsg.mHelmHealth,
 			(int)aMsg.mShieldHealth, (int)aMsg.mFlyingHealth);

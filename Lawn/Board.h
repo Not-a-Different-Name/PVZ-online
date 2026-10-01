@@ -313,6 +313,9 @@ public:
 	// @pvz-online: 漏怪传递。僵尸走到房子前先问这里：传成了就从本棋盘消失（不算漏），
 	// 返回 false 才走原版判负。单机、队友没了、末席（没人可传）都是 false。
 	bool							TryRelayEscapedZombie(Zombie* theZombie);
+	// @pvz-online: 漏怪传递的接收侧。队友那儿漏过来的僵尸在本棋盘右侧按原类型重新生成，
+	// 只把"还剩多少血"照搬过来。行号/类型是网络来的，越界就不收（返回 nullptr）。
+	Zombie*							AddRelayedZombie(int theRow, ZombieType theZombieType, int theBodyHealth, int theHelmHealth, int theShieldHealth, int theFlyingHealth);
 	void							DrawLevel(Graphics* g);
 	void							DrawShovel(Graphics* g);
 	void							UpdateZombieSpawning();

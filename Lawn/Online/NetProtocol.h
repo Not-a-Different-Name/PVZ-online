@@ -34,7 +34,9 @@ const uint16_t	PROTOCOL_VERSION	= 1;
 // 7 → 8：开局确认分两态（START_ACK 带 accepted：队友在关卡里时明确回绝，
 //        主机不再对着黑屏空等到天荒地老）。
 // 8 → 9：暂停同步（一边暂停，两边都暂停；任一方都能暂停也能继续）。
-const uint16_t	MOD_BUILD			= 9;
+// 9 → 10：漏怪传递落地（收的那边真把僵尸建到棋盘上）。协议一个字没动，但旧包
+//        收到漏怪只会丢进日志——两边必须同版本，所以照样抬。
+const uint16_t	MOD_BUILD			= 10;
 
 const uint16_t	DEFAULT_PORT		= 27777;
 

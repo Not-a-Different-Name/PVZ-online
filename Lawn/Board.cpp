@@ -5312,6 +5312,36 @@ bool Board::TryRelayEscapedZombie(Zombie* theZombie)
 	return true;
 }
 
+// @pvz-online: 漏怪传递的接收侧。位置、速度、外观都按本机规则重新生成（同类型的怪从右侧
+// 正常走进来），只覆写四个当前血量——那是这只怪身上唯一由对面玩家打出来的东西。
+// 血量上限、入场动画这些不用传：本机重新初始化时就按类型定好了。
+Zombie* Board::AddRelayedZombie(int theRow, ZombieType theZombieType, int theBodyHealth, int theHelmHealth, int theShieldHealth, int theFlyingHealth)
+{
+	// 行号和类型是网络来的（对面包长已经校验过，但内容没有）：行号越界会直接写穿
+	// mPlantRow / mGridSquareType，类型越界会在初始化里撞到没有分支的 switch。
+	if (theRow < 0 || theRow >= MAX_GRID_SIZE_Y) return nullptr;
+	if (theZombieType < 0 || theZombieType >= ZombieType::NUM_ZOMBIE_TYPES) return nullptr;
+	// 已经没血的怪就是已经死了的怪，别把尸体摆上来（摆上来 UpdatePlaying 的血量断言也会炸）。
+	if (theBodyHealth <= 0) return nullptr;
+
+	Zombie* aZombie = AddZombieInRow(theZombieType, theRow, mCurrentWave);
+	if (aZombie == nullptr) return nullptr;		// 场上满了（AddZombieInRow 里那声 "Too many zombies!!"）
+
+	aZombie->mBodyHealth = theBodyHealth;
+	aZombie->mHelmHealth = theHelmHealth;
+	aZombie->mShieldHealth = theShieldHealth;
+	aZombie->mFlyingHealth = theFlyingHealth;
+
+	// 对面丢掉的那部分要跟着丢：本机是刚初始化的新怪，帽子/铁门/报纸都还在身上。
+	// 走游戏自己的掉装备函数、带上"不留尸体"标志——状态对了，粒子音效那些不重放。
+	// （只剩多少血那种"半残"不用管：伤害值已经覆写，下一击时游戏自己会接上。）
+	const unsigned int aQuietFlags = 1 << (int)DamageFlags::DAMAGE_DOESNT_LEAVE_BODY;
+	if (aZombie->mHelmHealth == 0) aZombie->DropHelm(aQuietFlags);
+	if (aZombie->mShieldHealth == 0) aZombie->DropShield(aQuietFlags);
+
+	return aZombie;
+}
+
 //0x413400
 void Board::ZombiesWon(Zombie* theZombie)
 {
