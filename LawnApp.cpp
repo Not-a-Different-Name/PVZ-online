@@ -158,6 +158,8 @@ LawnApp::LawnApp()
 	mOnlineWasConnected = false;
 	mOnlineWaitingStartAck = false;
 	mOnlineStartWaitFrames = 0;
+	mPauseMenuWasOpen = false;
+	mPauseMenuFromPeer = false;
 }
 
 //0x44EDD0、0x44EDF0
@@ -707,6 +709,61 @@ void LawnApp::UpdateOnlineLevelExit()
 	// 已经在菜单上（比如刚退完，或还没进关）：只写一句即时说明，界面不动。
 	TodLog("[net] the teammate left the level (already in the menu)");
 	mOnlineSession->PostNotice("Your teammate left the level.");
+}
+
+// @pvz-online: 暂停同步。规则（已拍板）：任一方都能暂停，也任一方都能继续。
+//
+// 本机"我暂停了/我继续了"不挂钩子，看状态：暂停菜单（DIALOG_NEWOPTIONS）开着没有，
+// 与上一帧比。这样 ESC、右上角 Menu、选卡界面的 Menu、Back to Game、Main Menu……
+// 所有开合路径一网打尽，不用在六处调用点各加一行，也不会漏。
+// 刻意不参与同步的是 DoPauseDialog 那个简化框（空格键、Alt-Tab 失焦）：
+// 自己切出去不该把队友强按进暂停菜单。
+void LawnApp::UpdateOnlinePause()
+{
+	if (!mOnlineSession) return;
+
+	// ① 队友按了暂停 / 继续
+	bool aPaused = false;
+	if (mOnlineSession->TakePauseState(aPaused))
+	{
+		if (aPaused)
+		{
+			// 绝不直写 mBoard->mPaused：走 DoNewOptions 自己的模态链，让 ModalOpen 去停棋盘
+			// （音效/音乐也跟着停）。已经有暂停框就只记状态，不叠第二个。
+			if (mBoard != nullptr && GetDialog(Dialogs::DIALOG_NEWOPTIONS) == nullptr)
+			{
+				DoNewOptions(false);
+				// 这一步是替队友做的，不算本机操作：下一段的检测器不该把它当成"我按的"
+				mPauseMenuWasOpen = true;
+				mPauseMenuFromPeer = true;
+			}
+		}
+		else if (GetDialog(Dialogs::DIALOG_NEWOPTIONS) != nullptr)
+		{
+			// 任一方都能继续：不管这菜单是谁开的都收掉
+			KillNewOptionsDialog();
+		}
+	}
+
+	// ② 本机自己开/关了暂停菜单 → 告诉队友（SendPauseState 自己会做去重，没连上会返回 false）
+	bool aNowOpen = mBoard != nullptr && GetDialog(Dialogs::DIALOG_NEWOPTIONS) != nullptr;
+	if (aNowOpen != mPauseMenuWasOpen)
+	{
+		mPauseMenuWasOpen = aNowOpen;
+		mPauseMenuFromPeer = false;
+		mOnlineSession->SendPauseState(aNowOpen);
+	}
+
+	// ③ 队友掉线了：他那张"替队友弹的"暂停菜单没人能解（玩家自己没按过），收掉；
+	// 玩家自己按出来的暂停菜单不动——那是他的操作，掉不掉线都该留着。
+	if (mPauseMenuFromPeer && !mOnlineSession->IsConnected()
+		&& GetDialog(Dialogs::DIALOG_NEWOPTIONS) != nullptr)
+	{
+		TodLog("[net] the teammate vanished while the pause menu was theirs - closing it");
+		KillNewOptionsDialog();
+		mPauseMenuWasOpen = false;
+		mPauseMenuFromPeer = false;
+	}
 }
 
 //0x44F5F0
@@ -1979,6 +2036,7 @@ void LawnApp::UpdateFrames()
 	UpdateOnlineStart();
 	UpdateOnlineRelay();
 	UpdateOnlineLevelExit();
+	UpdateOnlinePause();
 
 	if ((!mActive || mMinimized) && mBoard)
 	{
