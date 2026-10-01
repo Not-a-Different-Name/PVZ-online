@@ -371,6 +371,14 @@ GameSelector::GameSelector(LawnApp* theApp)
 	mDestX = 0;
 	mDestY = 0;
 	mMenuHiddenForAchievements = false;
+	// @pvz-online: the achievements page is a TOP-LEVEL manager widget that rides the
+	// slide one screen below the menu (absolute y = mHeight at rest). It must not be a
+	// child: (a) WidgetContainer clips children to the container's 800x600 local rect,
+	// so a child parked at y=mHeight never renders; (b) WidgetManager::MouseUp converts
+	// cursor coords with a single `x - widget.mX` level, which is wrong for any widget
+	// nested inside the scrolled selector - clicks on the page (and on every menu button
+	// while the selector is off y=0) landed hundreds of pixels away from their targets.
+	// Absolute positioning keeps single-level math correct.
 	//mZombatarWidget = new ZombatarWidget(this);
 	//mZombatarWidget->Resize(800, 0, mApp->mWidth, mApp->mHeight);
 	mAchievementsWidget = new AchievementsWidget(this->mApp);
@@ -390,7 +398,7 @@ GameSelector::GameSelector(LawnApp* theApp)
 	this->AddWidget(mZombatarButton); // @Patoke: add new widgets
 	//this->AddWidget(mZombatarScreen); // @Patoke: add new widgets
 	this->AddWidget(mAchievementsButton);
-	this->AddWidget(mAchievementsWidget);
+	// (mAchievementsWidget is added to the manager, not here - see the constructor note.)
 	this->AddWidget(mQuickPlayButton);
 	this->AddWidget(mOverlayWidget);
 
@@ -406,6 +414,10 @@ GameSelector::~GameSelector()
 	// (WidgetContainer.cpp:~32) and the game dies the moment the selector is torn down.
 	// RemoveAllWidgets() detaches and deletes every child in one pass, clearing mParent.
 	RemoveAllWidgets(true);
+
+	// @pvz-online: the achievements page is a top-level manager widget (not a child), so
+	// RemoveAllWidgets() above does not cover it. RemovedFromManager has detached it.
+	delete mAchievementsWidget;
 
 	// mToolTip is owned here but was never AddWidget()'d, so it is not covered above.
 	delete mToolTip;
@@ -776,7 +788,8 @@ void GameSelector::DrawOverlay(Graphics* g)
 
 	// @pvz-online: same reason as the buttons hidden in Update - these reanims draw at
 	// absolute positions, so sliding the selector up left them on screen growing over the
-	// achievements page.
+	// achievements page. The page's mY is its absolute screen y now (top-level widget):
+	// 0 exactly when the page is up.
 	if (!(mAchievementsWidget && mAchievementsWidget->mY <= 0))
 	{
 		g->Translate(-(mX + 800), 0);
@@ -926,11 +939,13 @@ void GameSelector::Update()
 
 		// @Patoke: not from the original binaries but fixes bugs
 		mOverlayWidget->Move(aNewX, aNewY);
-		mAchievementsWidget->mY = aNewY + mApp->mHeight - 1;
-		// @pvz-online: assign mY directly (not Move()) and the widget is never marked
-		// dirty, so the page was only redrawn on the frames something else happened to
-		// dirty it - which left several stale copies of it on screen at once.
-		mAchievementsWidget->MarkDirty();
+		// @pvz-online: the page is a top-level widget riding exactly one screen below the
+		// menu (absolute y = aNewY + mHeight): it reaches y=0 - covering the screen - the
+		// moment the slide completes, and drops back below the fold on the way out. Move()
+		// marks it dirty through Resize, so it repaints every sliding frame; the rigid
+		// column means menu-bottom and page-top always share an edge and no stale band
+		// can open between them.
+		mAchievementsWidget->Move(aNewX, aNewY + mApp->mHeight);
 		mAdventureButton->SetOffset(aNewX, aNewY);
 		mMinigameButton->SetOffset(aNewX, aNewY);
 		mPuzzleButton->SetOffset(aNewX, aNewY);
@@ -956,13 +971,14 @@ void GameSelector::Update()
 		mSlideCounter--;
 	}
 
-	// @pvz-online: the achievements page is a separate screen, but the menu's buttons are
-	// *siblings* of it, not children, and their mX/mY are absolute - sliding the selector
-	// up never moved them. That is the "menu with no background" report: the selector's
-	// own Draw went to y=-600 while the buttons stayed put, and the boards then drew over
-	// the achievements page. Hide them for exactly as long as the page is up. The page
-	// slides in from below (mAchievementsWidget->mY walks 599 -> -1), so keying on its
-	// position means the menu reappears as the page leaves, which is the slide you want.
+	// @pvz-online: the achievements page is a separate top-level screen; the menu's
+	// buttons are children of the selector, and their mX/mY are absolute - sliding the
+	// selector up never moved them. That is the "menu with no background" report: the
+	// selector's own Draw went to y=-600 while the buttons stayed put, and the boards
+	// then drew over the achievements page. Hide them for exactly as long as the page is
+	// up. The page's mY is its absolute screen y (top-level widget): it slides in from
+	// below and reaches 0 exactly when the slide completes, so the menu reappears as the
+	// page leaves, which is the slide you want.
 	{
 		bool aPageUp = mAchievementsWidget && mAchievementsWidget->mY <= 0;
 		if (aPageUp != mMenuHiddenForAchievements)
@@ -1199,12 +1215,17 @@ void GameSelector::AddedToManager(WidgetManager* theWidgetManager)
 {
 	Widget::AddedToManager(theWidgetManager);
 	this->Move(SelectorParkedX(), 0);
+	// @pvz-online: register the achievements page as its own top-level widget (see the
+	// constructor note). Appended after the selector, so it draws in front of the menu;
+	// LawnApp's BringToBack(mGameSelector) right after this only lowers the selector.
+	theWidgetManager->AddWidget(mAchievementsWidget);
 }
 
 //0x44BCA0
 void GameSelector::RemovedFromManager(WidgetManager* theWidgetManager)
 {
 	Widget::RemovedFromManager(theWidgetManager);
+	theWidgetManager->RemoveWidget(mAchievementsWidget);
 }
 
 //0x44BD80
