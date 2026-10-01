@@ -42,6 +42,27 @@ int WINAPI WinMain(_In_ HINSTANCE /* hInstance */, _In_opt_ HINSTANCE /* hPrevIn
 			aSetDpiAware();
 	}
 
+	// @pvz-online: build stamp - the first stderr line identifies the exact binary behind
+	// every test log. Reads the exe's own link timestamp, so it is fresh on EVERY build
+	// (unlike __DATE__, which only changes when main.cpp itself is recompiled).
+	{
+		char aExePath[MAX_PATH];
+		if (GetModuleFileNameA(nullptr, aExePath, MAX_PATH))
+		{
+			WIN32_FILE_ATTRIBUTE_DATA aFileData;
+			if (GetFileAttributesExA(aExePath, GetFileExInfoStandard, &aFileData))
+			{
+				FILETIME aLocalTime;
+				FileTimeToLocalFileTime(&aFileData.ftLastWriteTime, &aLocalTime);
+				SYSTEMTIME aLinkTime;
+				FileTimeToSystemTime(&aLocalTime, &aLinkTime);
+				fprintf(stderr, "[build] exe linked %04d-%02d-%02d %02d:%02d:%02d\n",
+					aLinkTime.wYear, aLinkTime.wMonth, aLinkTime.wDay,
+					aLinkTime.wHour, aLinkTime.wMinute, aLinkTime.wSecond);
+			}
+		}
+	}
+
 	PvzDebugHeapInit();
 	TodStringListSetColors(gLawnStringFormats, gLawnStringFormatCount);
 	gGetCurrentLevelName = LawnGetCurrentLevelName;
