@@ -129,6 +129,17 @@ std::string OnlineStatusWidget::GetStateLine()
 	if (mApp->IsOnlineWaitingStartAck())
 		return "Starting - waiting for teammate";
 
+	// 换位这件事有来有回，两种"等"得分开说：对面问我（面板会自动叫出来，
+	// 但玩家也能把它关掉，关了就靠这行提醒），还是我在等对面回话。
+	if (aSession->HasIncomingSwapRequest())
+		return "Swap request - open the panel";
+	if (aSession->IsSwapRequestPending())
+		return "Swap asked - waiting";
+
+	// 刚发生的事（换成了 / 被拒绝了）优先占几秒
+	if (!aSession->GetNoticeText().empty())
+		return aSession->GetNoticeText();
+
 	switch (aSession->GetState())
 	{
 	case NetSession::State::LISTENING:

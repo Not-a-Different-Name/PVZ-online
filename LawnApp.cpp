@@ -1853,6 +1853,17 @@ void LawnApp::UpdateFrames()
 		if (aConnected && !mOnlineWasConnected)
 			KillDialog(Dialogs::DIALOG_ONLINE);
 		mOnlineWasConnected = aConnected;
+
+		// @pvz-online: 对面问换位：把面板叫出来让玩家按同意/拒绝（面板开着别的地方
+		// 点不着，但主循环照跑——等答复不会把心跳等断）。正在关卡里就直接回绝：
+		// 顺位开局那一下就定死了，不该在棋盘上被问这事。
+		if (mOnlineSession->HasIncomingSwapRequest())
+		{
+			if (mBoard != nullptr)
+				mOnlineSession->AnswerSwapRequest(false);
+			else if (GetDialog(Dialogs::DIALOG_ONLINE) == nullptr)
+				DoOnlineDialog();
+		}
 	}
 	// 开局要换场景、动一堆 UI，所以也放在循环外、widget 更新之前——收包链里干了迟早出事。
 	UpdateOnlineStart();

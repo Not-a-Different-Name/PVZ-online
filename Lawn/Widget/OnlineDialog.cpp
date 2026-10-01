@@ -25,6 +25,8 @@ OnlineDialog::OnlineDialog(LawnApp* theApp) :
 	mCloseButton = MakeButton(OnlineDialog::OnlineDialog_Close, this, _S("Close"));
 	mDisconnectButton = MakeButton(OnlineDialog::OnlineDialog_Disconnect, this, _S("Disconnect"));
 	mSwapButton = MakeButton(OnlineDialog::OnlineDialog_Swap, this, _S("Swap"));
+	mAcceptButton = MakeButton(OnlineDialog::OnlineDialog_Accept, this, _S("Accept"));
+	mRejectButton = MakeButton(OnlineDialog::OnlineDialog_Reject, this, _S("Reject"));
 
 	mIpEditWidget = CreateEditWidget(OnlineDialog::OnlineDialog_IpEdit, this, this);
 	mIpEditWidget->mMaxChars = 15;			// "255.255.255.255"
@@ -47,6 +49,8 @@ OnlineDialog::~OnlineDialog()
 	delete mCloseButton;
 	delete mDisconnectButton;
 	delete mSwapButton;
+	delete mAcceptButton;
+	delete mRejectButton;
 	delete mIpEditWidget;
 }
 
@@ -69,6 +73,9 @@ void OnlineDialog::Resize(int theX, int theY, int theWidth, int theHeight)
 	mDisconnectButton->Resize(aLeft, aButtonY, aButtonWidth, aButtonHeight);
 	// Swap 占中间那格：会话活着的时候 Join 藏着，正好空出来
 	mSwapButton->Resize(aLeft + aButtonWidth + aButtonGap, aButtonY, aButtonWidth, aButtonHeight);
+	// 对面问换位时这两把键顶上前两格（Disconnect / Swap 这时都藏着）
+	mAcceptButton->Resize(aLeft, aButtonY, aButtonWidth, aButtonHeight);
+	mRejectButton->Resize(aLeft + aButtonWidth + aButtonGap, aButtonY, aButtonWidth, aButtonHeight);
 
 	int anEditWidth = anInnerWidth - LABEL_WIDTH;
 	if (anEditWidth > 300) anEditWidth = 300;
@@ -83,6 +90,8 @@ void OnlineDialog::AddedToManager(WidgetManager* theWidgetManager)
 	AddWidget(mCloseButton);
 	AddWidget(mDisconnectButton);
 	AddWidget(mSwapButton);
+	AddWidget(mAcceptButton);
+	AddWidget(mRejectButton);
 	AddWidget(mIpEditWidget);
 	theWidgetManager->SetFocus(mIpEditWidget);
 }
@@ -95,6 +104,8 @@ void OnlineDialog::RemovedFromManager(WidgetManager* theWidgetManager)
 	RemoveWidget(mCloseButton);
 	RemoveWidget(mDisconnectButton);
 	RemoveWidget(mSwapButton);
+	RemoveWidget(mAcceptButton);
+	RemoveWidget(mRejectButton);
 	RemoveWidget(mIpEditWidget);
 }
 
@@ -127,12 +138,20 @@ void OnlineDialog::Update()
 	// 会话活着的时候：Host/Join 让位给 Disconnect，Close 就只是关面板
 	mHostButton->mVisible = !anActive;
 	mJoinButton->mVisible = !anActive;
-	mDisconnectButton->mVisible = anActive;
-	mSwapButton->mVisible = anActive;
+
+	// 对面问换位时前两格换成同意/拒绝：这个问题得玩家自己回答。面板是模态的
+	// （别处点不着），但主循环照跑——等答复不会把心跳等断掉。
+	bool anAsk = aSession && aSession->HasIncomingSwapRequest();
+	mDisconnectButton->mVisible = anActive && !anAsk;
+	mSwapButton->mVisible = anActive && !anAsk;
+	mAcceptButton->mVisible = anAsk;
+	mRejectButton->mVisible = anAsk;
 
 	// 换位置只在自己这局开局前有意义：棋盘一开（或主机已在等队友就位），
 	// 顺位就定下了，按钮灰掉免得中途换了位置两边都糊涂。
-	bool aCanSwap = aSession && aSession->IsConnected()
+	// 已经有一条请求在谈（我等的 / 等我的）时也不许再发——一次只谈一件事。
+	bool aCanSwap = aSession && aSession->IsConnected() && !anAsk
+		&& !aSession->IsSwapRequestPending()
 		&& mApp->mBoard == nullptr && !mApp->IsOnlineWaitingStartAck();
 	mSwapButton->SetDisabled(!aCanSwap);
 }
@@ -193,11 +212,25 @@ void OnlineDialog::ButtonDepress(int theId)
 		break;
 
 	case OnlineDialog::OnlineDialog_Swap:
-		// 发不出去就谁都不换（会话内部先发后换），面板这边不用管结果：
-		// 换成了下一帧的提示行就是新的。
+		// 只是把请求发出去：换不换由对面点头，点头了才两边一起换。
+		// 发不出去（没连上、已经有一条在谈）就什么都没发生，按钮下一帧照样灰着。
 		if (mApp->mOnlineSession)
 		{
 			mApp->mOnlineSession->SwapSeats();
+		}
+		break;
+
+	case OnlineDialog::OnlineDialog_Accept:
+		if (mApp->mOnlineSession)
+		{
+			mApp->mOnlineSession->AnswerSwapRequest(true);
+		}
+		break;
+
+	case OnlineDialog::OnlineDialog_Reject:
+		if (mApp->mOnlineSession)
+		{
+			mApp->mOnlineSession->AnswerSwapRequest(false);
 		}
 		break;
 	}

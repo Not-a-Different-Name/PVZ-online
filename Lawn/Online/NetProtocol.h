@@ -26,8 +26,9 @@ const uint16_t	PROTOCOL_VERSION	= 1;
 // 忘了 +1 的后果是新旧包互相认成同版，故障会以最难查的方式出现在棋盘上。
 // 1 → 2：开局同步（主机广播开局命令后等客户端 START_ACK 才进场）。
 // 2 → 3：漏怪传递（ESCAPED_ZOMBIE 开始真的发、真的收）。
-// 3 → 4：位置交换（开始前 P1/P2 对调，SWAP_SEATS）。
-const uint16_t	MOD_BUILD			= 4;
+// 3 → 4：位置交换（SWAP_SEATS）。
+// 4 → 5：换位改成"和后一位换、对面同意才生效"（SWAP_REQUEST + SWAP_REPLY）。
+const uint16_t	MOD_BUILD			= 5;
 
 const uint16_t	DEFAULT_PORT		= 27777;
 
@@ -50,7 +51,8 @@ enum MessageType : uint16_t
 	MSG_HEARTBEAT		= 7,	// 双向：1 秒一次，5 秒收不到判掉线
 	MSG_BYE				= 8,	// 双向：主动离开
 	MSG_START_ACK		= 9,	// C→H：开局命令收到并已进场（主机等这条才进）
-	MSG_SWAP_SEATS		= 10	// 双向：开始前对调两边的席位（P1 ↔ P2）
+	MSG_SWAP_REQUEST	= 10,	// 双向：请求和我后一位（末位的后一位是首位）交换位置
+	MSG_SWAP_REPLY		= 11	// 双向：对换位请求的回答；同意的话两边各自换
 };
 
 enum ByeReason : uint8_t
@@ -175,14 +177,23 @@ struct MsgStartAck
 	uint8_t			mDstSeat;
 };
 
-// SWAP_SEATS：{ srcSeat, dstSeat }
-// 开始前把 P1 / P2 对调（漏怪往哪边传跟着换）。语义是"两边各换成另一个席位"，
-// 所以不带参数——两席位的世界里"对调"是唯一的一种换法；将来扩到四席位要重做成
-// 带明确座次的置换。
-struct MsgSwapSeats
+// SWAP_REQUEST：{ srcSeat, dstSeat }（dst = 请求者的后一位，末位的后一位是首位）
+// 席位是个环：1 → 2 → … → N → 1，换位就是"跟后面的那一位换"，人人都有换的对象。
+// 请求不带别的参数：跟谁换由规则定死，不由请求者挑。
+struct MsgSwapRequest
 {
 	uint8_t			mSrcSeat;
 	uint8_t			mDstSeat;
+};
+
+// SWAP_REPLY：{ srcSeat, dstSeat, u8 accepted }（src = 应对方，dst = 请求者）
+// 同意才真的换：两边各自执行同一次"和后一位换"，结果一致。
+// 拒绝就什么都不发生，请求方只收到一句说明。
+struct MsgSwapReply
+{
+	uint8_t			mSrcSeat;
+	uint8_t			mDstSeat;
+	uint8_t			mAccepted;
 };
 
 // ESCAPED_ZOMBIE：{ srcSeat, dstSeat, u8 row, u16 zombieType, u8 flags, i32 ×4 当前血量 }
@@ -266,7 +277,7 @@ inline bool DecodeStartAck(const uint8_t* theData, int theSize, MsgStartAck& the
 	return !aReader.Overflowed();
 }
 
-inline int EncodeSwapSeats(uint8_t* theBuffer, int theCapacity, const MsgSwapSeats& theMsg)
+inline int EncodeSwapRequest(uint8_t* theBuffer, int theCapacity, const MsgSwapRequest& theMsg)
 {
 	Writer aWriter(theBuffer, theCapacity);
 	aWriter.U8(theMsg.mSrcSeat);
@@ -274,11 +285,29 @@ inline int EncodeSwapSeats(uint8_t* theBuffer, int theCapacity, const MsgSwapSea
 	return aWriter.Overflowed() ? -1 : aWriter.Size();
 }
 
-inline bool DecodeSwapSeats(const uint8_t* theData, int theSize, MsgSwapSeats& theMsg)
+inline bool DecodeSwapRequest(const uint8_t* theData, int theSize, MsgSwapRequest& theMsg)
 {
 	Reader aReader(theData, theSize);
 	theMsg.mSrcSeat = aReader.U8();
 	theMsg.mDstSeat = aReader.U8();
+	return !aReader.Overflowed();
+}
+
+inline int EncodeSwapReply(uint8_t* theBuffer, int theCapacity, const MsgSwapReply& theMsg)
+{
+	Writer aWriter(theBuffer, theCapacity);
+	aWriter.U8(theMsg.mSrcSeat);
+	aWriter.U8(theMsg.mDstSeat);
+	aWriter.U8(theMsg.mAccepted);
+	return aWriter.Overflowed() ? -1 : aWriter.Size();
+}
+
+inline bool DecodeSwapReply(const uint8_t* theData, int theSize, MsgSwapReply& theMsg)
+{
+	Reader aReader(theData, theSize);
+	theMsg.mSrcSeat = aReader.U8();
+	theMsg.mDstSeat = aReader.U8();
+	theMsg.mAccepted = aReader.U8();
 	return !aReader.Overflowed();
 }
 

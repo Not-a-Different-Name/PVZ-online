@@ -11,10 +11,21 @@ const int	HELLO_PAYLOAD_SIZE		= 6;	// src, dst, u16 version, u16 build
 const int	HELLO_ACK_PAYLOAD_SIZE	= 7;	// src, dst, u16 version, u16 build, u8 accepted
 const int	START_LEVEL_PAYLOAD_SIZE = 11;	// src, dst, u8 mode, u32 level, i32 seed
 const int	START_ACK_PAYLOAD_SIZE	= 2;	// src, dst
-const int	SWAP_SEATS_PAYLOAD_SIZE = 2;	// src, dst
+const int	SWAP_REQUEST_PAYLOAD_SIZE = 2;	// src, dst
+const int	SWAP_REPLY_PAYLOAD_SIZE = 3;	// src, dst, u8 accepted
 const int	ESCAPED_ZOMBIE_PAYLOAD_SIZE = 22;	// src, dst, u8 row, u16 type, u8 flags, i32 ×4 血量
 const int	HEARTBEAT_PAYLOAD_SIZE	= 6;	// src, dst, u32 tick
 const int	BYE_PAYLOAD_SIZE		= 3;	// src, dst, u8 reason
+
+// M2 就两个席位。换位规则按"环上的后一位"写，所以扩到四席位时只要把这个数
+// 和 ApplySeatSwap 一起改成按座次置换，规则本身不用动。
+const uint8_t	SEAT_COUNT		= 2;
+
+// 席位是个环：1 → 2 → … → N → 1。末位的后一位是首位，人人都有换的对象。
+uint8_t NextSeatInRing(uint8_t theSeat)
+{
+	return (theSeat >= SEAT_COUNT) ? NetProto::SEAT_HOST : (uint8_t)(theSeat + 1);
+}
 
 }
 
@@ -33,6 +44,9 @@ NetSession::NetSession()
 	mShortStatus = "Connection lost";
 	mHasPendingStart = false;
 	mHasStartAck = false;
+	mSwapRequestPending = false;
+	mSwapAskPending = false;
+	mNoticeFrames = 0;
 }
 
 NetSession::~NetSession()
@@ -157,6 +171,10 @@ void NetSession::Update()
 		}
 	}
 
+	// 即时说明按帧倒计时，到点自己消失（状态行每帧重算，不用另外触发重画）
+	if (mNoticeFrames > 0 && --mNoticeFrames == 0)
+		mNoticeText.clear();
+
 	UpdateStatusText();
 }
 
@@ -188,33 +206,64 @@ bool NetSession::TakeStartAck()
 
 bool NetSession::SwapSeats()
 {
-	if (!IsConnected()) return false;
+	// 一次只谈一件事：要么我在等回话，要么对面正问我——都不许再发一条
+	if (!IsConnected() || mSwapRequestPending || mSwapAskPending) return false;
 
-	NetProto::MsgSwapSeats aMsg;
+	NetProto::MsgSwapRequest aMsg;
 	aMsg.mSrcSeat = mLocalSeat;
-	aMsg.mDstSeat = mPeerSeat;
+	aMsg.mDstSeat = NextSeatInRing(mLocalSeat);
 
 	uint8_t aPayload[NetProto::MAX_PAYLOAD];
-	int aSize = NetProto::EncodeSwapSeats(aPayload, (int)sizeof(aPayload), aMsg);
+	int aSize = NetProto::EncodeSwapRequest(aPayload, (int)sizeof(aPayload), aMsg);
 	if (aSize <= 0) return false;
 
-	// 先发再换：发不出去（socket 已经坏了）就谁都不换，两边保持一致；发出去了才
-	// 本地先生效、对面收到后跟着换——按下去就是新的，不用等一个来回。
-	// 两边同时按是各换两次、换回原样，中间也不会各说各话（对调是对称的）。
-	if (!SendRaw(NetProto::MSG_SWAP_SEATS, aPayload, aSize)) return false;
+	// 只是把请求发出去，本机先不动：换不换由对面点头，点头了才两边一起换。
+	// 发不出去当然也谈不上等回话。
+	if (!SendRaw(NetProto::MSG_SWAP_REQUEST, aPayload, aSize)) return false;
 
-	ApplySeatSwap();
+	mSwapRequestPending = true;
+	TodLog("[net] asked seat %u to swap positions", (unsigned)aMsg.mDstSeat);
 	return true;
+}
+
+void NetSession::AnswerSwapRequest(bool theAccept)
+{
+	if (!mSwapAskPending) return;			// 没有待答的问句：多半是重复点击，忽略
+
+	mSwapAskPending = false;
+	SendSwapReply(theAccept);
+
+	if (theAccept)
+	{
+		// 两边执行的是同一次换位，所以各自算各自的就一致了，不用再对一次账
+		ApplySeatSwap();
+		TodLog("[net] accepted the swap");
+	}
+	else
+	{
+		TodLog("[net] declined the swap");
+	}
 }
 
 void NetSession::ApplySeatSwap()
 {
-	// 两席位就是 1 和 2，对调 = 各自换成另一个。四席位时代这里要换成带座次的
-	// 置换（消息也要重做），现在先别想太远。
-	mLocalSeat = (mLocalSeat == NetProto::SEAT_HOST) ? NetProto::SEAT_CLIENT : NetProto::SEAT_HOST;
-	mPeerSeat = (mPeerSeat == NetProto::SEAT_HOST) ? NetProto::SEAT_CLIENT : NetProto::SEAT_HOST;
+	// 和"后一位"对调：本机换成那个席位，对面换成我原来的席位。两席位的时候
+	// 就是 1 ↔ 2；四席位时这条要按请求里带的两个座次来换（见 NextSeatInRing）。
+	uint8_t aMySeat = mLocalSeat;
+	mLocalSeat = mPeerSeat;
+	mPeerSeat = aMySeat;
+
+	SetNotice(mLocalSeat == NetProto::SEAT_HOST
+		? "Swapped - you are now P1."
+		: "Swapped - you are now P2.");
 	TodLog("[net] positions swapped - local seat %u, peer seat %u",
 		(unsigned)mLocalSeat, (unsigned)mPeerSeat);
+}
+
+void NetSession::SetNotice(const char* theText, int theFrames)
+{
+	mNoticeText = (theText && theText[0]) ? theText : "";
+	mNoticeFrames = mNoticeText.empty() ? 0 : theFrames;
 }
 
 uint8_t NetSession::GetRelayTargetSeat() const
@@ -276,6 +325,10 @@ void NetSession::ResetToOff()
 	mHasPendingStart = false;
 	mHasStartAck = false;
 	mPendingEscapedZombies.clear();
+	mSwapRequestPending = false;
+	mSwapAskPending = false;
+	mNoticeText.clear();
+	mNoticeFrames = 0;
 }
 
 void NetSession::SetConnected()
@@ -296,6 +349,11 @@ void NetSession::SetDead(const char* theReason, const char* theShortReason)
 	mStatusText = (theReason && theReason[0]) ? theReason : "Connection lost.";
 	mShortStatus = (theShortReason && theShortReason[0]) ? theShortReason : "Connection lost";
 	mHintText.clear();
+	// 挂着的换位请求跟着连接一起作废：断了就没得换了，面板上那个问句也得收掉
+	mSwapRequestPending = false;
+	mSwapAskPending = false;
+	mNoticeText.clear();
+	mNoticeFrames = 0;
 	TodLog("[net] session dead: %s", mStatusText.c_str());
 	PushEvent(EventType::DISCONNECTED);
 }
@@ -326,16 +384,29 @@ void NetSession::UpdateStatusText()
 		mStatusText = "Connected. Shaking hands...";
 		break;
 	case State::CONNECTED:
-		// 关卡由主机定：面板是双方唯一共用的提示位，就把各自的下一步写清楚，
-		// 免得客户端点了冒险按钮却什么反馈都没有（局面板照旧不冻心跳）。
-		mStatusText = (mRole == Role::HOST)
-			? "Connected. Pick a level from the menu."
-			: "Connected. Waiting for the host to pick a level.";
-		// 提示行借来写清"我是几号位、漏怪往哪走"：连上之后 IP 已经没用了
-		// （输入框里还留着），而位置是开局前要拿主意的事（面板里的 Swap）。
-		mHintText = (mLocalSeat == NetProto::SEAT_HOST)
-			? "You are P1 - your leaks pass to your teammate."
-			: "You are P2 - you take your teammate's leaks.";
+		{
+			// 关卡由主机定：面板是双方唯一共用的提示位，就把各自的下一步写清楚，
+			// 免得客户端点了冒险按钮却什么反馈都没有（局面板照旧不冻心跳）。
+			// 换位这件事谁先谁后不一样，所以状态行得按"谁在等谁"分开写。
+			if (mSwapAskPending)
+				mStatusText = "The teammate wants to swap positions - Accept or Reject.";
+			else if (mSwapRequestPending)
+				mStatusText = "Swap asked - waiting for the teammate to answer.";
+			else
+				mStatusText = (mRole == Role::HOST)
+					? "Connected. Pick a level from the menu."
+					: "Connected. Waiting for the host to pick a level.";
+
+			// 提示行借来写清"我是几号位、漏怪往哪走"：连上之后 IP 已经没用了
+			// （输入框里还留着），而位置是开局前要拿主意的事（面板里的 Swap）。
+			// 有即时说明（刚换完 / 被拒绝）时先让说明占着，几秒后自己回到席位那行。
+			if (mNoticeFrames > 0)
+				mHintText = mNoticeText;
+			else if (mLocalSeat == NetProto::SEAT_HOST)
+				mHintText = "You are P1 - your leaks pass to your teammate.";
+			else
+				mHintText = "You are P2 - you take your teammate's leaks.";
+		}
 		break;
 	case State::DEAD:
 	default:
@@ -524,20 +595,66 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 		}
 		break;
 
-	case NetProto::MSG_SWAP_SEATS:
+	case NetProto::MSG_SWAP_REQUEST:
 		{
 			// 没连上就谈不上换位置（也顺手把迟到的这类包挡在外面）
 			if (!IsConnected()) return;
 
-			NetProto::MsgSwapSeats aMsg;
-			if (aPayloadSize != SWAP_SEATS_PAYLOAD_SIZE || !NetProto::DecodeSwapSeats(aPayload, aPayloadSize, aMsg))
+			NetProto::MsgSwapRequest aMsg;
+			if (aPayloadSize != SWAP_REQUEST_PAYLOAD_SIZE || !NetProto::DecodeSwapRequest(aPayload, aPayloadSize, aMsg))
 			{
 				SetDead("The other player sent a malformed packet.");
 				return;
 			}
-			// 对面按了 Swap：这边跟着换。两边各自"对调"就还是一样的。
-			TodLog("[net] the teammate swapped positions");
-			ApplySeatSwap();
+
+			if (mSwapRequestPending)
+			{
+				// 两边同时按：互相要的是同一件事（我跟后一位换 = 他跟我换），直接成交，
+				// 别让双方都傻等对方点头。各自撤掉自己那条请求，回话到对面也会被无视。
+				SendSwapReply(true);
+				mSwapRequestPending = false;
+				ApplySeatSwap();
+				TodLog("[net] both sides asked at once - swapping");
+			}
+			else if (mSwapAskPending)
+			{
+				// 已经有一条待答的问句挂在玩家面前了：一次只谈一件事，多出来的按拒绝回
+				SendSwapReply(false);
+			}
+			else
+			{
+				// 主循环看到 HasIncomingSwapRequest 就把面板叫出来问玩家（面板不冻心跳）
+				mSwapAskPending = true;
+				TodLog("[net] seat %u asks to swap positions", (unsigned)aMsg.mSrcSeat);
+			}
+		}
+		break;
+
+	case NetProto::MSG_SWAP_REPLY:
+		{
+			if (!IsConnected()) return;
+
+			NetProto::MsgSwapReply aMsg;
+			if (aPayloadSize != SWAP_REPLY_PAYLOAD_SIZE || !NetProto::DecodeSwapReply(aPayload, aPayloadSize, aMsg))
+			{
+				SetDead("The other player sent a malformed packet.");
+				return;
+			}
+
+			// 不是我等的回话（迟到的、或对面那条请求已经被我这边成交掉了）：当它没到
+			if (!mSwapRequestPending) return;
+
+			mSwapRequestPending = false;
+			if (aMsg.mAccepted)
+			{
+				ApplySeatSwap();
+				TodLog("[net] the swap went through");
+			}
+			else
+			{
+				SetNotice("The teammate declined the swap.");
+				TodLog("[net] the teammate declined the swap");
+			}
 		}
 		break;
 
@@ -632,6 +749,18 @@ void NetSession::SendStartAck()
 		TodLog("[net] telling the host I am entering the level");
 		SendRaw(NetProto::MSG_START_ACK, aPayload, aSize);
 	}
+}
+
+void NetSession::SendSwapReply(bool theAccepted)
+{
+	NetProto::MsgSwapReply aMsg;
+	aMsg.mSrcSeat = mLocalSeat;
+	aMsg.mDstSeat = mPeerSeat;
+	aMsg.mAccepted = theAccepted ? 1 : 0;
+
+	uint8_t aPayload[NetProto::MAX_PAYLOAD];
+	int aSize = NetProto::EncodeSwapReply(aPayload, (int)sizeof(aPayload), aMsg);
+	if (aSize > 0) SendRaw(NetProto::MSG_SWAP_REPLY, aPayload, aSize);
 }
 
 void NetSession::SendHeartbeat()

@@ -49,6 +49,7 @@ public:
 	// 帧计数按主循环固定 10ms 一拍折算：100 帧 ≈ 1 秒
 	static const int	HEARTBEAT_FRAMES			= 100;
 	static const int	TIMEOUT_FRAMES				= 500;
+	static const int	NOTICE_FRAMES				= 400;	// 即时说明挂多久（≈4 秒）
 
 public:
 	NetSession();
@@ -76,10 +77,25 @@ public:
 	// 主机侧：队友的 START_ACK 到了没有（取一次就清）。主机等这条才进场。
 	bool			TakeStartAck();
 
-	// 开始前对调位置：P1 ↔ P2（漏怪往哪边传跟着换）。任一边都能按；发出去的一瞬间
-	// 本机就生效，对端收到后跟着换。换的只是接力顺位——房主角色不受影响
-	// （谁选关还是谁选关）。没连上返回 false。开局之后别按（面板会灰掉按钮）。
+	// 开始前换位置：跟"后一位"换（末位的后一位是首位），对面同意才真的换。
+	// 这一步只是把请求发出去，本机不动；同意/拒绝由对面定，见下面几条。
+	// 没连上、已经有一个请求在等回话、或对面正问着我，都返回 false（按不动）。
 	bool			SwapSeats();
+
+	// 我发出的请求还在等对面回话（面板据此灰掉 Swap 键，也挡住重复请求）。
+	bool			IsSwapRequestPending() const { return mSwapRequestPending; }
+
+	// 对面正问我换不换（主循环看到就把面板叫出来，等玩家按同意/拒绝）。
+	// 一次请求一直挂着为真，直到 AnswerSwapRequest 作答。
+	bool			HasIncomingSwapRequest() const { return mSwapAskPending; }
+
+	// 回答对面的换位请求。同意则两边各自执行同一次换位（本机当场生效，
+	// 对面收到 REPLY 后跟着换）；拒绝则什么都不发生，对面只收到一句说明。
+	void			AnswerSwapRequest(bool theAccept);
+
+	// 一小句给玩家看的即时说明（"对面拒绝了"、"换过去了，你现在是 P2"），
+	// 过几秒自己消失。没有就返回空串。
+	const std::string&	GetNoticeText() const { return mNoticeText; }
 
 	// 我方棋盘上的漏怪该传给谁。M2 是两席位：1 → 2；2 号位是末席，
 	// 没有下一席位（返回 SEAT_UNSET）——末席漏怪就是全队败，没得传。
@@ -119,8 +135,12 @@ private:
 	void			UpdateStatusText();
 	void			HandlePacket(const NetLink::Packet& thePacket);
 	void			PushEvent(EventType theType);
-	// 把两边的席位对调（本机 + 记在心里的对端席位）。发/收 SWAP_SEATS 时用。
+	// 执行一次换位（本机 + 记在心里的对端席位）。请求被同意时两边各调一次。
 	void			ApplySeatSwap();
+	// 给对面回话。同意与否都由调用方定；这里只负责发。
+	void			SendSwapReply(bool theAccepted);
+	// 写一条几秒后自动消失的即时说明（"对面拒绝了"这类）。
+	void			SetNotice(const char* theText, int theFrames = NOTICE_FRAMES);
 
 	bool			SendRaw(uint16_t theType, const uint8_t* thePayload, int thePayloadSize);
 	void			SendHello();
@@ -147,6 +167,10 @@ private:
 	NetProto::MsgStartLevel	mPendingStart;
 	bool				mHasStartAck;
 	std::vector<NetProto::MsgEscapedZombie>	mPendingEscapedZombies;
+	bool				mSwapRequestPending;	// 我发出的换位请求在等回话
+	bool				mSwapAskPending;		// 对面的换位请求在等我作答
+	std::string			mNoticeText;			// 即时说明（几秒后自己消失）
+	int					mNoticeFrames;
 
 	NetSession(const NetSession&);
 	NetSession& operator=(const NetSession&);
