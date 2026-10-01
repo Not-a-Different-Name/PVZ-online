@@ -7,8 +7,8 @@
 namespace
 {
 
-const int	HELLO_PAYLOAD_SIZE		= 4;	// src, dst, u16 version
-const int	HELLO_ACK_PAYLOAD_SIZE	= 5;	// src, dst, u16 version, u8 accepted
+const int	HELLO_PAYLOAD_SIZE		= 6;	// src, dst, u16 version, u16 build
+const int	HELLO_ACK_PAYLOAD_SIZE	= 7;	// src, dst, u16 version, u16 build, u8 accepted
 const int	START_LEVEL_PAYLOAD_SIZE = 11;	// src, dst, u8 mode, u32 level, i32 seed
 const int	HEARTBEAT_PAYLOAD_SIZE	= 6;	// src, dst, u32 tick
 const int	BYE_PAYLOAD_SIZE		= 3;	// src, dst, u8 reason
@@ -288,20 +288,38 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 	{
 	case NetProto::MSG_HELLO:
 		{
+			if (mRole != Role::HOST) return;		// 只有主机收 HELLO
+
+			// 长度对不上 HELLO 只有一个解释：对面是别的构建版。旧包（HELLO 是 4 字节、
+			// 没有 build 号）正好落在这儿——这正是"另一边跑着上个版本"的样子，
+			// 要给出能照做的提示，不能报成含糊的坏包。
+			if (aPayloadSize != HELLO_PAYLOAD_SIZE)
+			{
+				SendHelloAck(false);
+				SetDead("Build mismatch - update both machines to the same build.", "Build mismatch");
+				return;
+			}
+
 			NetProto::MsgHello aMsg;
-			if (aPayloadSize != HELLO_PAYLOAD_SIZE || !NetProto::DecodeHello(aPayload, aPayloadSize, aMsg))
+			if (!NetProto::DecodeHello(aPayload, aPayloadSize, aMsg))
 			{
 				SetDead("The other player sent a malformed packet.");
 				return;
 			}
-			if (mRole != Role::HOST) return;		// 只有主机收 HELLO
 
 			if (aMsg.mVersion != NetProto::PROTOCOL_VERSION)
 			{
 				SendHelloAck(false);
-				SetDead("Version mismatch - both players must run the same build.");
+				SetDead("Version mismatch - both players must run the same build.", "Build mismatch");
 				return;
 			}
+			if (aMsg.mBuild != NetProto::MOD_BUILD)
+			{
+				SendHelloAck(false);
+				SetDead("Build mismatch - update both machines to the same build.", "Build mismatch");
+				return;
+			}
+
 			mPeerSeat = aMsg.mSrcSeat;
 			SendHelloAck(true);
 			SetConnected();
@@ -310,17 +328,29 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 
 	case NetProto::MSG_HELLO_ACK:
 		{
+			if (mRole != Role::CLIENT) return;
+
+			if (aPayloadSize != HELLO_ACK_PAYLOAD_SIZE)
+			{
+				SetDead("Build mismatch - update both machines to the same build.", "Build mismatch");
+				return;
+			}
+
 			NetProto::MsgHelloAck aMsg;
-			if (aPayloadSize != HELLO_ACK_PAYLOAD_SIZE || !NetProto::DecodeHelloAck(aPayload, aPayloadSize, aMsg))
+			if (!NetProto::DecodeHelloAck(aPayload, aPayloadSize, aMsg))
 			{
 				SetDead("The other player sent a malformed packet.");
 				return;
 			}
-			if (mRole != Role::CLIENT) return;
 
-			if (!aMsg.mAccepted || aMsg.mVersion != NetProto::PROTOCOL_VERSION)
+			if (!aMsg.mAccepted)
 			{
-				SetDead("Version mismatch - both players must run the same build.");
+				SetDead("The other player refused - update both machines.", "Build mismatch");
+				return;
+			}
+			if (aMsg.mVersion != NetProto::PROTOCOL_VERSION || aMsg.mBuild != NetProto::MOD_BUILD)
+			{
+				SetDead("Build mismatch - update both machines to the same build.", "Build mismatch");
 				return;
 			}
 			SetConnected();
@@ -405,6 +435,7 @@ void NetSession::SendHello()
 	aMsg.mSrcSeat = mLocalSeat;
 	aMsg.mDstSeat = mPeerSeat;
 	aMsg.mVersion = NetProto::PROTOCOL_VERSION;
+	aMsg.mBuild = NetProto::MOD_BUILD;
 
 	uint8_t aPayload[NetProto::MAX_PAYLOAD];
 	int aSize = NetProto::EncodeHello(aPayload, (int)sizeof(aPayload), aMsg);
@@ -417,6 +448,7 @@ void NetSession::SendHelloAck(bool theAccepted)
 	aMsg.mSrcSeat = mLocalSeat;
 	aMsg.mDstSeat = mPeerSeat;
 	aMsg.mVersion = NetProto::PROTOCOL_VERSION;
+	aMsg.mBuild = NetProto::MOD_BUILD;
 	aMsg.mAccepted = theAccepted ? 1 : 0;
 
 	uint8_t aPayload[NetProto::MAX_PAYLOAD];

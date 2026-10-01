@@ -19,6 +19,13 @@ namespace NetProto
 {
 
 const uint16_t	PROTOCOL_VERSION	= 1;
+
+// @pvz-online: mod 构建代次。协议号只管"包怎么编"，它管"两边行为配不配套"——两边都按
+// PROTOCOL_VERSION=1 通信也可能一边是旧包（比如 C1 的包能正常连上，却不会跟着主机开局）。
+// 凡是改动"需要两台机器一起更新"的东西（新增消息、开局/漏怪等行为）就 +1：
+// 忘了 +1 的后果是新旧包互相认成同版，故障会以最难查的方式出现在棋盘上。
+const uint16_t	MOD_BUILD			= 1;
+
 const uint16_t	DEFAULT_PORT		= 27777;
 
 const uint8_t	SEAT_UNSET			= 0;
@@ -117,20 +124,22 @@ private:
 // ★ 载荷（v1 全集；编解码函数按需在用到的那一步补上）
 // ====================================================================================================
 
-// HELLO：{ srcSeat=2, dstSeat=1, u16 version }
+// HELLO：{ srcSeat=2, dstSeat=1, u16 version, u16 build }
 struct MsgHello
 {
 	uint8_t			mSrcSeat;
 	uint8_t			mDstSeat;
 	uint16_t		mVersion;
+	uint16_t		mBuild;		// MOD_BUILD；C1/C2 的旧包没有这两个字节，长度就不一样
 };
 
-// HELLO_ACK：{ srcSeat=1, dstSeat=2, u16 version, u8 accepted }
+// HELLO_ACK：{ srcSeat=1, dstSeat=2, u16 version, u16 build, u8 accepted }
 struct MsgHelloAck
 {
 	uint8_t			mSrcSeat;
 	uint8_t			mDstSeat;
 	uint16_t		mVersion;
+	uint16_t		mBuild;
 	uint8_t			mAccepted;
 };
 
@@ -223,6 +232,7 @@ inline int EncodeHello(uint8_t* theBuffer, int theCapacity, const MsgHello& theM
 	aWriter.U8(theMsg.mSrcSeat);
 	aWriter.U8(theMsg.mDstSeat);
 	aWriter.U16(theMsg.mVersion);
+	aWriter.U16(theMsg.mBuild);
 	return aWriter.Overflowed() ? -1 : aWriter.Size();
 }
 
@@ -232,6 +242,7 @@ inline bool DecodeHello(const uint8_t* theData, int theSize, MsgHello& theMsg)
 	theMsg.mSrcSeat = aReader.U8();
 	theMsg.mDstSeat = aReader.U8();
 	theMsg.mVersion = aReader.U16();
+	theMsg.mBuild = aReader.U16();
 	return !aReader.Overflowed();
 }
 
@@ -241,6 +252,7 @@ inline int EncodeHelloAck(uint8_t* theBuffer, int theCapacity, const MsgHelloAck
 	aWriter.U8(theMsg.mSrcSeat);
 	aWriter.U8(theMsg.mDstSeat);
 	aWriter.U16(theMsg.mVersion);
+	aWriter.U16(theMsg.mBuild);
 	aWriter.U8(theMsg.mAccepted);
 	return aWriter.Overflowed() ? -1 : aWriter.Size();
 }
@@ -251,6 +263,7 @@ inline bool DecodeHelloAck(const uint8_t* theData, int theSize, MsgHelloAck& the
 	theMsg.mSrcSeat = aReader.U8();
 	theMsg.mDstSeat = aReader.U8();
 	theMsg.mVersion = aReader.U16();
+	theMsg.mBuild = aReader.U16();
 	theMsg.mAccepted = aReader.U8();
 	return !aReader.Overflowed();
 }
