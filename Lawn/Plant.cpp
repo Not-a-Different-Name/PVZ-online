@@ -21,6 +21,7 @@
 #include "../Sexy.TodLib/EffectSystem.h"
 #include "../Sexy.TodLib/TodStringFile.h"
 #include "Widget/AchievementsWidget.h"
+#include "Run/RunBuffs.h"
 
 PlantDefinition gPlantDefs[SeedType::NUM_SEED_TYPES] = {  //0x69F2B0
     { SeedType::SEED_PEASHOOTER,        nullptr, ReanimationType::REANIM_PEASHOOTER,    0,  100,    750,    PlantSubClass::SUBCLASS_SHOOTER,    150,    _S("PEASHOOTER") },
@@ -168,8 +169,10 @@ void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, Se
 
     if (mLaunchRate > 0)
     {
+        // @pvz-online: 闯关 buff「丰饶」：产阳光间隔 ×(1−20%/层)——初始等待与每次
+        // 重置都要乘，所以两处一起改（另一处在产阳光的重置那行）。
         if (MakesSun())
-            mLaunchCounter = RandRangeInt(300, mLaunchRate / 2);
+            mLaunchCounter = (int)(RandRangeInt(300, mLaunchRate / 2) * mApp->RunBuffMul(RUN_BUFF_ABUNDANCE) + 0.5f);
         else
             mLaunchCounter = RandRangeInt(0, mLaunchRate);
     }
@@ -469,6 +472,9 @@ void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, Se
     {
         mPlantHealth *= 2;
     }
+    // @pvz-online: 闯关 buff「扎根」：全体植物血量 ×(1+20%/层)。非闯关局乘数恒为 1.0，
+    // 对 300/4000 这类整数是无损的，原版路径一字不变。
+    mPlantHealth = (int)(mPlantHealth * mApp->RunBuffMul(RUN_BUFF_ROOTED) + 0.5f);
     mPlantMaxHealth = mPlantHealth;
 
     if (mSeedType != SeedType::SEED_FLOWERPOT && IsOnBoard())
@@ -1024,7 +1030,7 @@ void Plant::UpdateProductionPlant()
     }
     if (mLaunchCounter <= 0)
     {
-        mLaunchCounter = RandRangeInt(mLaunchRate - 150, mLaunchRate);
+        mLaunchCounter = (int)(RandRangeInt(mLaunchRate - 150, mLaunchRate) * mApp->RunBuffMul(RUN_BUFF_ABUNDANCE) + 0.5f);
         mApp->PlayFoley(FoleyType::FOLEY_SPAWN_SUN);
 
         if (mSeedType == SeedType::SEED_SUNSHROOM)

@@ -3,8 +3,8 @@
 
 // @pvz-online: 闯关（肉鸽）全局增益的目录。
 //
-// 三选一屏（R2）只用这里的名字和说明文字；效果真正落到棋盘上是 R3 的活儿——
-// 到时候在各自的效果点读 RunState::GetBuffCount(id) 就行，这张目录本身不用动。
+// 这张表既是文案（三选一屏 R2 用它摆名字和说明），也是数值（R3：每层多少，
+// 落点各自的代码位置见 RunBuffDef 两个数值字段的注释）。
 // 另一类"单株升级"（只对已拥有的植物出）是 R3 的另一张小表，不在这个文件里。
 
 enum RunBuffId
@@ -24,6 +24,11 @@ struct RunBuffDef
 {
 	const char*	mName;
 	const char*	mDesc;
+	// 每层的乘数修正：最终乘数 = 1 + mPerStackMul × 层数（+0.10 = ×1.10，−0.20 = ×0.80）。
+	// 0 = 这条不是乘数型。取用走 LawnApp::RunBuffMul，非闯关局自动是 1.0。
+	float		mPerStackMul;
+	// 每层的绝对值加成（储备 +25 阳光）。0 = 不是加成型。取用走 LawnApp::RunBuffAdd。
+	int			mPerStackAdd;
 };
 
 const RunBuffDef& GetRunBuffDef(int theId);

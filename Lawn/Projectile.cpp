@@ -11,6 +11,7 @@
 #include "../Sexy.TodLib/Reanimator.h"
 #include "../Sexy.TodLib/Attachment.h"
 #include "Widget/AchievementsWidget.h"
+#include "Run/RunBuffs.h"
 
 ProjectileDefinition gProjectileDefinition[] = {  //0x69F1C0
 	{ ProjectileType::PROJECTILE_PEA,           0,  20  },
@@ -455,8 +456,10 @@ void Projectile::DoSplashDamage(Zombie* theZombie)
 		}
 	}
 
-	int aOriginalDamage = aProjectileDef.mDamage;
-	int aSplashDamage = aProjectileDef.mDamage / 3;
+	// @pvz-online: 闯关 buff「火力」：基数先放大，后面的溅射上限/递减换算全从它推，
+	// 比例关系保持不变（非闯关局 RunBuffMul 恒为 1.0，取整后与原值一致）。
+	int aOriginalDamage = (int)(aProjectileDef.mDamage * mApp->RunBuffMul(RUN_BUFF_FIREPOWER) + 0.5f);
+	int aSplashDamage = aOriginalDamage / 3;
 	int aMaxSplashDamageAmount = aSplashDamage * 7;
 	if (mProjectileType == ProjectileType::PROJECTILE_FIREBALL)
 	{
@@ -827,7 +830,9 @@ void Projectile::DoImpact(Zombie* theZombie)
 	else if (theZombie)
 	{
 		unsigned int aDamageFlags = GetDamageFlags(theZombie);
-		theZombie->TakeDamage(GetProjectileDef().mDamage, aDamageFlags);
+		// @pvz-online: 闯关 buff「火力」：单体命中伤害按倍率放大（溅射那条同上，在 DoSplashDamage 里）。
+		int aDamage = (int)(GetProjectileDef().mDamage * mApp->RunBuffMul(RUN_BUFF_FIREPOWER) + 0.5f);
+		theZombie->TakeDamage(aDamage, aDamageFlags);
 	}
 
 	float aLastPosX = mPosX - mVelX;

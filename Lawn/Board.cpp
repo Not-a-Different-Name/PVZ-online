@@ -35,6 +35,7 @@
 #include "Widget/AchievementsWidget.h"
 #include "Online/NetSession.h"
 #include "Run/RunState.h"
+#include "Run/RunBuffs.h"
 
 //#define SEXY_MEMTRACE
 //#include "../SexyAppFramework/memmgr.h"
@@ -1469,6 +1470,9 @@ void Board::InitLevel()
 	{
 		mSunMoney = 50;
 	}
+	// @pvz-online: 闯关 buff「储备」：每关开局阳光 +25/层。加在整段分支之后——
+	// 开局阳光是哪条规矩给的不重要，闯关只走白天普通关这一条，加成照给。
+	mSunMoney += mApp->RunBuffAdd(RUN_BUFF_RESERVE);
 
 	// 初始化行选择数组
 	memset(mRowPickingArray, 0, sizeof(mRowPickingArray));
@@ -1485,7 +1489,8 @@ void Board::InitLevel()
 	mNumSunsFallen = 0;
 	if (!StageIsNight())
 	{
-		mSunCountDown = RandRangeInt(425, 700);
+		// @pvz-online: 闯关 buff「天降」：天降阳光更密（倒计时按倍率缩短）。
+		mSunCountDown = (int)(RandRangeInt(425, 700) * mApp->RunBuffMul(RUN_BUFF_SKYFALL) + 0.5f);
 	}
 	// 初始化字幕播放记录
 	memset(mHelpDisplayed, 0, sizeof(mHelpDisplayed));
@@ -5563,7 +5568,9 @@ void Board::UpdateSunSpawning()
 		return;
 
 	mNumSunsFallen++;
-	mSunCountDown = std::min(SUN_COUNTDOWN_MAX, SUN_COUNTDOWN + mNumSunsFallen * 10) + Rand(SUN_COUNTDOWN_RANGE);
+	// @pvz-online: 闯关 buff「天降」：同上，间隔整体缩短（倍率下限 0.1，结果恒 ≥1 帧，
+	// 不会出现"倒计时为 0 永不掉落"的死值——见上面那句 mSunCountDown != 0 的早退）。
+	mSunCountDown = (int)((std::min(SUN_COUNTDOWN_MAX, SUN_COUNTDOWN + mNumSunsFallen * 10) + Rand(SUN_COUNTDOWN_RANGE)) * mApp->RunBuffMul(RUN_BUFF_SKYFALL) + 0.5f);
 	CoinType aSunType = mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_SUNNY_DAY ? CoinType::COIN_LARGESUN : CoinType::COIN_SUN;
 	AddCoin(RandRangeInt(100, 649), 60, aSunType, CoinMotion::COIN_MOTION_FROM_SKY);
 }

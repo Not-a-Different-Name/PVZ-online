@@ -31,6 +31,7 @@
 #include "Lawn/Widget/OnlineDialog.h"
 #include "Lawn/Online/NetSession.h"
 #include "Lawn/Run/RunState.h"
+#include "Lawn/Run/RunBuffs.h"
 #include "Lawn/Widget/RunPickDialog.h"
 #include "Lawn/Widget/GameSelector.h"
 #include "Lawn/Widget/CreditScreen.h"
@@ -1133,6 +1134,22 @@ void LawnApp::RunPickChosen(int theIndex)
 	{
 		aRun->TakeBuffChoice(theIndex);
 	}
+}
+
+// R3 的 buff 数值：乘数型 = 1 + 每层修正 × 层数（没拿到 / 不在闯关 = 1.0），
+// 加成型 = 每层加成 × 层数（同上 = 0）。下限保护：表里数字写歪也不至于把间隔压成 0。
+float LawnApp::RunBuffMul(int theBuffId) const
+{
+	if (mRunState == nullptr) return 1.0f;
+
+	float aMul = 1.0f + GetRunBuffDef(theBuffId).mPerStackMul * (float)mRunState->GetBuffCount(theBuffId);
+	return aMul < 0.1f ? 0.1f : aMul;
+}
+
+int LawnApp::RunBuffAdd(int theBuffId) const
+{
+	if (mRunState == nullptr) return 0;
+	return GetRunBuffDef(theBuffId).mPerStackAdd * mRunState->GetBuffCount(theBuffId);
 }
 
 //0x44F5F0
