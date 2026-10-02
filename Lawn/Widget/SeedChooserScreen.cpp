@@ -234,8 +234,20 @@ void SeedChooserScreen::CrazyDavePickSeeds()
 		aSeedArray[SEED_TORCHWOOD].mWeight = 0;
 	}
 	
+	// @pvz-online: Crazy Dave 一屏要预选三株，可"抽中一株清一株权重"的算法在可选株数不足
+	// 三株时会把权重和抽成 0——第三次抽取就撞上 PickFromWeightedArrayUsingSpecialRandSeed
+	// 的断言，点"忽略"后 MTRand::Next(0) 整数除零（2026-10-02 实测：继续闯关读回的卡池
+	// 只剩开局两株，构造选卡界面必崩）。抽几株先按可选（权重 >0）株数封顶，抽空就停手：
+	// 卡池 ≤8 的关卡卡槽本来就按整副卡池填好，这里少预选几株没有任何影响。
+	int aPickCount = 0;
+	for (int i = 0; i < NUM_SEEDS_IN_CHOOSER; i++)
+	{
+		if (aSeedArray[i].mWeight > 0) aPickCount++;
+	}
+	if (aPickCount > 3) aPickCount = 3;
+
 	MTRand aLevelRNG = MTRand(mBoard->GetLevelRandSeed());
-	for (int i = 0; i < 3; i++)
+	for (int i = 0; i < aPickCount; i++)
 	{
 		SeedType aPickedSeed = (SeedType)PickFromWeightedArrayUsingSpecialRandSeed(aSeedArray, NUM_SEEDS_IN_CHOOSER, aLevelRNG);
 		aSeedArray[aPickedSeed].mWeight = 0;
