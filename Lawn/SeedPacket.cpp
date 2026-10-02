@@ -9,6 +9,7 @@
 #include "graphics/Font.h"
 #include "../Sexy.TodLib/FilterEffect.h"
 #include "misc/SexyMatrix.h"
+#include "Run/RunBuffs.h"
 
 SeedPacket::SeedPacket()
 {
@@ -878,7 +879,9 @@ void SeedPacket::WasPlanted()
 	{
 		mTimesUsed++;
 		mRefreshing = true;
-		mRefreshTime = Plant::GetRefreshTime(mPacketType, mImitaterType);
+		// @pvz-online: 闯关 buff「速种」：种植后冷却时长 ×(1−15%/层)。只乘这里的时长，
+		// SetPacketType 里那些拿 GetRefreshTime 原值做的档位判断（==5000/==3000）不动。
+		mRefreshTime = (int)(Plant::GetRefreshTime(mPacketType, mImitaterType) * mApp->RunBuffMul(RUN_BUFF_FASTSEED) + 0.5f);
 	}
 }
 

@@ -174,7 +174,12 @@ void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, Se
         if (MakesSun())
             mLaunchCounter = (int)(RandRangeInt(300, mLaunchRate / 2) * mApp->RunBuffMul(RUN_BUFF_ABUNDANCE) + 0.5f);
         else
-            mLaunchCounter = RandRangeInt(0, mLaunchRate);
+        {
+            // @pvz-online: 闯关 buff「急袭」：射手首发等待也缩短（稳态周期那处在 UpdateShooter）。
+            // 只认射手——这条文案是"攻击更快"，非射手的 mLaunchCounter 另有用途（产币等）。
+            float aShootMul = mSubclass == PlantSubClass::SUBCLASS_SHOOTER ? mApp->RunBuffMul(RUN_BUFF_SWIFT) : 1.0f;
+            mLaunchCounter = (int)(RandRangeInt(0, mLaunchRate) * aShootMul + 0.5f);
+        }
     }
     else
         mLaunchCounter = 0;
@@ -944,7 +949,9 @@ void Plant::UpdateShooter()
     mLaunchCounter--;
     if (mLaunchCounter <= 0)
     {
-        mLaunchCounter = mLaunchRate - Sexy::Rand(15);
+        // @pvz-online: 闯关 buff「急袭」：射击周期 ×(1−10%/层)。只缩这个节奏计数器——
+        // 动画里那些"倒计时到固定值放子弹"的检查点（加特林 18/35/51/68 等）不能动，否则对不上。
+        mLaunchCounter = (int)((mLaunchRate - Sexy::Rand(15)) * mApp->RunBuffMul(RUN_BUFF_SWIFT) + 0.5f);
 
         if (mSeedType == SeedType::SEED_THREEPEATER)
         {
