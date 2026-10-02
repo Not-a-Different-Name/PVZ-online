@@ -6,13 +6,15 @@
 #include <vector>
 #include "NetLink.h"
 
-// @pvz-online: M2 会话层——"谁建房、谁坐哪个席位、握手、心跳、掉线"这套规矩收在这里，
+// @pvz-online: M2/M3 会话层——"谁建房、谁坐哪个席位、握手、心跳、掉线"这套规矩收在这里，
 // 游戏代码只问状态、只收事件，不碰 socket。
 //
 // 只有主线程用这个类（Update / Start* / Send* / PollEvent 全在主循环里调）；
 // 收包线程只往 NetLink 的队列里塞字节。
 //
-// 席位：主机 = 1，客户端 = 2（M3 再扩到四个）。
+// 席位：直连是固定的两个（主机 = 1，客户端 = 2）；M3 中继由服务器点名册，最多四个。
+// 所以"谁是队友"记在一张**席位表**里（mSeats），不再由一个对端字段代表——判胜、
+// 漏怪接力、换位环、开局应答全按表走，写死"就是那两个人"的地方一处不剩。
 
 class NetSession
 {
@@ -32,6 +34,12 @@ public:
 		HANDSHAKING,	// TCP 通了，等握手结果
 		CONNECTED,
 		DEAD			// 断了或失败了，原因在 GetStatusText() 里
+	};
+
+	enum class Transport
+	{
+		DIRECT,			// 一人 Listen、一人 Connect 的直连（M2 起就有）
+		RELAY			// 两边都连中继服务器，身份由服务器名册说了算（M3）
 	};
 
 	enum class EventType
@@ -70,6 +78,18 @@ public:
 	// 对面那席要真连上才算——还在等人进来的时候那个位子是空的。
 	bool			IsSeatOccupied(uint8_t theSeat) const;
 
+	// 除我之外还有没有上座席位。一个人开局（独处）时判"要不要等队友"就靠它：
+	// 凭空等一个不存在的队友，闯关局会永久挂起。
+	bool			HasOtherSeats() const;
+	int				GetOccupiedSeatCount() const;
+
+	// 席位是个环（换位）：1 → 2 → … → N → 1，末位的后一位是首位，人人都有换的对象。
+	// 只看**上座**席位、跳过空位——中间有人走了，环自己把洞跳过去。
+	uint8_t			NextOccupiedSeatInRing(uint8_t theSeat) const;
+	// 席位也是条链（漏怪接力）：1 → 2 → … → N，**不绕回**首位——链的末端就是规则下限，
+	// 末席漏怪是全队败。同样只认上座席位。
+	uint8_t			NextOccupiedSeat(uint8_t theSeat) const;
+
 	// 主动收摊（先给对方发 BYE）。之后可以重新 StartHost / StartJoin。
 	void			Close();
 
@@ -78,8 +98,11 @@ public:
 	// 主机开局：把这一局的模式、关卡、波表种子告诉队友。没连上时返回 false。
 	// 联机闯关（R5）再多带三个数：是不是闯关局、局种子、关序号——队友据此对齐进度
 	// （见 LawnApp::AlignRunToHost）；单关局用默认值，线格式上这三格是 0。
+	// theTargetSeat 默认 SEAT_UNSET = 发给所有队友；中途拉一个人进关必须点名单发——
+	// 扇出会把已经在打的人重新点名一遍（那会重建棋盘）。
 	bool			SendStartLevel(uint8_t theGameMode, uint32_t theLevel, int32_t theLevelSeed,
-						bool theIsRun = false, int32_t theRunSeed = 0, uint8_t theRunLevelIndex = 0);
+						bool theIsRun = false, int32_t theRunSeed = 0, uint8_t theRunLevelIndex = 0,
+						uint8_t theTargetSeat = NetProto::SEAT_UNSET);
 
 	// 客户端侧：取出主机发来的开局命令（同时清掉）。没有就返回 false。
 	// 单槽而不是队列：开局命令只有"最新那条"有意义，堆着旧的开局命令没有用处。
@@ -90,13 +113,13 @@ public:
 	// 否则主机会一个人开着关跑下去。
 	void			SendStartAck(bool theAccepted = true);
 
-	// 主机侧：队友对开局命令的回应到了没有（取一次就清）。theAccepted 是"进场 / 现在不行"。
+	// 主机侧：某个队友对开局命令的回应（按席位记账，取一条清一条，先进先出）。
+	// theAccepted 是"进场 / 现在不行"。M2 只有两个席位，所以看上去和"那一条"没差别。
 	bool			TakeStartAck(bool& theAccepted);
 
 	// 主机侧：全员都进场了——广播"各席位开始做自己的三选一"（闯关 R6 新时序的最后一环：
 	// 命令 → 各席位先进场并回 ACK → 收齐后 RUN_GO → 各席位在新草坪上放选项屏）。
-	// 收齐的判定目前借会话层的单对端 ACK 槽位（M2 只有两个席位）；M3 扩到四个席位时
-	// 这里要换成按席位记账、收齐**所有上座席位**才放行——现在别写死"就是那两个人"。
+	// 收齐的判定按**所有上座席位**记账，不再写死"就是那两个人"。
 	bool			SendRunGo();
 
 	// 客户端侧：主机放行了吗（取一次就清）。拿到才把选项屏放出来。
@@ -105,11 +128,10 @@ public:
 	// 双向：报"我这一轮的选卡状态"（theReady=1 选好了 / 0 还在选）。选完卡不能一个人
 	// 先开打——两边各按各的 Let's Rock，开打时间就对不上；谁先选完谁先报，等所有人到齐。
 	// 是个状态不是事件，所以同一轮里重复报同一个值会被去重（和 SendLevelDone 同款）。
-	// M3 扩到四个席位：对面不止一个，这里要改成对每个上座席位各发一帧，
-	// 收齐的记账同理（现在别写死"就是那两个人"）。
 	bool			SendSeedsReady(bool theReady = true);
 
-	// 对面这一轮选好了没有（收到的就是个状态，本地只在开局/回菜单时重置）。
+	// 其他上座席位这一轮都选好了没有（各席位报的是状态，本地只在开局/回菜单时重置）。
+	// 单对端（直连）时就是"对面那一个"，语义与 M2 完全一致。
 	bool			IsPeerSeedsReady();
 
 	// 我离开这一局了（回主菜单）。对面收到会跟着退——不然一边在关卡里、一边在菜单上，
@@ -160,17 +182,17 @@ public:
 	// 不清的话，上一局收到的漏怪/开局命令会砸到下一局的棋盘上。
 	void			DiscardLevelPackets();
 
-	// 开始前换位置：跟"后一位"换（末位的后一位是首位），对面同意才真的换。
+	// 开始前换位置：跟"环上的后一位"换（末位的后一位是首位），对面同意才真的换。
 	// 这一步只是把请求发出去，本机不动；同意/拒绝由对面定，见下面几条。
 	// 没连上、已经有一个请求在等回话、或对面正问着我，都返回 false（按不动）。
 	bool			SwapSeats();
 
 	// 我发出的请求还在等对面回话（面板据此灰掉 Swap 键，也挡住重复请求）。
-	bool			IsSwapRequestPending() const { return mSwapRequestPending; }
+	bool			IsSwapRequestPending() const { return mSwapRequestSeat != NetProto::SEAT_UNSET; }
 
 	// 对面正问我换不换（主循环看到就把面板叫出来，等玩家按同意/拒绝）。
 	// 一次请求一直挂着为真，直到 AnswerSwapRequest 作答。
-	bool			HasIncomingSwapRequest() const { return mSwapAskPending; }
+	bool			HasIncomingSwapRequest() const { return mSwapAskSeat != NetProto::SEAT_UNSET; }
 
 	// 回答对面的换位请求。同意则两边各自执行同一次换位（本机当场生效，
 	// 对面收到 REPLY 后跟着换）；拒绝则什么都不发生，对面只收到一句说明。
@@ -180,8 +202,9 @@ public:
 	// 过几秒自己消失。没有就返回空串。
 	const std::string&	GetNoticeText() const { return mNoticeText; }
 
-	// 我方棋盘上的漏怪该传给谁。M2 是两席位：1 → 2；2 号位是末席，
-	// 没有下一席位（返回 SEAT_UNSET）——末席漏怪就是全队败，没得传。
+	// 我方棋盘上的漏怪该传给谁：直连是"另一个固定席位"（1 ↔ 2），中继是**链上的
+	// 下一个上座席位**（1 → 2 → 3 → 4，跳空洞）。
+	// 返回 SEAT_UNSET = 没有下一家：末席漏怪就是全队败，没得传。
 	// 只看席位号、不看谁建的房：换过位置后方向跟着换。
 	uint8_t			GetRelayTargetSeat() const;
 
@@ -194,20 +217,20 @@ public:
 
 	State			GetState() const { return mState; }
 	Role			GetRole() const { return mRole; }
+	Transport		GetTransport() const { return mTransport; }
 	bool			IsConnected() const { return mState == State::CONNECTED; }
 	bool			IsActive() const { return mState != State::OFF; }
 	uint8_t			GetLocalSeat() const { return mLocalSeat; }
-	uint8_t			GetPeerSeat() const { return mPeerSeat; }
+	// 直连兼容 getter：直连就是固定的另一个席位（还没连上也算——HELLO 得先发出去）。
+	// 四席位名册请用 IsSeatOccupied/GetSeatName 逐格问，别用这个。
+	uint8_t			GetPeerSeat() const { return DirectPeerSeat(); }
 
-	// 对面的构建代次（握手时报的，连上才有效）。
-	uint16_t		GetPeerBuild() const { return mPeerBuild; }
-	// 两边的构建代次不一样：包还是同一套，但行为可能不配套（比如漏怪在某代才真的
+	// 对端的构建代次（握手时报的，连上才有效）。
+	uint16_t		GetPeerBuild() const;
+	// 有席位的构建代次和本机不一样：包还是同一套，但行为可能不配套（比如漏怪在某代才真的
 	// 落地）。**从 MOD_BUILD 12 起这不再拒绝握手**——照常连、UI 上挂一句提醒，
 	// 玩家真撞上不对劲自己会去更新，比"整场连不上"实用（用户 2026-10-02 拍板）。
-	bool			IsBuildDifferent() const
-	{
-		return mState == State::CONNECTED && mPeerBuild != 0 && mPeerBuild != NetProto::MOD_BUILD;
-	}
+	bool			IsBuildDifferent() const;
 
 	const std::string&	GetStatusText() const { return mStatusText; }
 	const std::string&	GetHintText() const { return mHintText; }
@@ -222,16 +245,35 @@ public:
 	bool			PollEvent(Event& theEvent);
 
 private:
+	// 一个席位上的人和他在这一局里的状态（0 号位不用）。
+	// 自己那格的两条状态身兼两职：既是本地记的值，也是"上次发出去的值"——发送去重
+	// 就靠它。换位时整格跟着人走，所以"我报过什么"换过位置也不会丢。
+	struct SeatInfo
+	{
+		bool			mOccupied;		// 有没有人：队友要真连上（中继：名册上有）才算
+		uint16_t		mBuild;			// 他报的构建代次（0 = 还不知道）
+		std::string		mName;
+		bool			mLevelDone;		// 报的"草坪清完了"
+		bool			mSeedsReady;	// 报的"这一轮选卡选好了"
+		uint8_t			mAckState;		// 主机侧收到的开局回答：0 还没 / 1 进场 / 2 现在不行
+		bool			mAwaitingAck;	// 主机侧：正在等他这一条
+	};
+
 	void			ResetToOff();
 	void			SetConnected();
 	void			SetDead(const char* theReason, const char* theShortReason = nullptr);
 	void			UpdateStatusText();
 	void			HandlePacket(const NetLink::Packet& thePacket);
 	void			PushEvent(EventType theType);
-	// 执行一次换位（本机 + 记在心里的对端席位）。请求被同意时两边各调一次。
-	void			ApplySeatSwap();
-	// 给对面回话。同意与否都由调用方定；这里只负责发。
-	void			SendSwapReply(bool theAccepted);
+	void			ClearSeatTable();
+	// 直连：对端席位是固定的另一个（1 ↔ 2）。跟连没连上无关——HELLO 就得在这时候发出去。
+	// 中继不用这个（那边席位由服务器点名）。
+	uint8_t			DirectPeerSeat() const;
+	// 执行一次换位：两格的内容对调（谁在几号位变了，人和他记的状态一起走）。
+	// 直连时两边各自调一次（本机 + 那个对端）；中继时所有人收到服务器的广播各调一次。
+	void			ApplySeatSwap(uint8_t theSeatA, uint8_t theSeatB);
+	// 给对面回话。同意与否由调用方定；theTarget 是问我的那个席位。
+	void			SendSwapReply(bool theAccepted, uint8_t theTarget);
 	// 写一条几秒后自动消失的即时说明（"对面拒绝了"这类）。
 	void			SetNotice(const char* theText, int theFrames = NOTICE_FRAMES);
 	// 把"两边暂停到哪了"整个忘掉（新一局开始、掉线、收摊时用）。
@@ -242,21 +284,28 @@ private:
 	// 单机里没人陪你判胜。
 	bool			AreAllSeatsDone() const;
 
+	// 把一帧交给该收的人。theTarget 默认 SEAT_UNSET = 所有队友（中继扇出；
+	// 直连就那一个对端，行为与 M2 逐字节一致）。带席位号的载荷（前两字节 src/dst）
+	// 会被这里逐目标改写 dst——别在调用方那边把 dst 写死。
+	bool			Dispatch(uint16_t theType, uint8_t* thePayload, int theSize,
+						uint8_t theTarget = NetProto::SEAT_UNSET);
+	// 组帧直发链路（不管路由）。帧字节的构成全在这儿，改线格式只看这一个函数。
 	bool			SendRaw(uint16_t theType, const uint8_t* thePayload, int thePayloadSize);
 	void			SendHello();
-	void			SendHelloAck(bool theAccepted);
+	void			SendHelloAck(bool theAccepted, uint8_t theTarget);
 	void			SendHeartbeat();
 	void			SendBye(uint8_t theReason);
 
 private:
 	NetLink				mLink;
 	Role				mRole;
+	Transport			mTransport;
 	State				mState;
 	uint8_t				mLocalSeat;
-	uint8_t				mPeerSeat;
-	uint16_t			mPeerBuild;			// 对面报的构建代次（握手时记下，连上期间读）
+	// 席位表：下标 = 席位号，1..NetProto::MAX_PLAYERS。"我"由 mLocalSeat 指认，
+	// 表里不另存标记。空席位 mOccupied=false，其余字段保持中性值。
+	SeatInfo			mSeats[NetProto::MAX_PLAYERS + 1];
 	std::string			mLocalName;			// 不随 ResetToOff 清（见 SetLocalName）
-	std::string			mPeerName;			// 对面报的名字，连接作废时跟着一起清
 	int					mFramesSincePacket;
 	int					mFramesSinceHeartbeat;
 	uint32_t			mHeartbeatTick;
@@ -268,17 +317,9 @@ private:
 	std::vector<Event>	mEvents;
 	bool				mHasPendingStart;
 	NetProto::MsgStartLevel	mPendingStart;
-	bool				mHasStartAck;
-	bool				mStartAckAccepted;	// 上一条 START_ACK 是"进场"还是"现在不行"
 	bool				mHasRunGo;			// 主机放行了没有（客户端侧收下的 RUN_GO，取一次就清）
-	bool				mPeerSeedsReady;	// 对面这一轮选好了没有（对面报的状态，本地只读）
-	bool				mLocalSeedsReady;	// 我上一次报出去的状态（同一轮里重复报去重）
 	bool				mHasPendingLevelExit;
 	NetProto::MsgLevelExit	mPendingLevelExit;
-	// 各席位"草坪清干净了没有"，按下标=席位号（0 号位不用）。用数组而不是两个布尔：
-	// M2 只有两个席位，M3 是四个，判胜的写法不该跟着席位数量重写一遍。
-	// 自己那一格同时是"上次发出去的值"，发送去重就靠它。
-	bool				mSeatDone[NetProto::MAX_PLAYERS + 1];
 	bool				mAllDoneTaken;		// "全队都清完了"已经收过摊了
 	bool				mHasPendingGameOver;
 	NetProto::MsgGameOver	mPendingGameOver;
@@ -288,8 +329,8 @@ private:
 	bool				mHasPendingPause;
 	bool				mPendingPauseValue;
 	std::vector<NetProto::MsgEscapedZombie>	mPendingEscapedZombies;
-	bool				mSwapRequestPending;	// 我发出的换位请求在等回话
-	bool				mSwapAskPending;		// 对面的换位请求在等我作答
+	uint8_t				mSwapRequestSeat;	// 我发出的换位请求发给了谁（SEAT_UNSET = 没在等）
+	uint8_t				mSwapAskSeat;		// 哪个席位正问我换不换（SEAT_UNSET = 没有）
 	std::string			mNoticeText;			// 即时说明（几秒后自己消失）
 	int					mNoticeFrames;
 

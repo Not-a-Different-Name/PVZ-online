@@ -1,6 +1,7 @@
 #include "NetSession.h"
 
 #include <cstring>
+#include <utility>
 
 #include "../../Sexy.TodLib/TodDebug.h"
 
@@ -23,16 +24,6 @@ const int	PAUSE_PAYLOAD_SIZE		= 3;	// src, dst, u8 paused
 const int	LEVEL_DONE_PAYLOAD_SIZE	= 3;	// src, dst, u8 done
 const int	GAME_OVER_PAYLOAD_SIZE	= 3;	// src, dst, u8 reason
 
-// M2 就两个席位。换位规则按"环上的后一位"写，所以扩到四席位时只要把这个数
-// 和 ApplySeatSwap 一起改成按座次置换，规则本身不用动。
-const uint8_t	SEAT_COUNT		= 2;
-
-// 席位是个环：1 → 2 → … → N → 1。末位的后一位是首位，人人都有换的对象。
-uint8_t NextSeatInRing(uint8_t theSeat)
-{
-	return (theSeat >= SEAT_COUNT) ? NetProto::SEAT_HOST : (uint8_t)(theSeat + 1);
-}
-
 // 名字只留可打印 ASCII：位图字体没有别的字形，画出来只能是空白或乱码；何况这是对面
 // 发来的东西，控制字符更不能原样进绘制。剔掉而不是截断——"Alice玩家" 至少还认得出 Alice。
 std::string SanitizeName(const char* theName, int theMaxBytes)
@@ -53,9 +44,10 @@ std::string SanitizeName(const char* theName, int theMaxBytes)
 NetSession::NetSession()
 {
 	mRole = Role::NONE;
+	mTransport = Transport::DIRECT;
 	mState = State::OFF;
 	mLocalSeat = NetProto::SEAT_UNSET;
-	mPeerSeat = NetProto::SEAT_UNSET;
+	ClearSeatTable();
 	mFramesSincePacket = 0;
 	mFramesSinceHeartbeat = 0;
 	mHeartbeatTick = 0;
@@ -64,24 +56,16 @@ NetSession::NetSession()
 	mHintText = "Host a game, or type the host's IP and join.";
 	mShortStatus = "Connection lost";
 	mHasPendingStart = false;
-	mHasStartAck = false;
-	mStartAckAccepted = false;
 	mHasRunGo = false;
-	mPeerSeedsReady = false;
-	mLocalSeedsReady = false;
 	mHasPendingLevelExit = false;
 	mAllDoneTaken = false;
 	mHasPendingGameOver = false;
-	for (int aSeat = 0; aSeat <= NetProto::MAX_PLAYERS; aSeat++)
-	{
-		mSeatDone[aSeat] = false;
-	}
 	mSharedPaused = false;
 	mPauseCameFromPeer = false;
 	mHasPendingPause = false;
 	mPendingPauseValue = false;
-	mSwapRequestPending = false;
-	mSwapAskPending = false;
+	mSwapRequestSeat = NetProto::SEAT_UNSET;
+	mSwapAskSeat = NetProto::SEAT_UNSET;
 	mNoticeFrames = 0;
 }
 
@@ -89,6 +73,31 @@ NetSession::~NetSession()
 {
 	// 析构不再发 BYE：对端收不到也只是多等 5 秒心跳超时，和崩溃退出一个待遇。
 	mLink.Close();
+}
+
+// 席位表整个回到"一个人都没有"。名册和每席位的记账是一体的，一起清才不会有
+// "人走了但状态还挂着"的残影。
+void NetSession::ClearSeatTable()
+{
+	for (int aSeat = 0; aSeat <= NetProto::MAX_PLAYERS; aSeat++)
+	{
+		mSeats[aSeat].mOccupied = false;
+		mSeats[aSeat].mBuild = 0;
+		mSeats[aSeat].mName.clear();
+		mSeats[aSeat].mLevelDone = false;
+		mSeats[aSeat].mSeedsReady = false;
+		mSeats[aSeat].mAckState = 0;
+		mSeats[aSeat].mAwaitingAck = false;
+	}
+}
+
+uint8_t NetSession::DirectPeerSeat() const
+{
+	// 直连就两个固定席位：主机 1、客户端 2。这个映射跟连没连上无关——
+	// 客户端 TCP 一通就要发 HELLO，那时名册上还没有人。
+	if (mLocalSeat == NetProto::SEAT_HOST) return NetProto::SEAT_CLIENT;
+	if (mLocalSeat == NetProto::SEAT_CLIENT) return NetProto::SEAT_HOST;
+	return NetProto::SEAT_UNSET;
 }
 
 // ====================================================================================================
@@ -99,8 +108,8 @@ bool NetSession::StartHost(uint16_t thePort)
 {
 	ResetToOff();
 	mRole = Role::HOST;
+	mTransport = Transport::DIRECT;
 	mLocalSeat = NetProto::SEAT_HOST;
-	mPeerSeat = NetProto::SEAT_CLIENT;
 
 	if (!mLink.Listen(thePort))
 	{
@@ -121,8 +130,8 @@ bool NetSession::StartJoin(const char* theHost, uint16_t thePort)
 {
 	ResetToOff();
 	mRole = Role::CLIENT;
+	mTransport = Transport::DIRECT;
 	mLocalSeat = NetProto::SEAT_CLIENT;
-	mPeerSeat = NetProto::SEAT_HOST;
 	mConnectHost = (theHost && theHost[0]) ? theHost : "127.0.0.1";
 	mConnectPort = thePort;
 
@@ -149,18 +158,86 @@ void NetSession::SetLocalName(const char* theName)
 
 std::string NetSession::GetSeatName(uint8_t theSeat) const
 {
-	if (theSeat == NetProto::SEAT_UNSET) return std::string();
+	if (theSeat == NetProto::SEAT_UNSET || theSeat > NetProto::MAX_PLAYERS) return std::string();
 	if (theSeat == mLocalSeat) return mLocalName;
-	if (theSeat == mPeerSeat) return mPeerName;
-	return std::string();
+	return mSeats[theSeat].mName;
 }
 
 bool NetSession::IsSeatOccupied(uint8_t theSeat) const
 {
-	if (theSeat == NetProto::SEAT_UNSET) return false;
+	if (theSeat == NetProto::SEAT_UNSET || theSeat > NetProto::MAX_PLAYERS) return false;
 	if (theSeat == mLocalSeat) return true;		// 建房/加入那一刻起，自己那席就有人了
-	// 对面那席要真连上才算：还在等人进来的时候，名册上那个位子该是空的
-	return theSeat == mPeerSeat && IsConnected();
+	// 队友那席要真连上才算：还在等人进来的时候，名册上那个位子该是空的
+	return mSeats[theSeat].mOccupied && IsConnected();
+}
+
+bool NetSession::HasOtherSeats() const
+{
+	for (uint8_t aSeat = 1; aSeat <= NetProto::MAX_PLAYERS; aSeat++)
+	{
+		if (aSeat == mLocalSeat) continue;
+		if (IsSeatOccupied(aSeat)) return true;
+	}
+	return false;
+}
+
+int NetSession::GetOccupiedSeatCount() const
+{
+	int aCount = 0;
+	for (uint8_t aSeat = 1; aSeat <= NetProto::MAX_PLAYERS; aSeat++)
+		if (IsSeatOccupied(aSeat)) aCount++;
+	return aCount;
+}
+
+uint8_t NetSession::NextOccupiedSeatInRing(uint8_t theSeat) const
+{
+	if (theSeat < 1 || theSeat > NetProto::MAX_PLAYERS) return NetProto::SEAT_UNSET;
+
+	// 从后一位数起，绕一圈找第一个上座席位（跳过自己）。人都在的时候就是
+	// "后一位"；中间空了谁，环自己把洞跳过去。
+	for (int anOffset = 1; anOffset < NetProto::MAX_PLAYERS; anOffset++)
+	{
+		uint8_t aSeat = (uint8_t)(((theSeat - 1 + anOffset) % NetProto::MAX_PLAYERS) + 1);
+		if (aSeat != mLocalSeat && IsSeatOccupied(aSeat)) return aSeat;
+	}
+	return NetProto::SEAT_UNSET;
+}
+
+uint8_t NetSession::NextOccupiedSeat(uint8_t theSeat) const
+{
+	if (theSeat < 1 || theSeat > NetProto::MAX_PLAYERS) return NetProto::SEAT_UNSET;
+
+	// 顺着往后找，**不绕回**：链的末端就是"没有下一家"（末席漏怪 = 全队败）。
+	for (uint8_t aSeat = (uint8_t)(theSeat + 1); aSeat <= NetProto::MAX_PLAYERS; aSeat++)
+	{
+		if (aSeat != mLocalSeat && IsSeatOccupied(aSeat)) return aSeat;
+	}
+	return NetProto::SEAT_UNSET;
+}
+
+// 直连兼容 getter（名册请用 GetSeatName 逐格问）：直连只有一个对端。没连上、对面还没报
+// 构建号时是 0——跟 M2 一样（那时这个值只有握手收下之后才有内容）。
+uint16_t NetSession::GetPeerBuild() const
+{
+	uint8_t aPeer = DirectPeerSeat();
+	if (aPeer == NetProto::SEAT_UNSET || !IsSeatOccupied(aPeer)) return 0;
+	return mSeats[aPeer].mBuild;
+}
+
+// 有席位的人报的构建代次跟本机不一样。直连就是那一个对端；M3 中继扩成整张名册
+// （每人报一次，谁不配套都算）。没连上就没什么好提示的，返回假。
+bool NetSession::IsBuildDifferent() const
+{
+	if (mState != State::CONNECTED) return false;
+
+	for (uint8_t aSeat = 1; aSeat <= NetProto::MAX_PLAYERS; aSeat++)
+	{
+		if (aSeat == mLocalSeat || !IsSeatOccupied(aSeat)) continue;
+
+		uint16_t aBuild = mSeats[aSeat].mBuild;
+		if (aBuild != 0 && aBuild != NetProto::MOD_BUILD) return true;
+	}
+	return false;
 }
 
 void NetSession::Close()
@@ -265,13 +342,19 @@ bool NetSession::TakePendingStartLevel(NetProto::MsgStartLevel& theMsg)
 	return true;
 }
 
+// 按席位记账、取一条清一条（先进先出）。M2 只有一个队友，看上去和"那一条"没差别；
+// 四席位时才知道是谁答的、谁还没答——P3 的放行判定就靠这张表。
 bool NetSession::TakeStartAck(bool& theAccepted)
 {
-	if (!mHasStartAck) return false;
+	for (uint8_t aSeat = 1; aSeat <= NetProto::MAX_PLAYERS; aSeat++)
+	{
+		if (mSeats[aSeat].mAckState == 0) continue;
 
-	mHasStartAck = false;
-	theAccepted = mStartAckAccepted;
-	return true;
+		theAccepted = mSeats[aSeat].mAckState == 1;
+		mSeats[aSeat].mAckState = 0;
+		return true;
+	}
+	return false;
 }
 
 bool NetSession::TakeRunGo()
@@ -284,7 +367,17 @@ bool NetSession::TakeRunGo()
 
 bool NetSession::IsPeerSeedsReady()
 {
-	return mPeerSeedsReady;
+	if (!IsConnected()) return false;
+
+	bool aHasPeer = false;
+	for (uint8_t aSeat = 1; aSeat <= NetProto::MAX_PLAYERS; aSeat++)
+	{
+		if (aSeat == mLocalSeat || !IsSeatOccupied(aSeat)) continue;
+
+		aHasPeer = true;
+		if (!mSeats[aSeat].mSeedsReady) return false;
+	}
+	return aHasPeer;		// 自己报的不算"对面"；一个队友都没有也不叫"都选好了"
 }
 
 bool NetSession::TakePendingLevelExit(NetProto::MsgLevelExit& theMsg)
@@ -304,11 +397,11 @@ bool NetSession::TakePendingLevelExit(NetProto::MsgLevelExit& theMsg)
 bool NetSession::SendLevelDone(bool theDone)
 {
 	if (mRole == Role::NONE || !IsConnected()) return false;
-	if (mSeatDone[mLocalSeat] == theDone) return false;		// 状态没变，队友那边本来就是对的
+	if (mSeats[mLocalSeat].mLevelDone == theDone) return false;		// 状态没变，队友那边本来就是对的
 
 	NetProto::MsgLevelDone aMsg;
 	aMsg.mSrcSeat = mLocalSeat;
-	aMsg.mDstSeat = mPeerSeat;
+	aMsg.mDstSeat = NetProto::SEAT_UNSET;		// 由 Dispatch 按目标填
 	aMsg.mDone = theDone ? 1 : 0;
 
 	uint8_t aPayload[NetProto::MAX_PAYLOAD];
@@ -316,9 +409,9 @@ bool NetSession::SendLevelDone(bool theDone)
 	if (aSize <= 0) return false;
 
 	// 发出去了才记账：没发出去（socket 坏了）下一帧还要再试
-	if (!SendRaw(NetProto::MSG_LEVEL_DONE, aPayload, aSize)) return false;
+	if (!Dispatch(NetProto::MSG_LEVEL_DONE, aPayload, aSize)) return false;
 
-	mSeatDone[mLocalSeat] = theDone;
+	mSeats[mLocalSeat].mLevelDone = theDone;
 	TodLog("[net] told the teammates my lawn is %s (seat %u)", theDone ? "clear" : "busy again",
 		(unsigned)mLocalSeat);
 	return true;
@@ -326,7 +419,7 @@ bool NetSession::SendLevelDone(bool theDone)
 
 bool NetSession::IsLocalLevelDone() const
 {
-	return mLocalSeat != NetProto::SEAT_UNSET && mSeatDone[mLocalSeat];
+	return mLocalSeat != NetProto::SEAT_UNSET && mSeats[mLocalSeat].mLevelDone;
 }
 
 // 其他上座席位是不是都清完了。一个队友都没有 → false：单机里没人陪你判胜，
@@ -341,7 +434,7 @@ bool NetSession::IsPeerLevelDone() const
 		if (aSeat == mLocalSeat || !IsSeatOccupied(aSeat)) continue;
 
 		aHasPeer = true;
-		if (!mSeatDone[aSeat]) return false;
+		if (!mSeats[aSeat].mLevelDone) return false;
 	}
 	return aHasPeer;
 }
@@ -357,7 +450,7 @@ bool NetSession::AreAllSeatsDone() const
 		if (!IsSeatOccupied(aSeat)) continue;
 
 		aOccupied++;
-		if (!mSeatDone[aSeat]) return false;
+		if (!mSeats[aSeat].mLevelDone) return false;
 	}
 
 	// 一个人不算"全队"：自己跟自己判胜没有意义，也防住"会话还在但队友已经掉了"的边角
@@ -379,7 +472,7 @@ bool NetSession::SendGameOver(uint8_t theReason)
 
 	NetProto::MsgGameOver aMsg;
 	aMsg.mSrcSeat = mLocalSeat;
-	aMsg.mDstSeat = mPeerSeat;
+	aMsg.mDstSeat = NetProto::SEAT_UNSET;		// 由 Dispatch 按目标填
 	aMsg.mReason = theReason;
 
 	uint8_t aPayload[NetProto::MAX_PAYLOAD];
@@ -387,7 +480,7 @@ bool NetSession::SendGameOver(uint8_t theReason)
 	if (aSize <= 0) return false;
 
 	TodLog("[net] telling the teammates we lost (reason %u)", (unsigned)theReason);
-	return SendRaw(NetProto::MSG_GAME_OVER, aPayload, aSize);
+	return Dispatch(NetProto::MSG_GAME_OVER, aPayload, aSize);
 }
 
 bool NetSession::TakePendingGameOver(NetProto::MsgGameOver& theMsg)
@@ -409,14 +502,14 @@ bool NetSession::SendPauseState(bool thePaused)
 
 	NetProto::MsgPause aMsg;
 	aMsg.mSrcSeat = mLocalSeat;
-	aMsg.mDstSeat = mPeerSeat;
+	aMsg.mDstSeat = NetProto::SEAT_UNSET;		// 由 Dispatch 按目标填
 	aMsg.mPaused = thePaused ? 1 : 0;
 
 	uint8_t aPayload[NetProto::MAX_PAYLOAD];
 	int aSize = NetProto::EncodePause(aPayload, (int)sizeof(aPayload), aMsg);
 	if (aSize <= 0) return false;
 
-	if (!SendRaw(NetProto::MSG_PAUSE, aPayload, aSize)) return false;
+	if (!Dispatch(NetProto::MSG_PAUSE, aPayload, aSize)) return false;
 
 	mSharedPaused = thePaused;
 	mPauseCameFromPeer = false;		// 是我按的，署名归我
@@ -435,12 +528,16 @@ bool NetSession::TakePauseState(bool& thePaused)
 
 bool NetSession::SwapSeats()
 {
-	// 一次只谈一件事：要么我在等回话，要么对面正问我——都不许再发一条
-	if (!IsConnected() || mSwapRequestPending || mSwapAskPending) return false;
+	// 一次只谈一件事：要么我在等回话，要么有人正问我——都不许再发一条
+	if (!IsConnected() || IsSwapRequestPending() || HasIncomingSwapRequest()) return false;
+
+	// 跟"环上的后一位"换：四席位时 2 号位换的是 3 号位，不是"永远跟主机换"。
+	uint8_t aTarget = NextOccupiedSeatInRing(mLocalSeat);
+	if (aTarget == NetProto::SEAT_UNSET) return false;		// 没别人可换
 
 	NetProto::MsgSwapRequest aMsg;
 	aMsg.mSrcSeat = mLocalSeat;
-	aMsg.mDstSeat = NextSeatInRing(mLocalSeat);
+	aMsg.mDstSeat = aTarget;
 
 	uint8_t aPayload[NetProto::MAX_PAYLOAD];
 	int aSize = NetProto::EncodeSwapRequest(aPayload, (int)sizeof(aPayload), aMsg);
@@ -448,24 +545,25 @@ bool NetSession::SwapSeats()
 
 	// 只是把请求发出去，本机先不动：换不换由对面点头，点头了才两边一起换。
 	// 发不出去当然也谈不上等回话。
-	if (!SendRaw(NetProto::MSG_SWAP_REQUEST, aPayload, aSize)) return false;
+	if (!Dispatch(NetProto::MSG_SWAP_REQUEST, aPayload, aSize, aTarget)) return false;
 
-	mSwapRequestPending = true;
-	TodLog("[net] asked seat %u to swap positions", (unsigned)aMsg.mDstSeat);
+	mSwapRequestSeat = aTarget;
+	TodLog("[net] asked seat %u to swap positions", (unsigned)aTarget);
 	return true;
 }
 
 void NetSession::AnswerSwapRequest(bool theAccept)
 {
-	if (!mSwapAskPending) return;			// 没有待答的问句：多半是重复点击，忽略
+	if (!HasIncomingSwapRequest()) return;		// 没有待答的问句：多半是重复点击，忽略
 
-	mSwapAskPending = false;
-	SendSwapReply(theAccept);
+	uint8_t aAsker = mSwapAskSeat;
+	mSwapAskSeat = NetProto::SEAT_UNSET;
+	SendSwapReply(theAccept, aAsker);
 
 	if (theAccept)
 	{
 		// 两边执行的是同一次换位，所以各自算各自的就一致了，不用再对一次账
-		ApplySeatSwap();
+		ApplySeatSwap(mLocalSeat, aAsker);
 		TodLog("[net] accepted the swap");
 	}
 	else
@@ -474,17 +572,20 @@ void NetSession::AnswerSwapRequest(bool theAccept)
 	}
 }
 
-void NetSession::ApplySeatSwap()
+void NetSession::ApplySeatSwap(uint8_t theSeatA, uint8_t theSeatB)
 {
-	// 和"后一位"对调：本机换成那个席位，对面换成我原来的席位。两席位的时候
-	// 就是 1 ↔ 2；四席位时这条要按请求里带的两个座次来换（见 NextSeatInRing）。
-	uint8_t aMySeat = mLocalSeat;
-	mLocalSeat = mPeerSeat;
-	mPeerSeat = aMySeat;
+	if (theSeatA == theSeatB) return;
+	if (theSeatA < 1 || theSeatA > NetProto::MAX_PLAYERS) return;
+	if (theSeatB < 1 || theSeatB > NetProto::MAX_PLAYERS) return;
+
+	// 两格的内容对调：谁坐在几号位变了，人和他这一局记的状态（名字/构建/判胜/选卡）
+	// 一起跟着走——「我报过什么」是我这个人的事，不是我原先那个座位的事。
+	std::swap(mSeats[theSeatA], mSeats[theSeatB]);
+	if (mLocalSeat == theSeatA) mLocalSeat = theSeatB;
+	else if (mLocalSeat == theSeatB) mLocalSeat = theSeatA;
 
 	SetNotice(("Swapped - you are now P" + std::to_string((unsigned)mLocalSeat) + ".").c_str());
-	TodLog("[net] positions swapped - local seat %u, peer seat %u",
-		(unsigned)mLocalSeat, (unsigned)mPeerSeat);
+	TodLog("[net] positions swapped - local seat %u", (unsigned)mLocalSeat);
 }
 
 void NetSession::SetNotice(const char* theText, int theFrames)
@@ -503,13 +604,17 @@ void NetSession::PostNotice(const char* theText)
 void NetSession::DiscardLevelPackets()
 {
 	mHasPendingStart = false;
-	mHasStartAck = false;
-	mStartAckAccepted = false;
 	mHasRunGo = false;
-	mPeerSeedsReady = false;
-	mLocalSeedsReady = false;
 	mHasPendingLevelExit = false;
 	mPendingEscapedZombies.clear();
+	// 选卡状态和开局应答也是"这一局"的（含自己那格"上次发出去的值"）：回主菜单、
+	// 掉线、收摊都得清，否则下一局会被上一局的记账挡住。
+	for (int aSeat = 0; aSeat <= NetProto::MAX_PLAYERS; aSeat++)
+	{
+		mSeats[aSeat].mSeedsReady = false;
+		mSeats[aSeat].mAckState = 0;
+		mSeats[aSeat].mAwaitingAck = false;
+	}
 	ClearPauseState();
 	ClearLevelDoneState();
 }
@@ -528,7 +633,7 @@ void NetSession::ClearLevelDoneState()
 {
 	for (int aSeat = 0; aSeat <= NetProto::MAX_PLAYERS; aSeat++)
 	{
-		mSeatDone[aSeat] = false;
+		mSeats[aSeat].mLevelDone = false;
 	}
 	mAllDoneTaken = false;
 	mHasPendingGameOver = false;
@@ -539,11 +644,17 @@ uint8_t NetSession::GetRelayTargetSeat() const
 	// 漏怪按顺位往下传：1 → 2 → 3 → 4。**末尾席位没有下一家**——它漏怪就是全队败，
 	// 调用方收到 SEAT_UNSET 就走原版判负。
 	// 注意这条链和换位那个环不是一回事：换位是环（末位的后一位是首位），漏怪是链，
-	// 链的末端就是这条规则的下限。所以这里不套 NextSeatInRing。
-	// 只看席位号，不看谁建的房：开始前换过位置的话，方向跟着换。
-	if (mLocalSeat == NetProto::SEAT_UNSET || mLocalSeat >= SEAT_COUNT) return NetProto::SEAT_UNSET;
+	// 链的末端就是这条规则的下限。所以这里不套 NextOccupiedSeatInRing。
+	if (mLocalSeat == NetProto::SEAT_UNSET) return NetProto::SEAT_UNSET;
 
-	return (uint8_t)(mLocalSeat + 1);
+	// 直连是两个固定席位，跟"名册上现在有谁"无关：1 号位的下一家永远是 2 号位。
+	// （中继没那么固定——谁走了链上就少一格，得按上座席位现算。）
+	if (mTransport == Transport::DIRECT)
+	{
+		return (mLocalSeat == NetProto::SEAT_HOST) ? NetProto::SEAT_CLIENT : NetProto::SEAT_UNSET;
+	}
+
+	return NextOccupiedSeat(mLocalSeat);
 }
 
 bool NetSession::SendEscapedZombie(const NetProto::MsgEscapedZombie& theMsg)
@@ -563,7 +674,7 @@ bool NetSession::SendEscapedZombie(const NetProto::MsgEscapedZombie& theMsg)
 		(unsigned)aMsg.mRow, (unsigned)aMsg.mZombieType,
 		(int)aMsg.mBodyHealth, (int)aMsg.mHelmHealth,
 		(int)aMsg.mShieldHealth, (int)aMsg.mFlyingHealth);
-	return SendRaw(NetProto::MSG_ESCAPED_ZOMBIE, aPayload, aSize);
+	return Dispatch(NetProto::MSG_ESCAPED_ZOMBIE, aPayload, aSize, aTarget);
 }
 
 bool NetSession::TakePendingEscapedZombie(NetProto::MsgEscapedZombie& theMsg)
@@ -589,11 +700,10 @@ void NetSession::ResetToOff()
 	mLink.Close();
 
 	mRole = Role::NONE;
+	mTransport = Transport::DIRECT;
 	mState = State::OFF;
 	mLocalSeat = NetProto::SEAT_UNSET;
-	mPeerSeat = NetProto::SEAT_UNSET;
-	mPeerBuild = 0;
-	mPeerName.clear();			// 对面的名字跟着这一局作废；自己的名字留着（见 SetLocalName）
+	ClearSeatTable();			// 名册和每席位的记账跟着这一局作废；自己的名字留着（见 SetLocalName）
 	mFramesSincePacket = 0;
 	mFramesSinceHeartbeat = 0;
 	mHeartbeatTick = 0;
@@ -603,8 +713,8 @@ void NetSession::ResetToOff()
 	mHintText = "Host a game, or type the host's IP and join.";
 	mEvents.clear();
 	DiscardLevelPackets();
-	mSwapRequestPending = false;
-	mSwapAskPending = false;
+	mSwapRequestSeat = NetProto::SEAT_UNSET;
+	mSwapAskSeat = NetProto::SEAT_UNSET;
 	mNoticeText.clear();
 	mNoticeFrames = 0;
 }
@@ -614,15 +724,16 @@ void NetSession::SetConnected()
 	mState = State::CONNECTED;
 	mFramesSincePacket = 0;
 	mFramesSinceHeartbeat = 0;
+	uint8_t aPeer = GetPeerSeat();
 	TodLog("[net] handshake complete - local seat %u (%s) build %u, peer seat %u (%s) build %u",
 		(unsigned)mLocalSeat, mLocalName.c_str(), (unsigned)NetProto::MOD_BUILD,
-		(unsigned)mPeerSeat, mPeerName.c_str(), (unsigned)mPeerBuild);
+		(unsigned)aPeer, GetSeatName(aPeer).c_str(), (unsigned)GetPeerBuild());
 	// 两边构建代次不一样：连还是要连的（12 起不再拒绝），但得提示一句——行为不配套
 	// 的毛病（"漏怪没落地"那类）看起来都像"游戏坏了"，有这行才知道该去更新哪边。
-	if (mPeerBuild != NetProto::MOD_BUILD)
+	if (IsBuildDifferent())
 	{
 		TodLog("[net] builds differ - local %u, peer %u; playing anyway",
-			(unsigned)NetProto::MOD_BUILD, (unsigned)mPeerBuild);
+			(unsigned)NetProto::MOD_BUILD, (unsigned)GetPeerBuild());
 		SetNotice("Builds differ - update both machines if things break.");
 	}
 	PushEvent(EventType::CONNECTED);
@@ -637,8 +748,8 @@ void NetSession::SetDead(const char* theReason, const char* theShortReason)
 	mShortStatus = (theShortReason && theShortReason[0]) ? theShortReason : "Connection lost";
 	mHintText.clear();
 	// 挂着的换位请求跟着连接一起作废：断了就没得换了，面板上那个问句也得收掉
-	mSwapRequestPending = false;
-	mSwapAskPending = false;
+	mSwapRequestSeat = NetProto::SEAT_UNSET;
+	mSwapAskSeat = NetProto::SEAT_UNSET;
 	// 一局的收包队列同理：连都没了，上一局的开局命令/漏怪/退关再送到棋盘上是纯乱子
 	DiscardLevelPackets();
 	mNoticeText.clear();
@@ -663,7 +774,7 @@ void NetSession::UpdateStatusText()
 			int anAttempts = GetConnectAttempts();
 			mStatusText = "Connecting to " + mConnectHost + "...";
 			// 连不上会一直重试（没有时间上限了），所以重试次数得露出来，
-			// 不然"还在试"看起来和"卡死了"一模一样。
+			// 不然"还在试"和"卡死了"看起来一模一样。
 			if (anAttempts > 1)
 			{
 				mStatusText += " (attempt " + std::to_string((unsigned)anAttempts) + ")";
@@ -678,9 +789,9 @@ void NetSession::UpdateStatusText()
 			// 关卡由主机定：面板是双方唯一共用的提示位，就把各自的下一步写清楚，
 			// 免得客户端点了冒险按钮却什么反馈都没有（局面板照旧不冻心跳）。
 			// 换位这件事谁先谁后不一样，所以状态行得按"谁在等谁"分开写。
-			if (mSwapAskPending)
+			if (HasIncomingSwapRequest())
 				mStatusText = "The teammate wants to swap positions - Accept or Reject.";
-			else if (mSwapRequestPending)
+			else if (IsSwapRequestPending())
 				mStatusText = "Swap asked - waiting for the teammate to answer.";
 			else if (IsBuildDifferent())
 			{
@@ -688,7 +799,7 @@ void NetSession::UpdateStatusText()
 				// 即时说明几秒就没了，而"这俩不是一套"得一直看得见——真撞上不配套的行为
 				// 时，这行就是"该去更新了"的凭据。小条上也有一份短的，见 OnlineStatusWidget。
 				std::string aBuilds = "Builds differ (you " + std::to_string((unsigned)NetProto::MOD_BUILD)
-					+ " / peer " + std::to_string((unsigned)mPeerBuild) + ").";
+					+ " / peer " + std::to_string((unsigned)GetPeerBuild()) + ").";
 				mStatusText = (mRole == Role::HOST)
 					? aBuilds + " Pick a level."
 					: aBuilds + " Waiting for the host.";
@@ -765,7 +876,7 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 			// 要给出能照做的提示，不能报成含糊的坏包。
 			if (aPayloadSize != HELLO_PAYLOAD_SIZE)
 			{
-				SendHelloAck(false);
+				SendHelloAck(false, DirectPeerSeat());
 				SetDead("Build mismatch - update every machine to the same build.", "Build mismatch");
 				return;
 			}
@@ -779,7 +890,7 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 
 			if (aMsg.mVersion != NetProto::PROTOCOL_VERSION)
 			{
-				SendHelloAck(false);
+				SendHelloAck(false, DirectPeerSeat());
 				SetDead("Version mismatch - all players must run the same build.", "Version mismatch");
 				return;
 			}
@@ -787,8 +898,8 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 			// 编解码对得上；不配套的只是行为，UI 上挂一句提醒，真撞上不对劲玩家自己会更新。
 			// 拒绝只留给 PROTOCOL_VERSION 和 HELLO 长度——那两种连包都读不出来。
 
-			// 席位号是包里的一个字节，会经换位流进 mLocalSeat，再拿去索引 mSeatDone——
-			// 越界就是写穿（同 MSG_LEVEL_DONE 那条注释）。合法席位只有 1..4，且不会是本机自己。
+			// 席位号是包里的一个字节，会进席位表、再拿去索引记账——越界就是写穿。
+			// 合法席位只有 1..4，且不会是本机自己。
 			if (aMsg.mSrcSeat < 1 || aMsg.mSrcSeat > NetProto::MAX_PLAYERS
 				|| aMsg.mSrcSeat == mLocalSeat)
 			{
@@ -796,10 +907,10 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 				return;
 			}
 
-			mPeerSeat = aMsg.mSrcSeat;
-			mPeerBuild = aMsg.mBuild;
-			mPeerName = SanitizeName(aMsg.mName, NetProto::NAME_SIZE);
-			SendHelloAck(true);
+			mSeats[aMsg.mSrcSeat].mOccupied = true;
+			mSeats[aMsg.mSrcSeat].mBuild = aMsg.mBuild;
+			mSeats[aMsg.mSrcSeat].mName = SanitizeName(aMsg.mName, NetProto::NAME_SIZE);
+			SendHelloAck(true, aMsg.mSrcSeat);
 			SetConnected();
 		}
 		break;
@@ -847,9 +958,9 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 				return;
 			}
 
-			mPeerSeat = aMsg.mSrcSeat;
-			mPeerBuild = aMsg.mBuild;
-			mPeerName = SanitizeName(aMsg.mName, NetProto::NAME_SIZE);
+			mSeats[aMsg.mSrcSeat].mOccupied = true;
+			mSeats[aMsg.mSrcSeat].mBuild = aMsg.mBuild;
+			mSeats[aMsg.mSrcSeat].mName = SanitizeName(aMsg.mName, NetProto::NAME_SIZE);
 			SetConnected();
 		}
 		break;
@@ -935,10 +1046,19 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 				SetDead("A player sent a malformed packet.");
 				return;
 			}
-			// 存下来就走：开局要换场景、动一堆 UI，那是主循环的活。
-			mHasStartAck = true;
-			mStartAckAccepted = aMsg.mAccepted != 0;
-			TodLog("[net] the teammate answered the start: %s", mStartAckAccepted ? "in" : "not now");
+			// 席位号越界就丢掉这一条（同 LEVEL_DONE）：它是包里的一个字节，
+			// 直接拿去索引席位表就是写穿。
+			if (aMsg.mSrcSeat < 1 || aMsg.mSrcSeat > NetProto::MAX_PLAYERS || aMsg.mSrcSeat == mLocalSeat)
+			{
+				TodLog("[net] threw away a START_ACK with a bogus seat (%u)", (unsigned)aMsg.mSrcSeat);
+				break;
+			}
+
+			// 存到他那格里就走：开局要换场景、动一堆 UI，那是主循环的活。
+			mSeats[aMsg.mSrcSeat].mAckState = aMsg.mAccepted ? 1 : 2;
+			mSeats[aMsg.mSrcSeat].mAwaitingAck = false;
+			TodLog("[net] seat %u answered the start: %s", (unsigned)aMsg.mSrcSeat,
+				aMsg.mAccepted ? "in" : "not now");
 		}
 		break;
 
@@ -953,25 +1073,32 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 				SetDead("A player sent a malformed packet.");
 				return;
 			}
+			// 问话的人得是个真坐在席位上的席位号——乱报的丢掉这一条，不至于断线
+			if (aMsg.mSrcSeat < 1 || aMsg.mSrcSeat > NetProto::MAX_PLAYERS
+				|| aMsg.mSrcSeat == mLocalSeat || !IsSeatOccupied(aMsg.mSrcSeat))
+			{
+				TodLog("[net] threw away a SWAP_REQUEST from seat %u", (unsigned)aMsg.mSrcSeat);
+				break;
+			}
 
-			if (mSwapRequestPending)
+			if (IsSwapRequestPending() && mSwapRequestSeat == aMsg.mSrcSeat)
 			{
 				// 两边同时按：互相要的是同一件事（我跟后一位换 = 他跟我换），直接成交，
 				// 别让双方都傻等对方点头。各自撤掉自己那条请求，回话到对面也会被无视。
-				SendSwapReply(true);
-				mSwapRequestPending = false;
-				ApplySeatSwap();
+				SendSwapReply(true, aMsg.mSrcSeat);
+				mSwapRequestSeat = NetProto::SEAT_UNSET;
+				ApplySeatSwap(mLocalSeat, aMsg.mSrcSeat);
 				TodLog("[net] both sides asked at once - swapping");
 			}
-			else if (mSwapAskPending)
+			else if (HasIncomingSwapRequest())
 			{
 				// 已经有一条待答的问句挂在玩家面前了：一次只谈一件事，多出来的按拒绝回
-				SendSwapReply(false);
+				SendSwapReply(false, aMsg.mSrcSeat);
 			}
 			else
 			{
 				// 主循环看到 HasIncomingSwapRequest 就把面板叫出来问玩家（面板不冻心跳）
-				mSwapAskPending = true;
+				mSwapAskSeat = aMsg.mSrcSeat;
 				TodLog("[net] seat %u asks to swap positions", (unsigned)aMsg.mSrcSeat);
 			}
 		}
@@ -989,12 +1116,14 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 			}
 
 			// 不是我等的回话（迟到的、或对面那条请求已经被我这边成交掉了）：当它没到
-			if (!mSwapRequestPending) return;
+			if (!IsSwapRequestPending()) return;
+			if (aMsg.mSrcSeat != mSwapRequestSeat) return;		// 也不是我问的那个人回的
 
-			mSwapRequestPending = false;
+			uint8_t aSeat = mSwapRequestSeat;
+			mSwapRequestSeat = NetProto::SEAT_UNSET;
 			if (aMsg.mAccepted)
 			{
-				ApplySeatSwap();
+				ApplySeatSwap(mLocalSeat, aSeat);
 				TodLog("[net] the swap went through");
 			}
 			else
@@ -1023,7 +1152,7 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 				break;
 			}
 
-			mSeatDone[aMsg.mSrcSeat] = aMsg.mDone != 0;
+			mSeats[aMsg.mSrcSeat].mLevelDone = aMsg.mDone != 0;
 			// 有人又不清净了，"全队过关"要重新攒——不然那句已经收过的摊会挡住下一次
 			if (!aMsg.mDone) mAllDoneTaken = false;
 			TodLog("[net] seat %u says its lawn is %s", (unsigned)aMsg.mSrcSeat,
@@ -1108,17 +1237,24 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 
 	case NetProto::MSG_SEEDS_READY:
 		{
-			// 双向：谁先选完谁先报，两边都收
+			// 双向：谁先选完谁先报，所有席位都收
 			NetProto::MsgSeedsReady aMsg;
 			if (aPayloadSize != SEEDS_READY_PAYLOAD_SIZE || !NetProto::DecodeSeedsReady(aPayload, aPayloadSize, aMsg))
 			{
 				SetDead("A player sent a malformed packet.");
 				return;
 			}
+			// 席位号越界就丢掉这一条（同 LEVEL_DONE 的理由）
+			if (aMsg.mSrcSeat < 1 || aMsg.mSrcSeat > NetProto::MAX_PLAYERS)
+			{
+				TodLog("[net] threw away a SEEDS_READY with a bogus seat (%u)", (unsigned)aMsg.mSrcSeat);
+				break;
+			}
 			// 收下的是个状态（"他这一轮选好了没有"），后到的覆盖先到的——对面新一轮开始
 			// 会再报一次 0，本地不用挑时机清（清位就是丢消息，见 NetProtocol.h 那段）。
-			mPeerSeedsReady = aMsg.mReady != 0;
-			TodLog("[net] the teammate %s", mPeerSeedsReady ? "picked their plants" : "is picking plants");
+			mSeats[aMsg.mSrcSeat].mSeedsReady = aMsg.mReady != 0;
+			TodLog("[net] seat %u %s", (unsigned)aMsg.mSrcSeat,
+				(aMsg.mReady != 0) ? "picked their plants" : "is picking plants");
 		}
 		break;
 
@@ -1133,6 +1269,24 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 // ====================================================================================================
 // ★ 发包
 // ====================================================================================================
+
+// 把一帧交给该收的人。直连只有一个对端——行为与 M2 逐字节一致：目标就是那一个，
+// 载荷里的 dst 也还是写它。（四席位的扇出/点名单发在中继那边，见 NetSession.h。）
+bool NetSession::Dispatch(uint16_t theType, uint8_t* thePayload, int theSize, uint8_t theTarget)
+{
+	uint8_t aDst = DirectPeerSeat();
+	if (aDst == NetProto::SEAT_UNSET) return false;
+	if (theTarget != NetProto::SEAT_UNSET && theTarget != aDst) return false;
+
+	// 带席位号的载荷（前两字节 src/dst）在这儿统一盖戳：调用方只报"发给谁"，
+	// 别自己写 dst，省得两处各写一份、哪天对不上。
+	if (theSize >= 2 && thePayload)
+	{
+		thePayload[0] = mLocalSeat;
+		thePayload[1] = aDst;
+	}
+	return SendRaw(theType, thePayload, theSize);
+}
 
 bool NetSession::SendRaw(uint16_t theType, const uint8_t* thePayload, int thePayloadSize)
 {
@@ -1156,7 +1310,7 @@ void NetSession::SendHello()
 {
 	NetProto::MsgHello aMsg;
 	aMsg.mSrcSeat = mLocalSeat;
-	aMsg.mDstSeat = mPeerSeat;
+	aMsg.mDstSeat = DirectPeerSeat();		// 还没握手，名册是空的，直连的另一个席位是固定的
 	aMsg.mVersion = NetProto::PROTOCOL_VERSION;
 	aMsg.mBuild = NetProto::MOD_BUILD;
 	NetProto::SetName(aMsg.mName, mLocalName.c_str());
@@ -1166,11 +1320,11 @@ void NetSession::SendHello()
 	if (aSize > 0) SendRaw(NetProto::MSG_HELLO, aPayload, aSize);
 }
 
-void NetSession::SendHelloAck(bool theAccepted)
+void NetSession::SendHelloAck(bool theAccepted, uint8_t theTarget)
 {
 	NetProto::MsgHelloAck aMsg;
 	aMsg.mSrcSeat = mLocalSeat;
-	aMsg.mDstSeat = mPeerSeat;
+	aMsg.mDstSeat = theTarget;
 	aMsg.mVersion = NetProto::PROTOCOL_VERSION;
 	aMsg.mBuild = NetProto::MOD_BUILD;
 	aMsg.mAccepted = theAccepted ? 1 : 0;
@@ -1182,13 +1336,13 @@ void NetSession::SendHelloAck(bool theAccepted)
 }
 
 bool NetSession::SendStartLevel(uint8_t theGameMode, uint32_t theLevel, int32_t theLevelSeed,
-	bool theIsRun, int32_t theRunSeed, uint8_t theRunLevelIndex)
+	bool theIsRun, int32_t theRunSeed, uint8_t theRunLevelIndex, uint8_t theTargetSeat)
 {
 	if (mRole != Role::HOST || !IsConnected()) return false;
 
 	NetProto::MsgStartLevel aMsg;
 	aMsg.mSrcSeat = mLocalSeat;
-	aMsg.mDstSeat = mPeerSeat;
+	aMsg.mDstSeat = NetProto::SEAT_UNSET;		// 由 Dispatch 按目标填
 	aMsg.mGameMode = theGameMode;
 	aMsg.mLevel = theLevel;
 	aMsg.mLevelSeed = theLevelSeed;
@@ -1212,7 +1366,18 @@ bool NetSession::SendStartLevel(uint8_t theGameMode, uint32_t theLevel, int32_t 
 	}
 	ClearPauseState();		// 新的一局：暂停态从头开始记
 	ClearLevelDoneState();	// "谁清完了"同理
-	return SendRaw(NetProto::MSG_START_LEVEL, aPayload, aSize);
+
+	if (!Dispatch(NetProto::MSG_START_LEVEL, aPayload, aSize, theTargetSeat)) return false;
+
+	// 发出去了才记"在等谁回答"：收齐应答的判定（P3 的放行）得按席位看，
+	// 单槽记账看不出四个人里是谁还没答。
+	for (uint8_t aSeat = 1; aSeat <= NetProto::MAX_PLAYERS; aSeat++)
+	{
+		if (aSeat == mLocalSeat || !IsSeatOccupied(aSeat)) continue;
+		if (theTargetSeat != NetProto::SEAT_UNSET && aSeat != theTargetSeat) continue;
+		mSeats[aSeat].mAwaitingAck = true;
+	}
+	return true;
 }
 
 void NetSession::SendStartAck(bool theAccepted)
@@ -1221,7 +1386,7 @@ void NetSession::SendStartAck(bool theAccepted)
 
 	NetProto::MsgStartAck aMsg;
 	aMsg.mSrcSeat = mLocalSeat;
-	aMsg.mDstSeat = mPeerSeat;
+	aMsg.mDstSeat = NetProto::SEAT_UNSET;		// 由 Dispatch 按目标填
 	aMsg.mAccepted = theAccepted ? 1 : 0;
 
 	uint8_t aPayload[NetProto::MAX_PAYLOAD];
@@ -1230,7 +1395,7 @@ void NetSession::SendStartAck(bool theAccepted)
 	{
 		TodLog(theAccepted ? "[net] telling the host I am entering the level"
 			: "[net] telling the host I cannot enter the level right now");
-		SendRaw(NetProto::MSG_START_ACK, aPayload, aSize);
+		Dispatch(NetProto::MSG_START_ACK, aPayload, aSize);
 	}
 }
 
@@ -1240,14 +1405,14 @@ bool NetSession::SendRunGo()
 
 	NetProto::MsgRunGo aMsg;
 	aMsg.mSrcSeat = mLocalSeat;
-	aMsg.mDstSeat = mPeerSeat;
+	aMsg.mDstSeat = NetProto::SEAT_UNSET;		// 由 Dispatch 按目标填
 
 	uint8_t aPayload[NetProto::MAX_PAYLOAD];
 	int aSize = NetProto::EncodeRunGo(aPayload, (int)sizeof(aPayload), aMsg);
 	if (aSize <= 0) return false;
 
 	TodLog("[net] telling the team to start their picks");
-	return SendRaw(NetProto::MSG_RUN_GO, aPayload, aSize);
+	return Dispatch(NetProto::MSG_RUN_GO, aPayload, aSize);
 }
 
 // 双向：报"我这一轮的选卡状态"。是个状态不是事件——同一轮里重复报同一个值就不发
@@ -1256,21 +1421,21 @@ bool NetSession::SendRunGo()
 bool NetSession::SendSeedsReady(bool theReady)
 {
 	if (mRole == Role::NONE || !IsConnected()) return false;
-	if (mLocalSeedsReady == theReady) return false;		// 状态没变，对面本来就是对的
+	if (mSeats[mLocalSeat].mSeedsReady == theReady) return false;		// 状态没变，队友本来就是对的
 
 	NetProto::MsgSeedsReady aMsg;
 	aMsg.mSrcSeat = mLocalSeat;
-	aMsg.mDstSeat = mPeerSeat;
+	aMsg.mDstSeat = NetProto::SEAT_UNSET;		// 由 Dispatch 按目标填
 	aMsg.mReady = theReady ? 1 : 0;
 
 	uint8_t aPayload[NetProto::MAX_PAYLOAD];
 	int aSize = NetProto::EncodeSeedsReady(aPayload, (int)sizeof(aPayload), aMsg);
 	if (aSize <= 0) return false;
 
-	mLocalSeedsReady = theReady;
+	mSeats[mLocalSeat].mSeedsReady = theReady;
 	TodLog(theReady ? "[net] told the team my plants are picked"
 		: "[net] told the team I am still picking plants");
-	return SendRaw(NetProto::MSG_SEEDS_READY, aPayload, aSize);
+	return Dispatch(NetProto::MSG_SEEDS_READY, aPayload, aSize);
 }
 
 bool NetSession::SendLevelExit(uint8_t theReason)
@@ -1279,7 +1444,7 @@ bool NetSession::SendLevelExit(uint8_t theReason)
 
 	NetProto::MsgLevelExit aMsg;
 	aMsg.mSrcSeat = mLocalSeat;
-	aMsg.mDstSeat = mPeerSeat;
+	aMsg.mDstSeat = NetProto::SEAT_UNSET;		// 由 Dispatch 按目标填
 	aMsg.mReason = theReason;
 
 	uint8_t aPayload[NetProto::MAX_PAYLOAD];
@@ -1287,41 +1452,41 @@ bool NetSession::SendLevelExit(uint8_t theReason)
 	if (aSize <= 0) return false;
 
 	TodLog("[net] telling the teammate I left the level (reason %u)", (unsigned)theReason);
-	return SendRaw(NetProto::MSG_LEVEL_EXIT, aPayload, aSize);
+	return Dispatch(NetProto::MSG_LEVEL_EXIT, aPayload, aSize);
 }
 
-void NetSession::SendSwapReply(bool theAccepted)
+void NetSession::SendSwapReply(bool theAccepted, uint8_t theTarget)
 {
 	NetProto::MsgSwapReply aMsg;
 	aMsg.mSrcSeat = mLocalSeat;
-	aMsg.mDstSeat = mPeerSeat;
+	aMsg.mDstSeat = theTarget;
 	aMsg.mAccepted = theAccepted ? 1 : 0;
 
 	uint8_t aPayload[NetProto::MAX_PAYLOAD];
 	int aSize = NetProto::EncodeSwapReply(aPayload, (int)sizeof(aPayload), aMsg);
-	if (aSize > 0) SendRaw(NetProto::MSG_SWAP_REPLY, aPayload, aSize);
+	if (aSize > 0) Dispatch(NetProto::MSG_SWAP_REPLY, aPayload, aSize, theTarget);
 }
 
 void NetSession::SendHeartbeat()
 {
 	NetProto::MsgHeartbeat aMsg;
 	aMsg.mSrcSeat = mLocalSeat;
-	aMsg.mDstSeat = mPeerSeat;
+	aMsg.mDstSeat = NetProto::SEAT_UNSET;		// 由 Dispatch 按目标填
 	aMsg.mTick = ++mHeartbeatTick;
 
 	uint8_t aPayload[NetProto::MAX_PAYLOAD];
 	int aSize = NetProto::EncodeHeartbeat(aPayload, (int)sizeof(aPayload), aMsg);
-	if (aSize > 0) SendRaw(NetProto::MSG_HEARTBEAT, aPayload, aSize);
+	if (aSize > 0) Dispatch(NetProto::MSG_HEARTBEAT, aPayload, aSize);
 }
 
 void NetSession::SendBye(uint8_t theReason)
 {
 	NetProto::MsgBye aMsg;
 	aMsg.mSrcSeat = mLocalSeat;
-	aMsg.mDstSeat = mPeerSeat;
+	aMsg.mDstSeat = NetProto::SEAT_UNSET;		// 由 Dispatch 按目标填
 	aMsg.mReason = theReason;
 
 	uint8_t aPayload[NetProto::MAX_PAYLOAD];
 	int aSize = NetProto::EncodeBye(aPayload, (int)sizeof(aPayload), aMsg);
-	if (aSize > 0) SendRaw(NetProto::MSG_BYE, aPayload, aSize);
+	if (aSize > 0) Dispatch(NetProto::MSG_BYE, aPayload, aSize);
 }
