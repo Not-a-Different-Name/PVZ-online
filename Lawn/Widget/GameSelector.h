@@ -126,6 +126,10 @@ public:
     void                        SyncButtons();
     void                        AddTrophySparkle();
     void                        ClickedAdventure();
+    // @pvz-online: 把菜单上的入口一律按下去 / 放开。开局转场那 4.5 秒和"广播换关命令、
+    // 等队友回话"那段等待都用它——等待期间菜单留着当看板，但不能再点出别的页面
+    // （等待中开出的模态框会横跨到入场之后）。放开的时机：selector 重建（ShowGameSelector）。
+    void                        SetMenuButtonsDisabled(bool theDisabled);
     void                        UpdateTooltip();
     /*inline*/ bool             ShouldDoZenTuturialBeforeAdventure();
     void                        AddPreviewProfiles();

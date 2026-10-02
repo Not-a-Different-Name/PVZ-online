@@ -1385,6 +1385,30 @@ void GameSelector::ButtonPress(int theId)
 
 //0x44C590
 // GOTY @Patoke: 0x44F270
+// @pvz-online: 菜单入口统一收放（原先是 ClickedAdventure 里的一串 SetDisabled(true)）。
+// 联机等待期间（等 START_ACK / 等点名）菜单留着但不能再点进去——等待中开出的模态框
+// 会横跨到入场之后，右上的设置、成就页这类还会压着开局动画。等 ACK 落地后 selector
+// 会被拆掉或重建，按钮的禁用态自然复原。
+void GameSelector::SetMenuButtonsDisabled(bool theDisabled)
+{
+	mAdventureButton->SetDisabled(theDisabled);
+	mMinigameButton->SetDisabled(theDisabled);
+	mPuzzleButton->SetDisabled(theDisabled);
+	mOptionsButton->SetDisabled(theDisabled);
+	mQuitButton->SetDisabled(theDisabled);
+	mHelpButton->SetDisabled(theDisabled);
+	mChangeUserButton->SetDisabled(theDisabled);
+	mStoreButton->SetDisabled(theDisabled);
+	mAlmanacButton->SetDisabled(theDisabled);
+	mSurvivalButton->SetDisabled(theDisabled);
+	mZenGardenButton->SetDisabled(theDisabled);
+	mZombatarButton->SetDisabled(theDisabled); // @Patoke: added new widgets
+	mAchievementsButton->SetDisabled(theDisabled);
+	// M2 联机入口也在这串里：转场那 4.5 秒它挂在主位上，不禁的话能在墓碑闪动的同时
+	// 点开联机面板，面板就压在开局动画上了。
+	mOnlineButton->SetDisabled(theDisabled);
+}
+
 void GameSelector::ClickedAdventure()
 {
 	// @pvz-online: 这块牌子（第三槽的 PUZZLE 石板）是**原版战役入口**，不参与组队闯关——
@@ -1417,22 +1441,7 @@ void GameSelector::ClickedAdventure()
 	mApp->mMusic->StopAllMusic();
 	mApp->PlaySample(Sexy::SOUND_LOSEMUSIC);
 	mStartingGame = true;
-	mAdventureButton->SetDisabled(true);
-	mMinigameButton->SetDisabled(true);
-	mPuzzleButton->SetDisabled(true);
-	mOptionsButton->SetDisabled(true);
-	mQuitButton->SetDisabled(true);
-	mHelpButton->SetDisabled(true);
-	mChangeUserButton->SetDisabled(true);
-	mStoreButton->SetDisabled(true);
-	mAlmanacButton->SetDisabled(true);
-	mSurvivalButton->SetDisabled(true);
-	mZenGardenButton->SetDisabled(true);
-	mZombatarButton->SetDisabled(true); // @Patoke: added new widgets
-	mAchievementsButton->SetDisabled(true);
-	// @pvz-online: M2 联机入口也得一起禁——转场那 4.5 秒里它还挂在主位上，
-	// 不禁的话能在墓碑闪动的同时点开联机面板，面板就压在开局动画上了。
-	mOnlineButton->SetDisabled(true);
+	SetMenuButtonsDisabled(true);
 
 	Reanimation* aHandReanim = mApp->AddReanimation(-70.0f, 10.0f, 0, ReanimationType::REANIM_ZOMBIE_HAND);
 	aHandReanim->mLoopType = ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD;
@@ -1499,8 +1508,9 @@ void GameSelector::ButtonDepress(int theId)
 		break;
 	case GameSelector::GameSelector_Online:
 		// @pvz-online: 主位大墓碑（烤字 ADVENTURE）= 组队闯关入口：没队伍先把组队页面
-		// 调出来，单人队伍直接排一局闯关。真跟队友连上了（把队友拉进闯关要等 R5）就
-		// 落回开面板这条老路；想打原版战役的走第三槽那块 PUZZLE 石板。
+		// 调出来；队伍在手（一个人的队伍也算）由主机排一局闯关，队友连着也一样——
+		// 开局命令会把他一路拉进同一关（R5 的补发追赶）。落到下面板这条老路的只剩
+		// 客户端那台（等主机选关）和其它开不了局的状态；想打原版战役走第三槽的 PUZZLE 石板。
 		if (mApp->RequestAdventure())
 			break;
 		mApp->DoOnlineDialog();

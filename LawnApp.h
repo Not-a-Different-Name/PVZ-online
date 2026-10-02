@@ -159,6 +159,10 @@ public:
 	// 真开局全在主循环：要拆面板、拆主菜单、建棋盘，还可能先弹一个"续不续"的询问框
 	// （询问框是 WaitForResult，只能从主循环里调）。见 LawnApp::RequestAdventure。
 	bool							mPendingAdventure;
+	// @pvz-online: 联机闯关（R5）客户端侧：主机的"进这一关"命令到了，但自己这屏三选一
+	// （补发追赶可能是好几屏）还没选完——命令先寄存着，选完由 UpdateRunPick 收口进场
+	// （回 START_ACK、建棋盘）。早回一句 ACK 主机就一个人开打，中继给谁的怪就落空了。
+	bool							mOnlineRunStartHeld;
 
 public:
 	LawnApp();
@@ -248,10 +252,15 @@ public:
 	void							StartRun();
 	void							ContinueRun();
 	void							EnterRunLevel();
+	// @pvz-online: 联机闯关（R5）：把本机进度对齐到主机点名的这一关。同一局种子就接着走
+	// （落后 = 从本地检查点续，欠的关靠补发追赶补回来）；对不上 / 没检查点 = 从这一局的
+	// 起点摆一局，同样把欠下的三选一补上——补做的屏与真打过的一模一样。
+	void							AlignRunToHost(int theRunSeed, int theTargetIndex);
 	void							UpdateRunEnd();
 	// @pvz-online: 闯关的三选一屏（R2）。该选而屏不在（刚开局、刚过完一关、或者屏被谁关掉了）
 	// 就开一张；玩家点了卡由 RunPickChosen 接着办：把卡收进局里，选够了就进下一关。
-	// 屏和关卡互斥——棋盘在的时候这一屏不该出现（换关的空档里 mBoard 一定是空的）。
+	// 屏和关卡不互斥（R5 起棋盘留着当换关的背景），但"进关卡"只出现在这里、不出现两次：
+	// 单机选完直接进，联机由主机点名 / 队友等点名（见 UpdateRunPick 里那三种走法）。
 	void							UpdateRunPick();
 	void							RunPickChosen(int theIndex);
 	// @pvz-online: R4 闯关输一关：失败计数 +1 并立刻写检查点（首版只存不用，

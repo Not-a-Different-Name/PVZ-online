@@ -47,6 +47,11 @@ public:
 	std::vector<SeedType>		mPool;			// 这一局的卡池（按加入顺序；起始 = 向日葵 + 豌豆射手）
 	std::vector<BuffStack>		mBuffs;			// 这一局拿到的 buff（同名可叠加）
 	int							mFailCounts[RUN_LEVEL_COUNT];	// 每关失败次数（首版只存不用，平衡阶段再定惩罚）
+	// @pvz-online: 补发追赶的目标关序号（R5）。队友没有检查点 / 检查点落后于主机时，
+	// 不是"跳到主机的关"，而是从这一局的起点一屏一屏地把欠下的三选一补齐——
+	// 补做的屏与真打过的一模一样（候选由 runSeed + 关序号推导）。开着的时候
+	// IsCatchingUp() 为真，UpdateRunPick 每选完一屏就 AdvanceCatchUp 挪一关。
+	int							mCatchUpLevel;
 
 public:
 	RunState();
@@ -83,6 +88,18 @@ public:
 
 	bool				IsComplete() const { return mLevelIndex >= RUN_LEVEL_COUNT; }
 	void				AdvanceLevel() { mLevelIndex++; }
+
+	// @pvz-online: 补发追赶（R5）。开始补：目标关序号存下，先把当前这关的奖励屏选完
+	// （HasPendingPick 那套），选完由 AdvanceCatchUp 挪一关、再摆下一屏，直到追平。
+	void				BeginCatchUp(int theTargetIndex) { mCatchUpLevel = theTargetIndex; }
+	bool				IsCatchingUp() const { return mLevelIndex < mCatchUpLevel; }
+	void				AdvanceCatchUp()
+	{
+		if (!IsCatchingUp()) return;
+		mLevelIndex++;
+		BeginLevelEndPicks();
+	}
+
 	// 本关失败一次：mFailCounts 对应格 +1（R4）。只记账，怎么用留平衡阶段；
 	// 落盘由调用方（LawnApp::RunNoteFailure）紧跟一句 Save 完成。
 	void				NoteLevelFailed();

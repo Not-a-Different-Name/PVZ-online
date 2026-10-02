@@ -85,6 +85,7 @@ void RunState::StartNew(int theRunSeed)
 	mPendingPlantPicks = 0;
 	mPendingBuffPicks = 0;
 	mPickCounter = 0;
+	mCatchUpLevel = -1;
 	for (int i = 0; i < RUN_CHOICES; i++)
 	{
 		mPlantChoices[i] = SeedType::SEED_NONE;
@@ -380,5 +381,7 @@ bool RunState::Load(int theProfileId)
 	memcpy(mFailCounts, aFailCounts, sizeof(mFailCounts));
 	mPool = aPool;
 	mBuffs = aBuffs;
+	// 检查点里没有"补发追赶"这回事（它只活在联机对齐的那一刻），读进来一律清掉。
+	mCatchUpLevel = -1;
 	return true;
 }
