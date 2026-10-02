@@ -807,7 +807,11 @@ void CutScene::StartLevelIntro()
 	{
 		mCrazyDaveDialogStart = mApp->IsFirstTimeAdventureMode() ? 1301 : 1304;
 	}
-	else if (!mApp->IsFirstTimeAdventureMode() && aLevel == 1)
+	// @pvz-online: 闯关局跳过这一幕。闯关第 1 关喂 mLevel=1，撞上原版"老兵重开白天第 1 关"
+	// 的戴夫问候（1601-1603："那些僵尸又来啦 / 我这回帮你挑种子 / 我选……这三个"）——
+	// 闯关下 IsFirstTimeAdventureMode 恒为 false（IsRunMode 那一项，故意的），于是每一局
+	// 开局都演一遍。闯关的种子由三选一负责，戴夫这一幕多余；单机二周目的问候照旧。
+	else if (!mApp->IsFirstTimeAdventureMode() && aLevel == 1 && !mApp->IsRunMode())
 	{
 		mCrazyDaveDialogStart = 1601;
 	}
