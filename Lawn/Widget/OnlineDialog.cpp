@@ -107,6 +107,7 @@ OnlineDialog::OnlineDialog(LawnApp* theApp) :
 
 	mStatusLine = "Not connected.";
 	mHintLine = "";
+	mLocalIpLoaded = false;
 
 	// 比 CheatDialog 大一圈：两行状态 + 两行输入框 + 两排按钮（底排直连 / 上排中继）。
 	// 面板高度由字体/按钮美术的实际高度推出来，不硬写常数：改字号或换按钮图都不会再互相压。
@@ -243,6 +244,19 @@ void OnlineDialog::Update()
 		mHintLine = "Host or join a team, then click Adventure.";
 	}
 
+	// 中继：房间码一回来就写进 Code 框。房主那格是自己没有的（由服务器生成），
+	// 面板上是"我在哪个房间"最直白的一处；按码加入的人也能看到自己的码归一化后的样子。
+	// 只在码真的换了的时候写一次——每帧都写会把玩家正在框里敲的字擦掉。
+	if (aSession && aSession->IsRelay())
+	{
+		const std::string& aCode = aSession->GetRoomCode();
+		if (!aCode.empty() && aCode != mShownRoomCode)
+		{
+			mShownRoomCode = aCode;
+			mCodeEditWidget->SetText(aCode.c_str(), true);
+		}
+	}
+
 	// 主机按了关卡、正等队友就位：会话状态还是 CONNECTED，得单独说一句在等什么，
 	// 不然状态行还写着 "Pick a level from the menu"，看着像那一下没点上。
 	// 说法不点"那一个队友"：四席位时等的是所有人（ACK 全部到齐才进场，见 START_ACK）。
@@ -287,6 +301,9 @@ void OnlineDialog::Draw(Graphics* g)
 	WriteCenteredLine(g, aLineY, mStatusLine);
 	WriteCenteredLine(g, aLineY + mLinesFont->GetLineSpacing(), mHintLine);
 
+	DrawRoomBlock(g);
+
+	g->SetColor(mColors[Dialog::COLOR_LINES]);		// 块里按行换过色，标签的颜色得放回来
 	g->DrawString(_S("Host IP"), mIpEditWidget->mX - LABEL_WIDTH + 4, mIpEditWidget->mY + mLinesFont->GetAscent());
 	DrawEditBox(g, mIpEditWidget);
 
@@ -295,6 +312,103 @@ void OnlineDialog::Draw(Graphics* g)
 
 	g->DrawString(_S("Code"), mCodeEditWidget->mX - CODE_LABEL_WIDTH + 4, mCodeEditWidget->mY + mLinesFont->GetAscent());
 	DrawEditBox(g, mCodeEditWidget);
+}
+
+// @pvz-online: 房间信息块——"我现在在哪个房间"一眼看全：房间码（中继）/ 主机地址（直连）、
+// 我坐第几席、谁是房主，下面是 P1..P4 名册。名册和小状态条那份是同一套说法
+// （自己那行 (you)、空位 --）：面板是模态的、盖着小条看不见，所以这里再写一份。
+void OnlineDialog::DrawRoomBlock(Graphics* g)
+{
+	NetSession* aSession = mApp->mOnlineSession;
+	bool anActive = aSession != nullptr && aSession->IsActive();
+
+	int aLeft = mContentInsets.mLeft + mBackgroundInsets.mLeft + 4;	// 和 "Host IP" 那些标签同一个起点
+	int aLineHeight = mLinesFont->GetLineSpacing();
+	int aLineY = GetRoomHeaderBaseline();
+
+	g->SetColor(mColors[Dialog::COLOR_LINES]);
+	g->DrawString(GetRoomHeaderLine(), aLeft, aLineY);
+	if (!anActive)
+		return;		// 没房间：名册那四行的地盘空着（位置钉死，面板不会因为连上而跳）
+
+	for (int aSeat = 1; aSeat <= NetProto::MAX_PLAYERS; aSeat++)
+	{
+		aLineY += aLineHeight;
+		if (aSession->GetLocalSeat() == aSeat)
+			g->SetColor(Color(255, 255, 255, 255));			// 自己那行最亮
+		else if (aSession->IsSeatOccupied((uint8_t)aSeat))
+			g->SetColor(mColors[Dialog::COLOR_LINES]);		// 队友：和状态行同色
+		else
+			g->SetColor(Color(122, 112, 96, 255));			// 空位压暗
+		g->DrawString(GetRoomSeatLine(aSeat), aLeft, aLineY);
+	}
+}
+
+// 块的第一行：**房间码**是"我在哪个房间"的唯一凭据——房主要念给朋友、队友要核对进对没有，
+// 所以摆在最显眼处。直连没有房间码，"房间"就是主机那台机器：房主顺带念出自己的地址
+// （面板是模态的，盖着主菜单那个小条，看不见）。
+std::string OnlineDialog::GetRoomHeaderLine()
+{
+	NetSession* aSession = mApp->mOnlineSession;
+	std::string aText = "Room ----";	// 没会话 / 中继还没等到服务器点名，都是这一句
+	if (!aSession || !aSession->IsActive())
+		return aText;
+
+	uint8_t aSeat = aSession->GetLocalSeat();
+	if (aSeat == NetProto::SEAT_UNSET)
+		return aText;
+
+	if (aSession->IsRelay())
+	{
+		std::string aCode = aSession->GetRoomCode();
+		if (!aCode.empty())
+			aText = "Room " + aCode;
+	}
+	else
+	{
+		// 枚举网卡不是每帧该干的活：算一次存着（会话开着这段时间地址不会变）
+		if (!mLocalIpLoaded)
+		{
+			mLocalIpText = NetLink::GetLocalIPv4Text();
+			mLocalIpLoaded = true;
+		}
+		aText = "Direct";
+		if (aSession->IsHostSeat() && !mLocalIpText.empty())
+			aText += " " + mLocalIpText;
+	}
+
+	aText += " - you are P" + std::to_string((int)aSeat);
+	if (aSession->IsHostSeat())
+		aText += " (host)";
+	return aText;
+}
+
+// 名册的一行，和小状态条同一套说法：空位就是 --（别看名字那栏是空的就以为是没画出来），
+// 名字一个能画的字形都没有时直说 (no name)。多一个 (host)——面板上得看出房主是谁。
+std::string OnlineDialog::GetRoomSeatLine(int theSeat)
+{
+	NetSession* aSession = mApp->mOnlineSession;
+	std::string aText = "P" + std::to_string(theSeat);
+	if (!aSession) return aText + "  --";
+
+	bool aMine = (aSession->GetLocalSeat() == theSeat);
+	if (!aSession->IsSeatOccupied((uint8_t)theSeat))
+		return aText + "  --";
+
+	std::string aName = aSession->GetSeatName((uint8_t)theSeat);
+	if (aName.empty() && !aMine)
+		aName = "(no name)";
+	if (!aName.empty())
+		aText += "  " + aName;
+
+	std::string aTag;
+	if (aSession->GetHostSeat() == theSeat && aSession->GetHostSeat() != NetProto::SEAT_UNSET)
+		aTag = "host";
+	if (aMine)
+		aTag = aTag.empty() ? "you" : aTag + ", you";
+	if (!aTag.empty())
+		aText += " (" + aTag + ")";
+	return aText;
 }
 
 // 标题栏下沿第一行正文的基线。LawnDialog::Draw 画完标题后正是用这套算式继续排正文的
@@ -306,11 +420,20 @@ int OnlineDialog::GetStatusBaseline()
 		- mHeaderFont->GetAscentPadding() + mHeaderFont->GetHeight() + mSpaceAfterHeader;
 }
 
-// 两行状态的正下方再让开 ROW_GAP，就是输入框的上沿。
-// Draw / Resize / 构造里的面板高度全走这一个式子，免得三处各算各的又算岔。
+// 两行状态的正下方：先让开 ROW_GAP，再排房间信息块（标题一行 + 四个席位四行）。
+// 块的下面是输入框，同样让开 ROW_GAP。
+// Draw / Resize / 构造里的面板高度全走这两个式子，免得三处各算各的又算岔。
+int OnlineDialog::GetRoomHeaderBaseline()
+{
+	return GetStatusBaseline() + mLinesFont->GetLineSpacing() * 2 + ROW_GAP;
+}
+
 int OnlineDialog::GetEditY()
 {
-	return GetStatusBaseline() + mLinesFont->GetLineSpacing() * 2 - mLinesFont->GetAscent() + ROW_GAP;
+	const int aRoomBlockLines = 5;		// 标题 + P1..P4
+
+	return GetRoomHeaderBaseline() + mLinesFont->GetLineSpacing() * (aRoomBlockLines - 1)
+		- mLinesFont->GetAscent() + ROW_GAP;
 }
 
 void OnlineDialog::ButtonDepress(int theId)
