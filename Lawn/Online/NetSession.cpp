@@ -174,6 +174,15 @@ void NetSession::Update()
 {
 	if (mState == State::OFF) return;
 
+	// 死了就是死了，别再泵这个会话。SetDead 不动 NetLink，判死时链路往往还挂着
+	// CONNECTED——继续往下走的话，下面"链路通了、还没握手"那段每帧都成立，会把
+	// DEAD 顶回 HANDSHAKING：主机每帧打一行 "a peer connected, waiting for HELLO"，
+	// 客户端每帧重发一次 HELLO，收到的包又判死一次，状态行就在死因和握手文案之间
+	// 反复跳。（2026-10-02 实机：两侧构建版本不一致，日志被这两行刷了上千遍，
+	// 两边版本一致时任何判死路径同样会中招。）
+	// 复活只走玩家的手：面板上的 Host/Join → ResetToOff → 新会话。
+	if (mState == State::DEAD) return;
+
 	// 先收包再收尸：对端临关之前发的东西（比如 BYE）就在队列里，
 	// 先判 link FAILED 的话，死因会被"连接被对面关了"这个笼统说法盖掉。
 	NetLink::Packet aPacket;
