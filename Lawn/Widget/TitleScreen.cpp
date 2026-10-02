@@ -270,15 +270,6 @@ void TitleScreen::Update()
 		return;
 	}
 
-	// @pvz-online debug: watch the title screen walk toward "click to start"
-	if ((mTitleAge % 60) == 0)
-	{
-		TodTrace("TitleScreen: state=%d ctr=%d bar=%.1f/%.1f threadDone=%d loaderLoaded=%d needInit=%d btnVis=%d btnDisabled=%d",
-			(int)mTitleState, mTitleStateCounter, mCurBarWidth, mTotalBarWidth,
-			(int)mLoadingThreadComplete, (int)mLoaderScreenIsLoaded, (int)mNeedToInit,
-			(int)mStartButton->mVisible, (int)mStartButton->mDisabled);
-	}
-
 	float aCurrentProgress = mApp->GetLoadingThreadProgress();
 	if (mNeedToInit)
 	{
@@ -509,7 +500,6 @@ void TitleScreen::ButtonPress(int theId)
 //0x48E620
 void TitleScreen::ButtonDepress(int theId)
 {
-	TodTrace("TitleScreen::ButtonDepress id=%d threadDone=%d", theId, (int)mLoadingThreadComplete);
 	switch (theId)
 	{
 	case TitleScreen::TitleScreen_Start:
@@ -526,24 +516,20 @@ void TitleScreen::ButtonDepress(int theId)
 void TitleScreen::MouseDown(int x, int y, int theClickCount)
 {
 	(void)x;(void)y;(void)theClickCount;
-	TodTrace("TitleScreen::MouseDown x=%d y=%d threadDone=%d", x, y, (int)mLoadingThreadComplete);
 	if (mLoadingThreadComplete)
 	{
 		mApp->PlaySample(Sexy::SOUND_BUTTONCLICK);
 		mApp->LoadingCompleted();
-		TodTrace("TitleScreen::MouseDown -> LoadingCompleted returned");
 	}
 }
 
 //0x48E690
 void TitleScreen::KeyDown(KeyCode theKey)
 {
-	TodTrace("TitleScreen::KeyDown key=0x%X threadDone=%d", (int)theKey, (int)mLoadingThreadComplete);
 	if (mLoadingThreadComplete)
 	{
 		mApp->PlaySample(Sexy::SOUND_BUTTONCLICK);
 		mApp->LoadingCompleted();
-		TodTrace("TitleScreen::KeyDown -> LoadingCompleted returned");
 	}
 
 	if (mApp->mTodCheatKeys && mApp->mPlayerInfo)

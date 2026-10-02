@@ -158,9 +158,16 @@ void TodTrace(const char* theFormat, ...)
 	}
 
 	OutputDebugStringA(aButter);
-	// @pvz-online debug: mirror traces to stderr so redirected runs leave a trail
-	fputs(aButter, stderr);
-	fflush(stderr);
+	// @pvz-online: mirror traces to stderr only when PVZ_TRACE is set, so a redirected
+	// run can capture them on demand without every normal run paying for the write.
+	static int sMirrorToStderr = -1;
+	if (sMirrorToStderr < 0)
+		sMirrorToStderr = (GetEnvironmentVariableA("PVZ_TRACE", nullptr, 0) > 0) ? 1 : 0;
+	if (sMirrorToStderr == 1)
+	{
+		fputs(aButter, stderr);
+		fflush(stderr);
+	}
 }
 
 void TodHesitationTrace(...)

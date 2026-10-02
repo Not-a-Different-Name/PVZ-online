@@ -17,9 +17,6 @@
 #include "../../Sexy.TodLib/TodParticle.h"
 #include "widget/Dialog.h"
 #include "widget/WidgetManager.h"
-#include <cstdio>
-#include <cstdlib>
-#include <climits>
 
 Rect aBackButtonRect = { 120, 35, 130, 80 };
 
@@ -80,22 +77,6 @@ AchievementsWidget::~AchievementsWidget() {
 
 // GOTY @Patoke: 0x401A10
 void AchievementsWidget::Update() {
-	// @pvz-online debug: PVZ_GEO=1 reports every scroll step. The clamp below uses
-	// aMaxScroll = 2*mApp->mHeight + 50 - mHeight, so any bogus mHeight throws the
-	// whole page far off-screen the first time the player scrolls.
-	if (getenv("PVZ_GEO"))
-	{
-		static int sLastY = INT_MIN;
-		if (mY != sLastY)
-		{
-			sLastY = mY;
-			int aMaxScroll = 2 * mApp->mHeight + 50 - mHeight;
-			fprintf(stderr, "[ach] mY=%d scrollVal=%d dir=%d h=%d maxScroll=%d\n",
-				mY, mScrollValue, mScrollDirection, mHeight, aMaxScroll);
-			fflush(stderr);
-		}
-	}
-
 	// @pvz-online: the page is exactly one screen tall now, so there is nothing to scroll.
 	// This guard is not just an optimisation - the clamp further down is wrong once the
 	// page fits: aMaxScroll becomes 2*600 + 50 - 600 == 650, and `aNewY <= aMaxScroll` is
@@ -138,26 +119,6 @@ void AchievementsWidget::Update() {
 
 // GOTY @Patoke: 0x401160
 void AchievementsWidget::Draw(Graphics* g) {
-	// @pvz-online debug: PVZ_GEO=1 prints the achievements page geometry once, so the
-	// panel can be placed against the real screen instead of guessed at.
-	if (getenv("PVZ_GEO"))
-	{
-		static bool sAchGeoDumped = false;
-		if (!sAchGeoDumped)
-		{
-			sAchGeoDumped = true;
-			fprintf(stderr, "[geo] ach mX=%d mY=%d %dx%d scrollVal=%d dir=%d app=%dx%d\n",
-				mX, mY, mWidth, mHeight, mScrollValue, mScrollDirection, mApp->mWidth, mApp->mHeight);
-			fprintf(stderr, "[geo] ach backRect=(%d,%d) %dx%d  bgImage=%dx%d china=%dx%d\n",
-				aBackButtonRect.mX, aBackButtonRect.mY, aBackButtonRect.mWidth, aBackButtonRect.mHeight,
-				IMAGE_SELECTORSCREEN_ACHIEVEMENTS_BG ? IMAGE_SELECTORSCREEN_ACHIEVEMENTS_BG->mWidth : -1,
-				IMAGE_SELECTORSCREEN_ACHIEVEMENTS_BG ? IMAGE_SELECTORSCREEN_ACHIEVEMENTS_BG->mHeight : -1,
-				IMAGE_ACHEESEMENTS_CHINA ? IMAGE_ACHEESEMENTS_CHINA->mWidth : -1,
-				IMAGE_ACHEESEMENTS_CHINA ? IMAGE_ACHEESEMENTS_CHINA->mHeight : -1);
-			fflush(stderr);
-		}
-	}
-
 	// @pvz-online: vanilla drew the wall once and then 70 hole tiles down a 16150px
 	// surface, with the Bejeweled/Zuma gallery art pinned at y=1125..11250 and the CHINA
 	// piece at mHeight-875. Here the tiles simply stop at the screen edge; the gallery
@@ -170,37 +131,13 @@ void AchievementsWidget::Draw(Graphics* g) {
 	// menu as it stood during the slide-in plus earlier frames of this very page, which is
 	// what made the page look like it "had no content": it was mostly stale pixels showing
 	// through. SetColor + FillRect is the same idiom AwardScreen uses to erase the board.
-	// @pvz-online probe: with PVZ_ACHFILL set, paint the page solid magenta and skip the
-	// wall art entirely. Diagnostic on purpose - if the page does not come out magenta,
-	// FillRect is not reaching the surface (or something draws over the page) and the wall
-	// art is not the problem at all.
-	bool aProbe = getenv("PVZ_ACHFILL") != nullptr;
 	g->SetColorizeImages(true);
-	g->SetColor(aProbe ? Color(255, 0, 255) : Color(72, 60, 44));
+	g->SetColor(Color(72, 60, 44));
 	g->FillRect(0, 0, mWidth, mHeight);
 	g->SetColorizeImages(false);
 
-	if (aProbe)
-		return;
-
-	if (!aProbe)
-	{
 	g->DrawImage(IMAGE_SELECTORSCREEN_ACHIEVEMENTS_BG, 0, 0);
 	int aTileHeight = IMAGE_ACHEESEMENTS_HOLE_TILE->mHeight;
-	if (getenv("PVZ_GEO"))
-	{
-		static bool sWallDumped = false;
-		if (!sWallDumped)
-		{
-			sWallDumped = true;
-			fprintf(stderr, "[geo] wall bg=%dx%d tile=%dx%d tilesDrawn=%d mHeight=%d\n",
-				IMAGE_SELECTORSCREEN_ACHIEVEMENTS_BG->mWidth, IMAGE_SELECTORSCREEN_ACHIEVEMENTS_BG->mHeight,
-				IMAGE_ACHEESEMENTS_HOLE_TILE->mWidth, IMAGE_ACHEESEMENTS_HOLE_TILE->mHeight,
-				aTileHeight > 0 ? (mHeight - IMAGE_SELECTORSCREEN_ACHIEVEMENTS_BG->mHeight + aTileHeight - 1) / aTileHeight : 0,
-				mHeight);
-			fflush(stderr);
-		}
-	}
 	// Fall back to the wall art if the hole tile is missing: tile height 0 would leave
 	// everything below the first 225px unpainted.
 	if (aTileHeight <= 0)
@@ -209,7 +146,6 @@ void AchievementsWidget::Draw(Graphics* g) {
 	{
 		for (int aY = IMAGE_SELECTORSCREEN_ACHIEVEMENTS_BG->mHeight; aY < mHeight; aY += aTileHeight)
 			g->DrawImage(aTileHeight == IMAGE_ACHEESEMENTS_HOLE_TILE->mHeight ? IMAGE_ACHEESEMENTS_HOLE_TILE : IMAGE_SELECTORSCREEN_ACHIEVEMENTS_BG, 0, aY);
-	}
 	}
 
 	// @pvz-online: 20 achievements in 3 columns x 7 rows, which is what fits one screen.

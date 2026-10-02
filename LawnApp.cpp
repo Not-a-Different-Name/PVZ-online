@@ -1,7 +1,5 @@
 #include <corecrt.h>
 #include <time.h>
-#include <crtdbg.h>
-#include <string.h>
 #include "LawnApp.h"
 #include "Lawn/Board.h"
 #include "Lawn/MessageWidget.h"
@@ -2874,32 +2872,9 @@ PottedPlant* LawnApp::GetPottedPlantByIndex(int thePottedPlantIndex)
 	return &mPlayerInfo->mPottedPlant[thePottedPlantIndex];
 }
 
-// @pvz-online debug: companion to PvzDebugHeapInit in main.cpp. PVZ_HEAPCHECK=late
-// skips _CRTDBG_CHECK_ALWAYS_DF (per-allocation validation is too slow to survive the
-// loading screen) and walks the heap here every 15th frame instead — still catches a
-// corrupted block within a fraction of a second of it being corrupted.
-static void PvzLateHeapCheckTick()
-{
-	static int aLate = -1;
-	static int aTick = 0;
-	if (aLate < 0)
-	{
-		char aHeapCheck[16] = {0};
-		GetEnvironmentVariableA("PVZ_HEAPCHECK", aHeapCheck, 15);
-		aLate = (_stricmp(aHeapCheck, "late") == 0) ? 1 : 0;
-	}
-	if (aLate == 1 && ++aTick >= 15)
-	{
-		aTick = 0;
-		_CrtCheckMemory();
-	}
-}
-
 //0x453A50
 bool LawnApp::UpdateApp()
 {
-	PvzLateHeapCheckTick();
-
 	if (mCloseRequest)
 	{
 		Shutdown();
