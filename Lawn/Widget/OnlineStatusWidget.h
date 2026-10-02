@@ -16,9 +16,11 @@ using namespace Sexy;
 // 来说明。它只占自己那一小块矩形，不挡任何按钮；点它可以随时把面板叫回来（断开连接
 // 在面板里）。文案全英文：位图字体没有中文字形。
 //
-// 六行：标题（+ 主机念给队友的 IP）/ P1 / P2 / P3 / P4 / 状态行。
+// 六行：标题（+ 队友要的那串字）/ P1 / P2 / P3 / P4 / 状态行。
 // 四个席位位子是画满的——一局最多四人，从上到下就是顺位；自己那行标 (you)，
 // 空位压暗。空位也画出来，才看得出"后面还有位子、也看得出谁排在我后头"。
+// 标题后缀那串字：直连时是主机的 IP（队友要输进 Join 框），中继时是房间码
+// （房主念给朋友、其他人核对）。
 
 class OnlineStatusWidget : public Widget
 {
@@ -38,8 +40,9 @@ public:
 
 private:
 	std::string			GetTitleLine();
-	// 主机才需要念地址（队友要输的就是它）；客户端这行留空。
-	std::string			GetTitleIpText();
+	// 标题后面挂的那串字：中继 = 房间码（房主念给朋友）；直连 = 主机念自己的 IP，
+	// 客户端这行留空（念自己的地址没有用）。
+	std::string			GetTitleTagText();
 	// 一个席位一行："P2  Bob" / "P1  Alice (you)" / 空位 "P3  --"。
 	std::string			GetSeatLine(int theSeat);
 	std::string			GetStateLine();

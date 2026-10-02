@@ -7,11 +7,68 @@
 #include "graphics/Font.h"
 #include "widget/WidgetManager.h"
 
+// LawnCommon.cpp 里那张输入框配色表（CreateEditWidget 用的就是它）
+extern int gLawnEditWidgetColors[][4];
+
 namespace
 {
 	const int	EDIT_HEIGHT		= 28;
 	const int	ROW_GAP			= 10;	// 状态行→输入框、输入框→按钮之间的留白
-	const int	LABEL_WIDTH		= 56;	// 输入框左边留给 "Host IP" 标签的宽度
+	const int	LABEL_WIDTH		= 56;	// 输入框左边留给 "Host IP" / "Server" 标签的宽度
+	const int	CODE_LABEL_WIDTH = 42;	// 中继那行 "Code" 标签
+	const int	CODE_EDIT_WIDTH	= 66;	// 房间码框：4 个字符 + 光标
+	const int	COL_GAP			= 8;
+
+	// EditListener::AllowChar 在这个框架里是**注释掉的**（EditListener.h 里那几条虚函数没开，
+	// EditWidget::KeyChar 里调用它的那行也注释着），所以"这个输入框收哪些字符"挂不到 listener 上；
+	// 每敲一个键必过的只剩 LawnEditWidget::KeyChar 这条虚函数——过滤只能挂在这儿。
+	class OnlineEditWidget : public LawnEditWidget
+	{
+	public:
+		enum Filter
+		{
+			FILTER_HOST,	// 地址：字母数字 + . -（IPv4 / 主机名）
+			FILTER_CODE		// 房间码：字母数字，一律折成大写（服务器那边也是这么归一化的）
+		};
+
+		OnlineEditWidget(int theId, EditListener* theListener, Dialog* theDialog, Filter theFilter)
+			: LawnEditWidget(theId, theListener, theDialog), mFilter(theFilter)
+		{
+			// 地址和房间码都没有"首字母大写"这回事——地址给大写了就找不着主机
+			mAutoCapFirstLetter = false;
+		}
+
+		virtual void KeyChar(char theChar)
+		{
+			if (mFilter == FILTER_CODE && theChar >= 'a' && theChar <= 'z')
+				theChar = (char)(theChar - 'a' + 'A');
+			if (!Allows(theChar)) return;
+			LawnEditWidget::KeyChar(theChar);
+		}
+
+	private:
+		bool Allows(char theChar) const
+		{
+			bool anAlnum = (theChar >= '0' && theChar <= '9')
+				|| (theChar >= 'A' && theChar <= 'Z')
+				|| (theChar >= 'a' && theChar <= 'z');
+			if (mFilter == FILTER_CODE) return anAlnum;
+			return anAlnum || theChar == '.' || theChar == '-';
+		}
+
+		Filter mFilter;
+	};
+
+	LawnEditWidget* CreateOnlineEditWidget(int theId, EditListener* theListener, Dialog* theDialog,
+		OnlineEditWidget::Filter theFilter)
+	{
+		OnlineEditWidget* aWidget = new OnlineEditWidget(theId, theListener, theDialog, theFilter);
+		// 和 CreateEditWidget 同一套外观（字体/配色/光标闪烁），只是多了字符过滤
+		aWidget->SetFont(Sexy::FONT_BRIANNETOD16);
+		aWidget->SetColors(gLawnEditWidgetColors, EditWidget::NUM_COLORS);
+		aWidget->mBlinkDelay = 14;
+		return aWidget;
+	}
 }
 
 OnlineDialog::OnlineDialog(LawnApp* theApp) :
@@ -27,19 +84,36 @@ OnlineDialog::OnlineDialog(LawnApp* theApp) :
 	mSwapButton = MakeButton(OnlineDialog::OnlineDialog_Swap, this, _S("Swap"));
 	mAcceptButton = MakeButton(OnlineDialog::OnlineDialog_Accept, this, _S("Accept"));
 	mRejectButton = MakeButton(OnlineDialog::OnlineDialog_Reject, this, _S("Reject"));
+	mCreateRoomButton = MakeButton(OnlineDialog::OnlineDialog_CreateRoom, this, _S("Create Room"));
+	mJoinRoomButton = MakeButton(OnlineDialog::OnlineDialog_JoinRoom, this, _S("Join Room"));
 
-	mIpEditWidget = CreateEditWidget(OnlineDialog::OnlineDialog_IpEdit, this, this);
+	// 直连那格的过滤和 Server 同一套（原来挂的 AllowChar 是死钩子，从来没被调过）
+	mIpEditWidget = CreateOnlineEditWidget(OnlineDialog::OnlineDialog_IpEdit, this, this,
+		OnlineEditWidget::FILTER_HOST);
 	mIpEditWidget->mMaxChars = 15;			// "255.255.255.255"
 	mIpEditWidget->SetText(_S("127.0.0.1"), true);
+
+	mServerEditWidget = CreateOnlineEditWidget(OnlineDialog::OnlineDialog_ServerEdit, this, this,
+		OnlineEditWidget::FILTER_HOST);
+	mServerEditWidget->mMaxChars = 15;
+	mServerEditWidget->SetText(_S("127.0.0.1"), true);	// P4 部署后默认填云服务器地址
+
+	mCodeEditWidget = CreateOnlineEditWidget(OnlineDialog::OnlineDialog_CodeEdit, this, this,
+		OnlineEditWidget::FILTER_CODE);
+	mCodeEditWidget->mMaxChars = NetProto::ROOM_CODE_LEN;
 
 	mStatusLine = "Not connected.";
 	mHintLine = "";
 
-	// 比 CheatDialog 大一圈：两行状态 + 输入框 + 三个按钮。
+	// 比 CheatDialog 大一圈：两行状态 + 三行输入框 + 两排按钮（底排直连 / 上排中继）。
 	// 面板高度由字体/按钮美术的实际高度推出来，不硬写常数：改字号或换按钮图都不会再互相压。
 	int aBandTop = mContentInsets.mTop + mBackgroundInsets.mTop + DIALOG_HEADER_OFFSET;
-	int aHeight = (GetEditY() - aBandTop) + EDIT_HEIGHT + ROW_GAP + IMAGE_BUTTON_LEFT->mHeight - 2;
-	CalcSize(320, aHeight);
+	int aHeight = (GetEditY() - aBandTop)
+		+ EDIT_HEIGHT * 3 + ROW_GAP * 2				// Host IP / Server+Code 三行输入框
+		+ ROW_GAP + IMAGE_BUTTON_LEFT->mHeight		// 中继那排：Create Room / Join Room
+		+ ROW_GAP + IMAGE_BUTTON_LEFT->mHeight		// 底排：Host / Join / Close（及叠加键）
+		- 2;
+	CalcSize(400, aHeight);		// 比直连时代宽一圈：Server+Code 一行两栏放得下
 }
 
 OnlineDialog::~OnlineDialog()
@@ -51,7 +125,11 @@ OnlineDialog::~OnlineDialog()
 	delete mSwapButton;
 	delete mAcceptButton;
 	delete mRejectButton;
+	delete mCreateRoomButton;
+	delete mJoinRoomButton;
 	delete mIpEditWidget;
+	delete mServerEditWidget;
+	delete mCodeEditWidget;
 }
 
 void OnlineDialog::Resize(int theX, int theY, int theWidth, int theHeight)
@@ -77,9 +155,22 @@ void OnlineDialog::Resize(int theX, int theY, int theWidth, int theHeight)
 	mAcceptButton->Resize(aLeft, aButtonY, aButtonWidth, aButtonHeight);
 	mRejectButton->Resize(aLeft + aButtonWidth + aButtonGap, aButtonY, aButtonWidth, aButtonHeight);
 
+	// 中继那排紧贴底排上方，两栏分：按钮行和它上面那行 Server/Code 输入框对齐
+	int aRelayButtonY = aButtonY - ROW_GAP - aButtonHeight;
+	int aHalfWidth = (anInnerWidth - aButtonGap) / 2;
+	mCreateRoomButton->Resize(aLeft, aRelayButtonY, aHalfWidth, aButtonHeight);
+	mJoinRoomButton->Resize(aLeft + aHalfWidth + aButtonGap, aRelayButtonY, aHalfWidth, aButtonHeight);
+
 	int anEditWidth = anInnerWidth - LABEL_WIDTH;
 	if (anEditWidth > 300) anEditWidth = 300;
 	mIpEditWidget->Resize(aLeft + LABEL_WIDTH, GetEditY(), anEditWidth, EDIT_HEIGHT);
+
+	// 中继那行：Server 框吃掉剩下的宽度，Code 框固定短一条挂在右边（房间码就 4 格）
+	int aServerY = GetEditY() + EDIT_HEIGHT + ROW_GAP;
+	int aServerWidth = anEditWidth - COL_GAP - CODE_LABEL_WIDTH - CODE_EDIT_WIDTH;
+	mServerEditWidget->Resize(aLeft + LABEL_WIDTH, aServerY, aServerWidth, EDIT_HEIGHT);
+	mCodeEditWidget->Resize(aLeft + LABEL_WIDTH + aServerWidth + COL_GAP + CODE_LABEL_WIDTH,
+		aServerY, CODE_EDIT_WIDTH, EDIT_HEIGHT);
 }
 
 void OnlineDialog::AddedToManager(WidgetManager* theWidgetManager)
@@ -92,7 +183,11 @@ void OnlineDialog::AddedToManager(WidgetManager* theWidgetManager)
 	AddWidget(mSwapButton);
 	AddWidget(mAcceptButton);
 	AddWidget(mRejectButton);
+	AddWidget(mCreateRoomButton);
+	AddWidget(mJoinRoomButton);
 	AddWidget(mIpEditWidget);
+	AddWidget(mServerEditWidget);
+	AddWidget(mCodeEditWidget);
 	theWidgetManager->SetFocus(mIpEditWidget);
 }
 
@@ -106,7 +201,11 @@ void OnlineDialog::RemovedFromManager(WidgetManager* theWidgetManager)
 	RemoveWidget(mSwapButton);
 	RemoveWidget(mAcceptButton);
 	RemoveWidget(mRejectButton);
+	RemoveWidget(mCreateRoomButton);
+	RemoveWidget(mJoinRoomButton);
 	RemoveWidget(mIpEditWidget);
+	RemoveWidget(mServerEditWidget);
+	RemoveWidget(mCodeEditWidget);
 }
 
 void OnlineDialog::Update()
@@ -141,6 +240,10 @@ void OnlineDialog::Update()
 
 	mHostButton->SetDisabled(anActive);
 	mJoinButton->SetDisabled(anActive);
+	// 中继这两把键没有"顶掉它们"的叠加键，就连着会话一直摆着、只是灰掉：
+	// 面板的排面不会因为连上而跳一下。
+	mCreateRoomButton->SetDisabled(anActive);
+	mJoinRoomButton->SetDisabled(anActive);
 	// 会话活着的时候：Host/Join 让位给 Disconnect，Close 就只是关面板
 	mHostButton->mVisible = !anActive;
 	mJoinButton->mVisible = !anActive;
@@ -175,6 +278,12 @@ void OnlineDialog::Draw(Graphics* g)
 
 	g->DrawString(_S("Host IP"), mIpEditWidget->mX - LABEL_WIDTH + 4, mIpEditWidget->mY + mLinesFont->GetAscent());
 	DrawEditBox(g, mIpEditWidget);
+
+	g->DrawString(_S("Server"), mServerEditWidget->mX - LABEL_WIDTH + 4, mServerEditWidget->mY + mLinesFont->GetAscent());
+	DrawEditBox(g, mServerEditWidget);
+
+	g->DrawString(_S("Code"), mCodeEditWidget->mX - CODE_LABEL_WIDTH + 4, mCodeEditWidget->mY + mLinesFont->GetAscent());
+	DrawEditBox(g, mCodeEditWidget);
 }
 
 // 标题栏下沿第一行正文的基线。LawnDialog::Draw 画完标题后正是用这套算式继续排正文的
@@ -239,19 +348,34 @@ void OnlineDialog::ButtonDepress(int theId)
 			mApp->mOnlineSession->AnswerSwapRequest(false);
 		}
 		break;
+
+	case OnlineDialog::OnlineDialog_CreateRoom:
+		StartRoomHost();
+		break;
+
+	case OnlineDialog::OnlineDialog_JoinRoom:
+		StartRoomJoin();
+		break;
 	}
 }
 
+// 回车 = 这一格对应的那把键：地址框回车走直连 Join（老行为），房间码框回车走 Join Room。
+// 服务器地址框回车也走 Join Room——输完地址顺手回车是最顺的动作，此时码多半也填好了。
 void OnlineDialog::EditWidgetText(int theId, const SexyString& theString)
 {
-	(void)theId;(void)theString;
-	StartJoin();
-}
+	(void)theString;
+	switch (theId)
+	{
+	case OnlineDialog::OnlineDialog_ServerEdit:
+	case OnlineDialog::OnlineDialog_CodeEdit:
+		StartRoomJoin();
+		break;
 
-bool OnlineDialog::AllowChar(int theId, SexyChar theChar)
-{
-	(void)theId;
-	return sexyisdigit(theChar) || theChar == _S('.');
+	case OnlineDialog::OnlineDialog_IpEdit:
+	default:
+		StartJoin();
+		break;
+	}
 }
 
 std::string OnlineDialog::GetIpText()
@@ -259,6 +383,18 @@ std::string OnlineDialog::GetIpText()
 	std::string anIp = mIpEditWidget->mString;
 	if (anIp.empty()) anIp = "127.0.0.1";
 	return anIp;
+}
+
+std::string OnlineDialog::GetServerText()
+{
+	std::string aServer = mServerEditWidget->mString;
+	if (aServer.empty()) aServer = "127.0.0.1";
+	return aServer;
+}
+
+std::string OnlineDialog::GetRoomCodeText()
+{
+	return mCodeEditWidget->mString;
 }
 
 void OnlineDialog::StartHost()
@@ -271,4 +407,17 @@ void OnlineDialog::StartJoin()
 {
 	if (!mApp->mOnlineSession) return;
 	mApp->mOnlineSession->StartJoin(GetIpText().c_str());
+}
+
+void OnlineDialog::StartRoomHost()
+{
+	if (!mApp->mOnlineSession) return;
+	mApp->mOnlineSession->StartRoomHost(GetServerText().c_str());
+}
+
+void OnlineDialog::StartRoomJoin()
+{
+	if (!mApp->mOnlineSession) return;
+	// 码不到 4 位会话自己会回绝并写明原因（状态行照出来），这里不用先拦一道
+	mApp->mOnlineSession->StartRoomJoin(GetServerText().c_str(), GetRoomCodeText().c_str());
 }

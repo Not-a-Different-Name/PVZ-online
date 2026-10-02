@@ -46,9 +46,9 @@ void OnlineStatusWidget::Update()
 	// 宽度按六行里最宽的那行量出来：状态行有长有短（"Hosting - waiting for player" 最长），
 	// 名字那行还看玩家自己叫什么，写死宽度不是勒着字就是留一大块空底。
 	int aWidth = FONT_DWARVENTODCRAFT12->StringWidth(GetTitleLine());
-	std::string aTitleIp = GetTitleIpText();
-	if (!aTitleIp.empty())
-		aWidth += TITLE_GAP + FONT_DWARVENTODCRAFT12->StringWidth(aTitleIp);
+	std::string aTitleTag = GetTitleTagText();
+	if (!aTitleTag.empty())
+		aWidth += TITLE_GAP + FONT_DWARVENTODCRAFT12->StringWidth(aTitleTag);
 	for (int aSeat = 1; aSeat <= NetProto::MAX_PLAYERS; aSeat++)
 	{
 		int aSeatWidth = FONT_DWARVENTODCRAFT12->StringWidth(GetSeatLine(aSeat));
@@ -82,12 +82,12 @@ void OnlineStatusWidget::Draw(Graphics* g)
 	g->SetColor(Color(255, 208, 80));
 	g->DrawString(aTitle, CHIP_PAD_X, aLineY);
 
-	// 主机名后面挂着本机 IP：队友要输的就是它，念的时候得看得见
-	std::string aTitleIp = GetTitleIpText();
-	if (!aTitleIp.empty())
+	// 标题后面挂一串字：中继挂房间码（念给朋友 / 核对进对了没有），直连挂主机 IP
+	std::string aTitleTag = GetTitleTagText();
+	if (!aTitleTag.empty())
 	{
 		g->SetColor(Color(160, 200, 255));
-		g->DrawString(aTitleIp,
+		g->DrawString(aTitleTag,
 			CHIP_PAD_X + FONT_DWARVENTODCRAFT12->StringWidth(aTitle) + TITLE_GAP, aLineY);
 	}
 
@@ -124,12 +124,19 @@ std::string OnlineStatusWidget::GetTitleLine()
 	return "CO-OP ONLINE";
 }
 
-// 本机 IP：只有主机需要它——队友要输进 Join 框里的就是这一串，主机得念得出来。
-// 客户端念自己的地址没有用，那行就空着（空着不占宽度）。
-std::string OnlineStatusWidget::GetTitleIpText()
+// 标题后缀：中继挂房间码（两边都挂——房主要念得出来，队友要核对进对没进对）；
+// 直连才是老板子：主机念自己的 IP（队友要输进 Join 框的就是它），客户端那格留空。
+std::string OnlineStatusWidget::GetTitleTagText()
 {
 	NetSession* aSession = mApp->mOnlineSession;
-	if (!aSession || aSession->GetRole() != NetSession::Role::HOST) return "";
+	if (!aSession) return "";
+	if (aSession->IsRelay())
+	{
+		std::string aCode = aSession->GetRoomCode();
+		if (aCode.empty()) return "";
+		return "Room " + aCode;
+	}
+	if (aSession->GetRole() != NetSession::Role::HOST) return "";
 	return mIpText;
 }
 
@@ -188,15 +195,19 @@ std::string OnlineStatusWidget::GetStateLine()
 
 	case NetSession::State::CONNECTING:
 		{
-			// 连不上会一直重试，重试次数得露出来，不然"还在试"看着和"卡死了"一样
+			// 连不上会一直重试，重试次数得露出来，不然"还在试"看着和"卡死了"一样。
+			// 中继下连的是服务器不是对面那台机器，说法得区分开（失败原因也完全是两码事）。
 			int anAttempts = aSession->GetConnectAttempts();
-			std::string aText = "Connecting";
+			std::string aText = aSession->IsRelay() ? "Connecting to server" : "Connecting";
 			if (anAttempts > 1)
 				aText += " (attempt " + std::to_string((unsigned)anAttempts) + ")";
 			return aText;
 		}
 
 	case NetSession::State::HANDSHAKING:
+		// 中继的握手是等服务器点名（建房 / 加入的回音），不是和对面互通姓名
+		if (aSession->IsRelay())
+			return (aSession->GetRole() == NetSession::Role::HOST) ? "Creating room" : "Joining room";
 		return "Handshaking";
 
 	case NetSession::State::CONNECTED:

@@ -30,7 +30,11 @@ public:
 		OnlineDialog_Swap		= 1204,
 		OnlineDialog_Accept		= 1205,
 		OnlineDialog_Reject		= 1206,
-		OnlineDialog_IpEdit		= 1210
+		OnlineDialog_CreateRoom	= 1207,
+		OnlineDialog_JoinRoom	= 1208,
+		OnlineDialog_IpEdit		= 1210,		// 直连：主机地址
+		OnlineDialog_ServerEdit	= 1211,		// 中继：服务器地址
+		OnlineDialog_CodeEdit	= 1212		// 中继：房间码
 	};
 
 public:
@@ -50,6 +54,12 @@ public:
 	// （别处点不着），但主循环照跑——等答复不会把心跳等断掉。
 	LawnStoneButton*	mAcceptButton;
 	LawnStoneButton*	mRejectButton;
+	// @pvz-online: M3 中继那一排——Server/Code 两个输入框 + 建房/按码加入两把键，
+	// 和底排的直连 Host/Join 并存（直连模式保留）。默认地址先填本机，P4 上线后换云 IP。
+	LawnEditWidget*		mServerEditWidget;
+	LawnEditWidget*		mCodeEditWidget;
+	LawnStoneButton*	mCreateRoomButton;
+	LawnStoneButton*	mJoinRoomButton;
 
 public:
 	OnlineDialog(LawnApp* theApp);
@@ -62,14 +72,17 @@ public:
 	virtual void		Draw(Graphics* g);
 	virtual void		ButtonDepress(int theId);
 	virtual void		EditWidgetText(int theId, const SexyString& theString);
-	virtual bool		AllowChar(int theId, SexyChar theChar);
 
 private:
 	int					GetStatusBaseline();
 	int					GetEditY();
 	void				StartHost();
 	void				StartJoin();
+	void				StartRoomHost();
+	void				StartRoomJoin();
 	std::string			GetIpText();
+	std::string			GetServerText();
+	std::string			GetRoomCodeText();
 
 	std::string			mStatusLine;
 	std::string			mHintLine;
