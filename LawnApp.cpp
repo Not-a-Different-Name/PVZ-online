@@ -1470,7 +1470,7 @@ void LawnApp::ContinueRun()
 
 // 进（下一）关：照联机客户端开局的同一套顺序——先摆好覆盖值再拆 UI、建棋盘，
 // 这样 InitLevel / GetLevelRandSeed 读到的一定是这一关的关卡号和种子。
-// 检查点也在这儿写："正在打的这一关"就是盘上记着的那一关，中途退出再续就是从它重开。
+// 检查点不在这儿写：要等这一关的选卡做完（池子齐了）才落盘，见 UpdateRunPick 的 ①。
 void LawnApp::EnterRunLevel()
 {
 	int aLevel = mRunState->GetLevel();
@@ -1478,7 +1478,6 @@ void LawnApp::EnterRunLevel()
 
 	mGameMode = GameMode::GAMEMODE_ADVENTURE;
 	SetOnlineStartOverride(aLevel, aSeed);
-	mRunState->Save(mPlayerInfo->mId);
 	TodTrace("run: entering level %d (index %d, seed %d)", aLevel, mRunState->mLevelIndex, aSeed);
 
 	// @pvz-online: 队友连着的时候（R5），换关命令由主机广播、等 START_ACK——和单关联机
@@ -1620,6 +1619,10 @@ void LawnApp::UpdateRunPick()
 		// 卡槽在 InitLevel 建场时按"当时"的卡池填过，刚刚这几屏的新植物要重填一次
 		// （卡池 ≤8 的关卡全程不开选卡界面，不重填这一关新选的植物就赶不上）。
 		if (!mBoard->ChooseSeedsOnCurrentLevel()) mBoard->FillSeedBankFromRunPool();
+		// @pvz-online: 检查点写在这一刻（不是进关前）：盘上的"正在打的这一关"= 这一关的
+		// 选卡全进了池、能直接开打的状态。进关前写的那一版留不住这几株——续关读回来
+		// 池子缺选卡、选择屏又不再出现，这就是"从主界面继续丢掉初始两株"的根因。
+		mRunState->Save(mPlayerInfo->mId);
 		ShowSeedChooserScreen();
 		mBoard->mCutScene->StartLevelIntro();
 		return;
