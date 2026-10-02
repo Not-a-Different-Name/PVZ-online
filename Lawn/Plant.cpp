@@ -1429,7 +1429,8 @@ void Plant::DoSquashDamage()
             Rect aZombieRect = aZombie->GetZombieRect();
             if (GetRectOverlap(aAttackRect, aZombieRect) > (aZombie->mZombieType == ZombieType::ZOMBIE_FOOTBALL ? -20 : 0))
             {
-                aZombie->TakeDamage(1800, 18U);
+                // @pvz-online: 闯关 buff「爆破」：窝瓜压扁伤害 ×(1+30%/层)。
+                aZombie->TakeDamage((int)(1800 * mApp->RunBuffMul(RUN_BUFF_BLAST) + 0.5f), 18U);
             }
         }
     }

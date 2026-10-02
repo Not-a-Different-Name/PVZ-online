@@ -16,6 +16,7 @@
 #include "../Sexy.TodLib/Reanimator.h"
 #include "../Sexy.TodLib/Attachment.h"
 #include "../Sexy.TodLib/TodParticle.h"
+#include "Run/RunBuffs.h"
 
 ZombieDefinition gZombieDefs[NUM_ZOMBIE_TYPES] = {  //0x69DA80
     { ZOMBIE_NORMAL,            REANIM_ZOMBIE,              1,      1,      1,      4000,   _S("ZOMBIE") },
@@ -8773,7 +8774,10 @@ void Zombie::ApplyBurn()
 
     if (mBodyHealth >= 1800 || mZombieType == ZombieType::ZOMBIE_BOSS)
     {
-        TakeDamage(1800, 18U);
+        // @pvz-online: 闯关 buff「爆破」：一次性植物的燃烧直伤 ×(1+30%/层)。这条只在目标
+        // 血够厚（≥1800）时走——普通僵尸无论 1800 还是 2340 都是"烧死"，加伤只对血牛有意义。
+        // 闯关关卡里的燃烧源就是樱桃/辣椒/末日菇（僵尸自爆类不出现，僵尸侧蹭到也无妨）。
+        TakeDamage((int)(1800 * mApp->RunBuffMul(RUN_BUFF_BLAST) + 0.5f), 18U);
         return;
     }
 
