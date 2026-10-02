@@ -419,3 +419,12 @@ build-x86/
 # @pvz-online: local runtime dir with unpacked PopCap assets lives one level up,
 # outside this repo, and must never be vendored (main.pak 44M + game binaries).
 ../runtime/
+
+# @pvz-online: M3 Go 中继服务器——只提交源码/go.mod/测试，编译产物一律不进库
+#（上面的 *.mod 是 VS 模板的规则，会连 go.mod 一起吞，这里显式放行）
+!server/relay/go.mod
+!server/relay/go.sum
+server/relay/pvz-relay
+server/relay/pvz-relay.exe
+server/relay/pvz-relay-*
+server/relay/*.test
