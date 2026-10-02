@@ -16,6 +16,8 @@ cmd /c <pvz-online 根>\build-msvc.bat reconfig  # 删除 build-x86 重新配置
 - 产物：`build-x86/SexyAppFramework.exe`（目标名固定，勿改）
 - 覆盖 `runtime/` 里的 exe **前必须先杀进程**（`taskkill //F //IM SexyAppFramework.exe`），
   否则报 `Device or resource busy`；**必须以 `runtime/` 为工作目录启动**
+- **`runtime/` 里我们自己构建的 exe 只保留最新版**（`SexyAppFramework.exe`）；
+  临时诊断副本（`SexyAppFramework_bXX.exe`）用完立刻删（`docs/规范.md` §8）
 - VS2022 Community 自带 CMake/Ninja，勿用 `cmake` 裸命令（不在 PATH）
 - 工作分支 `pvz-online`，勿直接提交到 main；基线提交 `11950d5`
 - 构建链已迁移化（8c4204e）：脚本自动探测 VS2022，`imagelib/CMakeLists.txt` 用
