@@ -107,12 +107,19 @@ OnlineDialog::OnlineDialog(LawnApp* theApp) :
 
 	// 比 CheatDialog 大一圈：两行状态 + 三行输入框 + 两排按钮（底排直连 / 上排中继）。
 	// 面板高度由字体/按钮美术的实际高度推出来，不硬写常数：改字号或换按钮图都不会再互相压。
+	//
+	// 末尾减的两项是 CalcSize 自己还会加上去的：标题那一截（-ascentPadding + headerHeight + spaceAfterHeader）
+	// 和固定的 mButtonHeight（24——标准 Dialog 按钮的高度；本面板的按钮是底下那排 LawnStoneButton 自己排的）。
+	// 它们加、我们减，一加一减才刚好等于排版真正需要的高度——不减的话面板会高出 70px，
+	// 而按钮钉在面板底、输入框排在顶，多出来的 70px 全挤在 Server 行和 Create Room 那排之间。
 	int aBandTop = mContentInsets.mTop + mBackgroundInsets.mTop + DIALOG_HEADER_OFFSET;
+	int aHeaderAllowance = -mHeaderFont->GetAscentPadding() + mHeaderFont->GetHeight() + mSpaceAfterHeader;
 	int aHeight = (GetEditY() - aBandTop)
 		+ EDIT_HEIGHT * 3 + ROW_GAP * 2				// Host IP / Server+Code 三行输入框
 		+ ROW_GAP + IMAGE_BUTTON_LEFT->mHeight		// 中继那排：Create Room / Join Room
 		+ ROW_GAP + IMAGE_BUTTON_LEFT->mHeight		// 底排：Host / Join / Close（及叠加键）
-		- 2;
+		- 2
+		- aHeaderAllowance - mButtonHeight;
 	CalcSize(400, aHeight);		// 比直连时代宽一圈：Server+Code 一行两栏放得下
 }
 
