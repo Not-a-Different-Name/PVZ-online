@@ -46,18 +46,24 @@ public:
 	{
 		NONE,
 		CONNECTED,		// 握手完成，可以开局了
-		DISCONNECTED	// 掉线（不是我们自己关的）
+		DISCONNECTED,	// 掉线（不是我们自己关的）
+		PEER_JOINED,	// 中继：有人进了房（mSeat 说清是谁）。直连不会有——那个人就是 CONNECTED
+		PEER_LEFT		// 中继：有人走了（mSeat 说清是谁）。房主走 = ROOM_CLOSED，不是这一条
 	};
 
 	struct Event
 	{
 		EventType	mType;
+		uint8_t		mSeat;		// 跟这事有关的席位（PEER_JOINED/PEER_LEFT 用；别的类型是 SEAT_UNSET）
 	};
 
 	// 帧计数按主循环固定 10ms 一拍折算：100 帧 ≈ 1 秒
 	static const int	HEARTBEAT_FRAMES			= 100;
 	static const int	TIMEOUT_FRAMES				= 500;
 	static const int	NOTICE_FRAMES				= 400;	// 即时说明挂多久（≈4 秒）
+	// 中继握手掐表：发了 CREATE/JOIN 之后 10 秒没等到 WELCOME 就判死。
+	// 直连那边**故意不掐表**（TCP 通了就一直等 HELLO），这条只走中继。
+	static const int	RELAY_HANDSHAKE_FRAMES		= 1000;
 
 public:
 	NetSession();
@@ -65,6 +71,22 @@ public:
 
 	bool			StartHost(uint16_t thePort = NetProto::DEFAULT_PORT);
 	bool			StartJoin(const char* theHost, uint16_t thePort = NetProto::DEFAULT_PORT);
+
+	// ---- M3 中继：连同一台服务器，建房 / 按房间码加入 ----
+	// 直连那两个 Start* 保持原样并存：一个 Listen、一个 Connect，不经过服务器。
+	// 中继这边两边都是 Connect 到服务器，身份（坐第几席、谁是房主）由服务器在 WELCOME 里点。
+	// 房主断开 = 房间解散（服务器广播 ROOM_CLOSED 给其他人）。
+	bool			StartRoomHost(const char* theServer, uint16_t thePort = NetProto::DEFAULT_RELAY_PORT);
+	bool			StartRoomJoin(const char* theServer, const char* theRoomCode,
+						uint16_t thePort = NetProto::DEFAULT_RELAY_PORT);
+	bool			IsRelay() const { return mTransport == Transport::RELAY; }
+
+	// 中继：本房房间码（4 字符，房主念给朋友的那串）。直连时空串。
+	const std::string&	GetRoomCode() const { return mRoomCode; }
+	// 中继：房主坐哪一席（服务器定的，不一定是 1）。直连固定 1。
+	// 开局应答、给主机的话都发给它。
+	uint8_t			GetHostSeat() const { return mHostSeat; }
+	bool			IsHostSeat() const { return mLocalSeat != NetProto::SEAT_UNSET && mLocalSeat == mHostSeat; }
 
 	// 本机玩家名：握手时报给对面，名册 UI 靠它显示"谁坐在几号位"。
 	// 名字是"这台机器是谁"，跟某一局无关——StartHost 第一件事就是 ResetToOff，
@@ -116,6 +138,15 @@ public:
 	// 主机侧：某个队友对开局命令的回应（按席位记账，取一条清一条，先进先出）。
 	// theAccepted 是"进场 / 现在不行"。M2 只有两个席位，所以看上去和"那一条"没差别。
 	bool			TakeStartAck(bool& theAccepted);
+
+	// 主机侧：还在等谁回答吗（一个在等的都没有 = 齐了，可以往下走）。
+	// 按**发命令那一刻上座的席位**记账：等待中有人走了，他那一格跟着作废、不再堵着；
+	// 等待中新来的人不算数（他本来就没收到这条命令，等他就是等到天荒地老）。
+	bool			AreAllStartAcksIn() const;
+
+	// 主机侧：有人回了"现在不行"。粘着的一条——TakeStartAck 是取一条清一条的，
+	// 细节会被取走，这条留着做"这次开不下去"的判断；下一次开局/回主菜单才清。
+	bool			AnyStartAckRejected() const { return mAnyAckRejected; }
 
 	// 主机侧：全员都进场了——广播"各席位开始做自己的三选一"（闯关 R6 新时序的最后一环：
 	// 命令 → 各席位先进场并回 ACK → 收齐后 RUN_GO → 各席位在新草坪上放选项屏）。
@@ -264,8 +295,19 @@ private:
 	void			SetDead(const char* theReason, const char* theShortReason = nullptr);
 	void			UpdateStatusText();
 	void			HandlePacket(const NetLink::Packet& thePacket);
-	void			PushEvent(EventType theType);
+	void			PushEvent(EventType theType, uint8_t theSeat = NetProto::SEAT_UNSET);
 	void			ClearSeatTable();
+	// 服务器控制帧（type ≥ 0xF000）整段收在这儿：只有中继模式会收到，管的是名册和路由，
+	// 不碰游戏状态（名册变动走事件队列通知主循环）。
+	void			HandleControlFrame(uint16_t theType, const uint8_t* thePayload, int theSize);
+	// 中继：把 CREATE_ROOM / JOIN_ROOM 发出去（链路一通就发，只发一次）。
+	bool			SendRoomRequest();
+	// 中继：换位谈妥了，请服务器落实并广播（服务器是唯一权威，自己不许先换）。
+	bool			SendSeatSwapCommit(uint8_t theSeatA, uint8_t theSeatB);
+	// 单发一条"我这边清完了"给某个席位，不走去重记账（补发给中途进来的人用）。
+	bool			SendLevelDoneTo(uint8_t theTarget, bool theDone);
+	// 换位那几条挂起状态整个清掉（换成了、断了、收摊了）。
+	void			ClearSwapState();
 	// 直连：对端席位是固定的另一个（1 ↔ 2）。跟连没连上无关——HELLO 就得在这时候发出去。
 	// 中继不用这个（那边席位由服务器点名）。
 	uint8_t			DirectPeerSeat() const;
@@ -302,6 +344,8 @@ private:
 	Transport			mTransport;
 	State				mState;
 	uint8_t				mLocalSeat;
+	uint8_t				mHostSeat;			// 房主坐哪一席（直连固定 1；中继由服务器在 WELCOME 里点）
+	std::string			mRoomCode;			// 中继：本房房间码（直连是空的）
 	// 席位表：下标 = 席位号，1..NetProto::MAX_PLAYERS。"我"由 mLocalSeat 指认，
 	// 表里不另存标记。空席位 mOccupied=false，其余字段保持中性值。
 	SeatInfo			mSeats[NetProto::MAX_PLAYERS + 1];
@@ -331,6 +375,9 @@ private:
 	std::vector<NetProto::MsgEscapedZombie>	mPendingEscapedZombies;
 	uint8_t				mSwapRequestSeat;	// 我发出的换位请求发给了谁（SEAT_UNSET = 没在等）
 	uint8_t				mSwapAskSeat;		// 哪个席位正问我换不换（SEAT_UNSET = 没有）
+	bool				mSwapCommitHandled;	// 中继：COMMIT 已经有人接手（我发的，或对面会发），等广播
+	bool				mAnyAckRejected;	// 收到过"现在不行"（粘着，直到下一次开局）
+	int					mFramesSinceRoomRequest;	// 中继：发了 CREATE/JOIN 之后等了多少帧（10 秒判死）
 	std::string			mNoticeText;			// 即时说明（几秒后自己消失）
 	int					mNoticeFrames;
 

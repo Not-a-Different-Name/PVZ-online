@@ -8,6 +8,10 @@
 namespace
 {
 
+// 控制帧的起始编号（见 NetProtocol.h 的 ControlType）：≥ 这个数的是"服务器→客户端"的
+// 控制帧，由会话层自己处理，绝不转发、也绝不落进游戏消息的 switch。游戏帧是 1..15。
+const uint16_t	CONTROL_TYPE_BASE		= 0xF000;
+
 const int	HELLO_PAYLOAD_SIZE		= 6 + NetProto::NAME_SIZE;		// src, dst, u16 version, u16 build, 名字
 const int	HELLO_ACK_PAYLOAD_SIZE	= 7 + NetProto::NAME_SIZE;		// src, dst, u16 version, u16 build, u8 accepted, 名字
 const int	START_LEVEL_PAYLOAD_SIZE = 17;	// src, dst, u8 mode, u32 level, i32 seed, u8 isRun, i32 runSeed, u8 runLevelIndex
@@ -47,11 +51,13 @@ NetSession::NetSession()
 	mTransport = Transport::DIRECT;
 	mState = State::OFF;
 	mLocalSeat = NetProto::SEAT_UNSET;
+	mHostSeat = NetProto::SEAT_UNSET;
 	ClearSeatTable();
 	mFramesSincePacket = 0;
 	mFramesSinceHeartbeat = 0;
 	mHeartbeatTick = 0;
 	mConnectPort = NetProto::DEFAULT_PORT;
+	mFramesSinceRoomRequest = 0;
 	mStatusText = "Not connected.";
 	mHintText = "Host a game, or type the host's IP and join.";
 	mShortStatus = "Connection lost";
@@ -66,6 +72,8 @@ NetSession::NetSession()
 	mPendingPauseValue = false;
 	mSwapRequestSeat = NetProto::SEAT_UNSET;
 	mSwapAskSeat = NetProto::SEAT_UNSET;
+	mSwapCommitHandled = false;
+	mAnyAckRejected = false;
 	mNoticeFrames = 0;
 }
 
@@ -110,6 +118,7 @@ bool NetSession::StartHost(uint16_t thePort)
 	mRole = Role::HOST;
 	mTransport = Transport::DIRECT;
 	mLocalSeat = NetProto::SEAT_HOST;
+	mHostSeat = NetProto::SEAT_HOST;
 
 	if (!mLink.Listen(thePort))
 	{
@@ -132,6 +141,7 @@ bool NetSession::StartJoin(const char* theHost, uint16_t thePort)
 	mRole = Role::CLIENT;
 	mTransport = Transport::DIRECT;
 	mLocalSeat = NetProto::SEAT_CLIENT;
+	mHostSeat = NetProto::SEAT_HOST;		// 直连的对端就是主机，固定 1 号位
 	mConnectHost = (theHost && theHost[0]) ? theHost : "127.0.0.1";
 	mConnectPort = thePort;
 
@@ -146,6 +156,79 @@ bool NetSession::StartJoin(const char* theHost, uint16_t thePort)
 
 	mState = State::CONNECTING;
 	mHintText = "Port " + std::to_string((unsigned)thePort);
+	UpdateStatusText();
+	return true;
+}
+
+// 中继的两种开局长得几乎一样：都是 Connect 到服务器，区别只在链路一通之后发哪一条
+// （CREATE_ROOM 还是带房间码的 JOIN_ROOM）。席位、房主、名册全由服务器在 WELCOME 里点，
+// 所以本地席位号这会儿还不知道（SEAT_UNSET），先记下角色和地址。
+bool NetSession::StartRoomHost(const char* theServer, uint16_t thePort)
+{
+	ResetToOff();
+	mRole = Role::HOST;
+	mTransport = Transport::RELAY;
+	mLocalSeat = NetProto::SEAT_UNSET;
+	mConnectHost = (theServer && theServer[0]) ? theServer : "127.0.0.1";
+	mConnectPort = thePort;
+	mRoomCode.clear();
+
+	if (!mLink.Connect(mConnectHost.c_str(), thePort))
+	{
+		mState = State::DEAD;
+		mStatusText = mLink.GetLastError();
+		mHintText.clear();
+		PushEvent(EventType::DISCONNECTED);
+		return false;
+	}
+
+	mState = State::CONNECTING;
+	mHintText = "Server " + mConnectHost + ":" + std::to_string((unsigned)thePort);
+	UpdateStatusText();
+	return true;
+}
+
+bool NetSession::StartRoomJoin(const char* theServer, const char* theRoomCode, uint16_t thePort)
+{
+	ResetToOff();
+	mRole = Role::CLIENT;
+	mTransport = Transport::RELAY;
+	mLocalSeat = NetProto::SEAT_UNSET;
+	mConnectHost = (theServer && theServer[0]) ? theServer : "127.0.0.1";
+	mConnectPort = thePort;
+
+	// 房间码要往定长字段里放：先按"只有合法字符、大写、够长"整一遍，
+	// 不到 4 位就是玩家还没输完——那也别急着连服务器，白跑一趟还得等它回绝。
+	mRoomCode.clear();
+	const char* aCode = theRoomCode ? theRoomCode : "";
+	for (int i = 0; i < NetProto::ROOM_CODE_LEN && aCode[i]; i++)
+	{
+		char aChar = aCode[i];
+		if (aChar >= 'a' && aChar <= 'z') aChar = (char)(aChar - 'a' + 'A');
+		mRoomCode += aChar;
+	}
+	if ((int)mRoomCode.size() != NetProto::ROOM_CODE_LEN)
+	{
+		mState = State::DEAD;
+		mStatusText = "Bad room code - it is 4 letters and digits.";
+		mShortStatus = "Bad room code";
+		mHintText.clear();
+		PushEvent(EventType::DISCONNECTED);
+		return false;
+	}
+
+	if (!mLink.Connect(mConnectHost.c_str(), thePort))
+	{
+		mState = State::DEAD;
+		mStatusText = mLink.GetLastError();
+		mHintText.clear();
+		PushEvent(EventType::DISCONNECTED);
+		return false;
+	}
+
+	mState = State::CONNECTING;
+	mHintText = "Server " + mConnectHost + ":" + std::to_string((unsigned)thePort)
+		+ "   Room " + mRoomCode;
 	UpdateStatusText();
 	return true;
 }
@@ -193,12 +276,14 @@ uint8_t NetSession::NextOccupiedSeatInRing(uint8_t theSeat) const
 {
 	if (theSeat < 1 || theSeat > NetProto::MAX_PLAYERS) return NetProto::SEAT_UNSET;
 
-	// 从后一位数起，绕一圈找第一个上座席位（跳过自己）。人都在的时候就是
-	// "后一位"；中间空了谁，环自己把洞跳过去。
+	// 从后一位数起，绕一圈找第一个上座席位。人都在的时候就是"后一位"；
+	// 中间空了谁，环自己把洞跳过去。
+	// 不该拿"我坐哪"去筛：这是"从 theSeat 往后看，环上下一个是谁"——谁问都一样。
+	// （起点不在环上时才会绕回自己，而 SwapSeats 只从自己这席问，走的是别人那一圈。）
 	for (int anOffset = 1; anOffset < NetProto::MAX_PLAYERS; anOffset++)
 	{
 		uint8_t aSeat = (uint8_t)(((theSeat - 1 + anOffset) % NetProto::MAX_PLAYERS) + 1);
-		if (aSeat != mLocalSeat && IsSeatOccupied(aSeat)) return aSeat;
+		if (IsSeatOccupied(aSeat)) return aSeat;
 	}
 	return NetProto::SEAT_UNSET;
 }
@@ -208,9 +293,10 @@ uint8_t NetSession::NextOccupiedSeat(uint8_t theSeat) const
 	if (theSeat < 1 || theSeat > NetProto::MAX_PLAYERS) return NetProto::SEAT_UNSET;
 
 	// 顺着往后找，**不绕回**：链的末端就是"没有下一家"（末席漏怪 = 全队败）。
+	// 同环上那条：问的是"从 theSeat 往后是谁"，跟谁在问无关。
 	for (uint8_t aSeat = (uint8_t)(theSeat + 1); aSeat <= NetProto::MAX_PLAYERS; aSeat++)
 	{
-		if (aSeat != mLocalSeat && IsSeatOccupied(aSeat)) return aSeat;
+		if (IsSeatOccupied(aSeat)) return aSeat;
 	}
 	return NetProto::SEAT_UNSET;
 }
@@ -244,7 +330,11 @@ void NetSession::Close()
 {
 	if (mState != State::OFF && mState != State::DEAD && mLink.IsConnected())
 	{
-		SendBye(NetProto::BYE_QUIT);
+		// 中继：退房递 LEAVE_ROOM，服务器立刻广播名册变动并回收席位（比直接断 TCP 语义清楚）。
+		// 直连还是那句 BYE。两条都是"打个招呼再走"，不指望对方一定收得到——收不到也就是
+		// 对面多等一次心跳超时，和崩溃退出一个待遇。
+		if (mTransport == Transport::RELAY) SendRaw(NetProto::MSG_CLI_LEAVE_ROOM, nullptr, 0);
+		else SendBye(NetProto::BYE_QUIT);
 	}
 
 	mLink.Close();
@@ -286,7 +376,15 @@ void NetSession::Update()
 	{
 		mState = State::HANDSHAKING;
 		mFramesSincePacket = 0;
-		if (mRole == Role::CLIENT)
+		if (mTransport == Transport::RELAY)
+		{
+			// 中继：链路一通就把建房/加入的请求递上去，然后掐表等 WELCOME。
+			// 换了台服务器、地址错、端口被防火墙拦——服务器不应答就是不应答，
+			// 不能让玩家对着"正在连接"干等（直连那边刻意不掐表，见 HANDSHAKING 那段）。
+			mFramesSinceRoomRequest = 0;
+			SendRoomRequest();
+		}
+		else if (mRole == Role::CLIENT)
 		{
 			// TCP 一通，客户端先报家门；主机那头只管等着收 HELLO
 			SendHello();
@@ -299,11 +397,23 @@ void NetSession::Update()
 
 	mFramesSincePacket++;
 
+	// 中继握手掐表：只有"请求发出去了、WELCOME 还没来"这段算数
+	if (mState == State::HANDSHAKING && mTransport == Transport::RELAY)
+	{
+		if (++mFramesSinceRoomRequest > RELAY_HANDSHAKE_FRAMES)
+		{
+			SetDead("The server did not answer.", "Server timeout");
+			return;
+		}
+	}
+
 	// 握手阶段不掐表：TCP 通了就一直等对方的 HELLO，等多久都行——对端真走了 socket 层会报，
 	// 玩家不想等了面板上的 Disconnect 也是现成的。这里原先有个 3 秒上限，已按需求取消。
 	if (mState == State::CONNECTED)
 	{
-		if (++mFramesSinceHeartbeat >= HEARTBEAT_FRAMES)
+		// 中继那边的保活是反过来的：服务器每秒 PING、我们回 PONG（见 HandleControlFrame）。
+		// 独处的房主根本没有入站游戏包，全靠这条续命；自己再发心跳只是多余的流量。
+		if (mTransport == Transport::DIRECT && ++mFramesSinceHeartbeat >= HEARTBEAT_FRAMES)
 		{
 			mFramesSinceHeartbeat = 0;
 			SendHeartbeat();
@@ -355,6 +465,24 @@ bool NetSession::TakeStartAck(bool& theAccepted)
 		return true;
 	}
 	return false;
+}
+
+// 还在等谁回答吗。等的是"发命令那一刻上座的席位"：等待中有人走了，他那一格连着
+// mAwaitingAck 一起作废，不再堵着；等待中新进来的人没收到过这条命令，不算数。
+bool NetSession::AreAllStartAcksIn() const
+{
+	if (!IsConnected()) return false;
+
+	int aOthers = 0;
+	for (uint8_t aSeat = 1; aSeat <= NetProto::MAX_PLAYERS; aSeat++)
+	{
+		if (aSeat == mLocalSeat || !IsSeatOccupied(aSeat)) continue;
+
+		if (mSeats[aSeat].mAwaitingAck) return false;
+		aOthers++;
+	}
+	// 一个人开局（独处）不算"收齐"：这条是给"等队友"用的，没队友就别等（坑 3）。
+	return aOthers > 0;
 }
 
 bool NetSession::TakeRunGo()
@@ -415,6 +543,24 @@ bool NetSession::SendLevelDone(bool theDone)
 	TodLog("[net] told the teammates my lawn is %s (seat %u)", theDone ? "clear" : "busy again",
 		(unsigned)mLocalSeat);
 	return true;
+}
+
+// 单发一条判胜给某个席位，**不记账也不去重**：专供"补发给中途进来的人"。
+// （我早就报过一轮了，去重记忆会把这次补发直接吞掉——而新人那边什么都没收到过。）
+bool NetSession::SendLevelDoneTo(uint8_t theTarget, bool theDone)
+{
+	if (mRole == Role::NONE || !IsConnected()) return false;
+	if (theTarget == NetProto::SEAT_UNSET || theTarget == mLocalSeat) return false;
+
+	NetProto::MsgLevelDone aMsg;
+	aMsg.mSrcSeat = mLocalSeat;
+	aMsg.mDstSeat = theTarget;
+	aMsg.mDone = theDone ? 1 : 0;
+
+	uint8_t aPayload[NetProto::MAX_PAYLOAD];
+	int aSize = NetProto::EncodeLevelDone(aPayload, (int)sizeof(aPayload), aMsg);
+	if (aSize <= 0) return false;
+	return Dispatch(NetProto::MSG_LEVEL_DONE, aPayload, aSize, theTarget);
 }
 
 bool NetSession::IsLocalLevelDone() const
@@ -562,9 +708,18 @@ void NetSession::AnswerSwapRequest(bool theAccept)
 
 	if (theAccept)
 	{
-		// 两边执行的是同一次换位，所以各自算各自的就一致了，不用再对一次账
-		ApplySeatSwap(mLocalSeat, aAsker);
-		TodLog("[net] accepted the swap");
+		if (mTransport == Transport::RELAY)
+		{
+			// 中继下我不能自己先换：服务器是唯一权威，等它的 SEAT_SWAP 广播（坑 6）。
+			// 问我的那一方收到"同意"之后会去提请 COMMIT。
+			TodLog("[net] accepted the swap - the other side will ask the server");
+		}
+		else
+		{
+			// 直连：两边执行的是同一次换位，各自算各自的就一致了，不用再对一次账
+			ApplySeatSwap(mLocalSeat, aAsker);
+			TodLog("[net] accepted the swap");
+		}
 	}
 	else
 	{
@@ -583,6 +738,10 @@ void NetSession::ApplySeatSwap(uint8_t theSeatA, uint8_t theSeatB)
 	std::swap(mSeats[theSeatA], mSeats[theSeatB]);
 	if (mLocalSeat == theSeatA) mLocalSeat = theSeatB;
 	else if (mLocalSeat == theSeatB) mLocalSeat = theSeatA;
+	// 房主也是个"人"不是个座位：换位把他挪到别处，找他的地址（开局应答的去处）得跟着走。
+	// 不跟着走的话，房主换完位就再也收不到 ACK，开局会一直卡在"等队友"上。
+	if (mHostSeat == theSeatA) mHostSeat = theSeatB;
+	else if (mHostSeat == theSeatB) mHostSeat = theSeatA;
 
 	SetNotice(("Swapped - you are now P" + std::to_string((unsigned)mLocalSeat) + ".").c_str());
 	TodLog("[net] positions swapped - local seat %u", (unsigned)mLocalSeat);
@@ -703,18 +862,20 @@ void NetSession::ResetToOff()
 	mTransport = Transport::DIRECT;
 	mState = State::OFF;
 	mLocalSeat = NetProto::SEAT_UNSET;
+	mHostSeat = NetProto::SEAT_UNSET;
+	mRoomCode.clear();
 	ClearSeatTable();			// 名册和每席位的记账跟着这一局作废；自己的名字留着（见 SetLocalName）
 	mFramesSincePacket = 0;
 	mFramesSinceHeartbeat = 0;
 	mHeartbeatTick = 0;
 	mConnectHost.clear();
 	mConnectPort = NetProto::DEFAULT_PORT;
+	mFramesSinceRoomRequest = 0;
 	mStatusText = "Not connected.";
 	mHintText = "Host a game, or type the host's IP and join.";
 	mEvents.clear();
 	DiscardLevelPackets();
-	mSwapRequestSeat = NetProto::SEAT_UNSET;
-	mSwapAskSeat = NetProto::SEAT_UNSET;
+	ClearSwapState();
 	mNoticeText.clear();
 	mNoticeFrames = 0;
 }
@@ -724,10 +885,20 @@ void NetSession::SetConnected()
 	mState = State::CONNECTED;
 	mFramesSincePacket = 0;
 	mFramesSinceHeartbeat = 0;
-	uint8_t aPeer = GetPeerSeat();
-	TodLog("[net] handshake complete - local seat %u (%s) build %u, peer seat %u (%s) build %u",
-		(unsigned)mLocalSeat, mLocalName.c_str(), (unsigned)NetProto::MOD_BUILD,
-		(unsigned)aPeer, GetSeatName(aPeer).c_str(), (unsigned)GetPeerBuild());
+	if (mTransport == Transport::RELAY)
+	{
+		// 中继：名册是服务器给的，日志里把"我坐几号位、房主是谁、房里有几个人"一次说清
+		TodLog("[net] joined room %s - local seat %u (build %u), host seat %u, %d player(s)",
+			mRoomCode.c_str(), (unsigned)mLocalSeat, (unsigned)NetProto::MOD_BUILD,
+			(unsigned)mHostSeat, GetOccupiedSeatCount());
+	}
+	else
+	{
+		uint8_t aPeer = GetPeerSeat();
+		TodLog("[net] handshake complete - local seat %u (%s) build %u, peer seat %u (%s) build %u",
+			(unsigned)mLocalSeat, mLocalName.c_str(), (unsigned)NetProto::MOD_BUILD,
+			(unsigned)aPeer, GetSeatName(aPeer).c_str(), (unsigned)GetPeerBuild());
+	}
 	// 两边构建代次不一样：连还是要连的（12 起不再拒绝），但得提示一句——行为不配套
 	// 的毛病（"漏怪没落地"那类）看起来都像"游戏坏了"，有这行才知道该去更新哪边。
 	if (IsBuildDifferent())
@@ -748,8 +919,7 @@ void NetSession::SetDead(const char* theReason, const char* theShortReason)
 	mShortStatus = (theShortReason && theShortReason[0]) ? theShortReason : "Connection lost";
 	mHintText.clear();
 	// 挂着的换位请求跟着连接一起作废：断了就没得换了，面板上那个问句也得收掉
-	mSwapRequestSeat = NetProto::SEAT_UNSET;
-	mSwapAskSeat = NetProto::SEAT_UNSET;
+	ClearSwapState();
 	// 一局的收包队列同理：连都没了，上一局的开局命令/漏怪/退关再送到棋盘上是纯乱子
 	DiscardLevelPackets();
 	mNoticeText.clear();
@@ -782,7 +952,9 @@ void NetSession::UpdateStatusText()
 		}
 		break;
 	case State::HANDSHAKING:
-		mStatusText = "Connected. Shaking hands...";
+		// 中继这会儿是"TCP 通了，等服务器点名册"（WELCOME），直连是等对方的 HELLO/HELLO_ACK
+		mStatusText = (mTransport == Transport::RELAY)
+			? "Contacting the server..." : "Connected. Shaking hands...";
 		break;
 	case State::CONNECTED:
 		{
@@ -822,8 +994,10 @@ void NetSession::UpdateStatusText()
 			{
 				// 席位号与"漏怪往哪走"都按当下的席位算：四席位时 2、3 号位的怪是要往后
 				// 接着传的，写死"你是 P2、你接队友的漏怪"就把中间席位说成了末席。
+				// 中继把房间码也带上：房主要念给朋友，其他人核对一下自己进对了房。
 				uint8_t aNext = GetRelayTargetSeat();
-				mHintText = "You are P" + std::to_string((unsigned)mLocalSeat);
+				mHintText = (mTransport == Transport::RELAY) ? ("Room " + mRoomCode + " - ") : std::string();
+				mHintText += "You are P" + std::to_string((unsigned)mLocalSeat);
 				mHintText += (aNext == NetProto::SEAT_UNSET)
 					? " - the last seat: a leak here loses the game."
 					: " - your leaks pass on to P" + std::to_string((unsigned)aNext) + ".";
@@ -836,11 +1010,21 @@ void NetSession::UpdateStatusText()
 	}
 }
 
-void NetSession::PushEvent(EventType theType)
+void NetSession::PushEvent(EventType theType, uint8_t theSeat)
 {
 	Event anEvent;
 	anEvent.mType = theType;
+	anEvent.mSeat = theSeat;
 	mEvents.push_back(anEvent);
+}
+
+// 换位那几条挂起状态一起清：请求、问句、已经发出的 COMMIT。换成了、被拒了、断了、收摊了
+// 都走这儿——漏掉任何一条，面板上就会挂着一个永远等不到回话的"等待中"。
+void NetSession::ClearSwapState()
+{
+	mSwapRequestSeat = NetProto::SEAT_UNSET;
+	mSwapAskSeat = NetProto::SEAT_UNSET;
+	mSwapCommitHandled = false;
 }
 
 // ====================================================================================================
@@ -865,10 +1049,22 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 
 	const uint8_t* aPayload = thePacket.mData + NetProto::HEADER_SIZE;
 
+	// 服务器控制帧（≥0xF000）不落进游戏消息那个 switch：它说的是名册和路由，整段交给
+	// HandleControlFrame。直连模式下这些帧根本不该出现（对端是另一个玩家，不是服务器），
+	// 真收到就丢掉——它不是这条链路该有的东西。
+	if (aType >= CONTROL_TYPE_BASE)
+	{
+		HandleControlFrame(aType, aPayload, aPayloadSize);
+		return;
+	}
+
 	switch (aType)
 	{
 	case NetProto::MSG_HELLO:
 		{
+			// 中继下身份是服务器点的：HELLO 这套"自己报家门"既用不上也不认（坑 7）。
+			// 直连路径逐字不动，见下面那几段。
+			if (mTransport == Transport::RELAY) return;
 			if (mRole != Role::HOST) return;		// 只有主机收 HELLO
 
 			// 长度对不上 HELLO 只有一个解释：对面是别的构建版。旧包（HELLO 是 4 字节、
@@ -917,6 +1113,7 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 
 	case NetProto::MSG_HELLO_ACK:
 		{
+			if (mTransport == Transport::RELAY) return;		// 同 HELLO：中继不认这套
 			if (mRole != Role::CLIENT) return;
 
 			if (aPayloadSize != HELLO_ACK_PAYLOAD_SIZE)
@@ -1007,6 +1204,10 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 
 	case NetProto::MSG_BYE:
 		{
+			// 中继下"谁走了"只认服务器的 PEER_LEAVE/ROOM_CLOSED（坑 7）：别人手里那条
+			// 游戏帧通道传不了这种话，真收到说明对面是个老构建，丢掉别理。
+			if (mTransport == Transport::RELAY) return;
+
 			NetProto::MsgBye aMsg;
 			if (aPayloadSize != BYE_PAYLOAD_SIZE || !NetProto::DecodeBye(aPayload, aPayloadSize, aMsg))
 			{
@@ -1057,6 +1258,7 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 			// 存到他那格里就走：开局要换场景、动一堆 UI，那是主循环的活。
 			mSeats[aMsg.mSrcSeat].mAckState = aMsg.mAccepted ? 1 : 2;
 			mSeats[aMsg.mSrcSeat].mAwaitingAck = false;
+			if (!aMsg.mAccepted) mAnyAckRejected = true;	// 粘着：取 ACK 的人取走了细节，这条留着
 			TodLog("[net] seat %u answered the start: %s", (unsigned)aMsg.mSrcSeat,
 				aMsg.mAccepted ? "in" : "not now");
 		}
@@ -1086,9 +1288,24 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 				// 两边同时按：互相要的是同一件事（我跟后一位换 = 他跟我换），直接成交，
 				// 别让双方都傻等对方点头。各自撤掉自己那条请求，回话到对面也会被无视。
 				SendSwapReply(true, aMsg.mSrcSeat);
-				mSwapRequestSeat = NetProto::SEAT_UNSET;
-				ApplySeatSwap(mLocalSeat, aMsg.mSrcSeat);
-				TodLog("[net] both sides asked at once - swapping");
+				if (mTransport == Transport::RELAY)
+				{
+					// 中继下换位由服务器落实：两边各提请一次会换两次（等于换回去），
+					// 所以只让席位号小的一方发 COMMIT，另一边锁着面板等广播（坑 6）。
+					uint8_t aOther = aMsg.mSrcSeat;
+					ClearSwapState();
+					mSwapRequestSeat = aOther;		// 广播落地之前面板一直灰着
+					mSwapCommitHandled = true;		// 不管谁发，都已经有人接手了
+					if (mLocalSeat < aOther) SendSeatSwapCommit(mLocalSeat, aOther);
+					TodLog("[net] both sides asked at once - %s", (mLocalSeat < aOther)
+						? "asking the server to swap" : "waiting for the server");
+				}
+				else
+				{
+					mSwapRequestSeat = NetProto::SEAT_UNSET;
+					ApplySeatSwap(mLocalSeat, aMsg.mSrcSeat);
+					TodLog("[net] both sides asked at once - swapping");
+				}
 			}
 			else if (HasIncomingSwapRequest())
 			{
@@ -1123,6 +1340,19 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 			mSwapRequestSeat = NetProto::SEAT_UNSET;
 			if (aMsg.mAccepted)
 			{
+				if (mTransport == Transport::RELAY)
+				{
+					// 服务器是唯一权威：把 COMMIT 递上去，自己先不换——SEAT_SWAP 广播到了才换。
+					// 两边同时按的那条路已经有人接手了（mSwapCommitHandled），别发第二条。
+					mSwapRequestSeat = aSeat;		// 广播落地之前面板继续灰着
+					if (!mSwapCommitHandled)
+					{
+						SendSeatSwapCommit(mLocalSeat, aSeat);
+						mSwapCommitHandled = true;
+						TodLog("[net] the swap was accepted - asking the server to confirm");
+					}
+					break;
+				}
 				ApplySeatSwap(mLocalSeat, aSeat);
 				TodLog("[net] the swap went through");
 			}
@@ -1267,25 +1497,301 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 }
 
 // ====================================================================================================
+// ★ 服务器控制帧（中继）
+// ====================================================================================================
+
+// 服务器说的话整段收在这儿：WELCOME 点名册、PEER_JOIN/LEAVE 维护名册、ROOM_CLOSED 收摊、
+// SEAT_SWAP 落实换位、PING 保活。这里只动会话层的状态，**不碰游戏**——名册变了要让游戏知道，
+// 走的是事件队列（PEER_JOINED/PEER_LEFT），由主循环取走，跟别的包一个规矩。
+void NetSession::HandleControlFrame(uint16_t theType, const uint8_t* thePayload, int theSize)
+{
+	switch (theType)
+	{
+	case NetProto::MSG_SRV_WELCOME:
+		{
+			if (mTransport != Transport::RELAY) return;		// 直连不该收到这些
+			if (mState != State::HANDSHAKING) return;		// 一份名册只认第一次（重复的丢掉）
+
+			NetProto::MsgSrvWelcome aMsg = {};
+			if (!NetProto::DecodeSrvWelcome(thePayload, theSize, aMsg))
+			{
+				SetDead("The server sent a bad roster.", "Server error");
+				return;
+			}
+			if (aMsg.mVersion != NetProto::PROTOCOL_VERSION)
+			{
+				SetDead("Version mismatch - all players must run the same build.", "Version mismatch");
+				return;
+			}
+
+			// 名册是**外面的数据**：席位号要拿去索引席位表，一个越界就是写穿。
+			// 席位号必须都合法、互不重复，而且里头得有我自己——少了我，我在这房里就没位置。
+			if (aMsg.mYourSeat < 1 || aMsg.mYourSeat > NetProto::MAX_PLAYERS ||
+				aMsg.mHostSeat < 1 || aMsg.mHostSeat > NetProto::MAX_PLAYERS ||
+				aMsg.mSeatCount < 1 || aMsg.mSeatCount > NetProto::MAX_PLAYERS)
+			{
+				SetDead("The server sent a bad roster.", "Server error");
+				return;
+			}
+			bool aSawSelf = false;
+			bool aSawSeat[NetProto::MAX_PLAYERS + 1] = {};
+			for (int i = 0; i < aMsg.mSeatCount; i++)
+			{
+				uint8_t aSeat = aMsg.mSeats[i].mSeat;
+				if (aSeat < 1 || aSeat > NetProto::MAX_PLAYERS || aSawSeat[aSeat])
+				{
+					SetDead("The server sent a bad roster.", "Server error");
+					return;
+				}
+				aSawSeat[aSeat] = true;
+				if (aSeat == aMsg.mYourSeat) aSawSelf = true;
+			}
+			if (!aSawSelf)
+			{
+				SetDead("The server sent a bad roster.", "Server error");
+				return;
+			}
+
+			ClearSeatTable();
+			for (int i = 0; i < aMsg.mSeatCount; i++)
+			{
+				uint8_t aSeat = aMsg.mSeats[i].mSeat;
+				mSeats[aSeat].mOccupied = true;
+				mSeats[aSeat].mBuild = aMsg.mSeats[i].mBuild;
+				mSeats[aSeat].mName = SanitizeName(aMsg.mSeats[i].mName, NetProto::NAME_SIZE);
+			}
+			// 自己那一格：名字只有本机说了算，名册里的副本不采信（跟直连握手同一条规矩）。
+			// 构建代次用本机的——它就该是自己的值。
+			mSeats[aMsg.mYourSeat].mName = mLocalName;
+			mSeats[aMsg.mYourSeat].mBuild = NetProto::MOD_BUILD;
+
+			mLocalSeat = aMsg.mYourSeat;
+			mHostSeat = aMsg.mHostSeat;
+			mRoomCode = aMsg.mRoomCode;
+			// 谁是房主由服务器点（不一定是 1 号位）：房主管开局和选关，这条不能猜。
+			mRole = (mLocalSeat == mHostSeat) ? Role::HOST : Role::CLIENT;
+			SetConnected();
+		}
+		return;
+
+	case NetProto::MSG_SRV_REJECT:
+		{
+			if (mTransport != Transport::RELAY) return;
+
+			NetProto::MsgSrvReject aMsg = {};
+			if (!NetProto::DecodeSrvReject(thePayload, theSize, aMsg))
+			{
+				SetDead("The server did not like that request.", "Server error");
+				return;
+			}
+
+			// 每种回绝都得给玩家指一条能走的路："不知道"和"没这个房"要做的事不一样。
+			switch (aMsg.mReason)
+			{
+			case NetProto::REJECT_PROTOCOL_VERSION:
+				SetDead("Version mismatch - all players must run the same build.", "Version mismatch");
+				break;
+			case NetProto::REJECT_ROOM_NOT_FOUND:
+				SetDead("No such room - check the room code.", "Room not found");
+				break;
+			case NetProto::REJECT_ROOM_FULL:
+				SetDead("That room is full.", "Room full");
+				break;
+			case NetProto::REJECT_BAD_CODE:
+				SetDead("Bad room code - it is 4 letters and digits.", "Bad room code");
+				break;
+			case NetProto::REJECT_SERVER_BUSY:
+				SetDead("The server is busy - try again later.", "Server busy");
+				break;
+			default:
+				SetDead("The server did not like that request.", "Server said no");
+				break;
+			}
+			TodLog("[net] the server turned us down (reason %u)", (unsigned)aMsg.mReason);
+		}
+		return;
+
+	case NetProto::MSG_SRV_PEER_JOIN:
+		{
+			if (mTransport != Transport::RELAY) return;
+			if (!IsConnected()) return;
+
+			NetProto::MsgSrvPeerJoin aMsg = {};
+			if (!NetProto::DecodeSrvPeerJoin(thePayload, theSize, aMsg))
+			{
+				SetDead("The server sent a malformed packet.", "Server error");
+				return;
+			}
+			if (aMsg.mSeat < 1 || aMsg.mSeat > NetProto::MAX_PLAYERS || aMsg.mSeat == mLocalSeat)
+			{
+				TodLog("[net] threw away a PEER_JOIN with a bad seat (%u)", (unsigned)aMsg.mSeat);
+				return;
+			}
+
+			mSeats[aMsg.mSeat].mOccupied = true;
+			mSeats[aMsg.mSeat].mBuild = aMsg.mBuild;
+			mSeats[aMsg.mSeat].mName = SanitizeName(aMsg.mName, NetProto::NAME_SIZE);
+			TodLog("[net] seat %u joined: %s (build %u)", (unsigned)aMsg.mSeat,
+				mSeats[aMsg.mSeat].mName.c_str(), (unsigned)aMsg.mBuild);
+
+			// 补发一条我现在的判胜状态（坑 2）：LEVEL_DONE 是"值没变不发"的状态包，
+			// 在我这边它早就报过了，新人那边却什么都没收到——不补，他的棋盘会一直等
+			// 一个"永远等不来"的队友清完，判胜就永远凑不齐。
+			if (mSeats[mLocalSeat].mLevelDone) SendLevelDoneTo(aMsg.mSeat, true);
+
+			PushEvent(EventType::PEER_JOINED, aMsg.mSeat);
+		}
+		return;
+
+	case NetProto::MSG_SRV_PEER_LEAVE:
+		{
+			if (mTransport != Transport::RELAY) return;
+			if (!IsConnected()) return;
+
+			NetProto::MsgSrvPeerLeave aMsg = {};
+			if (!NetProto::DecodeSrvPeerLeave(thePayload, theSize, aMsg))
+			{
+				SetDead("The server sent a malformed packet.", "Server error");
+				return;
+			}
+			if (aMsg.mSeat < 1 || aMsg.mSeat > NetProto::MAX_PLAYERS || aMsg.mSeat == mLocalSeat)
+			{
+				TodLog("[net] threw away a PEER_LEAVE with a bad seat (%u)", (unsigned)aMsg.mSeat);
+				return;
+			}
+
+			// 整格清掉：人走了，他报过的判胜/选卡/开局应答全都不算数了。
+			// 顺带解开"在等他回话"的等待——不然主机永远收不齐开着局（坑 4）。
+			mSeats[aMsg.mSeat].mOccupied = false;
+			mSeats[aMsg.mSeat].mBuild = 0;
+			mSeats[aMsg.mSeat].mName.clear();
+			mSeats[aMsg.mSeat].mLevelDone = false;
+			mSeats[aMsg.mSeat].mSeedsReady = false;
+			mSeats[aMsg.mSeat].mAckState = 0;
+			mSeats[aMsg.mSeat].mAwaitingAck = false;
+			// 挂在他身上的换位请求也跟着作废
+			if (mSwapRequestSeat == aMsg.mSeat || mSwapAskSeat == aMsg.mSeat) ClearSwapState();
+			TodLog("[net] seat %u left (reason %u) - %d player(s) left", (unsigned)aMsg.mSeat,
+				(unsigned)aMsg.mReason, GetOccupiedSeatCount());
+
+			PushEvent(EventType::PEER_LEFT, aMsg.mSeat);
+		}
+		return;
+
+	case NetProto::MSG_SRV_ROOM_CLOSED:
+		{
+			if (mTransport != Transport::RELAY) return;
+
+			NetProto::MsgSrvRoomClosed aMsg = {};
+			if (!NetProto::DecodeSrvRoomClosed(thePayload, theSize, aMsg))
+			{
+				SetDead("The room was closed.", "Room closed");
+				return;
+			}
+
+			if (aMsg.mReason == NetProto::ROOM_CLOSED_HOST_LEFT)
+				SetDead("The host left - the room is closed.", "Host left");
+			else
+				SetDead("The server closed the room.", "Room closed");
+		}
+		return;
+
+	case NetProto::MSG_SRV_SEAT_SWAP:
+		{
+			if (mTransport != Transport::RELAY) return;
+			if (!IsConnected()) return;
+
+			NetProto::MsgSeatSwap aMsg = {};
+			if (!NetProto::DecodeSeatSwap(thePayload, theSize, aMsg))
+			{
+				SetDead("The server sent a malformed packet.", "Server error");
+				return;
+			}
+			if (aMsg.mSeatA < 1 || aMsg.mSeatA > NetProto::MAX_PLAYERS ||
+				aMsg.mSeatB < 1 || aMsg.mSeatB > NetProto::MAX_PLAYERS || aMsg.mSeatA == aMsg.mSeatB)
+			{
+				TodLog("[net] threw away a SEAT_SWAP with bad seats (%u/%u)",
+					(unsigned)aMsg.mSeatA, (unsigned)aMsg.mSeatB);
+				return;
+			}
+
+			// 全房广播 = 唯一权威：照它换，不照"谁问过谁"换。两边同时按的那种也只换这一次。
+			bool aMine = (mSwapRequestSeat == aMsg.mSeatA || mSwapRequestSeat == aMsg.mSeatB ||
+				mSwapAskSeat == aMsg.mSeatA || mSwapAskSeat == aMsg.mSeatB);
+			ApplySeatSwap(aMsg.mSeatA, aMsg.mSeatB);
+			if (aMine) ClearSwapState();		// 我这边等的那件事落地了，面板可以解锁
+		}
+		return;
+
+	case NetProto::MSG_SRV_PING:
+		{
+			if (mTransport != Transport::RELAY) return;
+
+			// 空载荷。收到什么别的话说明对面不是我们的服务器，别答理。
+			if (theSize != 0)
+			{
+				SetDead("The server sent a malformed packet.", "Server error");
+				return;
+			}
+			// 回一句就够：服务器靠它知道我还在，本地靠它刷新"对面还活着"的计时
+			// （Update 里任何入站帧都会重置，独处的房主全靠这一条）。
+			SendRaw(NetProto::MSG_CLI_PONG, nullptr, 0);
+		}
+		return;
+
+	default:
+		// 没见过的控制帧（包括客户端→服务器的那半边）：丢掉。跨版本不靠这儿挡——
+		// 协议版本对不上服务器自己会 REJECT。
+		return;
+	}
+}
+
+// ====================================================================================================
 // ★ 发包
 // ====================================================================================================
+
+
 
 // 把一帧交给该收的人。直连只有一个对端——行为与 M2 逐字节一致：目标就是那一个，
 // 载荷里的 dst 也还是写它。（四席位的扇出/点名单发在中继那边，见 NetSession.h。）
 bool NetSession::Dispatch(uint16_t theType, uint8_t* thePayload, int theSize, uint8_t theTarget)
 {
-	uint8_t aDst = DirectPeerSeat();
-	if (aDst == NetProto::SEAT_UNSET) return false;
-	if (theTarget != NetProto::SEAT_UNSET && theTarget != aDst) return false;
-
-	// 带席位号的载荷（前两字节 src/dst）在这儿统一盖戳：调用方只报"发给谁"，
-	// 别自己写 dst，省得两处各写一份、哪天对不上。
-	if (theSize >= 2 && thePayload)
+	// 直连只有一个对端——行为与 M2 逐字节一致：目标就是那一个，载荷里的 dst 也还是写它。
+	if (mTransport == Transport::DIRECT)
 	{
-		thePayload[0] = mLocalSeat;
-		thePayload[1] = aDst;
+		uint8_t aDst = DirectPeerSeat();
+		if (aDst == NetProto::SEAT_UNSET) return false;
+		if (theTarget != NetProto::SEAT_UNSET && theTarget != aDst) return false;
+
+		// 带席位号的载荷（前两字节 src/dst）在这儿统一盖戳：调用方只报"发给谁"，
+		// 别自己写 dst，省得两处各写一份、哪天对不上。
+		if (theSize >= 2 && thePayload)
+		{
+			thePayload[0] = mLocalSeat;
+			thePayload[1] = aDst;
+		}
+		return SendRaw(theType, thePayload, theSize);
 	}
-	return SendRaw(theType, thePayload, theSize);
+
+	// 中继：一条帧只去一个席位（服务器只管照 dst 转发，没有"广播"这回事），所以
+	// "发给所有队友"在这儿就是**每个上座席位各发一条**——收件人拿到的那条和点名单发
+	// 一模一样，谁也看不出自己是不是被扇出来的。theTarget 给了就只发那一个。
+	// 载荷里带席位号的那几种（前两字节 src/dst）**每条都要重写 dst**：一份载荷循环发多次，
+	// 上一轮的收件人要是留在了字节里，下一个人就会把自己的帧送给前一个人。
+	bool aAnySent = false;
+	for (uint8_t aSeat = 1; aSeat <= NetProto::MAX_PLAYERS; aSeat++)
+	{
+		if (aSeat == mLocalSeat || !IsSeatOccupied(aSeat)) continue;
+		if (theTarget != NetProto::SEAT_UNSET && theTarget != aSeat) continue;
+
+		if (theSize >= 2 && thePayload)
+		{
+			thePayload[0] = mLocalSeat;
+			thePayload[1] = aSeat;
+		}
+		if (SendRaw(theType, thePayload, theSize)) aAnySent = true;
+	}
+	return aAnySent;
 }
 
 bool NetSession::SendRaw(uint16_t theType, const uint8_t* thePayload, int thePayloadSize)
@@ -1306,8 +1812,59 @@ bool NetSession::SendRaw(uint16_t theType, const uint8_t* thePayload, int thePay
 	return mLink.Send(aPacket, NetProto::HEADER_SIZE + thePayloadSize);
 }
 
+// 中继：把建房/加入的请求递上去。链路一通就发这一次（Update 里），之后全听服务器的。
+// 席位、房主、名册都从这里之后才开始有。
+bool NetSession::SendRoomRequest()
+{
+	uint8_t aPayload[NetProto::MAX_PAYLOAD];
+	int aSize = 0;
+	uint16_t aType = NetProto::MSG_CLI_CREATE_ROOM;
+
+	if (mRole == Role::HOST)
+	{
+		NetProto::MsgCliCreateRoom aMsg = {};
+		aMsg.mVersion = NetProto::PROTOCOL_VERSION;
+		aMsg.mBuild = NetProto::MOD_BUILD;
+		NetProto::SetName(aMsg.mName, mLocalName.c_str());
+		aSize = NetProto::EncodeCliCreateRoom(aPayload, (int)sizeof(aPayload), aMsg);
+		TodLog("[net] asking the server to open a room (%s)", mConnectHost.c_str());
+	}
+	else
+	{
+		NetProto::MsgCliJoinRoom aMsg = {};
+		aMsg.mVersion = NetProto::PROTOCOL_VERSION;
+		aMsg.mBuild = NetProto::MOD_BUILD;
+		NetProto::SetName(aMsg.mName, mLocalName.c_str());
+		memcpy(aMsg.mRoomCode, mRoomCode.data(), NetProto::ROOM_CODE_LEN);
+		aSize = NetProto::EncodeCliJoinRoom(aPayload, (int)sizeof(aPayload), aMsg);
+		aType = NetProto::MSG_CLI_JOIN_ROOM;
+		TodLog("[net] asking the server for room %s", mRoomCode.c_str());
+	}
+
+	if (aSize <= 0) return false;
+	return SendRaw(aType, aPayload, aSize);
+}
+
+// 中继：换位谈妥了，请服务器落实并向全房广播。自己**先不换**——服务器是唯一权威，
+// 广播到了才换（两边各换一次就成了换回来）。
+bool NetSession::SendSeatSwapCommit(uint8_t theSeatA, uint8_t theSeatB)
+{
+	NetProto::MsgSeatSwap aMsg;
+	aMsg.mSeatA = theSeatA;
+	aMsg.mSeatB = theSeatB;
+
+	uint8_t aPayload[NetProto::MAX_PAYLOAD];
+	int aSize = NetProto::EncodeSeatSwap(aPayload, (int)sizeof(aPayload), aMsg);
+	if (aSize <= 0) return false;
+
+	TodLog("[net] asking the server to swap seats %u and %u", (unsigned)theSeatA, (unsigned)theSeatB);
+	return SendRaw(NetProto::MSG_CLI_SWAP_COMMIT, aPayload, aSize);
+}
+
 void NetSession::SendHello()
 {
+	if (mTransport == Transport::RELAY) return;		// 中继的身份由服务器点，不发 HELLO
+
 	NetProto::MsgHello aMsg;
 	aMsg.mSrcSeat = mLocalSeat;
 	aMsg.mDstSeat = DirectPeerSeat();		// 还没握手，名册是空的，直连的另一个席位是固定的
@@ -1369,6 +1926,9 @@ bool NetSession::SendStartLevel(uint8_t theGameMode, uint32_t theLevel, int32_t 
 
 	if (!Dispatch(NetProto::MSG_START_LEVEL, aPayload, aSize, theTargetSeat)) return false;
 
+	// 新的一条命令：上一轮"有人说不行"的记账跟着作废，别让它把这一次也毙了。
+	mAnyAckRejected = false;
+
 	// 发出去了才记"在等谁回答"：收齐应答的判定（P3 的放行）得按席位看，
 	// 单槽记账看不出四个人里是谁还没答。
 	for (uint8_t aSeat = 1; aSeat <= NetProto::MAX_PLAYERS; aSeat++)
@@ -1395,7 +1955,10 @@ void NetSession::SendStartAck(bool theAccepted)
 	{
 		TodLog(theAccepted ? "[net] telling the host I am entering the level"
 			: "[net] telling the host I cannot enter the level right now");
-		Dispatch(NetProto::MSG_START_ACK, aPayload, aSize);
+		// 中继下这条只能落到主机那一席（四席位时 Dispatch 默认是扇出，会把"我进场了"
+		// 播给不相干的人）；直连的对端本来就是主机，目标保持原样的默认值。
+		Dispatch(NetProto::MSG_START_ACK, aPayload, aSize,
+			(mTransport == Transport::RELAY) ? mHostSeat : NetProto::SEAT_UNSET);
 	}
 }
 
@@ -1469,6 +2032,8 @@ void NetSession::SendSwapReply(bool theAccepted, uint8_t theTarget)
 
 void NetSession::SendHeartbeat()
 {
+	if (mTransport == Transport::RELAY) return;		// 中继的保活是服务器 PING、我们回 PONG
+
 	NetProto::MsgHeartbeat aMsg;
 	aMsg.mSrcSeat = mLocalSeat;
 	aMsg.mDstSeat = NetProto::SEAT_UNSET;		// 由 Dispatch 按目标填
@@ -1481,6 +2046,8 @@ void NetSession::SendHeartbeat()
 
 void NetSession::SendBye(uint8_t theReason)
 {
+	if (mTransport == Transport::RELAY) return;		// 中继退房走 LEAVE_ROOM，见 Close()
+
 	NetProto::MsgBye aMsg;
 	aMsg.mSrcSeat = mLocalSeat;
 	aMsg.mDstSeat = NetProto::SEAT_UNSET;		// 由 Dispatch 按目标填

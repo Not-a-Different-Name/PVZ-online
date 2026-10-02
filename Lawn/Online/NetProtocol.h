@@ -55,7 +55,10 @@ const uint16_t	PROTOCOL_VERSION	= 1;
 // 15 → 16：选卡等队友（SEEDS_READY）。选完卡不再各按各的 Let's Rock 直接开打，
 //        要等到所有上座席位都报过"选好了"才放行——混搭时一边等一边开打，
 //        第三关后的不同步就是这么来的，所以两边必须同版本。
-const uint16_t	MOD_BUILD			= 16;
+// 16 → 17：M3 中继（连服务器组队，最多四人）。会话层从"固定两个席位"改成一张席位表，
+//        新增中继传输与控制帧（建房/加入/名册/退房/换位广播/保活）。直连模式的线上字节
+//        没变，但中继那一整套旧构建根本没有：混搭时一边能建房一边连不上，必须同版本。
+const uint16_t	MOD_BUILD			= 17;
 
 const uint16_t	DEFAULT_PORT		= 27777;
 
@@ -66,8 +69,9 @@ const uint8_t	SEAT_UNSET			= 0;
 const uint8_t	SEAT_HOST			= 1;	// 建房方
 const uint8_t	SEAT_CLIENT			= 2;	// 加入方
 
-// @pvz-online: 一局的席位上限。M2 实际只开两个席位（见 NetSession.cpp 的 SEAT_COUNT），
-// 但名册 UI 按这个数把位子全画出来——上下顺序就是顺位，空着的位子也得看得见。
+// @pvz-online: 一局的席位上限。直连只用两个（主机 = 1、客户端 = 2），中继最多开四个
+// （谁坐几号位由服务器点名册），但名册 UI 按这个数把位子全画出来——上下顺序就是顺位，
+// 空着的位子也得看得见。
 const uint8_t	MAX_PLAYERS			= 4;
 
 // 名字字段定长：这样"长度对不上 = 对面是别的构建版"那条检测还是准的（见 NetSession 收包），
