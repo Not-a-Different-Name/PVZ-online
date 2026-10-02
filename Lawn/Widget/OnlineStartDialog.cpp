@@ -8,6 +8,9 @@
 #include "graphics/Graphics.h"
 #include "widget/WidgetManager.h"
 
+// 两枚按钮之间的间距（构造时定版心、Resize 里摆位共用同一个数）
+#define BUTTON_GAP 24
+
 // 源码里的中文字面量是 UTF-8（整个仓库都带 /utf-8 编译）；SysFont 的 DrawString 走 TextOutA，
 // 字节按系统码页解释——简中 Windows 上就是 GBK。所以在这儿做一次转换，两边就对上了。
 static std::string Utf8ToAnsi(const char* theText)
@@ -44,6 +47,33 @@ static _Font* GetCjkFont(int thePointSize, bool theBold)
 		aSlot = new SysFont(gSexyAppBase, "Microsoft YaHei", thePointSize, aCharset, theBold, false, false);
 	}
 	return aSlot;
+}
+
+// 石材按钮是"左端贴图 + 中段贴图 × n + 右端贴图"平铺画的（见 CjkStoneButton::Draw），
+// 宽度必须正好是这三段的和；随手给个宽度的话平铺铺不满，画出来的石头比控件窄一截，
+// 标签按控件宽居中就会整体偏右（字越多越显得贴边）。原版 LawnDialog::Resize 也做同款
+// 取整："不足中部贴图宽度的部分补充至中部贴图宽度"。
+static int StoneButtonWidth(int theWidth, bool theRoundUp)
+{
+	int aMid = Sexy::IMAGE_BUTTON_MIDDLE->mWidth;
+	int aMin = Sexy::IMAGE_BUTTON_LEFT->mWidth + Sexy::IMAGE_BUTTON_RIGHT->mWidth;
+	int anExtra = theWidth - aMin;
+	if (anExtra < 0)
+	{
+		anExtra = 0;
+	}
+	else if (aMid > 0)
+	{
+		int aRemainder = anExtra % aMid;
+		if (aRemainder != 0)
+		{
+			if (theRoundUp) anExtra += aMid - aRemainder;
+			else anExtra -= aRemainder;
+		}
+	}
+	int aWidth = aMin + anExtra;
+	int aFloor = aMin + aMid;   // 至少带一个中段：光两块端头拼不成石头
+	return aWidth < aFloor ? aFloor : aWidth;
 }
 
 // 石材按钮 + 中文标签：原版 DrawStoneButton 把标签字体写死成位图字体（没有汉字），
@@ -136,7 +166,23 @@ OnlineStartDialog::OnlineStartDialog(LawnApp* theApp, const char* theTitleUtf8, 
 
 	int anExtraX = aTextWidth + 80;
 	int anExtraY = aTitleFont->GetHeight() + 14 + aBodyFont->GetHeight() + 46;
-	if (mButtonCount > 0) anExtraY += IMAGE_BUTTON_LEFT->mHeight + 18;
+	if (mButtonCount > 0)
+	{
+		// 版心也得放得下整行按钮：按最长的一条标签定每枚按钮的宽度（两侧各留 16），
+		// 取整到石材贴图的整段，整行（含间距）反过来把版心撑够——不够宽的话标签会
+		// 贴着按钮边、看着像溢出（见 StoneButtonWidth 与 Resize）。
+		int aButtonWidth = 0;
+		for (int i = 0; i < mButtonCount; i++)
+		{
+			int aLabelWidth = aBodyFont->StringWidth(mButtons[i]->mLabel) + 32;
+			if (aLabelWidth > aButtonWidth) aButtonWidth = aLabelWidth;
+		}
+		aButtonWidth = StoneButtonWidth(aButtonWidth, true);
+
+		int aButtonsWidth = aButtonWidth * mButtonCount + BUTTON_GAP * (mButtonCount - 1);
+		if (aButtonsWidth > anExtraX) anExtraX = aButtonsWidth;
+		anExtraY += IMAGE_BUTTON_LEFT->mHeight + 18;
+	}
 
 	CalcSize(anExtraX, anExtraY);
 	mApp->CenterDialog(this, mWidth, mHeight);
@@ -172,13 +218,20 @@ void OnlineStartDialog::Resize(int theX, int theY, int theWidth, int theHeight)
 
 	if (mButtonCount > 0)
 	{
-		int aLeft = mBackgroundInsets.mLeft + mContentInsets.mLeft;
-		int aContentWidth = mWidth - mContentInsets.mLeft - mContentInsets.mRight - mBackgroundInsets.mLeft - mBackgroundInsets.mRight;
-		int aGap = 24;
-		int aButtonWidth = (aContentWidth - aGap * (mButtonCount - 1)) / mButtonCount;
+		int aContentWidth = mWidth - mContentInsets.mLeft - mContentInsets.mRight
+			- mBackgroundInsets.mLeft - mBackgroundInsets.mRight;
+
+		// 宽度取整到石材贴图的整段（平铺铺满，标签按控件宽居中才等于在石头上居中）；
+		// 向下取整保证整行放得进版心（构造时保证过版心至少有这么宽）。
+		int anAvailable = (aContentWidth - BUTTON_GAP * (mButtonCount - 1)) / mButtonCount;
+		int aButtonWidth = StoneButtonWidth(anAvailable, false);
+		int aButtonsWidth = aButtonWidth * mButtonCount + BUTTON_GAP * (mButtonCount - 1);
+
+		// 版心比整行宽时（CalcSize 会把对话框再撑大）多出来的空白左右对半分
+		int aLeft = mContentInsets.mLeft + mBackgroundInsets.mLeft + (aContentWidth - aButtonsWidth) / 2;
 		for (int i = 0; i < mButtonCount; i++)
 		{
-			mButtons[i]->Resize(aLeft + i * (aButtonWidth + aGap), aButtonY, aButtonWidth, aButtonHeight);
+			mButtons[i]->Resize(aLeft + i * (aButtonWidth + BUTTON_GAP), aButtonY, aButtonWidth, aButtonHeight);
 		}
 	}
 }
