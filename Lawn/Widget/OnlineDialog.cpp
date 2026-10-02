@@ -14,8 +14,11 @@ namespace
 {
 	const int	EDIT_HEIGHT		= 28;
 	const int	ROW_GAP			= 10;	// 状态行→输入框、输入框→按钮之间的留白
-	const int	LABEL_WIDTH		= 56;	// 输入框左边留给 "Host IP" / "Server" 标签的宽度
-	const int	CODE_LABEL_WIDTH = 42;	// 中继那行 "Code" 标签
+	// 标签那一格：框体美术从输入框 mX 再往左画 8px（DrawEditBox），标签又是在框体之前画的，
+	// 所以标签得在 mX-8 之前收尾。15 号字体实测 "Host IP"=67px、"Server"=53px、"Code"=38px，
+	// 配上 +4 的起始偏移，宽度至少 79 / 65 / 50 —— 56 和 42 会让字尾被框体切掉（"Host"/"Cod"）。
+	const int	LABEL_WIDTH		= 84;	// 输入框左边留给 "Host IP" / "Server" 标签的宽度
+	const int	CODE_LABEL_WIDTH = 54;	// 中继那行 "Code" 标签
 	const int	CODE_EDIT_WIDTH	= 66;	// 房间码框：4 个字符 + 光标
 	const int	COL_GAP			= 8;
 
@@ -105,17 +108,18 @@ OnlineDialog::OnlineDialog(LawnApp* theApp) :
 	mStatusLine = "Not connected.";
 	mHintLine = "";
 
-	// 比 CheatDialog 大一圈：两行状态 + 三行输入框 + 两排按钮（底排直连 / 上排中继）。
+	// 比 CheatDialog 大一圈：两行状态 + 两行输入框 + 两排按钮（底排直连 / 上排中继）。
 	// 面板高度由字体/按钮美术的实际高度推出来，不硬写常数：改字号或换按钮图都不会再互相压。
 	//
 	// 末尾减的两项是 CalcSize 自己还会加上去的：标题那一截（-ascentPadding + headerHeight + spaceAfterHeader）
 	// 和固定的 mButtonHeight（24——标准 Dialog 按钮的高度；本面板的按钮是底下那排 LawnStoneButton 自己排的）。
-	// 它们加、我们减，一加一减才刚好等于排版真正需要的高度——不减的话面板会高出 70px，
-	// 而按钮钉在面板底、输入框排在顶，多出来的 70px 全挤在 Server 行和 Create Room 那排之间。
+	// 它们加、我们减，一加一减才刚好等于排版真正需要的高度——不减的话面板会高出约 90px，
+	// 而按钮钉在面板底、输入框排在顶，多出来的那些全挤在 Server 行和 Create Room 那排之间。
+	// 输入框只算两行：Server 和 Code 是同一行并排（见 Resize 里 aServerY 那一处）。
 	int aBandTop = mContentInsets.mTop + mBackgroundInsets.mTop + DIALOG_HEADER_OFFSET;
 	int aHeaderAllowance = -mHeaderFont->GetAscentPadding() + mHeaderFont->GetHeight() + mSpaceAfterHeader;
 	int aHeight = (GetEditY() - aBandTop)
-		+ EDIT_HEIGHT * 3 + ROW_GAP * 2				// Host IP / Server+Code 三行输入框
+		+ EDIT_HEIGHT * 2 + ROW_GAP					// Host IP / Server+Code 两行输入框
 		+ ROW_GAP + IMAGE_BUTTON_LEFT->mHeight		// 中继那排：Create Room / Join Room
 		+ ROW_GAP + IMAGE_BUTTON_LEFT->mHeight		// 底排：Host / Join / Close（及叠加键）
 		- 2
