@@ -245,22 +245,45 @@ int RunState::LevelForIndex(int theIndex)
 	// 五个场景（每场景原版 10 关）各取 5 关：场景内第 1/3/5/7/9 → mLevel 1,3,5,7,9 /
 	// 11,13,15,17,19 / 21,…,29 / 31,…,39 / 41,…,49（第 50 关是僵王关，不取）。
 	if (theIndex < 0 || theIndex >= RUN_LEVEL_COUNT) return -1;
-	return (theIndex / 5) * LEVELS_PER_AREA + (theIndex % 5) * 2 + 1;
+	return (theIndex / RUN_LEVELS_PER_SCENE) * LEVELS_PER_AREA + (theIndex % RUN_LEVELS_PER_SCENE) * 2 + 1;
+}
+
+// @pvz-online: 补发追赶期间（R6）：人先站到"要追到的那一关"的草坪上，再在草坪上把
+// 欠下的三选一补完（见 UpdateRunPick）——所以正在打的这一关就是目标关，关卡号、
+// 波表种子和难度阶梯都得按它算，不然先进草坪的那一下会建错关。
+int RunState::GetPlayingLevelIndex() const
+{
+	return IsCatchingUp() ? mCatchUpLevel : mLevelIndex;
+}
+
+// 场景档 0..4。mLevelIndex 会短暂停在"已通关"（== RUN_LEVEL_COUNT）这种空档上：
+// 夹进范围里，别让越界值把难度表读穿。
+int RunState::GetSceneIndex() const
+{
+	int aIndex = GetPlayingLevelIndex();
+	if (aIndex < 0) aIndex = 0;
+	if (aIndex > RUN_LEVEL_COUNT - 1) aIndex = RUN_LEVEL_COUNT - 1;
+	return aIndex / RUN_LEVELS_PER_SCENE;
+}
+
+// 难度阶梯（M4-a，用户定案）：每过一个场景血量与数量同乘 ×1.2 → 1.0/1.2/1.44/1.73/2.07。
+// 写成整数千分比表：两边全靠整数乘除，逐位一致——浮点乘的 0.000001 之差就可能让同一只
+// 僵尸在两台机器上一个剩 1 点血、一个已经死了。
+int RunState::GetDifficultyPermille() const
+{
+	static const int aPermille[RUN_SCENE_COUNT] = { 1000, 1200, 1440, 1728, 2073 };
+	return aPermille[GetSceneIndex()];
 }
 
 int RunState::GetLevel() const
 {
-	// @pvz-online: 补发追赶期间（R6）：人先站到"要追到的那一关"的草坪上，再在草坪上把
-	// 欠下的三选一补完（见 UpdateRunPick）——所以正在打的这一关就是目标关，关卡号
-	// 和波表种子都得按它算，不然先进草坪的那一下会建错关。
-	return LevelForIndex(IsCatchingUp() ? mCatchUpLevel : mLevelIndex);
+	return LevelForIndex(GetPlayingLevelIndex());
 }
 
 int RunState::GetLevelSeed() const
 {
 	// 由局种子 + 关序号推导：同一局里每关不同、重开同一关（失败重试）完全一样。
-	// 关序号的口径与 GetLevel 一致：追赶期间是目标关。
-	int aIndex = IsCatchingUp() ? mCatchUpLevel : mLevelIndex;
+	int aIndex = GetPlayingLevelIndex();
 	unsigned int aSeed = (unsigned int)mRunSeed ^ (0x9E3779B9u * (unsigned int)(aIndex + 1));
 	aSeed ^= aSeed >> 16;
 	aSeed *= 0x85EBCA6Bu;

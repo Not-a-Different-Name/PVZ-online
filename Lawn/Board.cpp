@@ -695,6 +695,12 @@ void Board::PickZombieWaves()
 		{
 			aZombiePoints = (mChallenge->mSurvivalStage * GetNumWavesPerSurvivalStage() + aWave) * 2 / 5 + 1;
 		}
+		else if (mApp->IsRunMode())
+		{
+			// 闯关（M4-a）：固定走"通关后"的出怪曲线。绝不挂在 HasFinishedAdventure 上——
+			// 两个玩家的档案进度不同会让同一关的波表都不一样（R5 遗留的确定性漏洞）。
+			aZombiePoints = aWave * 2 / 5 + 1;
+		}
 		else if (mApp->IsAdventureMode() && mApp->HasFinishedAdventure() && mLevel != 5)
 		{
 			aZombiePoints = aWave * 2 / 5 + 1;
@@ -702,6 +708,13 @@ void Board::PickZombieWaves()
 		else
 		{
 			aZombiePoints = aWave / 3 + 1;
+		}
+
+		// 闯关的难度阶梯（M4-a）：数量随场景档同乘 ×1.2/场景（血量在 ZombieInitialize 里缩放）。
+		// 乘在旗帜波 ×2.5 之前：旗帜波的总点数也一起吃这个系数。整数乘除，两端逐位一致。
+		if (mApp->IsRunMode())
+		{
+			aZombiePoints = aZombiePoints * mApp->GetRunState()->GetDifficultyPermille() / 1000;
 		}
 
 		// 旗帜波的特殊调整

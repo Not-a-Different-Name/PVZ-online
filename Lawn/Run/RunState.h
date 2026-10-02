@@ -22,6 +22,8 @@ class RunState
 {
 public:
 	static const int	RUN_LEVEL_COUNT		= 25;	// 5 场景 × 5 关
+	static const int	RUN_SCENE_COUNT		= 5;	// 白天 → 夜 → 泳池 → 迷雾 → 屋顶
+	static const int	RUN_LEVELS_PER_SCENE = RUN_LEVEL_COUNT / RUN_SCENE_COUNT;
 	static const int	RUN_SEED_SLOTS		= 8;	// 种子槽固定 8 格（覆盖原版 mPurchases+6 规则）
 	static const int	RUN_POOL_MAX		= 48;	// 卡池上限 = 全部植物
 	static const int	RUN_CHOICES			= 3;	// 一屏摆几张卡
@@ -116,6 +118,14 @@ public:
 	int					GetLevel() const;
 	int					GetLevelSeed() const;
 	static int			LevelForIndex(int theIndex);
+
+	// @pvz-online: 难度阶梯（M4-a）取用口。正在打的那一关的序号，口径与 GetLevel /
+	// GetLevelSeed 一致（追赶期间 = 目标关）；场景档 0..4；难度 = 千分比表
+	// {1000,1200,1440,1728,2073}——每过一个场景血量与数量同乘 ×1.2。
+	// 全整数运算，联机两端逐位一致（见 GetDifficultyPermille 实现处的说明）。
+	int					GetPlayingLevelIndex() const;
+	int					GetSceneIndex() const;
+	int					GetDifficultyPermille() const;
 };
 
 #endif

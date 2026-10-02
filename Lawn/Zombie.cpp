@@ -17,6 +17,7 @@
 #include "../Sexy.TodLib/Attachment.h"
 #include "../Sexy.TodLib/TodParticle.h"
 #include "Run/RunBuffs.h"
+#include "Run/RunState.h"
 
 ZombieDefinition gZombieDefs[NUM_ZOMBIE_TYPES] = {  //0x69DA80
     { ZOMBIE_NORMAL,            REANIM_ZOMBIE,              1,      1,      1,      4000,   _S("ZOMBIE") },
@@ -873,6 +874,22 @@ void Zombie::ZombieInitialize(int theRow, ZombieType theType, bool theVariant, Z
     if (mVariant)
     {
         ReanimShowPrefix("anim_tongue", RENDER_GROUP_NORMAL);
+    }
+
+    // @pvz-online: 闯关的难度阶梯（M4-a）：血量按场景档放大。插在这里是因为四段当前血量
+    // 刚在 switch 里逐类定好、LittleTrouble 之类的特判也走完，乘完紧接着被下面的 Max 收走。
+    // 整数千分比乘除：联机两端逐位一致。漏怪传给队友的就是这里缩放后的当前血量，
+    // 接端（Board::AddRelayedZombie）只覆写、不再缩放——不会双重缩放。
+    if (mApp->IsRunMode() && IsOnBoard())
+    {
+        int aPermille = mApp->GetRunState()->GetDifficultyPermille();
+        if (aPermille != 1000)
+        {
+            mBodyHealth = mBodyHealth * aPermille / 1000;
+            mHelmHealth = mHelmHealth * aPermille / 1000;
+            mShieldHealth = mShieldHealth * aPermille / 1000;
+            mFlyingHealth = mFlyingHealth * aPermille / 1000;
+        }
     }
 
     mHelmMaxHealth = mHelmHealth;
