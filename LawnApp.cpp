@@ -1076,18 +1076,18 @@ void LawnApp::UpdateOnlineLevelExit()
 
 	if (mBoard != nullptr)
 	{
-		TodLog("[net] the teammate left the level - going back to the main menu too");
+		TodLog("[net] a teammate left the level - going back to the main menu too");
 		// 复用 DoBackToMain 的五步（停音乐/写配置/关暂停框/拆棋盘/回菜单）；
 		// false 是因为"我要退"这句话对面已经先说了，不用回话。
 		DoBackToMain(false);
 		LawnMessageBox(Dialogs::DIALOG_MESSAGE, "Teammate left",
-			"Your teammate left the level.\nBack to the main menu.", "OK", "", Dialog::BUTTONS_FOOTER);
+			"A teammate left the level.\nBack to the main menu.", "OK", "", Dialog::BUTTONS_FOOTER);
 		return;
 	}
 
 	// 已经在菜单上（比如刚退完，或还没进关）：只写一句即时说明，界面不动。
-	TodLog("[net] the teammate left the level (already in the menu)");
-	mOnlineSession->PostNotice("Your teammate left the level.");
+	TodLog("[net] a teammate left the level (already in the menu)");
+	mOnlineSession->PostNotice("A teammate left the level.");
 }
 
 // @pvz-online: 暂停同步。规则（已拍板）：任一方都能暂停，也任一方都能继续。
@@ -1195,6 +1195,37 @@ void LawnApp::UpdateOnlineEvents()
 				DoBackToMain(false);
 				LawnMessageBox(Dialogs::DIALOG_MESSAGE, "Disconnected",
 					(aReason + "\nBack to the main menu.").c_str(), "OK", "", Dialog::BUTTONS_FOOTER);
+			}
+			break;
+
+		case NetSession::EventType::PEER_JOINED:
+			// @pvz-online: 中继：有人进了房（mSeat 说清是谁）——直连没有这条，那边的
+			// 第一个人就是 CONNECTED。本机在棋盘上跑着闯关局、又是主机：当场把他拉进
+			// 当前这一关（他没检查点/对不上就走补发追赶）。不拉的话这一关的"全队判胜"
+			// 永远凑不齐——一个连上了却没棋盘的席位不会报"我清完了"。人还在菜单上就
+			// 什么都不做（名册小条自己会显示他）。
+			TodLog("[net] seat %u joined the room", (unsigned)anEvent.mSeat);
+			if (IsRunMode() && mBoard != nullptr
+				&& mOnlineSession->GetRole() == NetSession::Role::HOST)
+			{
+				TodLog("[run] seat %u joined mid-level - pulling them into level %d (index %d)",
+					(unsigned)anEvent.mSeat, mRunState->GetLevel(), mRunState->mLevelIndex);
+				mOnlineSession->SendStartLevel((uint8_t)GameMode::GAMEMODE_ADVENTURE,
+					(uint32_t)mRunState->GetLevel(), mRunState->GetLevelSeed(),
+					true, mRunState->mRunSeed, (uint8_t)mRunState->mLevelIndex,
+					anEvent.mSeat);
+			}
+			break;
+
+		case NetSession::EventType::PEER_LEFT:
+			// @pvz-online: 中继：有人走了（服务器还在、我也还在；房主走 = ROOM_CLOSED，
+			// 那条是 DISCONNECTED 的死路）。人还在棋盘上就挂一句说明接着打——少一个人
+			// 不是这一局的死刑，判胜按"现在的上座席位"算，他那一格已经跟着回收；
+			// 人还在菜单上就什么都不做。
+			TodLog("[net] seat %u left the room", (unsigned)anEvent.mSeat);
+			if (mBoard != nullptr)
+			{
+				mOnlineSession->PostNotice("A teammate left the room.");
 			}
 			break;
 
