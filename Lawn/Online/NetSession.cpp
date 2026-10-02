@@ -571,6 +571,7 @@ void NetSession::ResetToOff()
 	mState = State::OFF;
 	mLocalSeat = NetProto::SEAT_UNSET;
 	mPeerSeat = NetProto::SEAT_UNSET;
+	mPeerBuild = 0;
 	mPeerName.clear();			// 对面的名字跟着这一局作废；自己的名字留着（见 SetLocalName）
 	mFramesSincePacket = 0;
 	mFramesSinceHeartbeat = 0;
@@ -592,8 +593,17 @@ void NetSession::SetConnected()
 	mState = State::CONNECTED;
 	mFramesSincePacket = 0;
 	mFramesSinceHeartbeat = 0;
-	TodLog("[net] handshake complete - local seat %u (%s), peer seat %u (%s)",
-		(unsigned)mLocalSeat, mLocalName.c_str(), (unsigned)mPeerSeat, mPeerName.c_str());
+	TodLog("[net] handshake complete - local seat %u (%s) build %u, peer seat %u (%s) build %u",
+		(unsigned)mLocalSeat, mLocalName.c_str(), (unsigned)NetProto::MOD_BUILD,
+		(unsigned)mPeerSeat, mPeerName.c_str(), (unsigned)mPeerBuild);
+	// 两边构建代次不一样：连还是要连的（12 起不再拒绝），但得提示一句——行为不配套
+	// 的毛病（"漏怪没落地"那类）看起来都像"游戏坏了"，有这行才知道该去更新哪边。
+	if (mPeerBuild != NetProto::MOD_BUILD)
+	{
+		TodLog("[net] builds differ - local %u, peer %u; playing anyway",
+			(unsigned)NetProto::MOD_BUILD, (unsigned)mPeerBuild);
+		SetNotice("Builds differ - update both machines if things break.");
+	}
 	PushEvent(EventType::CONNECTED);
 }
 
@@ -651,6 +661,17 @@ void NetSession::UpdateStatusText()
 				mStatusText = "The teammate wants to swap positions - Accept or Reject.";
 			else if (mSwapRequestPending)
 				mStatusText = "Swap asked - waiting for the teammate to answer.";
+			else if (IsBuildDifferent())
+			{
+				// 构建代次不同：连得上、能玩（12 起不再拒绝，见握手处），这句是常驻提醒。
+				// 即时说明几秒就没了，而"这俩不是一套"得一直看得见——真撞上不配套的行为
+				// 时，这行就是"该去更新了"的凭据。小条上也有一份短的，见 OnlineStatusWidget。
+				std::string aBuilds = "Builds differ (you " + std::to_string((unsigned)NetProto::MOD_BUILD)
+					+ " / peer " + std::to_string((unsigned)mPeerBuild) + ").";
+				mStatusText = (mRole == Role::HOST)
+					? aBuilds + " Pick a level."
+					: aBuilds + " Waiting for the host.";
+			}
 			else
 				mStatusText = (mRole == Role::HOST)
 					? "Connected. Pick a level from the menu."
@@ -736,17 +757,15 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 			if (aMsg.mVersion != NetProto::PROTOCOL_VERSION)
 			{
 				SendHelloAck(false);
-				SetDead("Version mismatch - all players must run the same build.", "Build mismatch");
+				SetDead("Version mismatch - all players must run the same build.", "Version mismatch");
 				return;
 			}
-			if (aMsg.mBuild != NetProto::MOD_BUILD)
-			{
-				SendHelloAck(false);
-				SetDead("Build mismatch - update every machine to the same build.", "Build mismatch");
-				return;
-			}
+			// 构建代次不一样照样连（用户 2026-10-02 拍板：只提示，不拒人）。包是同一套，
+			// 编解码对得上；不配套的只是行为，UI 上挂一句提醒，真撞上不对劲玩家自己会更新。
+			// 拒绝只留给 PROTOCOL_VERSION 和 HELLO 长度——那两种连包都读不出来。
 
 			mPeerSeat = aMsg.mSrcSeat;
+			mPeerBuild = aMsg.mBuild;
 			mPeerName = SanitizeName(aMsg.mName, NetProto::NAME_SIZE);
 			SendHelloAck(true);
 			SetConnected();
@@ -772,14 +791,22 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 
 			if (!aMsg.mAccepted)
 			{
-				SetDead("A player refused - update every machine.", "Build mismatch");
+				// 主机拒接的原因只剩两种：协议版本对不上，或者它读不出我们的 HELLO（旧构建）。
+				// ACK 里带着主机的版本号，正好能分辨——提示得指得出该更新哪边，别一律怪"构建"。
+				if (aMsg.mVersion != NetProto::PROTOCOL_VERSION)
+					SetDead("Version mismatch - all players must run the same build.", "Version mismatch");
+				else
+					SetDead("Build mismatch - update every machine to the same build.", "Build mismatch");
 				return;
 			}
-			if (aMsg.mVersion != NetProto::PROTOCOL_VERSION || aMsg.mBuild != NetProto::MOD_BUILD)
+			if (aMsg.mVersion != NetProto::PROTOCOL_VERSION)
 			{
-				SetDead("Build mismatch - update every machine to the same build.", "Build mismatch");
+				SetDead("Version mismatch - all players must run the same build.", "Version mismatch");
 				return;
 			}
+			// 构建代次不一样不再拒绝（同主机侧，见 MSG_HELLO 那段）：记下、提示、照常连。
+
+			mPeerBuild = aMsg.mBuild;
 			mPeerName = SanitizeName(aMsg.mName, NetProto::NAME_SIZE);
 			SetConnected();
 		}

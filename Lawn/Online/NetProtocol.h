@@ -38,7 +38,10 @@ const uint16_t	PROTOCOL_VERSION	= 1;
 //        收到漏怪只会丢进日志——两边必须同版本，所以照样抬。
 // 10 → 11：全队判胜/判负（LEVEL_DONE 谁清完了、GAME_OVER 全队败）。这两条消息
 //        枚举里一直有、但从来没上过线：旧构建收到会当成没见过的消息直接断线。
-const uint16_t	MOD_BUILD			= 11;
+// 11 → 12：构建不一致不再拒连（只提示、照常玩——见 NetSession 握手处），
+//        判死的会话不再被 Update 每帧复活。两条都是握手/生命周期行为，
+//        要两边都更新才有意义，所以照样抬。
+const uint16_t	MOD_BUILD			= 12;
 
 const uint16_t	DEFAULT_PORT		= 27777;
 

@@ -177,6 +177,16 @@ public:
 	uint8_t			GetLocalSeat() const { return mLocalSeat; }
 	uint8_t			GetPeerSeat() const { return mPeerSeat; }
 
+	// 对面的构建代次（握手时报的，连上才有效）。
+	uint16_t		GetPeerBuild() const { return mPeerBuild; }
+	// 两边的构建代次不一样：包还是同一套，但行为可能不配套（比如漏怪在某代才真的
+	// 落地）。**从 MOD_BUILD 12 起这不再拒绝握手**——照常连、UI 上挂一句提醒，
+	// 玩家真撞上不对劲自己会去更新，比"整场连不上"实用（用户 2026-10-02 拍板）。
+	bool			IsBuildDifferent() const
+	{
+		return mState == State::CONNECTED && mPeerBuild != 0 && mPeerBuild != NetProto::MOD_BUILD;
+	}
+
 	const std::string&	GetStatusText() const { return mStatusText; }
 	const std::string&	GetHintText() const { return mHintText; }
 	// 死因的一行短标签（主菜单小状态条那种一行宽的地方用）。没给短标签就是默认的
@@ -222,6 +232,7 @@ private:
 	State				mState;
 	uint8_t				mLocalSeat;
 	uint8_t				mPeerSeat;
+	uint16_t			mPeerBuild;			// 对面报的构建代次（握手时记下，连上期间读）
 	std::string			mLocalName;			// 不随 ResetToOff 清（见 SetLocalName）
 	std::string			mPeerName;			// 对面报的名字，连接作废时跟着一起清
 	int					mFramesSincePacket;

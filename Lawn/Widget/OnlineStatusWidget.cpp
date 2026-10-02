@@ -198,6 +198,10 @@ std::string OnlineStatusWidget::GetStateLine()
 		return "Handshaking";
 
 	case NetSession::State::CONNECTED:
+		// 构建代次不同也能玩（12 起不再拒连，见 NetSession 握手处），但得一直看得见——
+		// 等真撞上不配套的行为再想起来"该更新了"就晚了
+		if (aSession->IsBuildDifferent())
+			return "Builds differ - connected";
 		return (aSession->GetRole() == NetSession::Role::HOST)
 			? "Host - pick a level"
 			: "Client - waiting for host";
