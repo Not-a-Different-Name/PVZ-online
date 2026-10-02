@@ -1,17 +1,18 @@
 #include "RunBuffs.h"
 
-// 文案一律英文：位图字体没有中文字形（同 M2 的所有新界面）。
+// 说明文案是中文，只走 RunPickDialog 的 SysFont（GDI）路径——位图字体没有中文字形；
+// 按钮上的名字（mName）保持英文，仍走位图字体。
 // 数值两列要和 mDesc 里的百分比对得上，改一边就改另一边。
 static const RunBuffDef gRunBuffDefs[RUN_BUFF_COUNT] =
 {
-	{ "Firepower",    "All shots deal +10% damage",        0.10f,  0 },
-	{ "Deep Roots",   "All plants gain +20% health",       0.20f,  0 },
-	{ "Abundance",    "Sun plants produce 20% faster",    -0.20f,  0 },
-	{ "Swift Strikes","Plants attack 10% faster",         -0.10f,  0 },
-	{ "Quick Seeds",  "Plant recharge is 15% faster",     -0.15f,  0 },
-	{ "Reserves",     "Start each level with +25 sun",     0.00f, 25 },
-	{ "Skyfall",      "Sun falls from the sky 20% faster",-0.20f,  0 },
-	{ "Demolition",   "Instant plants deal +30% damage",   0.30f,  0 },
+	{ "Firepower",    "所有子弹伤害 +10%",        0.10f,  0 },
+	{ "Deep Roots",   "所有植物血量 +20%",        0.20f,  0 },
+	{ "Abundance",    "产阳光植物更快 20%",      -0.20f,  0 },
+	{ "Swift Strikes","植物攻击速度 +10%",       -0.10f,  0 },
+	{ "Quick Seeds",  "种植冷却缩短 15%",        -0.15f,  0 },
+	{ "Reserves",     "每关开局 +25 阳光",        0.00f, 25 },
+	{ "Skyfall",      "天降阳光更快 20%",        -0.20f,  0 },
+	{ "Demolition",   "一次性植物伤害 +30%",      0.30f,  0 },
 };
 
 const RunBuffDef& GetRunBuffDef(int theId)
@@ -21,13 +22,14 @@ const RunBuffDef& GetRunBuffDef(int theId)
 }
 
 // 单株升级。数值列要和 mDesc 里的百分比对得上，改一边就改另一边。
+// （每层）前面的 \n 是排版用的显式换行，见 RunPickDialog 的中文排版。
 static const RunPlantUpgradeDef gRunPlantUpgradeDefs[RUN_PLANT_UPGRADE_COUNT] =
 {
-	{ SeedType::SEED_PEASHOOTER,  "Pea Volley",  "Peashooter fires +1 pea per stack",       0.00f },
-	{ SeedType::SEED_SUNFLOWER,   "Rich Bloom",  "Sunflower makes +1 sun per stack",        0.00f },
-	{ SeedType::SEED_CHERRYBOMB,  "Wide Blast",  "Cherry Bomb blast +25% wider per stack",  0.25f },
-	{ SeedType::SEED_WALLNUT,     "Thick Shell", "Wall-nut gains +25% health per stack",    0.25f },
-	{ SeedType::SEED_POTATOMINE,  "Deep Charge", "Potato Mine deals +40% damage per stack", 0.40f },
+	{ SeedType::SEED_PEASHOOTER,  "Pea Volley",  "豌豆射手每次多发 1 颗\n（每层）",        0.00f },
+	{ SeedType::SEED_SUNFLOWER,   "Rich Bloom",  "向日葵每次多产 1 阳光\n（每层）",        0.00f },
+	{ SeedType::SEED_CHERRYBOMB,  "Wide Blast",  "樱桃炸弹爆炸范围 +25%\n（每层）",        0.25f },
+	{ SeedType::SEED_WALLNUT,     "Thick Shell", "坚果墙血量 +25%\n（每层）",              0.25f },
+	{ SeedType::SEED_POTATOMINE,  "Deep Charge", "土豆雷伤害 +40%\n（每层）",              0.40f },
 };
 
 const RunPlantUpgradeDef& GetRunPlantUpgradeDef(int theIndex)
