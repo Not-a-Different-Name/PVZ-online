@@ -2,6 +2,7 @@
 #include "RunBuffs.h"
 #include <cstring>
 #include "../LawnCommon.h"
+#include "../../GameConstants.h"
 #include "../../Sexy.TodLib/TodDebug.h"
 #include "misc/Buffer.h"
 #include "misc/MTRand.h"
@@ -9,13 +10,14 @@
 
 // @pvz-online: 闯关状态的实体。检查点格式（小端，x86 直写）：
 //   u32 magic 'RUN1' + u16 版本 + u16 保留
-//   i32 runSeed + i32 levelIndex + u16 failCounts[5]
+//   i32 runSeed + i32 levelIndex + u16 failCounts[25]
 //   u16 卡池数 + 每株 u16 SeedType
 //   u16 buff 数 + 每条 (u16 id, u16 层数)
 // 版本不符 / 越界一律当"没有检查点"——宁可从头开新局，也不带着半截数据进场。
+// v2：一局从 5 关扩到 25 关，failCounts 数组跟着变长——v1 的档一律按"没有"处理。
 
 static const unsigned int RUN_CHECKPOINT_MAGIC = 0x314E5552;	// 'RUN1'
-static const unsigned short RUN_CHECKPOINT_VERSION = 1;
+static const unsigned short RUN_CHECKPOINT_VERSION = 2;
 
 static std::vector<unsigned char>& AppendU16(std::vector<unsigned char>& theData, unsigned int theValue)
 {
@@ -94,16 +96,28 @@ void RunState::StartNew(int theRunSeed)
 }
 
 // 一局的两处选卡口：开局先挑两株（手里有 4 株才进第 1 关），每过一关再挑两株 + 一个增益。
+// 卡池拿满 48 株后植物屏没得抽——那之后只发增益屏。
 void RunState::BeginStartPicks()
 {
-	mPendingPlantPicks = 2;
+	mPendingPlantPicks = CanOfferPlantPick() ? 2 : 0;
 	mPendingBuffPicks = 0;
 }
 
 void RunState::BeginLevelEndPicks()
 {
-	mPendingPlantPicks = 2;
+	mPendingPlantPicks = CanOfferPlantPick() ? 2 : 0;
 	mPendingBuffPicks = 1;
+}
+
+bool RunState::CanOfferPlantPick() const
+{
+	// 候选口径与 RollChoices 的植物屏一致：0..47 常规植物、排除模仿者。
+	for (int i = 0; i < NUM_SEEDS_IN_CHOOSER; i++)
+	{
+		if (i == (int)SeedType::SEED_IMITATER) continue;
+		if (!HasPlant((SeedType)i)) return true;
+	}
+	return false;
 }
 
 // 抽一屏的三条候选。种子挂上"这一屏是第几次抽"（mPickCounter），所以同一局里
@@ -182,6 +196,8 @@ void RunState::TakePlantChoice(int theIndex)
 		TodTrace("run: plant %d joins the pool (%d seeds)", (int)aSeed, (int)mPool.size());
 	}
 	mPendingPlantPicks--;
+	// 刚拿到最后一株没到手的植物：本次欠的植物屏到此为止（再选就没候选了）。
+	if (mPendingPlantPicks > 0 && !CanOfferPlantPick()) mPendingPlantPicks = 0;
 }
 
 void RunState::TakeBuffChoice(int theIndex)
@@ -226,9 +242,10 @@ bool RunState::HasPlant(SeedType theSeedType) const
 
 int RunState::LevelForIndex(int theIndex)
 {
-	static const int aLevels[RUN_LEVEL_COUNT] = { 1, 3, 5, 7, 9 };
+	// 五个场景（每场景原版 10 关）各取 5 关：场景内第 1/3/5/7/9 → mLevel 1,3,5,7,9 /
+	// 11,13,15,17,19 / 21,…,29 / 31,…,39 / 41,…,49（第 50 关是僵王关，不取）。
 	if (theIndex < 0 || theIndex >= RUN_LEVEL_COUNT) return -1;
-	return aLevels[theIndex];
+	return (theIndex / 5) * LEVELS_PER_AREA + (theIndex % 5) * 2 + 1;
 }
 
 int RunState::GetLevel() const

@@ -1286,7 +1286,7 @@ void LawnApp::UpdateOnlineEnd()
 			// @pvz-online: 联机闯关（R5）：全队过了这一关，走的不是"回主菜单"那条路——
 			// 回菜单会把 mRunState 删掉、这一局就没了。两边各自领本关的过关奖（各选各的），
 			// 棋盘留着当换关的背景；选完由 UpdateRunPick 走"主机点名 / 队友等点名"。
-			// 打完第 5 关的收尾（删检查点 + 回菜单 + 提示）两边各自做，做的是一样的。
+			// 打完第 25 关的收尾（删检查点 + 回菜单 + 提示）两边各自做，做的是一样的。
 			if (IsRunMode())
 			{
 				TodLog("[net] every lawn is clear - the run moves on");
@@ -1297,7 +1297,7 @@ void LawnApp::UpdateOnlineEnd()
 					RunState::DeleteCheckpoint(mPlayerInfo->mId);
 					ShowGameSelector();
 					LawnMessageBox(Dialogs::DIALOG_MESSAGE, "Run complete",
-						"You made it through all five levels!\nClick ADVENTURE for a new run.",
+						"You made it through all 25 levels!\nClick ADVENTURE for a new run.",
 						"OK", "", Dialog::BUTTONS_FOOTER);
 				}
 				else
@@ -1382,7 +1382,7 @@ void LawnApp::RetryOnlineLevel()
 
 // @pvz-online: 闯关（肉鸽）。入口是主菜单主位那块烤字 ADVENTURE 的大墓碑（见 RequestAdventure；
 // 第三槽的 PUZZLE 石板是原版战役入口，不吃这条路），流水线本身
-// 和联机无关：一局 = 按固定顺序打 5 关，每关的关卡号 + 波表种子喂给现成的覆盖通道
+// 和联机无关：一局 = 按固定顺序打 25 关（5 场景 × 5 关），每关的关卡号 + 波表种子喂给现成的覆盖通道
 // （SetOnlineStartOverride）。R5 的联机闯关复用同一套。
 //
 // 按下入口只记一个请求（mPendingAdventure），真动手全在主循环：开局要拆面板、拆主菜单、
@@ -1559,6 +1559,15 @@ void LawnApp::EnterRunLevel()
 // 把欠下的三选一补上。补做的屏和真打过的一模一样：候选由 runSeed + 关序号推导，各抽各的。
 void LawnApp::AlignRunToHost(int theRunSeed, int theTargetIndex)
 {
+	// 关序号来自对端（构建代次不同只提示、不拒连）：越界就按第 1 关处理——
+	// 旧构建的关卡表只有 5 格，混搭时别让它把越界值一路带进 LevelForIndex。
+	if (theTargetIndex < 0 || theTargetIndex >= RunState::RUN_LEVEL_COUNT)
+	{
+		TodLog("[run] the host named an out-of-range level index %d - treating it as the first level",
+			theTargetIndex);
+		theTargetIndex = 0;
+	}
+
 	if (mRunState != nullptr
 		&& (mRunState->mRunSeed != theRunSeed || mRunState->mLevelIndex > theTargetIndex))
 	{
@@ -1594,7 +1603,7 @@ void LawnApp::AlignRunToHost(int theRunSeed, int theTargetIndex)
 }
 
 // 这一关的收摊（CheckForGameEnd 的闯关分支）：闯关不写档、不发奖杯，过一关就是
-// "关序号 +1"，还有剩余关卡就接着进下一关；五关打完就把检查点删掉、回主菜单——
+// "关序号 +1"，还有剩余关卡就接着进下一关；25 关打完就把检查点删掉、回主菜单——
 // 这一局已经结束了，下次点冒险该开的是新的一局，而不是再问一遍"续不续"。
 void LawnApp::UpdateRunEnd()
 {
@@ -1607,7 +1616,7 @@ void LawnApp::UpdateRunEnd()
 		RunState::DeleteCheckpoint(mPlayerInfo->mId);
 		ShowGameSelector();
 		LawnMessageBox(Dialogs::DIALOG_MESSAGE, "Run complete",
-			"You made it through all five levels!\nClick ADVENTURE for a new run.",
+			"You made it through all 25 levels!\nClick ADVENTURE for a new run.",
 			"OK", "", Dialog::BUTTONS_FOOTER);
 	}
 	else
@@ -2865,7 +2874,7 @@ bool LawnApp::UpdatePlayerProfileForFinishingLevel()
 	// @pvz-online: 联机局不写档。这里是"过关推进存档"的唯一闸口——CheckForGameEnd 和
 	// Board::CompleteEndLevelSequenceForSaving 都汇到这儿——所以在这儿早退最省事、也最不漏。
 	// 联机这一局不推进 mLevel、不发奖杯，两边各打各的、打完各回各的菜单（成长留 M4）。
-	// 闯关局同理：一局 5 关全靠检查点记着，mPlayerInfo 一个字都不动。
+	// 闯关局同理：一局 25 关全靠检查点记着，mPlayerInfo 一个字都不动。
 	if (IsOnlineGame() || IsRunMode()) return false;
 
 	bool aUnlockedNewChallenge = false;

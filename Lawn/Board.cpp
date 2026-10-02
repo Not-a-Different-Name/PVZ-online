@@ -330,7 +330,7 @@ void Board::TryToSaveGame()
 	// @pvz-online: 联机局不写档。这里存的是"这一局打到哪儿了、下次接着打"的续玩存档，
 	// 联机的一盘棋是两边一起走的，没有"下次我一个人接着打"这回事。三个调用点
 	// （退关、清桌面、关窗）都从这一个口子走，所以在这儿早退就够。
-	// 闯关局同理：一局 5 关记在自己的检查点里，"接着打"由 CONTINUE RUN 负责，
+	// 闯关局同理：一局 25 关记在自己的检查点里，"接着打"由 CONTINUE RUN 负责，
 	// 不走原版的续玩存档（那会去动 user%d.dat 里的 mLevel）。
 	if (mApp->IsOnlineGame() || mApp->IsRunMode()) return;
 
@@ -623,8 +623,8 @@ void Board::PickZombieWaves()
 		else
 		{
 			mNumWaves = gZombieWaves[ClampInt(mLevel - 1, 0, 49)];
-			// @pvz-online: 闯关不吃"+10"这一勺：5 关的波数固定是波表的原始值
-			//（4/8/8/10/20），谁玩、在哪个档案上玩都一样。难度靠关卡号和怪的种类涨。
+			// @pvz-online: 闯关不吃"+10"这一勺：波数固定是波表的原始值，
+			// 谁玩、在哪个档案上玩都一样。难度靠关卡号、场景阶梯和怪的种类涨。
 			if (!mApp->IsFirstTimeAdventureMode() && !mApp->IsMiniBossLevel() && !mApp->IsRunMode())
 			{
 				mNumWaves = mNumWaves < 10 ? 20 : mNumWaves + 10;

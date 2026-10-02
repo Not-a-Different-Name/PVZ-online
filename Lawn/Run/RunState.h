@@ -7,8 +7,9 @@
 
 // @pvz-online: 全流程闯关（肉鸽）的本地状态 + 检查点文件。
 //
-// 一局 = 5 关：玩家看到的是白天第 2/4/6/8/10 关，喂给引擎的 mLevel 是 1/3/5/7/9
-// （场景与难度只由关卡号推出，所以"第几关"就是这一串序号）。
+// 一局 = 25 关：五个场景（白天 → 夜 → 泳池 → 迷雾 → 屋顶）各 5 关，每场景取原版的
+// 第 2/4/6/8/10 关（喂给引擎的 mLevel 是该场景的 1/3/5/7/9，见 LevelForIndex）——
+// 场景与难度只由关卡号推出，所以"第几关"就是这一串序号。
 // 卡池随三选一逐关变大、buff 跟着这一局走——检查点把这两样一起带走。
 //
 // 检查点写在 userdata/run%d.dat，和 user%d.dat（本机档案进度）完全分开：
@@ -20,7 +21,7 @@
 class RunState
 {
 public:
-	static const int	RUN_LEVEL_COUNT		= 5;
+	static const int	RUN_LEVEL_COUNT		= 25;	// 5 场景 × 5 关
 	static const int	RUN_SEED_SLOTS		= 8;	// 种子槽固定 8 格（覆盖原版 mPurchases+6 规则）
 	static const int	RUN_POOL_MAX		= 48;	// 卡池上限 = 全部植物
 	static const int	RUN_CHOICES			= 3;	// 一屏摆几张卡
@@ -46,7 +47,7 @@ public:
 	// @pvz-online 内存态：这一局正在打（含"刚过关、正要进下一关"的空档）。
 	// 回主菜单 = LawnApp 把这个对象删掉；检查点留在盘上，续关时重新读出来。
 	int							mRunSeed;		// 这一局的种子：每关波表的种子由它推导，重开同一关不变
-	int							mLevelIndex;	// 0..4 = 当前（或待打的）关序号；>= RUN_LEVEL_COUNT = 已通关
+	int							mLevelIndex;	// 0..(RUN_LEVEL_COUNT-1) = 当前（或待打的）关序号；>= RUN_LEVEL_COUNT = 已通关
 	std::vector<SeedType>		mPool;			// 这一局的卡池（按加入顺序；起始 = 向日葵 + 豌豆射手）
 	std::vector<BuffStack>		mBuffs;			// 这一局拿到的 buff（同名可叠加）
 	int							mFailCounts[RUN_LEVEL_COUNT];	// 每关失败次数（首版只存不用，平衡阶段再定惩罚）
@@ -64,8 +65,12 @@ public:
 
 	// 该选植物 / 该选 buff 了（一局开始时先挑两株——进第 1 关前手里就有 4 株；
 	// 每过一关再挑两株 + 一个增益）。只负责"欠几屏"，候选由 RollChoices 现抽。
+	// 卡池拿满 48 株时植物屏没得抽，这两处会自动少发/不发植物屏（见 CanOfferPlantPick）。
 	void				BeginStartPicks();
 	void				BeginLevelEndPicks();
+	// 卡池里还有没到手的植物（种子屏才有候选）。玩家最多能拿到 48 株，25 关后段
+	// 每关 +2 株必然抽干候选——抽干了就不再发植物屏，只发增益屏。
+	bool				CanOfferPlantPick() const;
 	bool				HasPendingPick() const { return mPendingPlantPicks > 0 || mPendingBuffPicks > 0; }
 	// 这一屏发的是植物（true）还是 buff（false）。
 	bool				IsPlantPick() const { return mPendingPlantPicks > 0; }
