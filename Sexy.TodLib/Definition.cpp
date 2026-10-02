@@ -1414,7 +1414,9 @@ void DefinitionFreeMap(DefMap* theDefMap, char* theDefinition)
         switch (aField->mFieldType)
         {
         case DefFieldType::DT_STRING:
-            if (*(char*)theArray->mArrayData == '\0')
+            // @pvz-online 修复：空串是 "" 字面量（构造函数默认与缓存零长串都是 ""），绝不能 delete[]；
+            // 只有非空串是 DefinitionAlloc 分配的。原条件写反，关窗释放定义时删字面量 → 调试堆崩溃。
+            if (theArray->mArrayData != nullptr && *(char*)theArray->mArrayData != '\0')
                 delete[] (char*)theArray->mArrayData;  // 释放字符数组
             theArray->mArrayData = nullptr;
             break;
