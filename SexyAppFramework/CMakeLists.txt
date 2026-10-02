@@ -75,12 +75,14 @@ source_group("Lawn\\Online\\Online Source" FILES ${Lawn__Online__Online_Source})
 set(Lawn__Run__Run_Include
     "../Lawn/Run/RunState.h"
     "../Lawn/Run/RunBuffs.h"
+    "../Lawn/Run/RunZombieRoster.h"
 )
 source_group("Lawn\\Run\\Run Include" FILES ${Lawn__Run__Run_Include})
 
 set(Lawn__Run__Run_Source
     "../Lawn/Run/RunState.cpp"
     "../Lawn/Run/RunBuffs.cpp"
+    "../Lawn/Run/RunZombieRoster.cpp"
 )
 source_group("Lawn\\Run\\Run Source" FILES ${Lawn__Run__Run_Source})
 

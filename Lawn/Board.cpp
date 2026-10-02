@@ -36,6 +36,7 @@
 #include "Online/NetSession.h"
 #include "Run/RunState.h"
 #include "Run/RunBuffs.h"
+#include "Run/RunZombieRoster.h"
 
 //#define SEXY_MEMTRACE
 //#include "../SexyAppFramework/memmgr.h"
@@ -582,6 +583,17 @@ void ZombiePickerInit(ZombiePicker* theZombiePicker)
 	memset(theZombiePicker->mAllWavesZombieTypeCount, 0, sizeof(theZombiePicker->mAllWavesZombieTypeCount));
 }
 
+// @pvz-online: 闯关里僵尸的"点数值"（M4-a 用户定案"再激进一档"）：巨人系两只从 10 压到 4。
+// 准入判定（PickZombieType）与扣点必须走同一口径，不然"买得起"和"扣多少"对不上。
+static int RunZombieValue(ZombieType theZombieType)
+{
+	if (theZombieType == ZombieType::ZOMBIE_GARGANTUAR || theZombieType == ZombieType::ZOMBIE_REDEYE_GARGANTUAR)
+	{
+		return RunState::RUN_GARGANTUAR_VALUE;
+	}
+	return GetZombieDefinition(theZombieType).mZombieValue;
+}
+
 //0x409240
 void Board::PutZombieInWave(ZombieType theZombieType, int theWaveNumber, ZombiePicker* theZombiePicker)
 {
@@ -591,7 +603,8 @@ void Board::PutZombieInWave(ZombieType theZombieType, int theWaveNumber, ZombieP
 	{
 		mZombiesInWave[theWaveNumber][theZombiePicker->mZombieCount] = ZombieType::ZOMBIE_INVALID;
 	}
-	theZombiePicker->mZombiePoints -= GetZombieDefinition(theZombieType).mZombieValue;
+	int aZombieValue = mApp->IsRunMode() ? RunZombieValue(theZombieType) : GetZombieDefinition(theZombieType).mZombieValue;
+	theZombiePicker->mZombiePoints -= aZombieValue;
 	theZombiePicker->mZombieTypeCount[theZombieType]++;
 	theZombiePicker->mAllWavesZombieTypeCount[theZombieType]++;
 }
@@ -759,7 +772,11 @@ void Board::PickZombieWaves()
 		// △ 向出怪列表中加入固定刷出的僵尸
 		// ------------------------------------------------------------------------------------------------
 		// 部分新出现的僵尸会在特定波固定刷出
-		if (aIntroZombieType != ZombieType::ZOMBIE_INVALID && aIntroZombieType != ZombieType::ZOMBIE_DUCKY_TUBE)
+		// @pvz-online: 闯关里"初次登场固定刷一只"也要过名单（M4-a）：原版按 startingLevel==mLevel
+		// 找登场怪，闯关抽的是中后段关号，会撞上原版意义上的登场怪（如 L40 的雪人）——
+		// 名单里没有它就不许塞。
+		if (aIntroZombieType != ZombieType::ZOMBIE_INVALID && aIntroZombieType != ZombieType::ZOMBIE_DUCKY_TUBE &&
+			(!mApp->IsRunMode() || CanZombieSpawnOnLevel(aIntroZombieType, mLevel)))
 		{
 			bool aSpawnIntro = false;
 			if ((aIntroZombieType == ZombieType::ZOMBIE_DIGGER || aIntroZombieType == ZombieType::ZOMBIE_BALLOON))
@@ -793,7 +810,9 @@ void Board::PickZombieWaves()
 			PutZombieInWave(ZombieType::ZOMBIE_GARGANTUAR, aWave, &aZombiePicker);
 		}
 		// 冒险模式关卡的最后一波会出现本关卡可能出现的所有僵尸
-		if (mApp->IsAdventureMode() && aIsFinalWave)
+		// @pvz-online: 闯关不调它（M4-a 用户定案"关掉"）：名单里的怪本来就全程按权重出，
+		// "末波挨个露面"反而把没抽到的高价怪硬塞进最后一波，破坏"点数多出强怪"的节奏。
+		if (mApp->IsAdventureMode() && aIsFinalWave && !mApp->IsRunMode())
 		{
 			PutInMissingZombies(aWave, &aZombiePicker);
 		}
@@ -1251,7 +1270,9 @@ void Board::InitZombieWavesForLevel(int theForLevel)
 
 bool Board::IsZombieWaveDistributionOk()
 {
-	if (!mApp->IsAdventureMode())
+	// @pvz-online: 闯关不承诺"名单里的怪都得露面"（末波露面机制被有意关掉），
+	// 这条原版契约在闯关里不成立——放行，免得 debug 构建被自己的断言炸掉。
+	if (!mApp->IsAdventureMode() || mApp->IsRunMode())
 		return true;
 
 	int aZombieTypeCount[(int)ZombieType::NUM_ZOMBIE_TYPES] = { 0 };
@@ -2541,6 +2562,14 @@ Projectile* Board::AddProjectile(int theX, int theY, int theRenderOrder, int the
 //0x40D660
 bool Board::CanZombieSpawnOnLevel(ZombieType theZombieType, int theLevel)
 {
+	// @pvz-online: 闯关的准入只看名单（RunZombieRoster，按关序号逐格加码，含屋顶剔除）：
+	// 不看原版 startingLevel / allowedLevels 表，雪人也不放——名单之外一律免谈。
+	// 行/场硬约束（水路只收会水的、雪橇要有冰道、0 行禁巨人）在名单之外照旧自动生效。
+	if (gLawnApp->IsRunMode())
+	{
+		return RunZombieAllowedOnLevel(theZombieType, RunLevelIndexForEngineLevel(theLevel));
+	}
+
 	const ZombieDefinition& aZombieDef = GetZombieDefinition(theZombieType);
 	if (theZombieType == ZombieType::ZOMBIE_YETI)
 	{
@@ -2628,6 +2657,22 @@ ZombieType Board::PickZombieType(int theZombiePoints, int theWaveIndex, ZombiePi
 				continue;
 			}
 		}
+		// @pvz-online: 闯关的出类闸（M4-a，用户定案"再激进一档"）：不走"最早出现波数"，
+		// 只看点数买不买得起——"这一关有没有它"已在名单（CanZombieSpawnOnLevel）答过。
+		// 巨人系价值压到 4（RunZombieValue），另吃每波合计上限：不设闸的话点数富余的波
+		// 会一路连抽巨人，一波能到五六只。
+		else if (mApp->IsRunMode())
+		{
+			if (theZombiePoints < RunZombieValue((ZombieType)aZombieType))
+			{
+				continue;
+			}
+			if ((aZombieType == ZombieType::ZOMBIE_GARGANTUAR || aZombieType == ZombieType::ZOMBIE_REDEYE_GARGANTUAR) &&
+				theZombiePicker->mZombieTypeCount[(int)ZombieType::ZOMBIE_GARGANTUAR] + theZombiePicker->mZombieTypeCount[(int)ZombieType::ZOMBIE_REDEYE_GARGANTUAR] >= RunState::RUN_GARGANTUAR_CAP)
+			{
+				continue;
+			}
+		}
 		// 僵尸最早出现的波数的限制（出怪限制）
 		else if (aGameMode != GameMode::GAMEMODE_CHALLENGE_POGO_PARTY && aGameMode != GameMode::GAMEMODE_CHALLENGE_BOBSLED_BONANZA && aGameMode != GameMode::GAMEMODE_CHALLENGE_AIR_RAID)
 		{
@@ -2688,6 +2733,12 @@ ZombieType Board::PickZombieType(int theZombiePoints, int theWaveIndex, ZombiePi
 			{
 				aPickWeight = TodAnimateCurve(10, 50, aFlags, aPickWeight, aPickWeight / 4, TodCurves::CURVE_LINEAR);
 			}
+		}
+		// @pvz-online: 闯关里红眼与普通巨人同级（M4-a 用户定案）：价值同为 4 之后红眼不再
+		// 按"稀有怪"抽，权重直接沿用普通巨人那一档。
+		else if (mApp->IsRunMode() && aZombieType == ZombieType::ZOMBIE_REDEYE_GARGANTUAR)
+		{
+			aPickWeight = GetZombieDefinition(ZombieType::ZOMBIE_GARGANTUAR).mPickWeight;
 		}
 		aZombieWeightArray[aPickCount].mItem = aZombieType;
 		aZombieWeightArray[aPickCount].mWeight = aPickWeight;
