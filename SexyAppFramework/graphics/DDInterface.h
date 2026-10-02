@@ -55,6 +55,10 @@ public:
 	int						mDesktopHeight;
 	Ratio					mDesktopAspect;
 	bool					mIsWidescreen;
+	// @pvz-online: 缩放呈现后画面区外面那四条黑边（letterbox）需要刷。只在尺寸刚变过时为真，
+	// Redraw 见到就把四条边铺黑、随即清掉——稳态下每帧对主表面只有"贴画面"这一次写。
+	// 详见 DDInterface.cpp 里 Redraw 的那段说明。
+	bool					mBarsDirty;
 	int						mDisplayWidth;
 	int						mDisplayHeight;
 	Ratio					mDisplayAspect;

@@ -58,6 +58,7 @@ DDInterface::DDInterface(SexyAppBase* theApp)
 	mInitCount = 0;
 	mRefreshRate = 60;
 	mMillisecondsPerFrame = 1000/mRefreshRate;
+	mBarsDirty = false;
 
 	mD3DInterface = new D3DInterface;
 	mIs3D = false;
@@ -296,6 +297,7 @@ int DDInterface::Init(HWND theWindow, bool IsWindowed)
 	// @pvz-online: 拖拽改大小那条路会在运行中把它置真（见 SetClientSize）。窗口是重建的
 	// （窗口化 <-> 全屏切换都走 MakeWindow + Init），这里得从"没缩放"重新判。
 	mIsWidescreen = false;
+	mBarsDirty = false;
 	mApp->mScreenBounds = mPresentationRect;
 	mFullscreenBits = mApp->mFullscreenBits;
 	mIsWindowed = IsWindowed;
@@ -757,6 +759,8 @@ void DDInterface::SetClientSize(int theClientWidth, int theClientHeight)
 	// 用的是逻辑坐标当客户区坐标使，只有走 mIsWidescreen 那条路（整帧贴）才是对的。
 	mIsWidescreen = (aNewRect.mX != 0 || aNewRect.mY != 0
 		|| aNewRect.mWidth != mWidth || aNewRect.mHeight != mHeight);
+	// 黑边的形状跟着呈现矩形走：这次变了，下一帧 Redraw 把四条边重铺一遍
+	mBarsDirty = true;
 }
 
 ulong DDInterface::GetColorRef(ulong theRGB)
@@ -995,19 +999,41 @@ bool DDInterface::Redraw(Rect* theClipRect)
 		HRESULT aResult;
 
 		// @pvz-online: 拖拽改大小之后，背缓冲是等比缩放居中贴出去的，客户区里剩下四条边
-		// （letterbox）。窗口化下主表面就是桌面表面，这几条边不主动刷就是别的窗口留下的
-		// 残影——每帧先拿黑把整个客户区铺一遍，再把画面盖上去（裁剪器钉在这个窗口上，
-		// 铺不出客户区）。
-		if (mIsWidescreen)
+		// （letterbox）得有人刷黑。规矩是：**只在尺寸刚变过时刷，而且只刷画面区之外那四条边**。
+		//
+		// 别把"刷黑"做成每帧一次整客户区填充——那是每帧对主表面写两次（先铺黑再贴画面），
+		// 两次之间那个全黑的中间态有可能被合成器当成一帧显示出来，放大窗口后整窗一闪一闪。
+		// 四条边和画面区不重叠，铺完就是恒定的黑，随便怎么重复铺都不会有可见变化；
+		// 而画面区每帧只被下面那次贴图写一次，和没缩放时一样。
+		// 尺寸不变时也没人往边上写：客户区里头只有我们自己画（裁剪器钉在这个窗口上）。
+		if (mIsWidescreen && mBarsDirty)
 		{
+			DDBLTFX aFillFX;
+			ZeroMemory(&aFillFX, sizeof(aFillFX));
+			aFillFX.dwSize = sizeof(aFillFX);
+
 			RECT aClientRect;
 			::GetClientRect(mHWnd, &aClientRect);
 			OffsetRect(&aClientRect, aPoint.x, aPoint.y);
 
-			DDBLTFX aFillFX;
-			ZeroMemory(&aFillFX, sizeof(aFillFX));
-			aFillFX.dwSize = sizeof(aFillFX);
-			aResult = mPrimarySurface->Blt(&aClientRect, NULL, NULL, DDBLT_COLORFILL | DDBLT_WAIT, &aFillFX);
+			RECT aPresentRect = mPresentationRect.ToRECT();
+			OffsetRect(&aPresentRect, aPoint.x, aPoint.y);
+
+			// 上下两条横穿整个客户区，左右两条只占中间那一段（和画面区正好不重叠）
+			RECT aBars[4] =
+			{
+				{aClientRect.left, aClientRect.top, aClientRect.right, aPresentRect.top},
+				{aClientRect.left, aPresentRect.bottom, aClientRect.right, aClientRect.bottom},
+				{aClientRect.left, aPresentRect.top, aPresentRect.left, aPresentRect.bottom},
+				{aPresentRect.right, aPresentRect.top, aClientRect.right, aPresentRect.bottom}
+			};
+			for (int i = 0; i < 4; i++)
+			{
+				if ((aBars[i].right > aBars[i].left) && (aBars[i].bottom > aBars[i].top))
+					aResult = mPrimarySurface->Blt(&aBars[i], NULL, NULL, DDBLT_COLORFILL | DDBLT_WAIT, &aFillFX);
+			}
+
+			mBarsDirty = false;
 		}
 
 		//DWORD aScanLine;
