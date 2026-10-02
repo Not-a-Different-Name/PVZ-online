@@ -41,7 +41,11 @@ const uint16_t	PROTOCOL_VERSION	= 1;
 // 11 → 12：构建不一致不再拒连（只提示、照常玩——见 NetSession 握手处），
 //        判死的会话不再被 Update 每帧复活。两条都是握手/生命周期行为，
 //        要两边都更新才有意义，所以照样抬。
-const uint16_t	MOD_BUILD			= 13;
+// 12 → 13：全队败流程（两边都演"吃脑子"，之后只有主机能点 Try Again 整队重来同一关）。
+// 13 → 14：联机闯关（R5）——开局命令带闯关上下文（局种子 + 关序号），队友拿来自我对齐、
+//        补发追赶；主机换关 / 整队重来也走同一条"广播 + 等 START_ACK"。包长变了，
+//        旧构建收到会被当串包拒掉，两边必须同版本。
+const uint16_t	MOD_BUILD			= 14;
 
 const uint16_t	DEFAULT_PORT		= 27777;
 
@@ -197,8 +201,12 @@ struct MsgHelloAck
 	char			mName[NAME_SIZE];
 };
 
-// START_LEVEL：{ srcSeat, dstSeat, u8 gameMode, u32 level, i32 levelSeed }
+// START_LEVEL：{ srcSeat, dstSeat, u8 gameMode, u32 level, i32 levelSeed,
+//                u8 isRun, i32 runSeed, u8 runLevelIndex }
 // levelSeed 是主机 GetLevelRandSeed() 的完整返回值（它含主机存档 ID，客户端必须整体覆盖）。
+// 闯关局（isRun=1）多带"这一局是谁的局、打到第几关"：队友拿它对上自己的检查点，
+// 没检查点 / 对不上就从这一局的起点摆起、把欠下的三选一补回来（补做的屏和真打过的一模一样，
+// 候选由 runSeed + 关序号推导）。单关局这三格全是 0，老语义一字不变。
 struct MsgStartLevel
 {
 	uint8_t			mSrcSeat;
@@ -206,6 +214,9 @@ struct MsgStartLevel
 	uint8_t			mGameMode;
 	uint32_t		mLevel;
 	int32_t			mLevelSeed;
+	uint8_t			mIsRun;
+	int32_t			mRunSeed;
+	uint8_t			mRunLevelIndex;
 };
 
 // LEVEL_DONE：{ srcSeat, dstSeat, u8 done }（1 = 我这块草坪清完了，0 = 又不清净了）
@@ -321,6 +332,9 @@ inline int EncodeStartLevel(uint8_t* theBuffer, int theCapacity, const MsgStartL
 	aWriter.U8(theMsg.mGameMode);
 	aWriter.U32(theMsg.mLevel);
 	aWriter.I32(theMsg.mLevelSeed);
+	aWriter.U8(theMsg.mIsRun);
+	aWriter.I32(theMsg.mRunSeed);
+	aWriter.U8(theMsg.mRunLevelIndex);
 	return aWriter.Overflowed() ? -1 : aWriter.Size();
 }
 
@@ -332,6 +346,9 @@ inline bool DecodeStartLevel(const uint8_t* theData, int theSize, MsgStartLevel&
 	theMsg.mGameMode = aReader.U8();
 	theMsg.mLevel = aReader.U32();
 	theMsg.mLevelSeed = aReader.I32();
+	theMsg.mIsRun = aReader.U8();
+	theMsg.mRunSeed = aReader.I32();
+	theMsg.mRunLevelIndex = aReader.U8();
 	return !aReader.Overflowed();
 }
 

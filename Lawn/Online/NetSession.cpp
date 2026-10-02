@@ -9,7 +9,7 @@ namespace
 
 const int	HELLO_PAYLOAD_SIZE		= 6 + NetProto::NAME_SIZE;		// src, dst, u16 version, u16 build, 名字
 const int	HELLO_ACK_PAYLOAD_SIZE	= 7 + NetProto::NAME_SIZE;		// src, dst, u16 version, u16 build, u8 accepted, 名字
-const int	START_LEVEL_PAYLOAD_SIZE = 11;	// src, dst, u8 mode, u32 level, i32 seed
+const int	START_LEVEL_PAYLOAD_SIZE = 17;	// src, dst, u8 mode, u32 level, i32 seed, u8 isRun, i32 runSeed, u8 runLevelIndex
 const int	START_ACK_PAYLOAD_SIZE	= 3;	// src, dst, u8 accepted
 const int	SWAP_REQUEST_PAYLOAD_SIZE = 2;	// src, dst
 const int	SWAP_REPLY_PAYLOAD_SIZE = 3;	// src, dst, u8 accepted
@@ -848,8 +848,16 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 			// 它真进场的时候才回 START_ACK——没进场的命令不能让主机先进去。
 			mPendingStart = aMsg;
 			mHasPendingStart = true;
-			TodLog("[net] host started: mode %u level %u seed %d",
-				(unsigned)aMsg.mGameMode, (unsigned)aMsg.mLevel, (int)aMsg.mLevelSeed);
+			if (aMsg.mIsRun)
+			{
+				TodLog("[net] host started the run: level %u seed %d (run seed %d, level index %u)",
+					(unsigned)aMsg.mLevel, (int)aMsg.mLevelSeed, (int)aMsg.mRunSeed, (unsigned)aMsg.mRunLevelIndex);
+			}
+			else
+			{
+				TodLog("[net] host started: mode %u level %u seed %d",
+					(unsigned)aMsg.mGameMode, (unsigned)aMsg.mLevel, (int)aMsg.mLevelSeed);
+			}
 		}
 		break;
 
@@ -1120,7 +1128,8 @@ void NetSession::SendHelloAck(bool theAccepted)
 	if (aSize > 0) SendRaw(NetProto::MSG_HELLO_ACK, aPayload, aSize);
 }
 
-bool NetSession::SendStartLevel(uint8_t theGameMode, uint32_t theLevel, int32_t theLevelSeed)
+bool NetSession::SendStartLevel(uint8_t theGameMode, uint32_t theLevel, int32_t theLevelSeed,
+	bool theIsRun, int32_t theRunSeed, uint8_t theRunLevelIndex)
 {
 	if (mRole != Role::HOST || !IsConnected()) return false;
 
@@ -1130,13 +1139,24 @@ bool NetSession::SendStartLevel(uint8_t theGameMode, uint32_t theLevel, int32_t 
 	aMsg.mGameMode = theGameMode;
 	aMsg.mLevel = theLevel;
 	aMsg.mLevelSeed = theLevelSeed;
+	aMsg.mIsRun = theIsRun ? 1 : 0;
+	aMsg.mRunSeed = theRunSeed;
+	aMsg.mRunLevelIndex = theRunLevelIndex;
 
 	uint8_t aPayload[NetProto::MAX_PAYLOAD];
 	int aSize = NetProto::EncodeStartLevel(aPayload, (int)sizeof(aPayload), aMsg);
 	if (aSize <= 0) return false;
 
-	TodLog("[net] telling the client to start: mode %u level %u seed %d",
-		(unsigned)theGameMode, (unsigned)theLevel, (int)theLevelSeed);
+	if (theIsRun)
+	{
+		TodLog("[net] telling the client to enter run level %u (run seed %d, level index %u)",
+			(unsigned)theLevel, (int)theRunSeed, (unsigned)theRunLevelIndex);
+	}
+	else
+	{
+		TodLog("[net] telling the client to start: mode %u level %u seed %d",
+			(unsigned)theGameMode, (unsigned)theLevel, (int)theLevelSeed);
+	}
 	ClearPauseState();		// 新的一局：暂停态从头开始记
 	ClearLevelDoneState();	// "谁清完了"同理
 	return SendRaw(NetProto::MSG_START_LEVEL, aPayload, aSize);
