@@ -62,8 +62,9 @@ const uint16_t	MOD_BUILD			= 17;
 
 const uint16_t	DEFAULT_PORT		= 27777;
 
-// 中继服务器端口。故意和直连同号：少记一个数，服务器上开一个口就够。
-const uint16_t	DEFAULT_RELAY_PORT	= 27777;
+// 中继服务器端口。云服务器上用的是 97（那边预留/已放行的口）；直连模式仍走
+// DEFAULT_PORT，两者互相独立。
+const uint16_t	DEFAULT_RELAY_PORT	= 97;
 
 const uint8_t	SEAT_UNSET			= 0;
 const uint8_t	SEAT_HOST			= 1;	// 建房方

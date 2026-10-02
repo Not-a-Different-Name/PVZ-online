@@ -99,7 +99,7 @@ OnlineDialog::OnlineDialog(LawnApp* theApp) :
 	mServerEditWidget = CreateOnlineEditWidget(OnlineDialog::OnlineDialog_ServerEdit, this, this,
 		OnlineEditWidget::FILTER_HOST);
 	mServerEditWidget->mMaxChars = 15;
-	mServerEditWidget->SetText(_S("127.0.0.1"), true);	// P4 部署后默认填云服务器地址
+	mServerEditWidget->SetText(_S("101.200.131.182"), true);	// 云服务器（P4 部署，端口 97 见 NetProtocol.h）
 
 	mCodeEditWidget = CreateOnlineEditWidget(OnlineDialog::OnlineDialog_CodeEdit, this, this,
 		OnlineEditWidget::FILTER_CODE);
