@@ -11,6 +11,7 @@ const int	HELLO_PAYLOAD_SIZE		= 6 + NetProto::NAME_SIZE;		// src, dst, u16 versi
 const int	HELLO_ACK_PAYLOAD_SIZE	= 7 + NetProto::NAME_SIZE;		// src, dst, u16 version, u16 build, u8 accepted, 名字
 const int	START_LEVEL_PAYLOAD_SIZE = 17;	// src, dst, u8 mode, u32 level, i32 seed, u8 isRun, i32 runSeed, u8 runLevelIndex
 const int	START_ACK_PAYLOAD_SIZE	= 3;	// src, dst, u8 accepted
+const int	RUN_GO_PAYLOAD_SIZE		= 2;	// src, dst
 const int	SWAP_REQUEST_PAYLOAD_SIZE = 2;	// src, dst
 const int	SWAP_REPLY_PAYLOAD_SIZE = 3;	// src, dst, u8 accepted
 const int	ESCAPED_ZOMBIE_PAYLOAD_SIZE = 22;	// src, dst, u8 row, u16 type, u8 flags, i32 ×4 血量
@@ -64,6 +65,7 @@ NetSession::NetSession()
 	mHasPendingStart = false;
 	mHasStartAck = false;
 	mStartAckAccepted = false;
+	mHasRunGo = false;
 	mHasPendingLevelExit = false;
 	mAllDoneTaken = false;
 	mHasPendingGameOver = false;
@@ -266,6 +268,14 @@ bool NetSession::TakeStartAck(bool& theAccepted)
 
 	mHasStartAck = false;
 	theAccepted = mStartAckAccepted;
+	return true;
+}
+
+bool NetSession::TakeRunGo()
+{
+	if (!mHasRunGo) return false;
+
+	mHasRunGo = false;
 	return true;
 }
 
@@ -487,6 +497,7 @@ void NetSession::DiscardLevelPackets()
 	mHasPendingStart = false;
 	mHasStartAck = false;
 	mStartAckAccepted = false;
+	mHasRunGo = false;
 	mHasPendingLevelExit = false;
 	mPendingEscapedZombies.clear();
 	ClearPauseState();
@@ -1069,6 +1080,22 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 		}
 		break;
 
+	case NetProto::MSG_RUN_GO:
+		{
+			if (mRole != Role::CLIENT) return;		// 只有客户端在等这条
+
+			NetProto::MsgRunGo aMsg;
+			if (aPayloadSize != RUN_GO_PAYLOAD_SIZE || !NetProto::DecodeRunGo(aPayload, aPayloadSize, aMsg))
+			{
+				SetDead("A player sent a malformed packet.");
+				return;
+			}
+			// 单槽：放行是个状态（"可以开始选了"），连着收到两回只当一回
+			mHasRunGo = true;
+			TodLog("[net] the host says go: the whole team is on the lawn");
+		}
+		break;
+
 	default:
 		// 没见过的消息类型：长度合法性已经在头上查过，帧长（头里的 len）还对得上，
 		// 所以丢掉这一条就行，不必断线。跨版本不是靠这儿挡的——构建代次不同现在照连
@@ -1179,6 +1206,22 @@ void NetSession::SendStartAck(bool theAccepted)
 			: "[net] telling the host I cannot enter the level right now");
 		SendRaw(NetProto::MSG_START_ACK, aPayload, aSize);
 	}
+}
+
+bool NetSession::SendRunGo()
+{
+	if (mRole != Role::HOST || !IsConnected()) return false;
+
+	NetProto::MsgRunGo aMsg;
+	aMsg.mSrcSeat = mLocalSeat;
+	aMsg.mDstSeat = mPeerSeat;
+
+	uint8_t aPayload[NetProto::MAX_PAYLOAD];
+	int aSize = NetProto::EncodeRunGo(aPayload, (int)sizeof(aPayload), aMsg);
+	if (aSize <= 0) return false;
+
+	TodLog("[net] telling the team to start their picks");
+	return SendRaw(NetProto::MSG_RUN_GO, aPayload, aSize);
 }
 
 bool NetSession::SendLevelExit(uint8_t theReason)

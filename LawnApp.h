@@ -160,10 +160,17 @@ public:
 	// 真开局全在主循环：要拆面板、拆主菜单、建棋盘，还可能先弹一个"续不续"的询问框
 	// （询问框是 WaitForResult，只能从主循环里调）。见 LawnApp::RequestAdventure。
 	bool							mPendingAdventure;
-	// @pvz-online: 联机闯关（R5）客户端侧：主机的"进这一关"命令到了，但自己这屏三选一
-	// （补发追赶可能是好几屏）还没选完——命令先寄存着，选完由 UpdateRunPick 收口进场
-	// （回 START_ACK、建棋盘）。早回一句 ACK 主机就一个人开打，中继给谁的怪就落空了。
+	// @pvz-online: 联机闯关（R5/R6）客户端侧：主机的"进这一关"命令到了，但自己这屏三选一
+	// （补发追赶可能是好几屏）还没选完——命令先寄存着，选完由 UpdateRunPick 收口进场。
+	// 从收到命令起为真（收到就回 START_ACK，"我进场了"），直到真放开开场、掉线或重开为止。
 	bool							mOnlineRunStartHeld;
+	// @pvz-online: 联机闯关（R6）新时序：主机的 RUN_GO（全队都已进草坪）到了。时序是
+	// 命令先到（建草坪、压住开场）→ RUN_GO 到（在新草坪上放选项屏）→ 选完放开开场。
+	// 客户端只在自己正寄存（held）时认它；收到新命令先清旧的 GO（见 UpdateOnlineStart）。
+	bool							mOnlineRunGo;
+	// @pvz-online: 联机闯关（R6）：草坪已经建好、但这一关的选项屏还没做完——把
+	// "选卡 + 开场"压住（NewGame 里设，UpdateRunPick 里选完释放）。单关局恒假。
+	bool							mRunIntroHeld;
 	// @pvz-online: 客户端侧的"是否加入"询问框（人停在主菜单上收到主机的开局命令）。
 	// 命令先连内容一起寄存在这儿，玩家点了"加入"才接着走对齐/进场，点"暂不"回 ACK(false)；
 	// 非闯关局里还有一把和主机等待同长的尺（见 UpdateOnlineStart）。

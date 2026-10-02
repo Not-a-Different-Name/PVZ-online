@@ -1407,6 +1407,12 @@ void CutScene::Update()
 	if (mPreUpdatingBoard)
 		return;
 
+	// @pvz-online: 联机闯关（R6）：草坪已经建好、三选一还没做完（选项屏盖在草坪上）——
+	// 开场整段压住，计时器一步都不许走：走完选卡屏和"开打"就自己冒出来了。放开由
+	// UpdateRunPick 负责（它会调 StartLevelIntro），在那之前这块草坪是静止的背景。
+	if (mApp->mRunIntroHeld)
+		return;
+
 	// 更新疯狂戴夫
 	if (IsShowingCrazyDave() && (!mBoard->mPaused || mApp->mGameMode != GameMode::GAMEMODE_UPSELL))
 	{

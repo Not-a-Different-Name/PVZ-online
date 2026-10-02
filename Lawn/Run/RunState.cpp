@@ -233,13 +233,18 @@ int RunState::LevelForIndex(int theIndex)
 
 int RunState::GetLevel() const
 {
-	return LevelForIndex(mLevelIndex);
+	// @pvz-online: 补发追赶期间（R6）：人先站到"要追到的那一关"的草坪上，再在草坪上把
+	// 欠下的三选一补完（见 UpdateRunPick）——所以正在打的这一关就是目标关，关卡号
+	// 和波表种子都得按它算，不然先进草坪的那一下会建错关。
+	return LevelForIndex(IsCatchingUp() ? mCatchUpLevel : mLevelIndex);
 }
 
 int RunState::GetLevelSeed() const
 {
 	// 由局种子 + 关序号推导：同一局里每关不同、重开同一关（失败重试）完全一样。
-	unsigned int aSeed = (unsigned int)mRunSeed ^ (0x9E3779B9u * (unsigned int)(mLevelIndex + 1));
+	// 关序号的口径与 GetLevel 一致：追赶期间是目标关。
+	int aIndex = IsCatchingUp() ? mCatchUpLevel : mLevelIndex;
+	unsigned int aSeed = (unsigned int)mRunSeed ^ (0x9E3779B9u * (unsigned int)(aIndex + 1));
 	aSeed ^= aSeed >> 16;
 	aSeed *= 0x85EBCA6Bu;
 	aSeed ^= aSeed >> 13;

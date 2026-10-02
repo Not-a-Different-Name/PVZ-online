@@ -1626,13 +1626,7 @@ void Board::InitLevel()
 	{
 		// 闯关的卡槽按这一局的卡池填（卡池 ≤8 时全带上、直接开打，不进选卡界面）。
 		// R1 的卡池还只有两株，之后每关 +2，到第 4 关超过 8 格才会轮到玩家自己挑。
-		RunState* aRun = mApp->GetRunState();
-		mSeedBank->mNumPackets = GetNumSeedsInBank();
-		for (int i = 0; i < mSeedBank->mNumPackets; i++)
-		{
-			mSeedBank->mSeedPackets[i].SetPacketType(aRun->mPool[i]);
-		}
-		mSeedBank->UpdateWidth();
+		FillSeedBankFromRunPool();
 	}
 	else if (!ChooseSeedsOnCurrentLevel() && !HasConveyorBeltSeedBank())
 	{
@@ -1766,6 +1760,21 @@ bool Board::ChooseSeedsOnCurrentLevel()
 		return false;
 
 	return (!mApp->IsFirstTimeAdventureMode() || mLevel > 7);
+}
+
+// @pvz-online: 闯关的卡槽按这一局的卡池填（卡池 ≤8 时全带上、直接开打，不进选卡界面）。
+// InitLevel 建场时调一次；三选一做完、放开开场之前还要再调一次（LawnApp::UpdateRunPick）——
+// 那几屏会把新植物放进卡池，而卡池 ≤8 的关卡全程不开选卡界面，不重填的话这一关
+// 新选的植物赶不上。卡池 >8 的关卡不用调：玩家挑完 8 株，卡槽由选卡界面自己填。
+void Board::FillSeedBankFromRunPool()
+{
+	RunState* aRun = mApp->GetRunState();
+	mSeedBank->mNumPackets = GetNumSeedsInBank();
+	for (int i = 0; i < mSeedBank->mNumPackets; i++)
+	{
+		mSeedBank->mSeedPackets[i].SetPacketType(aRun->mPool[i]);
+	}
+	mSeedBank->UpdateWidth();
 }
 
 //0x40BE00

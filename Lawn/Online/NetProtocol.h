@@ -82,7 +82,8 @@ enum MessageType : uint16_t
 	MSG_SWAP_REQUEST	= 10,	// 双向：请求和我后一位（末位的后一位是首位）交换位置
 	MSG_SWAP_REPLY		= 11,	// 双向：对换位请求的回答；同意的话两边各自换
 	MSG_PAUSE			= 12,	// 双向：我暂停了 / 我继续了
-	MSG_LEVEL_EXIT		= 13	// 双向：我离开这一局、回主菜单了
+	MSG_LEVEL_EXIT		= 13,	// 双向：我离开这一局、回主菜单了
+	MSG_RUN_GO			= 14	// H→C：全员都已进场，各席位开始做自己的三选一
 };
 
 // LEVEL_EXIT 的 reason。0 是唯一的常规值（回主菜单）；其它留给以后
@@ -321,6 +322,16 @@ struct MsgLevelExit
 	uint8_t			mSrcSeat;
 	uint8_t			mDstSeat;
 	uint8_t			mReason;
+};
+
+// RUN_GO：{ srcSeat, dstSeat }
+// 闯关 R6 的新时序里，主机收到全队的 START_ACK（"命令收到、我进场了"）之后广播这一条，
+// 意思是"全员都到草坪上了，各自做自己的三选一"。客户端收到才把选项屏放出来——
+// 先有草坪、后有选项，选项不再是盖在菜单/上一关残局上。
+struct MsgRunGo
+{
+	uint8_t			mSrcSeat;
+	uint8_t			mDstSeat;
 };
 
 // ====================================================================================================
@@ -591,6 +602,22 @@ inline bool DecodeLevelExit(const uint8_t* theData, int theSize, MsgLevelExit& t
 	theMsg.mSrcSeat = aReader.U8();
 	theMsg.mDstSeat = aReader.U8();
 	theMsg.mReason = aReader.U8();
+	return !aReader.Overflowed();
+}
+
+inline int EncodeRunGo(uint8_t* theBuffer, int theCapacity, const MsgRunGo& theMsg)
+{
+	Writer aWriter(theBuffer, theCapacity);
+	aWriter.U8(theMsg.mSrcSeat);
+	aWriter.U8(theMsg.mDstSeat);
+	return aWriter.Overflowed() ? -1 : aWriter.Size();
+}
+
+inline bool DecodeRunGo(const uint8_t* theData, int theSize, MsgRunGo& theMsg)
+{
+	Reader aReader(theData, theSize);
+	theMsg.mSrcSeat = aReader.U8();
+	theMsg.mDstSeat = aReader.U8();
 	return !aReader.Overflowed();
 }
 

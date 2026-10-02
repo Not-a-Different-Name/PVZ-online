@@ -167,6 +167,8 @@ LawnApp::LawnApp()
 	mRunState = nullptr;
 	mPendingAdventure = false;
 	mOnlineRunStartHeld = false;
+	mOnlineRunGo = false;
+	mRunIntroHeld = false;
 	mOnlineStartPromptActive = false;
 	mOnlineStartPromptFrames = 0;
 }
@@ -663,6 +665,11 @@ void LawnApp::UpdateOnlineStart()
 				KillDialog(Dialogs::DIALOG_ONLINE);
 				KillGameSelector();
 				NewGame();
+				// @pvz-online: 联机闯关（R6）：全队都回话了才算人齐——广播放行，各席位
+				// 在自己的新草坪上开始做三选一（自己那块草坪上面那句 NewGame 已经建好，
+				// 欠下的选项屏由 UpdateRunPick 摆上去）。单关局没有选项要等，不发。
+				// M3 扩到四个席位：ACK 记账在会话层换成按席位数组，这里等的是"收齐所有上座席位"。
+				if (IsRunMode()) mOnlineSession->SendRunGo();
 			}
 			else
 			{
@@ -704,7 +711,35 @@ void LawnApp::UpdateOnlineStart()
 	bool aStaleAck = false;
 	if (mOnlineSession->TakeStartAck(aStaleAck))
 	{
-		TodLog("[net] dropped a start ack nobody was waiting for (accepted=%d)", (int)aStaleAck);
+		// @pvz-online: 闯关（R6）有一个不在等待态发出的点名：队友中途连进来、被主机
+		// 当场拉进这一关（见 UpdateOnlineEvents）。他的 ACK 到这儿没人认领，但放行还得给——
+		// 他正站在草坪上等 RUN_GO，不给就永远等下去。
+		// M3 扩到四个席位：这里同样要按席位记账再决定放行（见 NetSession::SendRunGo）。
+		if (aStaleAck && IsRunMode() && mBoard != nullptr
+			&& mOnlineSession->GetRole() == NetSession::Role::HOST)
+		{
+			TodLog("[run] a pulled-in teammate answered - releasing their picks");
+			mOnlineSession->SendRunGo();
+		}
+		else
+		{
+			TodLog("[net] dropped a start ack nobody was waiting for (accepted=%d)", (int)aStaleAck);
+		}
+	}
+
+	// @pvz-online: 联机闯关（R6）客户端侧：主机放行了吗（RUN_GO）。只认"命令已经收下、
+	// 正寄存着"的那一次；没人等着的放行丢掉（比如自己刚回绝了这次开局）。
+	if (mOnlineSession->TakeRunGo())
+	{
+		if (mOnlineRunStartHeld)
+		{
+			TodLog("[run] the host says go - the new lawn is clear to pick");
+			mOnlineRunGo = true;
+		}
+		else
+		{
+			TodLog("[run] dropped a run-go nobody was waiting for");
+		}
 	}
 
 	// 客户端侧：主机开局了，跟着开自己那块棋盘。
@@ -726,9 +761,11 @@ void LawnApp::UpdateOnlineStart()
 
 	if (!mOnlineSession->TakePendingStartLevel(aStart)) return;
 
-	// @pvz-online: 联机闯关（R5）：先无条件对齐主机的进度，命令本身寄存住。不能马上回
-	// ACK——自己这边可能还欠着几屏三选一（补发追赶一屏一屏地选），回早了主机就一个人
-	// 开打，中继给谁的怪也就落空了。选完由 UpdateRunPick 收口进场（回 ACK + 建棋盘）。
+	// @pvz-online: 联机闯关（R5/R6）：先无条件对齐主机的进度，命令本身寄存住。ACK 从
+	// "我选完了、进场了"改成"命令收到、我这就进场"（R6）：先让主机知道人齐、由主机广播
+	// RUN_GO（见上面主机侧），自己这块新草坪建好、屏摆上，才在草坪上做欠下的三选一
+	// （补发追赶一屏一屏地选，见 UpdateRunPick）。选项跟着 RUN_GO 走，不再盖在
+	// 菜单 / 上一关的残局上。
 	if (aStart.mIsRun)
 	{
 		if (mGameScene != GameScenes::SCENE_MENU && !IsRunMode())
@@ -753,6 +790,8 @@ void LawnApp::UpdateOnlineStart()
 			(unsigned)aStart.mRunLevelIndex, (int)aStart.mRunSeed);
 		AlignRunToHost((int)aStart.mRunSeed, (int)aStart.mRunLevelIndex);
 		mOnlineRunStartHeld = true;
+		mOnlineRunGo = false;		// 这条是新命令：上一次的放行作废
+		mOnlineSession->SendStartAck();
 		return;
 	}
 
@@ -844,11 +883,14 @@ void LawnApp::OnlineStartPromptAnswer(bool theAccepted)
 	NetProto::MsgStartLevel aMsg = mOnlineStartPromptMsg;
 	if (aMsg.mIsRun)
 	{
-		// 闯关：对齐进度 + 命令寄存，选完（含补发追赶）由 UpdateRunPick 收口进场
+		// 闯关：对齐进度 + 命令寄存 + 马上回 ACK（"我这就进场"），草坪与选项由
+		// 主机的 RUN_GO 放行（见 UpdateOnlineStart / UpdateRunPick）
 		TodLog("[run] the host calls us into level index %u (run seed %d, answered)",
 			(unsigned)aMsg.mRunLevelIndex, (int)aMsg.mRunSeed);
 		AlignRunToHost((int)aMsg.mRunSeed, (int)aMsg.mRunLevelIndex);
 		mOnlineRunStartHeld = true;
+		mOnlineRunGo = false;
+		mOnlineSession->SendStartAck();
 		return;
 	}
 
@@ -1017,6 +1059,11 @@ void LawnApp::UpdateOnlineEvents()
 			// 不回 ACK——会话都没了。主机那边等待中的看板框由 UpdateOnlineStart 自己收
 			// （它每帧查 IsConnected）。
 			DismissOnlineStartPrompt(false);
+			// @pvz-online: 闯关的"等放行"空档里掉线（命令收下了、RUN_GO 还没来）：放行
+			// 永远等不到了，寄存作废。棋盘在的话下面整队收摊（ShowGameSelector 再清一遍）；
+			// 人还在菜单上的就此放手——等不来放行，照旧按单机那条路进场（mRunState 不动）。
+			mOnlineRunStartHeld = false;
+			mOnlineRunGo = false;
 			// 局中掉线：这一局打不下去了。让人留在一盘打不完的棋盘上比收摊更糟——
 			// 漏怪传不出去（怪走到房子直接算输），"全队过关/全队败"又都得有对面才算数。
 			// 所以照 M2 定的规矩收摊：提示一句 + 回主菜单。会话死在谁身上都不挡单机
@@ -1344,15 +1391,16 @@ void LawnApp::EnterRunLevel()
 
 	KillDialog(Dialogs::DIALOG_ONLINE);
 	KillGameSelector();
-	// 客户端这条"进关"是主机点名点出来的：检查点上面那句已经写了，这儿回一句 ACK，
-	// 主机才跟着进场（回早了主机就一个人开打）。整队重来时人还停在"吃脑子"的残局上，
-	// 顺手把残局拆掉。单机局 IsOnlineClient 为假，一动不动。
+	// @pvz-online: 客户端这条"进关"是主机点名 + RUN_GO 放行点出来的（R6；命令收到时
+	// 就已经回过 ACK 了，那儿的含义是"我这就进场"）。走到这一步，寄存的使命结束：
+	// 欠下的三选一挪到新草坪上做（NewGame 会压住开场，见 UpdateRunPick）。整队重来时
+	// 人还停在"吃脑子"的残局上，顺手把残局拆掉。单机局 IsOnlineClient 为假。
 	if (IsOnlineClient())
 	{
 		KillDialog(Dialogs::DIALOG_GAME_OVER);
-		mOnlineRunStartHeld = false;
-		mOnlineSession->SendStartAck();
 	}
+	mOnlineRunStartHeld = false;
+	mOnlineRunGo = false;
 	NewGame();
 }
 
@@ -1427,30 +1475,45 @@ void LawnApp::UpdateRunEnd()
 // 进关卡这类"拆主菜单、建棋盘"的活儿一律留在这个主循环函数里干，不在按钮回调里干
 // （和 UpdateAdventureRequest 同一条纪律）。
 //
-// @pvz-online: 联机闯关（R5）让"选完就进关"分成三种走法：单机照旧；主机广播换关命令、
-// 等队友 START_ACK；客户端等主机点名（命令到了先寄存，选完这屏才回 ACK 进场——回早了
-// 主机就一个人开打，中继给谁的怪就落空了）。联机局换关不拆棋盘：上一关的草坪留在那儿
-// 当背景（打赢的完胜场面、打输的吃脑子场面各自都说得通），等待提示挂在上面。
+// @pvz-online: 联机闯关（R5/R6）让"选完就进关"分成几种走法：单机照旧；主机广播换关命令、
+// 等队友 START_ACK；客户端等主机点名 + RUN_GO 放行。R6 起选项一律摆在新草坪上（见 NewGame
+// 的压开场）：先由 NewGame 把这一关的草坪建起来，人站上去、屏盖上去，做完全部三选一
+// （含补发追赶）才放开选卡与开场。联机局换关不拆棋盘：上一关的草坪留在那儿当背景
+// （打赢的完胜场面、打输的吃脑子场面各自都说得通），等待提示挂在上面。
 void LawnApp::UpdateRunPick()
 {
 	if (mRunState == nullptr) return;
 
-	// 还欠着三选一就先把屏摆出来——棋盘在不在都一样（换关的空档里它是背景）。
-	if (mRunState->HasPendingPick())
+	// ① 新草坪已经建好、开场压着（R6 起联机与单机闯关都走这条）：三选一屏就摆在草坪上，
+	// 补发追赶一屏接一屏地补。全都清完才按最新的卡池重填卡槽、放开选卡与开场——
+	// 和 NewGame 的收尾两行同款。草坪没建起来之前一张屏都不摆，这正是 R6 要的：
+	// 选项不再盖在主菜单 / 上一关的残局上。
+	if (mRunIntroHeld && mBoard != nullptr)
 	{
-		if (GetDialog(Dialogs::DIALOG_RUN_PICK) != nullptr) return;
-		mRunState->RollChoices();
-		RunPickDialog* aDialog = new RunPickDialog(this, mRunState);
-		CenterDialog(aDialog, aDialog->mWidth, aDialog->mHeight);
-		AddDialog(Dialogs::DIALOG_RUN_PICK, aDialog);
-		return;
-	}
+		if (mRunState->HasPendingPick())
+		{
+			if (GetDialog(Dialogs::DIALOG_RUN_PICK) != nullptr) return;
+			mRunState->RollChoices();
+			RunPickDialog* aDialog = new RunPickDialog(this, mRunState);
+			CenterDialog(aDialog, aDialog->mWidth, aDialog->mHeight);
+			AddDialog(Dialogs::DIALOG_RUN_PICK, aDialog);
+			return;
+		}
 
-	// 补发追赶（R5）：选完一屏就补掉一关、接着摆下一屏，一直补到主机的关序号。
-	if (mRunState->IsCatchingUp())
-	{
-		mRunState->AdvanceCatchUp();
-		TodLog("[run] caught up one level (now at index %d)", mRunState->mLevelIndex);
+		if (mRunState->IsCatchingUp())
+		{
+			mRunState->AdvanceCatchUp();
+			TodLog("[run] caught up one level (now at index %d)", mRunState->mLevelIndex);
+			return;
+		}
+
+		TodLog("[run] the picks are done - the chooser and the intro can start");
+		mRunIntroHeld = false;
+		// 卡槽在 InitLevel 建场时按"当时"的卡池填过，刚刚这几屏的新植物要重填一次
+		// （卡池 ≤8 的关卡全程不开选卡界面，不重填这一关新选的植物就赶不上）。
+		if (!mBoard->ChooseSeedsOnCurrentLevel()) mBoard->FillSeedBankFromRunPool();
+		ShowSeedChooserScreen();
+		mBoard->mCutScene->StartLevelIntro();
 		return;
 	}
 
@@ -1464,26 +1527,25 @@ void LawnApp::UpdateRunPick()
 
 		if (mOnlineSession->GetRole() == NetSession::Role::HOST)
 		{
-			// 主机只在一件事上点名：全队都报了清完、本关的奖励也选完了，进下一关。
-			// 光自己清完不算——队友还在打，点早了会把他拉进一关他还没打完的进度里。
-			// 点名由 mOnlineWaitingStartAck 把关，点不重。
+			// 主机只在一件事上点名：全队都报了清完，进下一关。光自己清完不算——队友还在打，
+			// 点早了会把他拉进一关他还没打完的进度里。点名由 mOnlineWaitingStartAck 把关，
+			// 点不重。自己欠的三选一不在这儿做（R6）：人各进各的新草坪，那几屏在 ① 做。
 			if (!mOnlineWaitingStartAck && mOnlineSession->IsLocalLevelDone()
 				&& mOnlineSession->IsPeerLevelDone())
 			{
 				EnterRunLevel();
 			}
 		}
-		else if (mOnlineRunStartHeld)
+		else if (mOnlineRunStartHeld && mOnlineRunGo && aMyLevelOver)
 		{
-			// 客户端：点名到了、自己的草坪也打完了（或输了等着重来），收口进场。
-			// 命令一到，会话里"谁清完了"的记账就被清了（TakePendingStartLevel），
-			// 所以这边只能看棋盘自己的状态。
-			if (aMyLevelOver) EnterRunLevel();
+			// 客户端：命令到了（held）、主机也放行了（RUN_GO）、自己的草坪打完了
+			// （或输了等着重来）：收口进场。
+			EnterRunLevel();
 		}
 		else if (aMyLevelOver
 			&& (!mBoard->mAdvice->IsBeingDisplayed() || mBoard->mAdvice->mDuration < 50))
 		{
-			// 本关打完、还进不了下一关的这段：客户端是在等主机点名，主机自己是在等
+			// 本关打完、还进不了下一关的这段：客户端是在等主机点名 / 放行，主机自己是在等
 			// 队友把这一关打完 / 回话（主机点名的那两个前提都在别处挂着提示，这里只是兜底）。
 			bool aHostRole = mOnlineSession->GetRole() == NetSession::Role::HOST;
 			mBoard->DisplayAdvice(aHostRole ? _S("Waiting for the teammate...") : _S("Waiting for the host..."),
@@ -1492,10 +1554,12 @@ void LawnApp::UpdateRunPick()
 		return;
 	}
 
-	// 棋盘不在：单机 / 主机在这儿进关；客户端要等主机点名（命令到了会寄存住）。
+	// 棋盘不在：单机 / 主机在这儿进关；客户端要等主机的 RUN_GO 放行——放行一到就进场
+	// （草坪先建好，欠下的三选一由 ① 摆上去）。
+	// 会话断了的客户端不在此列（IsOnlineClient 为假）：等不来放行，照旧按单机那条路进场。
 	if (IsOnlineClient())
 	{
-		if (mOnlineRunStartHeld) EnterRunLevel();
+		if (mOnlineRunGo) EnterRunLevel();
 		return;
 	}
 	EnterRunLevel();
@@ -1632,6 +1696,17 @@ void LawnApp::NewGame()
 	mBoardResult = BoardResult::BOARDRESULT_NONE;
 	mGameScene = GameScenes::SCENE_LEVEL_INTRO;
 
+	// @pvz-online: 联机闯关（R6）：草坪先建、选项后做——这一关还欠着三选一（含补发追赶）
+	// 的时候，把"选卡 + 开场"压住：人先站在自己的新草坪上，选项屏盖在草坪上做完，
+	// 才由 UpdateRunPick 放开（见那边的 ①）。单关局 / 非闯关一条路都不变。
+	mRunIntroHeld = false;
+	if (IsRunMode() && (mRunState->HasPendingPick() || mRunState->IsCatchingUp()))
+	{
+		mRunIntroHeld = true;
+		TodLog("[run] the lawn is up before the picks - the intro is held");
+		return;
+	}
+
 	ShowSeedChooserScreen();
 	mBoard->mCutScene->StartLevelIntro();
 }
@@ -1653,7 +1728,10 @@ void LawnApp::ShowGameSelector()
 	// 上一局的怪会砸到下一局的棋盘上。
 	if (mOnlineSession) mOnlineSession->DiscardLevelPackets();
 	// @pvz-online: 客户端寄存的"主机点名"也作废——那条命令是给上一局的，回菜单就没有下一关了。
+	// 随它一起的还有 R6 的放行标记与压开场标记（棋盘上面那句已经拆了，它们只剩残留价值）。
 	mOnlineRunStartHeld = false;
+	mOnlineRunGo = false;
+	mRunIntroHeld = false;
 	//UpdateRegisterInfo();
 	if (mGameSelector)
 	{

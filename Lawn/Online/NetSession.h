@@ -93,6 +93,15 @@ public:
 	// 主机侧：队友对开局命令的回应到了没有（取一次就清）。theAccepted 是"进场 / 现在不行"。
 	bool			TakeStartAck(bool& theAccepted);
 
+	// 主机侧：全员都进场了——广播"各席位开始做自己的三选一"（闯关 R6 新时序的最后一环：
+	// 命令 → 各席位先进场并回 ACK → 收齐后 RUN_GO → 各席位在新草坪上放选项屏）。
+	// 收齐的判定目前借会话层的单对端 ACK 槽位（M2 只有两个席位）；M3 扩到四个席位时
+	// 这里要换成按席位记账、收齐**所有上座席位**才放行——现在别写死"就是那两个人"。
+	bool			SendRunGo();
+
+	// 客户端侧：主机放行了吗（取一次就清）。拿到才把选项屏放出来。
+	bool			TakeRunGo();
+
 	// 我离开这一局了（回主菜单）。对面收到会跟着退——不然一边在关卡里、一边在菜单上，
 	// 退的那边再点关卡开局时还会撞上"对面不在菜单、开局命令被丢掉"的卡死。
 	bool			SendLevelExit(uint8_t theReason = NetProto::EXIT_QUIT_TO_MENU);
@@ -251,6 +260,7 @@ private:
 	NetProto::MsgStartLevel	mPendingStart;
 	bool				mHasStartAck;
 	bool				mStartAckAccepted;	// 上一条 START_ACK 是"进场"还是"现在不行"
+	bool				mHasRunGo;			// 主机放行了没有（客户端侧收下的 RUN_GO，取一次就清）
 	bool				mHasPendingLevelExit;
 	NetProto::MsgLevelExit	mPendingLevelExit;
 	// 各席位"草坪清干净了没有"，按下标=席位号（0 号位不用）。用数组而不是两个布尔：
