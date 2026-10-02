@@ -672,41 +672,49 @@ void LawnApp::UpdateOnlineStart()
 				MessageStyle::MESSAGE_STYLE_BIG_MIDDLE, AdviceType::ADVICE_NONE);
 		}
 
-		bool aAccepted = false;
-		if (mOnlineSession->TakeStartAck(aAccepted))
+		// 收下这一轮的 ACK。记账在会话层按席位（四个人里谁答了、谁还没答，那儿看得清），
+		// 这儿只是把它们取走——留着的话下一帧会当成"迟到的 ACK"。
+		bool aDrain = false;
+		while (mOnlineSession->TakeStartAck(aDrain)) { }
+
+		// ② 有人回了"现在不行"（他人还在关卡里 / 在询问框上点了"暂不"）：这次开局不作数，
+		// 说清楚为什么，菜单原样可用。这条记号是粘着的（取不走）——后到的好消息也翻不了案，
+		// 本来就得全队都点头才能进。
+		if (mOnlineSession->AnyStartAckRejected())
 		{
 			mOnlineWaitingStartAck = false;
 			KillDialog(Dialogs::DIALOG_ONLINE_START);
-			if (aAccepted)
-			{
-				TodTrace("online start: teammate is in, entering the level");
-				KillDialog(Dialogs::DIALOG_ONLINE);
-				KillGameSelector();
-				NewGame();
-				// @pvz-online: 联机闯关（R6）：全队都回话了才算人齐——广播放行，各席位
-				// 在自己的新草坪上开始做三选一（自己那块草坪上面那句 NewGame 已经建好，
-				// 欠下的选项屏由 UpdateRunPick 摆上去）。单关局没有选项要等，不发。
-				// M3 扩到四个席位：ACK 记账在会话层换成按席位数组，这里等的是"收齐所有上座席位"。
-				if (IsRunMode()) mOnlineSession->SendRunGo();
-			}
-			else
-			{
-				// ② 队友回绝（他人还在关卡里 / 在询问框上点了"暂不"）：这次开局不作数，
-				// 说清楚为什么，菜单原样可用
-				ClearOnlineStartOverride();
-				ShowGameSelector();
-				TodLog("online start: the teammate turned it down");
-				OnlineStartDialog* aDialog = new OnlineStartDialog(this,
-					"队友暂不加入", "他可能还在别的关卡里，可以稍后再试。", "知道了", nullptr,
-					OnlineStartDialog::NOTIFY_NONE);
-				CenterDialog(aDialog, aDialog->mWidth, aDialog->mHeight);
-				AddDialog(Dialogs::DIALOG_ONLINE_START, aDialog);
-				aDialog->WaitForResult();   // 阻塞框，泵主循环——联机心跳不受影响
-			}
+			ClearOnlineStartOverride();
+			ShowGameSelector();
+			TodLog("online start: a teammate turned it down");
+			OnlineStartDialog* aDialog = new OnlineStartDialog(this,
+				"队友暂不加入", "他可能还在别的关卡里，可以稍后再试。", "知道了", nullptr,
+				OnlineStartDialog::NOTIFY_NONE);
+			CenterDialog(aDialog, aDialog->mWidth, aDialog->mHeight);
+			AddDialog(Dialogs::DIALOG_ONLINE_START, aDialog);
+			aDialog->WaitForResult();   // 阻塞框，泵主循环——联机心跳不受影响
 			return;
 		}
 
-		// ③ 等太久了：队友可能卡住了、或者这条命令根本没送到。作废，菜单留给玩家重试。
+		// ③ 该答的都答了：人齐，进场。按**发命令那一刻上座的席位**记账——等待中有人走了，
+		// 他那一格跟着作废、不再堵着；中途新进来的人没收到过这条命令，不算数。
+		// （原来只认"收到的那一条 ACK"：两个人的时候就是对面，四个人时会一个人先进去。）
+		if (mOnlineSession->AreAllStartAcksIn())
+		{
+			mOnlineWaitingStartAck = false;
+			KillDialog(Dialogs::DIALOG_ONLINE_START);
+			TodTrace("online start: the whole team is in, entering the level");
+			KillDialog(Dialogs::DIALOG_ONLINE);
+			KillGameSelector();
+			NewGame();
+			// @pvz-online: 联机闯关（R6）：全队都回话了才算人齐——广播放行，各席位
+			// 在自己的新草坪上开始做三选一（自己那块草坪上面那句 NewGame 已经建好，
+			// 欠下的选项屏由 UpdateRunPick 摆上去）。单关局没有选项要等，不发。
+			if (IsRunMode()) mOnlineSession->SendRunGo();
+			return;
+		}
+
+		// ④ 等太久了：队友可能卡住了、或者这条命令根本没送到。作废，菜单留给玩家重试。
 		// 闯关局不走这条（见上面常量那两句注释），所以那一头的等待只认掉线。
 		if (!IsRunMode() && mOnlineStartWaitFrames > ONLINE_START_WAIT_TIMEOUT_FRAMES)
 		{
