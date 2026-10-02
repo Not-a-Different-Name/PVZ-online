@@ -31,6 +31,7 @@
 #include "Lawn/Widget/OnlineDialog.h"
 #include "Lawn/Online/NetSession.h"
 #include "Lawn/Run/RunState.h"
+#include "Lawn/Widget/RunPickDialog.h"
 #include "Lawn/Widget/GameSelector.h"
 #include "Lawn/Widget/CreditScreen.h"
 #include "Sexy.TodLib/EffectSystem.h"
@@ -1027,7 +1028,8 @@ void LawnApp::StartRun()
 	mRunState = new RunState();
 	mRunState->StartNew(MakeRunSeed(mAppCounter));
 	TodLog("[run] a new run starts (seed %d)", mRunState->mRunSeed);
-	EnterRunLevel();
+	// 手里的两株不够开局：先挑两株（两次三选一），选完 RunPickChosen 才进第 1 关。
+	mRunState->BeginStartPicks();
 }
 
 void LawnApp::ContinueRun()
@@ -1086,7 +1088,50 @@ void LawnApp::UpdateRunEnd()
 	}
 	else
 	{
+		// 过关奖：两株新植物 + 一个增益（三屏，各选一张），选完才进下一关。
+		mRunState->BeginLevelEndPicks();
+	}
+}
+
+// 三选一屏：该选而屏不在就开一张；卡都选完了就在这儿把下一关开起来。
+// 候选也在这儿现抽——屏什么时候被开出来、上一屏选的是哪张，都由 RunState 的计数说了算，
+// 所以这一屏重开多少次都是同一组三条。
+//
+// 进关卡这类"拆主菜单、建棋盘"的活儿一律留在这个主循环函数里干，不在按钮回调里干
+// （和 UpdateAdventureRequest 同一条纪律）。能走到"没有待选、也没有棋盘"这一步的只有
+// 一种局面：卡选完了。别的时候要么棋盘在，要么还有待选。
+void LawnApp::UpdateRunPick()
+{
+	if (mRunState == nullptr || mBoard != nullptr) return;
+
+	if (!mRunState->HasPendingPick())
+	{
 		EnterRunLevel();
+		return;
+	}
+	if (GetDialog(Dialogs::DIALOG_RUN_PICK) != nullptr) return;
+
+	mRunState->RollChoices();
+	RunPickDialog* aDialog = new RunPickDialog(this, mRunState);
+	CenterDialog(aDialog, aDialog->mWidth, aDialog->mHeight);
+	AddDialog(Dialogs::DIALOG_RUN_PICK, aDialog);
+}
+
+// 玩家点了第 theIndex 张卡：收进局里（卡池 / buff 表），然后把屏关掉——还欠哪一屏、
+// 什么时候进关卡，都由 UpdateRunPick 下一帧看着办。
+void LawnApp::RunPickChosen(int theIndex)
+{
+	RunState* aRun = mRunState;
+	if (aRun == nullptr) return;
+
+	KillDialog(Dialogs::DIALOG_RUN_PICK);
+	if (aRun->IsPlantPick())
+	{
+		aRun->TakePlantChoice(theIndex);
+	}
+	else
+	{
+		aRun->TakeBuffChoice(theIndex);
 	}
 }
 
@@ -2390,6 +2435,8 @@ void LawnApp::UpdateFrames()
 	UpdateOnlineEnd();
 	// 闯关入口的请求（"冒险"牌只记账，动手在这儿）——和联机开局同一套路数。
 	UpdateAdventureRequest();
+	// 闯关的三选一屏（刚开局、刚过完一关）：不动 UI 和棋盘，只是把屏开出来等玩家点。
+	UpdateRunPick();
 
 	if ((!mActive || mMinimized) && mBoard)
 	{

@@ -21,14 +21,23 @@ public:
 	static const int	RUN_LEVEL_COUNT		= 5;
 	static const int	RUN_SEED_SLOTS		= 8;	// 种子槽固定 8 格（覆盖原版 mPurchases+6 规则）
 	static const int	RUN_POOL_MAX		= 48;	// 卡池上限 = 全部植物
+	static const int	RUN_CHOICES			= 3;	// 一屏摆几张卡
 
-	// buff 的三选一还没做（R2 的屏 + R3 的数值），这里先把数据结构定下来：id + 叠了几层。
-	// 检查点格式一次写全，R2/R3 只填内容、不动 IO。
+	// buff 的三选一屏是 R2 的活儿、数值落地是 R3 的：数据类型一层就该定死，id + 叠了几层。
 	struct BuffStack
 	{
 		unsigned short	mId;
 		unsigned short	mCount;
 	};
+
+	// @pvz-online: "三选一"的待选状态（R2）。只在内存里活着，不进检查点——
+	// 选了才写进卡池 / buff 表。中途退出再续就是重打这一关、这一屏重新抽：
+	// 候选由 runSeed 推导，抽出来还是同一组三条，玩家不会因此占便宜也不会吃亏。
+	int							mPendingPlantPicks;		// 还欠几株新植物（一屏只选一株，选完减一）
+	int							mPendingBuffPicks;		// 还欠几个增益
+	SeedType					mPlantChoices[RUN_CHOICES];
+	unsigned short				mBuffChoices[RUN_CHOICES];
+	unsigned int				mPickCounter;			// 抽过几次：同一局里每屏的候选都不一样
 
 public:
 	// @pvz-online 内存态：这一局正在打（含"刚过关、正要进下一关"的空档）。
@@ -44,6 +53,21 @@ public:
 
 	// 全新一局：卡池回到两株、失败计数清零、从第 1 关开打。
 	void				StartNew(int theRunSeed);
+
+	// 该选植物 / 该选 buff 了（一局开始时先挑两株——进第 1 关前手里就有 4 株；
+	// 每过一关再挑两株 + 一个增益）。只负责"欠几屏"，候选由 RollChoices 现抽。
+	void				BeginStartPicks();
+	void				BeginLevelEndPicks();
+	bool				HasPendingPick() const { return mPendingPlantPicks > 0 || mPendingBuffPicks > 0; }
+	// 这一屏发的是植物（true）还是 buff（false）。
+	bool				IsPlantPick() const { return mPendingPlantPicks > 0; }
+	// 抽当前这一屏的三条候选，摆在 mPlantChoices / mBuffChoices 里等玩家点。
+	void				RollChoices();
+	// 玩家点了第 theIndex 张卡：植物进卡池、buff 叠一层，各欠的数减一。
+	void				TakePlantChoice(int theIndex);
+	void				TakeBuffChoice(int theIndex);
+	// 这一局拿到某个 buff 的层数（R3 的数值层按它算加成）。
+	int					GetBuffCount(int theBuffId) const;
 
 	// 检查点读写。Load 失败（文件不在 / 版本不符 / 内容越界）返回 false，对象保持"空局"。
 	bool				Load(int theProfileId);

@@ -1,8 +1,10 @@
 #include "RunState.h"
+#include "RunBuffs.h"
 #include <cstring>
 #include "../LawnCommon.h"
 #include "../../Sexy.TodLib/TodDebug.h"
 #include "misc/Buffer.h"
+#include "misc/MTRand.h"
 #include "../../SexyAppFramework/SexyAppBase.h"
 
 // @pvz-online: 闯关状态的实体。检查点格式（小端，x86 直写）：
@@ -80,6 +82,130 @@ void RunState::StartNew(int theRunSeed)
 	mPool.push_back(SeedType::SEED_PEASHOOTER);
 	mBuffs.clear();
 	memset(mFailCounts, 0, sizeof(mFailCounts));
+	mPendingPlantPicks = 0;
+	mPendingBuffPicks = 0;
+	mPickCounter = 0;
+	for (int i = 0; i < RUN_CHOICES; i++)
+	{
+		mPlantChoices[i] = SeedType::SEED_NONE;
+		mBuffChoices[i] = 0;
+	}
+}
+
+// 一局的两处选卡口：开局先挑两株（手里有 4 株才进第 1 关），每过一关再挑两株 + 一个增益。
+void RunState::BeginStartPicks()
+{
+	mPendingPlantPicks = 2;
+	mPendingBuffPicks = 0;
+}
+
+void RunState::BeginLevelEndPicks()
+{
+	mPendingPlantPicks = 2;
+	mPendingBuffPicks = 1;
+}
+
+// 抽一屏的三条候选。种子挂上"这一屏是第几次抽"（mPickCounter），所以同一局里
+// 两屏不会抽出同一组；又因为一切都是 runSeed 推出来的，失败重打这一关时
+// 抽出来的还是同一组三条——重开不会变成"刷候选"。
+void RunState::RollChoices()
+{
+	unsigned int aSeed = (unsigned int)mRunSeed
+		^ (0x9E3779B9u * (unsigned int)(mLevelIndex + 1))
+		^ (0x85EBCA6Bu * (mPickCounter + 1));
+	if (IsPlantPick()) aSeed ^= 0x5BF03635u;
+	mPickCounter++;
+
+	Sexy::MTRand aRNG(aSeed);
+
+	if (IsPlantPick())
+	{
+		// 候选 = 全部 48 种常规植物（SEED_PEASHOOTER..SEED_COBCANNON）里、卡池还没有的。
+		// 模仿者（SEED_IMITATER）不进候选：它要先指定模仿对象，那道选择在选卡界面里才有。
+		bool aOwned[NUM_SEEDS_IN_CHOOSER];
+		memset(aOwned, 0, sizeof(aOwned));
+		for (size_t i = 0; i < mPool.size(); i++)
+		{
+			if (mPool[i] >= 0 && mPool[i] < NUM_SEEDS_IN_CHOOSER) aOwned[mPool[i]] = true;
+		}
+
+		SeedType aCandidates[NUM_SEEDS_IN_CHOOSER];
+		int aCount = 0;
+		for (int i = 0; i < NUM_SEEDS_IN_CHOOSER; i++)
+		{
+			if (i != (int)SeedType::SEED_IMITATER && !aOwned[i]) aCandidates[aCount++] = (SeedType)i;
+		}
+
+		for (int i = 0; i < RUN_CHOICES; i++)
+		{
+			if (aCount <= 0)
+			{
+				mPlantChoices[i] = SeedType::SEED_NONE;
+				continue;
+			}
+			int aPick = (int)aRNG.Next((unsigned long)aCount);
+			mPlantChoices[i] = aCandidates[aPick];
+			aCandidates[aPick] = aCandidates[--aCount];		// 抽走的换到队尾，保证三条互不重复
+		}
+	}
+	else
+	{
+		// 增益：8 条里抽 3 条互不重复的。同名跨屏可以再来（叠层，见 BuffStack）。
+		int aCandidates[RUN_BUFF_COUNT];
+		for (int i = 0; i < RUN_BUFF_COUNT; i++) aCandidates[i] = i;
+
+		int aCount = RUN_BUFF_COUNT;
+		for (int i = 0; i < RUN_CHOICES; i++)
+		{
+			int aPick = (int)aRNG.Next((unsigned long)aCount);
+			mBuffChoices[i] = (unsigned short)aCandidates[aPick];
+			aCandidates[aPick] = aCandidates[--aCount];
+		}
+	}
+}
+
+void RunState::TakePlantChoice(int theIndex)
+{
+	if (theIndex < 0 || theIndex >= RUN_CHOICES || mPendingPlantPicks <= 0) return;
+
+	SeedType aSeed = mPlantChoices[theIndex];
+	if (aSeed != SeedType::SEED_NONE && mPool.size() < (size_t)RUN_POOL_MAX)
+	{
+		mPool.push_back(aSeed);
+		TodTrace("run: plant %d joins the pool (%d seeds)", (int)aSeed, (int)mPool.size());
+	}
+	mPendingPlantPicks--;
+}
+
+void RunState::TakeBuffChoice(int theIndex)
+{
+	if (theIndex < 0 || theIndex >= RUN_CHOICES || mPendingBuffPicks <= 0) return;
+
+	unsigned short aId = mBuffChoices[theIndex];
+	for (size_t i = 0; i < mBuffs.size(); i++)
+	{
+		if (mBuffs[i].mId == aId)
+		{
+			mBuffs[i].mCount++;
+			mPendingBuffPicks--;
+			return;
+		}
+	}
+
+	BuffStack aStack;
+	aStack.mId = aId;
+	aStack.mCount = 1;
+	mBuffs.push_back(aStack);
+	mPendingBuffPicks--;
+}
+
+int RunState::GetBuffCount(int theBuffId) const
+{
+	for (size_t i = 0; i < mBuffs.size(); i++)
+	{
+		if (mBuffs[i].mId == (unsigned short)theBuffId) return (int)mBuffs[i].mCount;
+	}
+	return 0;
 }
 
 int RunState::LevelForIndex(int theIndex)

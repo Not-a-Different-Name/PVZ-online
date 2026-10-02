@@ -74,11 +74,13 @@ source_group("Lawn\\Online\\Online Source" FILES ${Lawn__Online__Online_Source})
 # @pvz-online: 全流程闯关（肉鸽）的状态与检查点
 set(Lawn__Run__Run_Include
     "../Lawn/Run/RunState.h"
+    "../Lawn/Run/RunBuffs.h"
 )
 source_group("Lawn\\Run\\Run Include" FILES ${Lawn__Run__Run_Include})
 
 set(Lawn__Run__Run_Source
     "../Lawn/Run/RunState.cpp"
+    "../Lawn/Run/RunBuffs.cpp"
 )
 source_group("Lawn\\Run\\Run Source" FILES ${Lawn__Run__Run_Source})
 
@@ -124,6 +126,7 @@ set(Lawn__Widget__Widget_Include
     "../Lawn/Widget/NewUserDialog.h"
     "../Lawn/Widget/OnlineDialog.h"
     "../Lawn/Widget/OnlineStatusWidget.h"
+    "../Lawn/Widget/RunPickDialog.h"
     "../Lawn/Widget/SeedChooserScreen.h"
     "../Lawn/Widget/StoreScreen.h"
     "../Lawn/Widget/TitleScreen.h"
@@ -151,6 +154,7 @@ set(Lawn__Widget__Widget_Source
     "../Lawn/Widget/NewUserDialog.cpp"
     "../Lawn/Widget/OnlineDialog.cpp"
     "../Lawn/Widget/OnlineStatusWidget.cpp"
+    "../Lawn/Widget/RunPickDialog.cpp"
     "../Lawn/Widget/SeedChooserScreen.cpp"
     "../Lawn/Widget/StoreScreen.cpp"
     "../Lawn/Widget/TitleScreen.cpp"

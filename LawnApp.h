@@ -249,6 +249,11 @@ public:
 	void							ContinueRun();
 	void							EnterRunLevel();
 	void							UpdateRunEnd();
+	// @pvz-online: 闯关的三选一屏（R2）。该选而屏不在（刚开局、刚过完一关、或者屏被谁关掉了）
+	// 就开一张；玩家点了卡由 RunPickChosen 接着办：把卡收进局里，选够了就进下一关。
+	// 屏和关卡互斥——棋盘在的时候这一屏不该出现（换关的空档里 mBoard 一定是空的）。
+	void							UpdateRunPick();
+	void							RunPickChosen(int theIndex);
 	void							ShowGameSelector();
 	void							KillGameSelector();
 	void							ShowAwardScreen(AwardType theAwardType, bool theShowAchievements); // @Patoke: add argument

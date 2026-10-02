@@ -301,6 +301,7 @@ enum Dialogs
     DIALOG_DELETEZOMBATAR,
     DIALOG_ZOMBATAR_TOS,
     DIALOG_ONLINE,                              // @pvz-online: M2 联机面板（建房/加入）
+    DIALOG_RUN_PICK,                            // @pvz-online: 闯关的三选一屏（植物 / buff）
     NUM_DIALOGS
 };
 enum DebugTextMode
