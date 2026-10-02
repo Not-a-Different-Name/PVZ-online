@@ -20,6 +20,7 @@
 #include "misc/MTRand.h"
 #include "../../Sexy.TodLib/TodStringFile.h"
 #include "widget/WidgetManager.h"
+#include "../Run/RunState.h"
 
 //0x483380
 // GOTY @Patoke: 0x48E020
@@ -28,7 +29,7 @@ SeedChooserScreen::SeedChooserScreen()
 	mApp = (LawnApp*)gSexyAppBase;
 	mBoard = mApp->mBoard;
 	mClip = false;
-	// mSeedChooserAge = 0;  ԭ�沢û�г�ʼ�� mSeedChooserAge
+	// mSeedChooserAge = 0;  ԭ�沢û�г�ʼ�� mSeedChooserAge
 	mSeedsInFlight = 0;
 	mSeedsInBank = 0;
 	mLastMouseX = -1;
@@ -367,8 +368,10 @@ void SeedChooserScreen::Draw(Graphics* g)
 				DrawSeedPacket(g, x, y, aSeedShadow, SEED_NONE, 0, 55, true, false);
 			}
 		}
-		else
+		else if (!mApp->IsRunMode())
 		{
+			// 原版拿轮廓示意"还有这些植物没解锁"；闯关的选卡只看这一局的卡池，
+			// 卡池外的整格留白——照着画就是一屏大半是白袋子轮廓。
 			g->DrawImage(Sexy::IMAGE_SEEDPACKETSILHOUETTE, x, y);
 		}
 	}
@@ -711,8 +714,19 @@ void SeedChooserScreen::PickRandomSeeds()
 	for (int anIndex = mSeedsInBank; anIndex < mBoard->mSeedBank->mNumPackets; anIndex++)
 	{
 		SeedType aSeedType;
-		do aSeedType = (SeedType)Rand(mApp->GetSeedsAvailable());
-		while (!mApp->SeedTypeAvailable(aSeedType) || aSeedType == SEED_IMITATER || mChosenSeeds[aSeedType].mSeedState != SEED_IN_CHOOSER);
+		// @pvz-online: 闯关从卡池里抽——档案解锁范围和卡池可能完全不重叠，拿原版的
+		// Rand(GetSeedsAvailable()) 配"必须在卡池里"的 while 条件就是死循环。
+		if (mApp->IsRunMode())
+		{
+			RunState* aRun = mApp->GetRunState();
+			do aSeedType = aRun->mPool[Rand((int)aRun->mPool.size())];
+			while (mChosenSeeds[aSeedType].mSeedState != SEED_IN_CHOOSER);
+		}
+		else
+		{
+			do aSeedType = (SeedType)Rand(mApp->GetSeedsAvailable());
+			while (!mApp->SeedTypeAvailable(aSeedType) || aSeedType == SEED_IMITATER || mChosenSeeds[aSeedType].mSeedState != SEED_IN_CHOOSER);
+		}
 		ChosenSeed& aChosenSeed = mChosenSeeds[aSeedType];
 		aChosenSeed.mTimeStartMotion = 0;
 		aChosenSeed.mTimeEndMotion = 0;
@@ -764,7 +778,9 @@ void SeedChooserScreen::ButtonDepress(int theId)
 		UpdateCursor();
 		mApp->DoNewOptions(false);
 	}
-	else if (mApp->GetSeedsAvailable() >= mBoard->mSeedBank->mNumPackets)
+	// @pvz-online: 闸门也要认卡池——原版拿档案解锁数挡"开始/随机"，而闯关的卡池是
+	// 三选一攒的、和档案进度无关（低进度档案配闯关会卡在"选满了也点不动开始"）。
+	else if ((mApp->IsRunMode() ? (int)mApp->GetRunState()->mPool.size() : mApp->GetSeedsAvailable()) >= mBoard->mSeedBank->mNumPackets)
 	{
 		if (theId == SeedChooserScreen::SeedChooserScreen_Start)
 			OnStartButton();

@@ -68,6 +68,9 @@ public:
 	void				TakeBuffChoice(int theIndex);
 	// 这一局拿到某个 buff 的层数（R3 的数值层按它算加成）。
 	int					GetBuffCount(int theBuffId) const;
+	// 这株植物在不在这局的卡池里。选卡界面（卡池 > 8 格才弹）靠它决定哪些袋子
+	// 画得出来、点得动——见 LawnApp::SeedTypeAvailable 的闯关分支。
+	bool				HasPlant(SeedType theSeedType) const;
 
 	// 检查点读写。Load 失败（文件不在 / 版本不符 / 内容越界）返回 false，对象保持"空局"。
 	bool				Load(int theProfileId);

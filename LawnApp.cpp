@@ -3253,6 +3253,14 @@ bool LawnApp::HasSeedType(SeedType theSeedType)
 
 bool LawnApp::SeedTypeAvailable(SeedType theSeedType)
 {
+	// @pvz-online: 闯关（肉鸽）：能用哪些植物只看这一局的卡池——卡池是三选一攒出来的，
+	// 和本机档案解锁到哪儿无关（§5.1 定案）。选卡界面（第 4、5 关卡池 > 8 格时才弹）
+	// 里每一处"画不画、点不点"的判定都走这里，一处收口；局中的图鉴也跟着只显示卡池。
+	if (IsRunMode())
+	{
+		return mRunState->HasPlant(theSeedType);
+	}
+
 	return (theSeedType == SeedType::SEED_GATLINGPEA && mPlayerInfo->mPurchases[StoreItem::STORE_ITEM_PLANT_GATLINGPEA]) || HasSeedType(theSeedType);
 }
 

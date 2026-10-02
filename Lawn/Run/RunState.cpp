@@ -208,6 +208,15 @@ int RunState::GetBuffCount(int theBuffId) const
 	return 0;
 }
 
+bool RunState::HasPlant(SeedType theSeedType) const
+{
+	for (size_t i = 0; i < mPool.size(); i++)
+	{
+		if (mPool[i] == theSeedType) return true;
+	}
+	return false;
+}
+
 int RunState::LevelForIndex(int theIndex)
 {
 	static const int aLevels[RUN_LEVEL_COUNT] = { 1, 3, 5, 7, 9 };
