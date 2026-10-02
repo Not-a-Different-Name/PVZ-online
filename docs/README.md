@@ -20,8 +20,10 @@
 
 1. **版本控制**：仓库 `re-plants-vs-zombies`，分支 `pvz-online`，基线提交 `11950d5`
    （如实标注为「上游 + 已有改动」，**不是纯净上游**）；`main` = `e19f065`（M1 发布），
-   联机开发全部在 `pvz-online` 分支上逐条提交，**推送目标 = github 的 `pvz-online` 分支
-   （机器 2 的拉取源；`origin` 是上游，别动）**。
+   联机开发全部在 `pvz-online` 分支上逐条提交。
+   **在线仓库**：<https://github.com/Not-a-Different-Name/PVZ-online>（SSH：
+   `git@github.com:Not-a-Different-Name/PVZ-online.git`）——推送与机器 2 拉取都用
+   它的 `pvz-online` 分支；`origin` 是上游，别动。克隆步骤见 `01-转移与重建.md` §1.1。
 2. **M1 模式裁剪已实机验收**：主菜单只留 联机（第一槽，最大）/ 生存 / 冒险（第三槽），
    PVP 灰置占位；挑战页只留无尽（7c4f230 入口裁剪、0a9d2f3 生存解锁、eaa5695 PVP 占位）。
 3. **M2 双人联机已经能打**：两台机器 TCP 直连（端口 27777）——同关同步、漏怪传给队友、

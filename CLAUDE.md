@@ -20,6 +20,9 @@ cmd /c <pvz-online 根>\build-msvc.bat reconfig  # 删除 build-x86 重新配置
   临时诊断副本（`SexyAppFramework_bXX.exe`）用完立刻删（`docs/规范.md` §8）
 - VS2022 Community 自带 CMake/Ninja，勿用 `cmake` 裸命令（不在 PATH）
 - 工作分支 `pvz-online`，勿直接提交到 main；基线提交 `11950d5`
+- 在线仓库 `git@github.com:Not-a-Different-Name/PVZ-online.git`
+  （<https://github.com/Not-a-Different-Name/PVZ-online>）：推送/拉取都用它的
+  **`pvz-online` 分支**（机器 2 的同步源）；`origin` 是上游 `Patoke/re-plants-vs-zombies`，**别动**
 - 构建链已迁移化（8c4204e）：脚本自动探测 VS2022，`imagelib/CMakeLists.txt` 用
   `${THIRD_PARTY_DIR}` 相对引用本地依赖仓库——**换机器不再需要改任何路径**，
   但 `third_party/` 必须与 `re-plants-vs-zombies/` 并列（见 `docs/01-转移与重建.md`）
