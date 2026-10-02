@@ -5087,6 +5087,25 @@ PlantDefinition& GetPlantDefinition(SeedType theSeedType)
     return gPlantDefs[theSeedType];
 }
 
+// @pvz-online: 紫卡的基础植物（IsUpgradableTo 的反向表，8 对全在这里）。闯关里紫卡
+// 直接种、价格是"紫卡原价 + 基础植物原价"（见 GetCost），所以要从升级卡反查它的底座。
+// 返回 SEED_NONE 表示这不是紫卡。
+static SeedType GetUpgradeBaseFor(SeedType theSeedType)
+{
+    switch (theSeedType)
+    {
+    case SeedType::SEED_GATLINGPEA:     return SeedType::SEED_REPEATER;
+    case SeedType::SEED_WINTERMELON:    return SeedType::SEED_MELONPULT;
+    case SeedType::SEED_TWINSUNFLOWER:  return SeedType::SEED_SUNFLOWER;
+    case SeedType::SEED_SPIKEROCK:      return SeedType::SEED_SPIKEWEED;
+    case SeedType::SEED_COBCANNON:      return SeedType::SEED_KERNELPULT;
+    case SeedType::SEED_GOLD_MAGNET:    return SeedType::SEED_MAGNETSHROOM;
+    case SeedType::SEED_GLOOMSHROOM:    return SeedType::SEED_FUMESHROOM;
+    case SeedType::SEED_CATTAIL:        return SeedType::SEED_LILYPAD;
+    default:                            return SeedType::SEED_NONE;
+    }
+}
+
 //0x467B00
 int Plant::GetCost(SeedType theSeedType, SeedType theImitaterType)
 {
@@ -5146,9 +5165,20 @@ int Plant::GetCost(SeedType theSeedType, SeedType theImitaterType)
         // @pvz-online: 闯关里蘑菇全醒（见构造函数），售价 +25 阳光（用户定案）。
         // 卡面显示、扣费、可用判定全走这一个入口，所以自动一致；模仿者按被模仿的那株算。
         int aCost = GetPlantDefinition(aCostSeedType).mSeedCost;
-        if (gLawnApp->IsRunMode() && IsNocturnal(aCostSeedType))
+        if (gLawnApp->IsRunMode())
         {
-            aCost += 25;
+            // @pvz-online: 闯关里紫卡直接种（见 Board::CanPlantAt），售价 = 紫卡原价
+            // + 基础植物原价（用户定案清单）；两笔都按原版取值，不再叠加蘑菇 +25。
+            SeedType aBaseType = GetUpgradeBaseFor(aCostSeedType);
+            if (aBaseType != SeedType::SEED_NONE)
+            {
+                return aCost + GetPlantDefinition(aBaseType).mSeedCost;
+            }
+
+            if (IsNocturnal(aCostSeedType))
+            {
+                aCost += 25;
+            }
         }
         return aCost;
     }

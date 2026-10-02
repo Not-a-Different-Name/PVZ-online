@@ -3081,7 +3081,8 @@ PlantingReason Board::CanPlantAt(int theGridX, int theGridY, SeedType theSeedTyp
 			{
 				return PlantingReason::PLANTING_OK;
 			}
-			if (Plant::IsUpgrade(theSeedType))
+			// @pvz-online: 闯关里紫卡直接种（不用底座）——香蒲不再要求"先有睡莲才能升"
+			if (Plant::IsUpgrade(theSeedType) && !mApp->IsRunMode())
 			{
 				return PlantingReason::PLANTING_NEEDS_UPGRADE;
 			}
@@ -3104,7 +3105,8 @@ PlantingReason Board::CanPlantAt(int theGridX, int theGridY, SeedType theSeedTyp
 		{
 			return PlantingReason::PLANTING_OK;
 		}
-		if (Plant::IsUpgrade(theSeedType))
+		// @pvz-online: 闯关里紫卡就是普通植物（直接种），落在地块已占的位置按"占位"处理
+		if (Plant::IsUpgrade(theSeedType) && !mApp->IsRunMode())
 		{
 			return PlantingReason::PLANTING_NEEDS_UPGRADE;
 		}
@@ -3122,8 +3124,8 @@ PlantingReason Board::CanPlantAt(int theGridX, int theGridY, SeedType theSeedTyp
 		return PlantingReason::PLANTING_NOT_HERE;
 	}
 
-	// 免费种植模式下紫卡的额外判断
-	if (!mApp->mEasyPlantingCheat && Plant::IsUpgrade(theSeedType))
+	// 免费种植模式下紫卡的额外判断（闯关里紫卡直接种、不吃这条）
+	if (!mApp->mEasyPlantingCheat && Plant::IsUpgrade(theSeedType) && !mApp->IsRunMode())
 	{
 		return PlantingReason::PLANTING_NEEDS_UPGRADE;
 	}
