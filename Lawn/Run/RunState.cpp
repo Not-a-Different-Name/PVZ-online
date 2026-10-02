@@ -150,11 +150,17 @@ void RunState::RollChoices()
 	}
 	else
 	{
-		// 增益：8 条里抽 3 条互不重复的。同名跨屏可以再来（叠层，见 BuffStack）。
-		int aCandidates[RUN_BUFF_COUNT];
-		for (int i = 0; i < RUN_BUFF_COUNT; i++) aCandidates[i] = i;
+		// 增益：全局 8 条 + 单株升级混池抽 3 条互不重复。单株的只收"卡池里已经有这株"的
+		// （设计文档：只对已拥有的植物出）。全局 8 条是保底，池子恒 ≥ 8 条。
+		// 同名跨屏可以再来（叠层，见 BuffStack）。
+		int aCandidates[RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT];
+		int aCount = 0;
+		for (int i = 0; i < RUN_BUFF_COUNT; i++) aCandidates[aCount++] = i;
+		for (int i = 0; i < RUN_PLANT_UPGRADE_COUNT; i++)
+		{
+			if (HasPlant(GetRunPlantUpgradeDef(i).mPlant)) aCandidates[aCount++] = RUN_BUFF_COUNT + i;
+		}
 
-		int aCount = RUN_BUFF_COUNT;
 		for (int i = 0; i < RUN_CHOICES; i++)
 		{
 			int aPick = (int)aRNG.Next((unsigned long)aCount);

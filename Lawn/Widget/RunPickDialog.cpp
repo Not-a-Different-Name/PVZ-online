@@ -29,7 +29,7 @@ RunPickDialog::RunPickDialog(LawnApp* theApp, RunState* theRun) : LawnDialog(
 		// 按钮上就是这株植物 / 这条增益的名字——名字和卡面对得上，玩家才知道自己点的是哪张
 		SexyString aLabel = mPlantPick
 			? Plant::GetNameString(theRun->mPlantChoices[i])
-			: SexyString(GetRunBuffDef(theRun->mBuffChoices[i]).mName);
+			: SexyString(GetRunChoiceName(theRun->mBuffChoices[i]));
 		mChoiceButtons[i] = MakeButton(RunPickDialog_Choice0 + i, this, aLabel);
 	}
 
@@ -115,7 +115,7 @@ void RunPickDialog::Draw(Graphics* g)
 		{
 			// 效果说明贴着各自的按钮画：三列各说各的，不用让人去猜哪句话配哪个名字
 			Rect aRect(mColumnX[i], mAreaTop, mColumnWidth, mAreaHeight);
-			WriteWordWrapped(g, aRect, SexyString(GetRunBuffDef(mRun->mBuffChoices[i]).mDesc),
+			WriteWordWrapped(g, aRect, SexyString(GetRunChoiceDesc(mRun->mBuffChoices[i])),
 				mLinesFont->GetLineSpacing() + mLineSpacingOffset, mTextAlign);
 		}
 	}

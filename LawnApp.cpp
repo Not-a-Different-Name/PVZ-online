@@ -1152,6 +1152,28 @@ int LawnApp::RunBuffAdd(int theBuffId) const
 	return GetRunBuffDef(theBuffId).mPerStackAdd * mRunState->GetBuffCount(theBuffId);
 }
 
+// 单株升级和全局 buff 共用存储：单株的层数就存在 BuffStack 里，
+// id = RUN_BUFF_COUNT + 表内下标（检查点格式因此不用区分两类）。
+float LawnApp::RunPlantUpgradeMul(SeedType thePlant) const
+{
+	if (mRunState == nullptr) return 1.0f;
+
+	int aIndex = RunPlantUpgradeIndexFor(thePlant);
+	if (aIndex < 0) return 1.0f;
+
+	float aMul = 1.0f + GetRunPlantUpgradeDef(aIndex).mPerStackMul * (float)mRunState->GetBuffCount(RUN_BUFF_COUNT + aIndex);
+	return aMul < 0.1f ? 0.1f : aMul;
+}
+
+int LawnApp::RunPlantUpgradeCount(SeedType thePlant) const
+{
+	if (mRunState == nullptr) return 0;
+
+	int aIndex = RunPlantUpgradeIndexFor(thePlant);
+	if (aIndex < 0) return 0;
+	return mRunState->GetBuffCount(RUN_BUFF_COUNT + aIndex);
+}
+
 //0x44F5F0
 // GOTY @Patoke: 0x4528B0
 void LawnApp::MakeNewBoard()

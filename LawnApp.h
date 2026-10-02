@@ -258,6 +258,10 @@ public:
 	// 加数 0），调用点写一行就够，不用自己判 mRunState。数值本体在 RunBuffs.cpp 的表里。
 	float							RunBuffMul(int theBuffId) const;
 	int								RunBuffAdd(int theBuffId) const;
+	// @pvz-online: R3 单株升级的取用口——按"植物"问（落点手里只有植物类型）。
+	// 表里没有这株 / 没拿到 / 不在闯关 = 中性值，同全局 buff。
+	float							RunPlantUpgradeMul(SeedType thePlant) const;
+	int								RunPlantUpgradeCount(SeedType thePlant) const;
 	void							ShowGameSelector();
 	void							KillGameSelector();
 	void							ShowAwardScreen(AwardType theAwardType, bool theShowAchievements); // @Patoke: add argument

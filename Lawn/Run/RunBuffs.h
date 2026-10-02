@@ -1,11 +1,16 @@
 #ifndef __RUNBUFFS_H__
 #define __RUNBUFFS_H__
 
-// @pvz-online: 闯关（肉鸽）全局增益的目录。
+#include "../../ConstEnums.h"
+
+// @pvz-online: 闯关（肉鸽）增益目录，两类都在这：
+//   ① 全局增益（RUN_BUFF_*，对全部植物/整局生效）
+//   ② 单株升级（RUN_UPGRADE_*，只对已拥有的那株植物生效，抽取时过滤）
+// 两张表既是文案（三选一屏 R2 用它摆名字和说明），也是数值（R3：每层多少，
+// 落点各自的代码位置见 RunBuffDef 数值字段与 LawnApp::RunPlantUpgradeMul/Count）。
 //
-// 这张表既是文案（三选一屏 R2 用它摆名字和说明），也是数值（R3：每层多少，
-// 落点各自的代码位置见 RunBuffDef 两个数值字段的注释）。
-// 另一类"单株升级"（只对已拥有的植物出）是 R3 的另一张小表，不在这个文件里。
+// 两类共用同一个 id 空间：id < RUN_BUFF_COUNT 是全局，否则 id − RUN_BUFF_COUNT
+// 是单株表下标。存储（RunState 的 BuffStack）与检查点格式因此不用区分两类。
 
 enum RunBuffId
 {
@@ -32,5 +37,37 @@ struct RunBuffDef
 };
 
 const RunBuffDef& GetRunBuffDef(int theId);
+
+// ── 单株升级（R3 第二张表）────────────────────────────────────────────
+// 只对"卡池里已有这株植物"的玩家出（抽取时过滤，见 RunState::RollChoices）。
+// 落点取用走 LawnApp::RunPlantUpgradeMul / RunPlantUpgradeCount——和全局 buff
+// 一样，非闯关局自动是中性值，落点不需要判 mRunState。
+enum RunPlantUpgradeId
+{
+	RUN_UPGRADE_PEASHOOTER,		// 豌豆射手：每次多打 1 发（每层）
+	RUN_UPGRADE_SUNFLOWER,		// 向日葵：每次多产 1 阳光（每层）
+	RUN_UPGRADE_CHERRYBOMB,		// 樱桃炸弹：爆炸半径 +25%/层
+	RUN_UPGRADE_WALLNUT,		// 坚果墙：血量 +25%/层
+	RUN_UPGRADE_POTATOMINE,		// 土豆雷：爆炸伤害 +40%/层
+	RUN_PLANT_UPGRADE_COUNT
+};
+
+struct RunPlantUpgradeDef
+{
+	SeedType	mPlant;			// 这门升级挂在哪种植物上（一株最多一条）
+	const char*	mName;
+	const char*	mDesc;
+	// 同 RunBuffDef.mPerStackMul；纯计数型（+1 发 / +1 阳光）填 0，
+	// 那种效果按层数直接取整，走 RunPlantUpgradeCount。
+	float		mPerStackMul;
+};
+
+const RunPlantUpgradeDef& GetRunPlantUpgradeDef(int theIndex);
+// 这株植物在单株表里的下标；表里没有这株 → −1。
+int RunPlantUpgradeIndexFor(SeedType thePlant);
+
+// 三选一屏统一取文案：两类 id 都能查，屏上不用分支。
+const char* GetRunChoiceName(int theId);
+const char* GetRunChoiceDesc(int theId);
 
 #endif

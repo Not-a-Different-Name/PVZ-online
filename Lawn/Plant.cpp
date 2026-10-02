@@ -477,9 +477,9 @@ void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, Se
     {
         mPlantHealth *= 2;
     }
-    // @pvz-online: 闯关 buff「扎根」：全体植物血量 ×(1+20%/层)。非闯关局乘数恒为 1.0，
-    // 对 300/4000 这类整数是无损的，原版路径一字不变。
-    mPlantHealth = (int)(mPlantHealth * mApp->RunBuffMul(RUN_BUFF_ROOTED) + 0.5f);
+    // @pvz-online: 闯关 buff「扎根」：全体植物血量 ×(1+20%/层)。单株升级（坚果「厚壳」等）
+    // 在同一行一起取——两乘数相乘。非闯关局都是 1.0，对 300/4000 这类整数无损。
+    mPlantHealth = (int)(mPlantHealth * mApp->RunBuffMul(RUN_BUFF_ROOTED) * mApp->RunPlantUpgradeMul(theSeedType) + 0.5f);
     mPlantMaxHealth = mPlantHealth;
 
     if (mSeedType != SeedType::SEED_FLOWERPOT && IsOnBoard())
@@ -1054,6 +1054,9 @@ void Plant::UpdateProductionPlant()
         else if (mSeedType == SeedType::SEED_SUNFLOWER)
         {
             mBoard->AddCoin(mX, mY, CoinType::COIN_SUN, CoinMotion::COIN_MOTION_FROM_PLANT);
+            // @pvz-online: 单株升级「多产」：每层多落一枚阳光（RunBuffs 单株表）
+            for (int i = 0, aExtra = mApp->RunPlantUpgradeCount(SeedType::SEED_SUNFLOWER); i < aExtra; i++)
+                mBoard->AddCoin(mX, mY, CoinType::COIN_SUN, CoinMotion::COIN_MOTION_FROM_PLANT);
         }
         else if (mSeedType == SeedType::SEED_TWINSUNFLOWER)
         {
@@ -4390,7 +4393,9 @@ void Plant::DoSpecial()
         mApp->PlayFoley(FoleyType::FOLEY_CHERRYBOMB);
         mApp->PlayFoley(FoleyType::FOLEY_JUICY);
 
-        if (mBoard->KillAllZombiesInRadius(mRow, aPosX, aPosY, 115, 1, true, aDamageRangeFlags) >= 10)
+        // @pvz-online: 单株升级「扩爆」：半径 ×(1+25%/层)（RunBuffs 单株表）
+        int aRadius = (int)(115 * mApp->RunPlantUpgradeMul(SeedType::SEED_CHERRYBOMB) + 0.5f);
+        if (mBoard->KillAllZombiesInRadius(mRow, aPosX, aPosY, aRadius, 1, true, aDamageRangeFlags) >= 10)
             ReportAchievement::GiveAchievement(mApp, Explodonator, true); // @Patoke: add achievement
 
         mApp->AddTodParticle(aPosX, aPosY, (int)RenderLayer::RENDER_LAYER_TOP, ParticleEffect::PARTICLE_POWIE);
@@ -4761,6 +4766,15 @@ void Plant::Fire(Zombie* theTargetZombie, int theRow, PlantWeapon thePlantWeapon
 
     Projectile* aProjectile = mBoard->AddProjectile(aOriginX, aOriginY, mRenderOrder - 1, theRow, aProjectileType);
     aProjectile->mDamageRangeFlags = GetDamageRangeFlags(thePlantWeapon);
+
+    // @pvz-online: 单株升级「多发」：每层多打一发（RunBuffs 单株表）。
+    // 表里进得了这段的只有直射豌豆系——多出来的子弹照主子弹的默认直线运动走，
+    // 出发位置逐发后错一点，看得出是一排子弹而不是一发重影。
+    for (int i = 0, aExtra = mApp->RunPlantUpgradeCount(mSeedType); i < aExtra; i++)
+    {
+        Projectile* aExtraProjectile = mBoard->AddProjectile(aOriginX + 21 * (i + 1), aOriginY, mRenderOrder - 1, theRow, aProjectileType);
+        aExtraProjectile->mDamageRangeFlags = aProjectile->mDamageRangeFlags;
+    }
 
     if (mSeedType == SeedType::SEED_CABBAGEPULT || mSeedType == SeedType::SEED_KERNELPULT ||
         mSeedType == SeedType::SEED_MELONPULT || mSeedType == SeedType::SEED_WINTERMELON)
