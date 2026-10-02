@@ -28,6 +28,12 @@ public:
 	static const int	RUN_POOL_MAX		= 48;	// 卡池上限 = 全部植物
 	static const int	RUN_CHOICES			= 3;	// 一屏摆几张卡
 
+	// @pvz-online: 出怪编排旋钮（M4-a，用户定案）：点数不封顶、数量封顶；点数多就出强僵尸。
+	// 用在 Board::PickZombieWaves / Board::PickZombieType 的闯关分支，调平衡只动这三个数。
+	static const int	RUN_WAVE_ZOMBIE_CAP	= 20;	// 每波僵尸数量上限（含旗帜波预放的普通+旗帜）
+	static const int	RUN_HEAVY_POINTS	= 16;	// 单波剩余点数到此为止：接下来只抽"强僵尸"
+	static const int	RUN_HEAVY_VALUE		= 4;	// "强僵尸"的价值门槛（铁桶/铁门/橄榄球/巨人等）
+
 	// buff 的三选一屏是 R2 的活儿、数值落地是 R3 的：数据类型一层就该定死，id + 叠了几层。
 	struct BuffStack
 	{

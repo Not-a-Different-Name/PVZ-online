@@ -838,7 +838,10 @@ void Board::PickZombieWaves()
 		// ------------------------------------------------------------------------------------------------
 		// △ 剩余的僵尸点数用于向列表中补充随机僵尸
 		// ------------------------------------------------------------------------------------------------
-		while (aZombiePoints > 0 && aZombiePicker.mZombieCount < MAX_ZOMBIES_IN_WAVE)
+		// @pvz-online: 闯关"数量封顶"（M4-a 定案）：点数不封顶，但一波最多 RUN_WAVE_ZOMBIE_CAP 只；
+		// 预算花不完的零头直接作废——富余的点数靠 PickZombieType 的强僵尸优先花在质量上。
+		int aWaveZombieCap = mApp->IsRunMode() ? RunState::RUN_WAVE_ZOMBIE_CAP : MAX_ZOMBIES_IN_WAVE;
+		while (aZombiePoints > 0 && aZombiePicker.mZombieCount < aWaveZombieCap)
 		{
 			ZombieType aZombieType = PickZombieType(aZombiePoints, aWave, &aZombiePicker);
 			PutZombieInWave(aZombieType, aWave, &aZombiePicker);
@@ -2689,6 +2692,27 @@ ZombieType Board::PickZombieType(int theZombiePoints, int theWaveIndex, ZombiePi
 		aZombieWeightArray[aPickCount].mItem = aZombieType;
 		aZombieWeightArray[aPickCount].mWeight = aPickWeight;
 		aPickCount++;
+	}
+
+	// @pvz-online: 闯关"点数多就出强僵尸"（M4-a 定案）：单波剩余点数 >= RUN_HEAVY_POINTS 时，
+	// 把价值不足 RUN_HEAVY_VALUE 的普通僵尸权重清零，只从强僵尸里抽——多出来的点数变成
+	// 更强的个体而不是人海。名单里没有强僵尸（或强僵尸全抽不起）时保持原样，绝不空抽。
+	if (mApp->IsRunMode() && theZombiePoints >= RunState::RUN_HEAVY_POINTS)
+	{
+		int aHeavyWeight = 0;
+		for (int i = 0; i < aPickCount; i++)
+		{
+			if (GetZombieDefinition((ZombieType)aZombieWeightArray[i].mItem).mZombieValue >= RunState::RUN_HEAVY_VALUE)
+				aHeavyWeight += aZombieWeightArray[i].mWeight;
+		}
+		if (aHeavyWeight > 0)
+		{
+			for (int i = 0; i < aPickCount; i++)
+			{
+				if (GetZombieDefinition((ZombieType)aZombieWeightArray[i].mItem).mZombieValue < RunState::RUN_HEAVY_VALUE)
+					aZombieWeightArray[i].mWeight = 0;
+			}
+		}
 	}
 
 	// 加权随机地取得一种可能的僵尸类型并返回
