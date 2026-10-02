@@ -3405,6 +3405,56 @@ LRESULT CALLBACK SexyAppBase::WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LP
 //	}
 //	//Fallthrough
 
+	case WM_NCHITTEST:
+		// @pvz-online: 客户区里贴着边缘的一圈（缩放后就是整条黑边）也当窗口边框。系统自带
+		// 的可拖圈只有窗口外框那几像素宽，而 WM_SETCURSOR 又被本框架接管（见下），用户既
+		// 瞄不准也看不到缩放箭头——把"画面边界"这一圈让出来，瞄准就容易了。
+		{
+			LRESULT aHitTest = DefWindowProc(hWnd, uMsg, wParam, lParam);
+			if ((aHitTest != HTCLIENT) || (aSexyApp == NULL) || (hWnd != aSexyApp->mHWnd)
+				|| (aSexyApp->mDDInterface == NULL) || (!aSexyApp->mDDInterface->mIsWindowed))
+				return aHitTest;
+
+			const Rect& aPresentRect = aSexyApp->mDDInterface->mPresentationRect;
+			if ((aPresentRect.mWidth <= 0) || (aPresentRect.mHeight <= 0))
+				return aHitTest;
+
+			POINT aPoint;
+			aPoint.x = (int)(short)LOWORD(lParam);
+			aPoint.y = (int)(short)HIWORD(lParam);
+			::ScreenToClient(hWnd, &aPoint);
+
+			RECT aClientRect;
+			::GetClientRect(hWnd, &aClientRect);
+			if ((aPoint.x < 0) || (aPoint.y < 0) ||
+				(aPoint.x >= aClientRect.right) || (aPoint.y >= aClientRect.bottom))
+				return aHitTest;
+
+			int aGrabLeft = aPresentRect.mX;		// 黑边整条可抓
+			int aGrabTop = aPresentRect.mY;
+			int aGrabRight = aClientRect.right - (aPresentRect.mX + aPresentRect.mWidth);
+			int aGrabBottom = aClientRect.bottom - (aPresentRect.mY + aPresentRect.mHeight);
+			if (aGrabLeft < 8) aGrabLeft = 8;		// 没有黑边（或黑边很窄）时保底 8 像素
+			if (aGrabTop < 8) aGrabTop = 8;
+			if (aGrabRight < 8) aGrabRight = 8;
+			if (aGrabBottom < 8) aGrabBottom = 8;
+
+			bool aOnLeft = aPoint.x < aGrabLeft;
+			bool aOnRight = aPoint.x >= aClientRect.right - aGrabRight;
+			bool aOnTop = aPoint.y < aGrabTop;
+			bool aOnBottom = aPoint.y >= aClientRect.bottom - aGrabBottom;
+
+			if (aOnTop && aOnLeft)			return HTTOPLEFT;
+			if (aOnTop && aOnRight)			return HTTOPRIGHT;
+			if (aOnBottom && aOnLeft)		return HTBOTTOMLEFT;
+			if (aOnBottom && aOnRight)		return HTBOTTOMRIGHT;
+			if (aOnLeft)					return HTLEFT;
+			if (aOnRight)					return HTRIGHT;
+			if (aOnTop)						return HTTOP;
+			if (aOnBottom)					return HTBOTTOM;
+
+			return aHitTest;
+		}
 	case WM_GETMINMAXINFO:
 		// @pvz-online: 拖拽改大小时给个下限——客户区不小于 640x480（再小界面就糊成一团了）。
 		// 上限不用管，默认就是桌面尺寸。窗口还没建好（aSexyApp 空）时不动，交给默认处理。
@@ -3712,9 +3762,22 @@ LRESULT CALLBACK SexyAppBase::WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LP
 		}
 		break;	
 	case WM_SETCURSOR:
-		if (!aSexyApp->mSEHOccured)
+		// @pvz-online: 命中在缩放带（8 个 HT* 码）上时，把光标交回系统默认处理——系统会给
+		// 窗口边框配缩放箭头。原来这里无脑 EnforceCursor() 又 return TRUE，把系统的边框光标
+		// 处理整个吞掉了：鼠标一进窗口就被换成游戏自绘光标，用户拖不到边也看不到箭头。
+		// 自绘光标这时要先撤掉，不然箭头上面还叠着游戏光标。
+		if ((aSexyApp != NULL) && (!aSexyApp->mSEHOccured) && (aSexyApp->mDDInterface != NULL))
+		{
+			int aHitTest = (int)(short)LOWORD(lParam);
+			if ((aHitTest >= HTLEFT) && (aHitTest <= HTBOTTOMRIGHT))
+			{
+				if (aSexyApp->mDDInterface->SetCursorImage(NULL))
+					aSexyApp->mCustomCursorDirty = true;
+				return DefWindowProc(hWnd, uMsg, wParam, lParam);
+			}
 			aSexyApp->EnforceCursor();
-		return TRUE;		
+		}
+		return TRUE;
 	case WM_ERASEBKGND:
 		return TRUE;		
 	case WM_ENDSESSION:
