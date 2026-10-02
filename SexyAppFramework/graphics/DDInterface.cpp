@@ -293,6 +293,9 @@ int DDInterface::Init(HWND theWindow, bool IsWindowed)
 	mDisplayHeight = mHeight;
 	mDisplayAspect = mAspect;
 	mPresentationRect = Rect( 0, 0, mWidth, mHeight );
+	// @pvz-online: 拖拽改大小那条路会在运行中把它置真（见 SetClientSize）。窗口是重建的
+	// （窗口化 <-> 全屏切换都走 MakeWindow + Init），这里得从"没缩放"重新判。
+	mIsWidescreen = false;
 	mApp->mScreenBounds = mPresentationRect;
 	mFullscreenBits = mApp->mFullscreenBits;
 	mIsWindowed = IsWindowed;
@@ -707,6 +710,55 @@ void DDInterface::RemapMouse(int& theX, int& theY)
 	}
 }
 
+// @pvz-online: 窗口客户区拖成新尺寸了（WM_SIZE 走过来）。逻辑画布一点没变——还是
+// mWidth x mHeight（800x600），所有界面布局、鼠标坐标都在这个空间里；这里做的是把这张
+// 背缓冲**等比缩放**到新客户区里居中贴出来，多出来的四条边留黑（letterbox）。
+// 框架里本来就有这条呈现路径：Redraw 走 mPresentationRect + DDBLTFX_ARITHSTRETCHY，
+// 鼠标那边由 WidgetManager::RemapMouse 按"逻辑矩形 <-> 呈现矩形"反算，光标则由
+// SetCursorPos 里的 RemapMouse 换算。窗口一拉大，唯一要做的就是把这个矩形算对。
+void DDInterface::SetClientSize(int theClientWidth, int theClientHeight)
+{
+	AutoCrit anAutoCrit(mCritSect);
+
+	if (!mInitialized || !mIsWindowed)
+		return;								// 全屏模式的尺寸由显示模式说了算，跟窗口无关
+	if (theClientWidth <= 0 || theClientHeight <= 0)
+		return;								// 最小化：WM_SIZE 会给 0x0，别把呈现矩形算成空的
+
+	mDisplayWidth = theClientWidth;
+	mDisplayHeight = theClientHeight;
+
+	// 等比缩放到"装得下"：客户区比 4:3 宽就用高度顶满，否则宽度顶满
+	// （交叉相乘比大小，避免浮点）
+	int aPresentWidth;
+	int aPresentHeight;
+	if (theClientWidth * mHeight <= theClientHeight * mWidth)
+	{
+		aPresentWidth = theClientWidth;
+		aPresentHeight = theClientWidth * mHeight / mWidth;
+	}
+	else
+	{
+		aPresentHeight = theClientHeight;
+		aPresentWidth = theClientHeight * mWidth / mHeight;
+	}
+	if (aPresentWidth < 1) aPresentWidth = 1;
+	if (aPresentHeight < 1) aPresentHeight = 1;
+
+	Rect aNewRect(
+		(theClientWidth - aPresentWidth) / 2,
+		(theClientHeight - aPresentHeight) / 2,
+		aPresentWidth, aPresentHeight);
+	if (aNewRect == mPresentationRect)
+		return;								// 只挪了窗口没改大小：什么都不用动
+
+	mPresentationRect = aNewRect;
+	// 只有"跟背缓冲同尺寸、还贴着左上角"才算没缩放。差一点点都不行：Redraw 的局部重画
+	// 用的是逻辑坐标当客户区坐标使，只有走 mIsWidescreen 那条路（整帧贴）才是对的。
+	mIsWidescreen = (aNewRect.mX != 0 || aNewRect.mY != 0
+		|| aNewRect.mWidth != mWidth || aNewRect.mHeight != mHeight);
+}
+
 ulong DDInterface::GetColorRef(ulong theRGB)
 {
 	DDSURFACEDESC aDesc;
@@ -941,7 +993,23 @@ bool DDInterface::Redraw(Rect* theClipRect)
 	if (mIsWindowed)
 	{
 		HRESULT aResult;
-		
+
+		// @pvz-online: 拖拽改大小之后，背缓冲是等比缩放居中贴出去的，客户区里剩下四条边
+		// （letterbox）。窗口化下主表面就是桌面表面，这几条边不主动刷就是别的窗口留下的
+		// 残影——每帧先拿黑把整个客户区铺一遍，再把画面盖上去（裁剪器钉在这个窗口上，
+		// 铺不出客户区）。
+		if (mIsWidescreen)
+		{
+			RECT aClientRect;
+			::GetClientRect(mHWnd, &aClientRect);
+			OffsetRect(&aClientRect, aPoint.x, aPoint.y);
+
+			DDBLTFX aFillFX;
+			ZeroMemory(&aFillFX, sizeof(aFillFX));
+			aFillFX.dwSize = sizeof(aFillFX);
+			aResult = mPrimarySurface->Blt(&aClientRect, NULL, NULL, DDBLT_COLORFILL | DDBLT_WAIT, &aFillFX);
+		}
+
 		//DWORD aScanLine;
 		//mDD->GetScanLine(&aScanLine);
 
@@ -1415,13 +1483,23 @@ bool DDInterface::SetCursorImage(Image* theImage)
 
 void DDInterface::SetCursorPos(int theCursorX, int theCursorY)
 {
+	// @pvz-online: 进来的是客户区像素（光标线程 ScreenToClient 后的值），画光标用的是
+	// 逻辑坐标（它画进 800x600 的背缓冲里，跟着整帧一起缩放）。没缩放时这一步是恒等变换。
+	RemapMouse(theCursorX, theCursorY);
+
 	mNextCursorX = theCursorX;
 	mNextCursorY = theCursorY;
 
 	if (mInRedraw)
 		return;
 
-	AutoCrit anAutoCrit(mCritSect);	
+	// 缩放呈现时不能再走"直接把光标贴到主表面"那条快路：那条路的坐标和光标图都是
+	// 客户区像素的尺寸，贴上去位置和大小都不对。丢给 Redraw 去画——位置和大小才对，
+	// 代价只是光标跟着帧率走（100fps，看不出来）。
+	if (mIsWidescreen)
+		return;
+
+	AutoCrit anAutoCrit(mCritSect);
 	
 	if (mHasOldCursorArea)
 	{

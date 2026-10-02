@@ -122,9 +122,12 @@ public:
 
 	DDImage*				GetScreenImage();
 	int						Init(HWND theWindow, bool IsWindowed);	
-	bool					Redraw(Rect* theClipRect = NULL);	
+	bool					Redraw(Rect* theClipRect = NULL);
 	void					SetVideoOnlyDraw(bool videoOnly);
 	void					RemapMouse(int& theX, int& theY);
+	// @pvz-online: 窗口客户区改尺寸了（拖拽边角）。逻辑画布还是 mWidth x mHeight，
+	// 只把呈现矩形（等比缩放居中）和显示尺寸重算一遍，见 .cpp 里的说明。
+	void					SetClientSize(int theClientWidth, int theClientHeight);
 
 	bool					SetCursorImage(Image* theImage);
 	void					SetCursorPos(int theCursorX, int theCursorY);

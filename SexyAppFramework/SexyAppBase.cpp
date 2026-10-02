@@ -3405,6 +3405,23 @@ LRESULT CALLBACK SexyAppBase::WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LP
 //	}
 //	//Fallthrough
 
+	case WM_GETMINMAXINFO:
+		// @pvz-online: 拖拽改大小时给个下限——客户区不小于 640x480（再小界面就糊成一团了）。
+		// 上限不用管，默认就是桌面尺寸。窗口还没建好（aSexyApp 空）时不动，交给默认处理。
+		if ((aSexyApp != NULL) && (hWnd == aSexyApp->mHWnd) && (aSexyApp->mDDInterface != NULL)
+			&& (aSexyApp->mDDInterface->mIsWindowed))
+		{
+			MINMAXINFO* anInfo = (MINMAXINFO*) lParam;
+			RECT aMinRect = {0, 0, 640, 480};
+			::AdjustWindowRectEx(&aMinRect,
+				(DWORD)::GetWindowLongPtr(hWnd, GWL_STYLE), FALSE,
+				(DWORD)::GetWindowLongPtr(hWnd, GWL_EXSTYLE));
+			anInfo->ptMinTrackSize.x = aMinRect.right - aMinRect.left;
+			anInfo->ptMinTrackSize.y = aMinRect.bottom - aMinRect.top;
+			return 0;
+		}
+		break;
+
 	case WM_ACTIVATEAPP:
 		if ((aSexyApp != NULL) && (!aSexyApp->mPlayingDemoBuffer))
 		{
@@ -3437,6 +3454,12 @@ LRESULT CALLBACK SexyAppBase::WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LP
 	case WM_DISPLAYCHANGE:
 	case WM_SYSCOLORCHANGE:
 		{
+			// @pvz-online: 窗口被拖拽改大小（WS_THICKFRAME）。客户区一变，呈现矩形和鼠标
+			// 换算就要跟着重算，见 SexyAppBase::WindowResized。原来窗口尺寸钉死在 800x600，
+			// 这条消息落进来什么也不用做。最小化时给的是 0x0，那边自己会挡掉。
+			if ((aSexyApp != NULL) && (uMsg == WM_SIZE) && (hWnd == aSexyApp->mHWnd))
+				aSexyApp->WindowResized((int) LOWORD(lParam), (int) HIWORD(lParam));
+
 /*			if (aSexyApp!=NULL && aSexyApp->mProcessInTimer && !aSexyApp->mShutdown && aSexyApp->mRunning)
 			{
 				if (uMsg==WM_TIMER && wParam==101)
@@ -4655,7 +4678,11 @@ void SexyAppBase::MakeWindow()
 
 	if ((mPlayingDemoBuffer) || (mIsWindowed && !mFullScreenWindow))
 	{
-		DWORD aWindowStyle = WS_CLIPCHILDREN | WS_POPUP | WS_BORDER | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
+		// @pvz-online: 加上 WS_THICKFRAME —— 边角可以拖拽改大小（原来写死 800x600 不许改）。
+		// 加了它客户区尺寸就不一定等于 mWidth x mHeight 了，WM_SIZE 那边要把呈现矩形重算
+		// （见 SexyAppBase::WindowResized / DDInterface::SetClientSize）。
+		DWORD aWindowStyle = WS_CLIPCHILDREN | WS_POPUP | WS_BORDER | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX
+			| WS_THICKFRAME;
 		if (mEnableMaximizeButton)
 			aWindowStyle |= WS_MAXIMIZEBOX;
 
@@ -5568,6 +5595,25 @@ bool SexyAppBase::UpdateApp()
 		if (updated)
 			return true;
 	}
+}
+
+// @pvz-online: 窗口客户区改尺寸了（WM_SIZE / 拖拽边角）。逻辑画布还是 800x600——
+// 界面布局、棋盘、鼠标坐标全在这个空间里，一处都不用改；变的只是"怎么把这张画布贴进
+// 窗口"：DDInterface 重算呈现矩形（等比缩放居中，见 SetClientSize），WidgetManager
+// 换掉鼠标换算的源矩形（客户区像素 -> 逻辑坐标，见 WidgetManager::RemapMouse）。
+void SexyAppBase::WindowResized(int theClientWidth, int theClientHeight)
+{
+	if (mDDInterface == NULL || !mDDInterface->mInitialized)
+		return;
+
+	mDDInterface->SetClientSize(theClientWidth, theClientHeight);
+	mWidgetManager->Resize(mScreenBounds, mDDInterface->mPresentationRect);
+	mWidgetManager->MarkAllDirty();
+
+	// 马上按新尺寸补一帧：拖边角的时候 Windows 在自己的模态循环里，主循环是停着的，
+	// 不在这里画，窗口拖完之前就一直是旧画面（或者四条边的花屏）。
+	if (mInitialized && !mShutdown)
+		Redraw(NULL);
 }
 
 int SexyAppBase::InitDDInterface()

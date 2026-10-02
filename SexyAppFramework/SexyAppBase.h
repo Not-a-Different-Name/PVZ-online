@@ -506,6 +506,9 @@ public:
 //	virtual bool			CheckSignature(const Buffer& theBuffer, const std::string& theFileName);
 	virtual bool			DrawDirtyStuff();
 	virtual void			Redraw(Rect* theClipRect);
+	// @pvz-online: 窗口客户区改了尺寸（WM_SIZE / 拖拽边角）。逻辑画布不变，
+	// 重算呈现矩形和鼠标换算，见 .cpp。
+	void					WindowResized(int theClientWidth, int theClientHeight);
 
 	// Properties access methods
 	bool					LoadProperties(const std::string& theFileName, bool required, bool checkSig);
