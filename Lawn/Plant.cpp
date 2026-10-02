@@ -164,7 +164,9 @@ void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, Se
         mBlinkCountdown = 400 + Sexy::Rand(400);
     }
 
-    if (IsNocturnal(mSeedType) && mBoard && !mBoard->StageIsNight())
+    // @pvz-online: 闯关里蘑菇种下即醒（用户定案）——白天也照常干活；咖啡豆因此改行
+    // 产阳光（见 DoSpecial），植物价格在 GetCost 里 +25。
+    if (IsNocturnal(mSeedType) && mBoard && !mBoard->StageIsNight() && !mApp->IsRunMode())
         SetSleeping(true);
 
     if (mLaunchRate > 0)
@@ -4471,10 +4473,23 @@ void Plant::DoSpecial()
     }
     case SeedType::SEED_INSTANT_COFFEE:
     {
-        Plant* aPlant = mBoard->GetTopPlantAt(mPlantCol, mRow, PlantPriority::TOPPLANT_ONLY_NORMAL_POSITION);
-        if (aPlant && aPlant->mIsAsleep)
+        if (mApp->IsRunMode())
         {
-            aPlant->mWakeUpCounter = 100;
+            // @pvz-online: 闯关里蘑菇不会再睡，"唤醒"永远没有对象——咖啡豆改产阳光：
+            // 四枚 25（用户定案），和向日葵同一套落币方式
+            for (int i = 0; i < 4; i++)
+            {
+                mBoard->AddCoin(mX, mY, CoinType::COIN_SUN, CoinMotion::COIN_MOTION_FROM_PLANT);
+            }
+            mApp->PlayFoley(FoleyType::FOLEY_SPAWN_SUN);
+        }
+        else
+        {
+            Plant* aPlant = mBoard->GetTopPlantAt(mPlantCol, mRow, PlantPriority::TOPPLANT_ONLY_NORMAL_POSITION);
+            if (aPlant && aPlant->mIsAsleep)
+            {
+                aPlant->mWakeUpCounter = 100;
+            }
         }
 
         mState = PlantState::STATE_DOINGSPECIAL;
@@ -5122,16 +5137,20 @@ int Plant::GetCost(SeedType theSeedType, SeedType theImitaterType)
     case SeedType::SEED_ZOMBIE_IMP:                 return 50;
     default:
     {
+        SeedType aCostSeedType = theSeedType;
         if (theSeedType == SeedType::SEED_IMITATER && theImitaterType != SeedType::SEED_NONE)
         {
-            const PlantDefinition& aPlantDef = GetPlantDefinition(theImitaterType);
-            return aPlantDef.mSeedCost;
+            aCostSeedType = theImitaterType;
         }
-        else
+
+        // @pvz-online: 闯关里蘑菇全醒（见构造函数），售价 +25 阳光（用户定案）。
+        // 卡面显示、扣费、可用判定全走这一个入口，所以自动一致；模仿者按被模仿的那株算。
+        int aCost = GetPlantDefinition(aCostSeedType).mSeedCost;
+        if (gLawnApp->IsRunMode() && IsNocturnal(aCostSeedType))
         {
-            const PlantDefinition& aPlantDef = GetPlantDefinition(theSeedType);
-            return aPlantDef.mSeedCost;
+            aCost += 25;
         }
+        return aCost;
     }
     }
 }

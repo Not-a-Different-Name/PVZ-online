@@ -2944,6 +2944,19 @@ PlantingReason Board::CanPlantAt(int theGridX, int theGridY, SeedType theSeedTyp
 			return PlantingReason::PLANTING_NOT_HERE;
 		}
 
+		// @pvz-online: 闯关里蘑菇全醒，没有"睡着的植物"可浇——咖啡豆改行产阳光
+		// （见 Plant::DoSpecial），种植条件因此放宽成"下面任意一株普通植物"
+		if (mApp->IsRunMode())
+		{
+			if (!aPlantOnLawn.mNormalPlant ||
+				aPlantOnLawn.mNormalPlant->mOnBungeeState == PlantOnBungeeState::GETTING_GRABBED_BY_BUNGEE)
+			{
+				return PlantingReason::PLANTING_NOT_HERE;
+			}
+
+			return PlantingReason::PLANTING_OK;
+		}
+
 		if (!aPlantOnLawn.mNormalPlant || !aPlantOnLawn.mNormalPlant->mIsAsleep || aPlantOnLawn.mNormalPlant->mWakeUpCounter > 0 ||
 			aPlantOnLawn.mNormalPlant->mOnBungeeState == PlantOnBungeeState::GETTING_GRABBED_BY_BUNGEE)
 		{
@@ -3398,7 +3411,8 @@ void Board::UpdateMousePosition()
 		int aGridY = PlantingPixelToGridY(mApp->mWidgetManager->mLastMouseX, mApp->mWidgetManager->mLastMouseY, aCursorSeedType);
 
 		Plant* aPlant = GetTopPlantAt(aGridX, aGridY, PlantPriority::TOPPLANT_ONLY_NORMAL_POSITION);
-		if (aPlant && aPlant->mIsAsleep && CanPlantAt(aGridX, aGridY, SeedType::SEED_INSTANT_COFFEE) == PlantingReason::PLANTING_OK)
+		// @pvz-online: 闯关里咖啡豆可以落在任意植物上（蘑菇全醒），悬停高亮跟着放宽
+		if (aPlant && (mApp->IsRunMode() || aPlant->mIsAsleep) && CanPlantAt(aGridX, aGridY, SeedType::SEED_INSTANT_COFFEE) == PlantingReason::PLANTING_OK)
 		{
 			aPlant->mHighlighted = true;
 		}
@@ -9261,17 +9275,18 @@ int Board::PlantingPixelToGridY(int theX, int theY, SeedType theSeedType)
 	{
 		int aGridX = PixelToGridX(theX, theY);
 		
+		// @pvz-online: 闯关里咖啡豆认任意植物（蘑菇全醒），吸附跟着放宽（原来只吸睡着的）
 		Plant* aPlant = GetTopPlantAt(aGridX, aGridY, PlantPriority::TOPPLANT_ONLY_NORMAL_POSITION);
-		if (aPlant && aPlant->mIsAsleep)
+		if (aPlant && (mApp->IsRunMode() || aPlant->mIsAsleep))
 		{
 			return aGridY;
 		}
-		
+
 		int aGridYDown = PixelToGridY(theX, theY + 30);
 		if (aGridYDown != aGridY)
 		{
 			Plant* aPlantDown = GetTopPlantAt(aGridX, aGridYDown, PlantPriority::TOPPLANT_ONLY_NORMAL_POSITION);
-			if (aPlantDown && aPlantDown->mIsAsleep)
+			if (aPlantDown && (mApp->IsRunMode() || aPlantDown->mIsAsleep))
 			{
 				return aGridYDown;
 			}
@@ -9281,7 +9296,7 @@ int Board::PlantingPixelToGridY(int theX, int theY, SeedType theSeedType)
 		if (aGridYUp != aGridY)
 		{
 			Plant* aPlantUp = GetTopPlantAt(aGridX, aGridYUp, PlantPriority::TOPPLANT_ONLY_NORMAL_POSITION);
-			if (aPlantUp && aPlantUp->mIsAsleep)
+			if (aPlantUp && (mApp->IsRunMode() || aPlantUp->mIsAsleep))
 			{
 				return aGridYUp;
 			}
@@ -9666,11 +9681,12 @@ void Board::KillAllPlantsInRadius(int theX, int theY, int theRadius)
 unsigned int Board::SeedNotRecommendedForLevel(SeedType theSeedType)
 {
 	unsigned int aNotRec = 0;
-	if (Plant::IsNocturnal(theSeedType) && !StageIsNight())
+	// @pvz-online: 闯关里蘑菇全醒、咖啡豆改产阳光——"时机不对"的两条灰罩都不再成立
+	if (Plant::IsNocturnal(theSeedType) && !StageIsNight() && !mApp->IsRunMode())
 	{
 		SetBit(aNotRec, NotRecommend::NOT_RECOMMENDED_NOCTURNAL, true);
 	}
-	if (theSeedType == SeedType::SEED_INSTANT_COFFEE && StageIsNight())
+	if (theSeedType == SeedType::SEED_INSTANT_COFFEE && StageIsNight() && !mApp->IsRunMode())
 	{
 		SetBit(aNotRec, NotRecommend::NOT_RECOMMENDED_AT_NIGHT, true);
 	}
