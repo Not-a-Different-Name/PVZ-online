@@ -242,10 +242,19 @@ bool RunState::HasPlant(SeedType theSeedType) const
 
 int RunState::LevelForIndex(int theIndex)
 {
-	// 五个场景（每场景原版 10 关）各取 5 关：场景内第 1/3/5/7/9 → mLevel 1,3,5,7,9 /
-	// 11,13,15,17,19 / 21,…,29 / 31,…,39 / 41,…,49（第 50 关是僵王关，不取）。
+	// 25 个引擎关号（M4-a 定案，2026-10-03 用户要求整组后移：首关不再用 1-1 教学关）。
+	// 编排规则：场景内难度只升不降；首关就取到 10 波关（10 波一旗是现成机制，末波
+	// 自带旗帜波，不用改旗机制）。第 50 关（5-10）是僵王 boss 关，绝不能进表；
+	// 5-8 只有 20 波，顶不上场景 5 的后段（用它会 30→20 回落），故取 5-2/3/4/7/9。
+	static const int aLevels[RUN_LEVEL_COUNT] = {
+		4,  6,  7,  9,  10,	// 场景 1 白天：10/10/20/20/20 波
+		13, 15, 17, 19, 20,	// 场景 2 夜：  10/10/20/20/20 波
+		23, 25, 27, 29, 30,	// 场景 3 泳池：20/20/30/30/30 波
+		33, 35, 37, 39, 40,	// 场景 4 雾：  10/20/20/20/20 波
+		42, 43, 44, 47, 49,	// 场景 5 屋顶：20/20/30/30/30 波
+	};
 	if (theIndex < 0 || theIndex >= RUN_LEVEL_COUNT) return -1;
-	return (theIndex / RUN_LEVELS_PER_SCENE) * LEVELS_PER_AREA + (theIndex % RUN_LEVELS_PER_SCENE) * 2 + 1;
+	return aLevels[theIndex];
 }
 
 // @pvz-online: 补发追赶期间（R6）：人先站到"要追到的那一关"的草坪上，再在草坪上把

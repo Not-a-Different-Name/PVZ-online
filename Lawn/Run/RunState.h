@@ -7,9 +7,9 @@
 
 // @pvz-online: 全流程闯关（肉鸽）的本地状态 + 检查点文件。
 //
-// 一局 = 25 关：五个场景（白天 → 夜 → 泳池 → 迷雾 → 屋顶）各 5 关，每场景取原版的
-// 第 2/4/6/8/10 关（喂给引擎的 mLevel 是该场景的 1/3/5/7/9，见 LevelForIndex）——
-// 场景与难度只由关卡号推出，所以"第几关"就是这一串序号。
+// 一局 = 25 关：五个场景（白天 → 夜 → 泳池 → 迷雾 → 屋顶）各 5 关，每场景从原版关里
+// 挑中后段的 5 关（首关就是 10 波关，关号对照表见 LevelForIndex）——场景与难度只由
+// 关卡号推出，所以"第几关"就是这一串序号。
 // 卡池随三选一逐关变大、buff 跟着这一局走——检查点把这两样一起带走。
 //
 // 检查点写在 userdata/run%d.dat，和 user%d.dat（本机档案进度）完全分开：
@@ -114,7 +114,7 @@ public:
 	// 落盘由调用方（LawnApp::RunNoteFailure）紧跟一句 Save 完成。
 	void				NoteLevelFailed();
 
-	// 当前关：mLevel 值的映射（1/3/5/7/9）与波表种子。序号越界返回 -1 / 0。
+	// 当前关：mLevel 值的映射（关号表见 LevelForIndex）与波表种子。序号越界返回 -1 / 0。
 	int					GetLevel() const;
 	int					GetLevelSeed() const;
 	static int			LevelForIndex(int theIndex);
