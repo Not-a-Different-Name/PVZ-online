@@ -1013,7 +1013,18 @@ void LawnApp::UpdateOnlineSeeds()
 		: "[net] the teammate is gone - the start is no longer held");
 	KillDialog(Dialogs::DIALOG_ONLINE_START);
 	mOnlineSeedsHeld = false;
-	if (mSeedChooserScreen) mSeedChooserScreen->CloseSeedChooser();
+	// @pvz-online: 两道门共用这一个开合（R7）。卡池>8 拦的是选卡界面的关屏（Let's Rock），
+	// 放行 = 再走一遍关屏（这一遍门会放行）。卡池≤8 的关卡没有选卡界面（"选卡"是草坪上
+	// 的三选一屏，门在 UpdateRunPick 的 ①），放行 = 解冻 + 开场——和那道门口的收口对上。
+	if (mBoard != nullptr && mBoard->ChooseSeedsOnCurrentLevel())
+	{
+		if (mSeedChooserScreen != nullptr) mSeedChooserScreen->CloseSeedChooser();
+	}
+	else if (mBoard != nullptr && mRunIntroHeld)
+	{
+		mRunIntroHeld = false;
+		mBoard->mCutScene->StartLevelIntro();
+	}
 }
 
 // @pvz-online: 队友传过来的漏怪。收包链里不建僵尸（要动棋盘、加载美术），这里每帧
@@ -1614,8 +1625,12 @@ void LawnApp::UpdateRunPick()
 			return;
 		}
 
+		// @pvz-online: 卡池≤8 的开场门拦下之后的重入（等队友的那几帧）：下面这些事
+		// 都是"只做一次"的（选卡界面已经建过，再建一次会撞断言），一件都别再碰；
+		// 放行由 UpdateOnlineSeeds 负责，它每帧都在跑。
+		if (mOnlineSeedsHeld) return;
+
 		TodLog("[run] the picks are done - the chooser and the intro can start");
-		mRunIntroHeld = false;
 		// 卡槽在 InitLevel 建场时按"当时"的卡池填过，刚刚这几屏的新植物要重填一次
 		// （卡池 ≤8 的关卡全程不开选卡界面，不重填这一关新选的植物就赶不上）。
 		if (!mBoard->ChooseSeedsOnCurrentLevel()) mBoard->FillSeedBankFromRunPool();
@@ -1624,6 +1639,22 @@ void LawnApp::UpdateRunPick()
 		// 池子缺选卡、选择屏又不再出现，这就是"从主界面继续丢掉初始两株"的根因。
 		mRunState->Save(mPlayerInfo->mId);
 		ShowSeedChooserScreen();
+
+		// @pvz-online: "都确定才开场"（R7）。卡池≤8 的关卡全场不开选卡界面，按不了
+		// Let's Rock、也就没有那道关屏门（TryHoldSeedChooserForTeammates）——这道门口
+		// 是它的替身，等的东西一样：刚在 ShowSeedChooserScreen 里报过"我选好了"，
+		// 队友没齐就等。等待期草坪继续冻着（mRunIntroHeld 保持 true，CutScene::Update
+		// 一步不走）；齐了由 UpdateOnlineSeeds 撤框、解冻、开场。
+		if (!mBoard->ChooseSeedsOnCurrentLevel() && IsOnlineGame()
+			&& mOnlineSession->HasOtherSeats() && !mOnlineSession->IsPeerSeedsReady())
+		{
+			mOnlineSeedsHeld = true;
+			TodLog("[net] no seed chooser on this level - holding the intro until the whole team is ready");
+			EnsureSeedsWaitDialog(this);
+			return;
+		}
+
+		mRunIntroHeld = false;
 		mBoard->mCutScene->StartLevelIntro();
 		return;
 	}
