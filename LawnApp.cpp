@@ -29,6 +29,7 @@
 #include "Lawn/Widget/StoreScreen.h"
 #include "Lawn/Widget/CheatDialog.h"
 #include "Lawn/Widget/OnlineDialog.h"
+#include "Lawn/Widget/OnlineStartDialog.h"
 #include "Lawn/Online/NetSession.h"
 #include "Lawn/Run/RunState.h"
 #include "Lawn/Run/RunBuffs.h"
@@ -166,6 +167,8 @@ LawnApp::LawnApp()
 	mRunState = nullptr;
 	mPendingAdventure = false;
 	mOnlineRunStartHeld = false;
+	mOnlineStartPromptActive = false;
+	mOnlineStartPromptFrames = 0;
 }
 
 //0x44EDD0、0x44EDF0
@@ -621,10 +624,22 @@ void LawnApp::UpdateOnlineStart()
 		if (!mOnlineSession->IsConnected())
 		{
 			mOnlineWaitingStartAck = false;
+			KillDialog(Dialogs::DIALOG_ONLINE_START);
 			ClearOnlineStartOverride();
 			ShowGameSelector();
 			TodTrace("online start: teammate left before entering, start dropped");
 			return;
+		}
+
+		// @pvz-online: 菜单上的等待（起第一关）挂一块"等待其他玩家"的看板框；换关的等待
+		// 棋盘还在（上一关的草坪当背景，见下面那句 advice），不叠框。每帧自检：框不在了
+		// 就再摆一张——和 RunPickDialog 同一条纪律，被谁误关都不会卡住等待。
+		if (mBoard == nullptr && GetDialog(Dialogs::DIALOG_ONLINE_START) == nullptr)
+		{
+			OnlineStartDialog* aWaitDialog = new OnlineStartDialog(this,
+				"等待其他玩家", "邀请已发出，等待确认…", nullptr, nullptr, false);
+			CenterDialog(aWaitDialog, aWaitDialog->mWidth, aWaitDialog->mHeight);
+			AddDialog(Dialogs::DIALOG_ONLINE_START, aWaitDialog);
 		}
 
 		// @pvz-online: 联机闯关（R5）的换关等待：上一关的棋盘留在屏幕上当背景（UpdateRunPick
@@ -641,6 +656,7 @@ void LawnApp::UpdateOnlineStart()
 		if (mOnlineSession->TakeStartAck(aAccepted))
 		{
 			mOnlineWaitingStartAck = false;
+			KillDialog(Dialogs::DIALOG_ONLINE_START);
 			if (aAccepted)
 			{
 				TodTrace("online start: teammate is in, entering the level");
@@ -650,13 +666,16 @@ void LawnApp::UpdateOnlineStart()
 			}
 			else
 			{
-				// ② 队友回绝（他人还在关卡里）：这次开局不作数，说清楚为什么，菜单原样可用
+				// ② 队友回绝（他人还在关卡里 / 在询问框上点了"暂不"）：这次开局不作数，
+				// 说清楚为什么，菜单原样可用
 				ClearOnlineStartOverride();
 				ShowGameSelector();
-				TodLog("online start: the teammate turned it down (still in a level?)");
-				LawnMessageBox(Dialogs::DIALOG_MESSAGE, "Teammate is busy",
-					"Your teammate is still in a level.\nAsk them to return to the main menu first.",
-					"OK", "", Dialog::BUTTONS_FOOTER);
+				TodLog("online start: the teammate turned it down");
+				OnlineStartDialog* aDialog = new OnlineStartDialog(this,
+					"队友暂不加入", "他可能还在别的关卡里，可以稍后再试。", "知道了", nullptr, false);
+				CenterDialog(aDialog, aDialog->mWidth, aDialog->mHeight);
+				AddDialog(Dialogs::DIALOG_ONLINE_START, aDialog);
+				aDialog->WaitForResult();   // 阻塞框，泵主循环——联机心跳不受影响
 			}
 			return;
 		}
@@ -666,12 +685,15 @@ void LawnApp::UpdateOnlineStart()
 		if (!IsRunMode() && mOnlineStartWaitFrames > ONLINE_START_WAIT_TIMEOUT_FRAMES)
 		{
 			mOnlineWaitingStartAck = false;
+			KillDialog(Dialogs::DIALOG_ONLINE_START);
 			ClearOnlineStartOverride();
 			ShowGameSelector();
 			TodLog("online start: no answer from the teammate in time, start dropped");
-			LawnMessageBox(Dialogs::DIALOG_MESSAGE, "No answer",
-				"Your teammate did not answer in time.\nTry starting the level again.",
-				"OK", "", Dialog::BUTTONS_FOOTER);
+			OnlineStartDialog* aDialog = new OnlineStartDialog(this,
+				"没有等到回应", "队友没有及时确认，可以再试一次。", "知道了", nullptr, false);
+			CenterDialog(aDialog, aDialog->mWidth, aDialog->mHeight);
+			AddDialog(Dialogs::DIALOG_ONLINE_START, aDialog);
+			aDialog->WaitForResult();
 		}
 		return;
 	}
@@ -687,6 +709,21 @@ void LawnApp::UpdateOnlineStart()
 
 	// 客户端侧：主机开局了，跟着开自己那块棋盘。
 	NetProto::MsgStartLevel aStart;
+
+	// @pvz-online: 询问框挂着的这段时间也在计时：非闯关局给它和主机那把尺一样长的时间
+	// （同一个常量），到点两边一起收——主机那边超时作废，这边把框撤掉顺手回一句"不去"。
+	// 不撤的话，晚点的"确认"会让本机一个人进场（主机早就不等了），那块草坪谁也结束不了。
+	// 闯关局和主机一样不设时限：那一头等多久都算正常（队友可能在补发追赶）。
+	if (mOnlineStartPromptActive)
+	{
+		mOnlineStartPromptFrames++;
+		if (!mOnlineStartPromptMsg.mIsRun && mOnlineStartPromptFrames > ONLINE_START_WAIT_TIMEOUT_FRAMES)
+		{
+			TodLog("[net] the start invite timed out unanswered, it is dropped");
+			DismissOnlineStartPrompt(true);
+		}
+	}
+
 	if (!mOnlineSession->TakePendingStartLevel(aStart)) return;
 
 	// @pvz-online: 联机闯关（R5）：先无条件对齐主机的进度，命令本身寄存住。不能马上回
@@ -702,6 +739,16 @@ void LawnApp::UpdateOnlineStart()
 			mOnlineSession->SendStartAck(false);
 			return;
 		}
+
+		// @pvz-online: 人停在主菜单上的（起第一关 / 中途被拉进来）先看一眼"是否加入"，
+		// 命令寄存在询问框里，点了"加入"才对齐进度（见 OnlineStartPromptAnswer）。
+		// 人已经在闯关里被叫去换关的不问：那是正常推进，问了反而把流程卡住。
+		if (mGameScene == GameScenes::SCENE_MENU && mBoard == nullptr)
+		{
+			ShowOnlineStartPrompt(aStart);
+			return;
+		}
+
 		TodLog("[run] the host calls us into level index %u (run seed %d)",
 			(unsigned)aStart.mRunLevelIndex, (int)aStart.mRunSeed);
 		AlignRunToHost((int)aStart.mRunSeed, (int)aStart.mRunLevelIndex);
@@ -729,15 +776,94 @@ void LawnApp::UpdateOnlineStart()
 		return;
 	}
 
+	// @pvz-online: 开局流程改成"房主开始 → 其他人确认"：菜单上的人先看询问框，点了"加入"
+	// 才走下面那条进场路（见 OnlineStartPromptAnswer → EnterOnlineStart）。走到这儿的
+	// 只剩一种客人：停在吃脑子残局上、主机点了整队重来的人——那个不问，重开是整队的决定。
+	if (mGameScene == GameScenes::SCENE_MENU && mBoard == nullptr)
+	{
+		ShowOnlineStartPrompt(aStart);
+		return;
+	}
+
+	EnterOnlineStart(aStart);
+}
+
+// @pvz-online: 客户端进场的收口（主机的开局命令已经受理、该点都点过了）：摆好覆盖值、
+// 拆菜单、回 ACK、建棋盘。两条来路——菜单上的询问框点了"加入"，还是人停在吃脑子的
+// 残局上（整队重来）——都汇到这儿，顺序和以前一模一样。
+void LawnApp::EnterOnlineStart(const NetProto::MsgStartLevel& theMsg)
+{
 	KillDialog(Dialogs::DIALOG_ONLINE);
 	KillGameSelector();
-	SetOnlineStartOverride((int)aStart.mLevel, (int)aStart.mLevelSeed);
-	mGameMode = (GameMode)aStart.mGameMode;
+	SetOnlineStartOverride((int)theMsg.mLevel, (int)theMsg.mLevelSeed);
+	mGameMode = (GameMode)theMsg.mGameMode;
 	TodTrace("online start: mode %d level %u seed %d",
-		(int)mGameMode, (unsigned)aStart.mLevel, (int)aStart.mLevelSeed);
+		(int)mGameMode, (unsigned)theMsg.mLevel, (int)theMsg.mLevelSeed);
 	// ACK 就是"我进关了"这句话，先把它发出去，主机才会跟着进
 	mOnlineSession->SendStartAck();
 	NewGame();
+}
+
+// @pvz-online: 客户端在菜单上收到主机的开局命令 → 先摆一张"是否加入"的询问框（联机开局
+// 流程的客户端一半：房主开始 → 其他人显示是否开始）。命令连内容一起寄存进成员变量，
+// 玩家点"加入"才走对齐/进场（见 OnlineStartPromptAnswer），点"暂不"回一句 ACK(false)。
+// 菜单按钮照着主机等待那套按死：框只盖住屏幕中间那块，不按死的话角落还能点进别的页面，
+// 进场时会拖着一堆没拆干净的界面。
+void LawnApp::ShowOnlineStartPrompt(const NetProto::MsgStartLevel& theMsg)
+{
+	mOnlineStartPromptMsg = theMsg;
+	mOnlineStartPromptFrames = 0;
+	if (mOnlineStartPromptActive) return;   // 框已经挂着（主机又发了一条）：换个记号就行
+
+	mOnlineStartPromptActive = true;
+	TodLog("[net] the host starts a level - the invite is on screen");
+	if (mGameSelector) mGameSelector->SetMenuButtonsDisabled(true);
+
+	OnlineStartDialog* aDialog = new OnlineStartDialog(this, "房主开始了游戏", "是否加入？", "加入", "暂不", true);
+	CenterDialog(aDialog, aDialog->mWidth, aDialog->mHeight);
+	AddDialog(Dialogs::DIALOG_ONLINE_START, aDialog);
+}
+
+// 询问框上点了按钮（theAccepted = 加入）。框可能已经被撤了（超时/掉线），所以先认标记。
+void LawnApp::OnlineStartPromptAnswer(bool theAccepted)
+{
+	if (!mOnlineStartPromptActive) return;
+	mOnlineStartPromptActive = false;
+	KillDialog(Dialogs::DIALOG_ONLINE_START);
+	if (mGameSelector) mGameSelector->SetMenuButtonsDisabled(false);
+
+	if (!theAccepted)
+	{
+		TodLog("[net] the start invite was turned down");
+		if (mOnlineSession) mOnlineSession->SendStartAck(false);
+		return;
+	}
+
+	if (mOnlineSession == nullptr) return;
+
+	NetProto::MsgStartLevel aMsg = mOnlineStartPromptMsg;
+	if (aMsg.mIsRun)
+	{
+		// 闯关：对齐进度 + 命令寄存，选完（含补发追赶）由 UpdateRunPick 收口进场
+		TodLog("[run] the host calls us into level index %u (run seed %d, answered)",
+			(unsigned)aMsg.mRunLevelIndex, (int)aMsg.mRunSeed);
+		AlignRunToHost((int)aMsg.mRunSeed, (int)aMsg.mRunLevelIndex);
+		mOnlineRunStartHeld = true;
+		return;
+	}
+
+	EnterOnlineStart(aMsg);
+}
+
+// 撤掉询问框。theSendAck = 顺带回一句"我不去"：超时要回（主机若还在等，当场就知道；
+// 早作废了就只在日志里留一行），掉线不用（会话已经没了）。
+void LawnApp::DismissOnlineStartPrompt(bool theSendAck)
+{
+	if (!mOnlineStartPromptActive) return;
+	mOnlineStartPromptActive = false;
+	KillDialog(Dialogs::DIALOG_ONLINE_START);
+	if (mGameSelector) mGameSelector->SetMenuButtonsDisabled(false);
+	if (theSendAck && mOnlineSession) mOnlineSession->SendStartAck(false);
 }
 
 // @pvz-online: 队友传过来的漏怪。收包链里不建僵尸（要动棋盘、加载美术），这里每帧
@@ -887,6 +1013,10 @@ void LawnApp::UpdateOnlineEvents()
 
 		case NetSession::EventType::DISCONNECTED:
 			TodLog("[net] connection lost: %s", mOnlineSession->GetStatusText().c_str());
+			// 询问框挂着的客户端（人还在主菜单上）：对面没了，这张框也就没有意义了。
+			// 不回 ACK——会话都没了。主机那边等待中的看板框由 UpdateOnlineStart 自己收
+			// （它每帧查 IsConnected）。
+			DismissOnlineStartPrompt(false);
 			// 局中掉线：这一局打不下去了。让人留在一盘打不完的棋盘上比收摊更糟——
 			// 漏怪传不出去（怪走到房子直接算输），"全队过关/全队败"又都得有对面才算数。
 			// 所以照 M2 定的规矩收摊：提示一句 + 回主菜单。会话死在谁身上都不挡单机
@@ -1137,12 +1267,15 @@ void LawnApp::UpdateAdventureRequest()
 
 	// 盘上有打到一半的检查点：先问一句续不续。打完的那一局收尾时检查点就删了
 	// （见 UpdateRunEnd），所以这儿问的一定是"还有得打"的那一局。
+	// @pvz-online: 这一问换成中文框（OnlineStartDialog）——"房主开始 → 是否继续存档"，
+	// 开局流程的第一问。阻塞式（WaitForResult 泵主循环），联机等待照常跑。
 	if (RunState::HasCheckpoint(mPlayerInfo->mId))
 	{
-		int aResult = LawnMessageBox(Dialogs::DIALOG_MESSAGE, "Continue the run?",
-			"You have a run in progress.",
-			"Continue Run", "New Run", Dialog::BUTTONS_YES_NO);
-		if (aResult == Dialog::ID_YES)
+		OnlineStartDialog* aDialog = new OnlineStartDialog(this,
+			"继续闯关？", "有一局没有打完。", "继续", "重新开始", false);
+		CenterDialog(aDialog, aDialog->mWidth, aDialog->mHeight);
+		AddDialog(Dialogs::DIALOG_ONLINE_START, aDialog);
+		if (aDialog->WaitForResult() == Dialog::ID_YES)
 		{
 			ContinueRun();
 			return;

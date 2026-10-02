@@ -2,6 +2,7 @@
 #define __LAWNAPP_H__
 
 #include "ConstEnums.h"
+#include "Lawn/Online/NetProtocol.h"	// @pvz-online: MsgStartLevel 按值存在 LawnApp 里（开局询问框）
 #include "SexyAppFramework/SexyApp.h"
 #include "Sexy.TodLib/TodFoley.h"
 
@@ -163,6 +164,12 @@ public:
 	// （补发追赶可能是好几屏）还没选完——命令先寄存着，选完由 UpdateRunPick 收口进场
 	// （回 START_ACK、建棋盘）。早回一句 ACK 主机就一个人开打，中继给谁的怪就落空了。
 	bool							mOnlineRunStartHeld;
+	// @pvz-online: 客户端侧的"是否加入"询问框（人停在主菜单上收到主机的开局命令）。
+	// 命令先连内容一起寄存在这儿，玩家点了"加入"才接着走对齐/进场，点"暂不"回 ACK(false)；
+	// 非闯关局里还有一把和主机等待同长的尺（见 UpdateOnlineStart）。
+	bool							mOnlineStartPromptActive;
+	NetProto::MsgStartLevel			mOnlineStartPromptMsg;
+	int								mOnlineStartPromptFrames;
 
 public:
 	LawnApp();
@@ -223,6 +230,14 @@ public:
 	// 会的话主菜单得先留着不能拆——不然等待的那几秒屏幕上什么都没有（见 GameSelector::Update）。
 	bool							WillWaitForStartAck();
 	void							UpdateOnlineStart();
+	// @pvz-online: 客户端在菜单上收到开局命令 → 摆"是否加入"的询问框（命令寄存进成员变量）。
+	// OnlineStartPromptAnswer = 玩家在询问框上点了按钮（加入 / 暂不）；DismissOnlineStartPrompt =
+	// 撤框（掉线 / 非闯关局的等待超时）。三个都在 LawnApp.cpp 的 UpdateOnlineStart 一带。
+	void							ShowOnlineStartPrompt(const NetProto::MsgStartLevel& theMsg);
+	void							OnlineStartPromptAnswer(bool theAccepted);
+	void							DismissOnlineStartPrompt(bool theSendAck);
+	// 客户端进场收口（询问框点了"加入" / 吃脑子残局上整队重来）：摆覆盖值、拆菜单、回 ACK、建棋盘。
+	void							EnterOnlineStart(const NetProto::MsgStartLevel& theMsg);
 	void							UpdateOnlineRelay();
 	// @pvz-online: 队友退关了我这边跟着退。theNotifyOnline=false 用于"是我先退的/我是被通知的"，
 	// 免得两边互相回话形成回声。
