@@ -130,7 +130,7 @@ void OnlineDialog::Update()
 	else
 	{
 		mStatusLine = "Not connected.";
-		mHintLine = "Host a game, or type the host's IP and join.";
+		mHintLine = "Host or join a team, then click Adventure.";
 	}
 
 	// 主机按了关卡、正等队友就位：会话状态还是 CONNECTED，得单独说一句在等什么，

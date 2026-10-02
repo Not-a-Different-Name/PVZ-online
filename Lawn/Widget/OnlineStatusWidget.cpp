@@ -182,7 +182,9 @@ std::string OnlineStatusWidget::GetStateLine()
 	switch (aSession->GetState())
 	{
 	case NetSession::State::LISTENING:
-		return "Hosting - waiting for player";
+		// 队伍里只有我一个人也能开局（单人闯关），所以这行的重点不是"等人"，
+		// 而是"下一步点哪"——主位那块烤字 ADVENTURE 的大墓碑就是闯关入口。
+		return "Hosting - click Adventure to start";
 
 	case NetSession::State::CONNECTING:
 		{

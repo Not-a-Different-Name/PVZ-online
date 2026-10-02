@@ -7240,7 +7240,15 @@ bool Zombie::TrySpawnLevelAward()
     }
 
     CoinType aCoinType;
-    if (mApp->IsScaryPotterLevel() && !mBoard->IsFinalScaryPotterStage())
+    // @pvz-online: 闯关过关不撒原版那颗奖（钱袋 / 种子包 / 奖杯）——新植物换成下一关前的
+    // 三选一（R2），这一下只需要把"这关打完了"传下去：FadeOutLevel 会走到 mLevelComplete，
+    // CheckForGameEnd 的闯关分支接着进下一关。
+    if (mApp->IsRunMode())
+    {
+        aCoinType = CoinType::COIN_NONE;
+        mBoard->FadeOutLevel();
+    }
+    else if (mApp->IsScaryPotterLevel() && !mBoard->IsFinalScaryPotterStage())
     {
         aCoinType = CoinType::COIN_NONE;
         mBoard->mChallenge->PuzzlePhaseComplete(mBoard->PixelToGridXKeepOnBoard(mPosX + 75, mPosY), mRow);

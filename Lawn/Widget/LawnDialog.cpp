@@ -457,6 +457,15 @@ GameOverDialog::GameOverDialog(const SexyString& theMessage, bool theShowChallen
         mDialogHeader = TodStringTranslate(mApp->GetCurrentChallengeDef().mChallengeName);
     }
 
+    // @pvz-online: 联机全队败——开不开新局是主机一个人的决定（两边必须进同一关、同一张波表），
+    // 客户端这台把 Try Again 藏掉，换一行字说清在等谁；主机那台照旧（点了就是整队重来，
+    // 见 LawnApp::RetryOnlineLevel）。单机一个字都不动。
+    if (mApp->IsOnlineClient())
+    {
+        mLawnYesButton->mVisible = false;
+        mDialogLines = "The host decides whether to try again.";
+    }
+
     if (theMessage.size() == 0)
     {
         mContentInsets.mTop += 15;
@@ -483,6 +492,13 @@ void GameOverDialog::ButtonDepress(int theId)
     if (theId == 1)
     {
         mApp->KillDialog(Dialogs::DIALOG_GAME_OVER);
+        // @pvz-online: 联机局里"回主菜单"也是整队的决定——退关得先跟对面打个招呼，
+        // 不然他还一个人留在吃脑子的画面上。走 DoBackToMain 顺带把 LEVEL_EXIT 发出去。
+        if (mApp->IsOnlineGame())
+        {
+            mApp->DoBackToMain();
+            return;
+        }
         mApp->KillBoard();
         if (mApp->IsSurvivalMode())
         {
@@ -504,6 +520,13 @@ void GameOverDialog::ButtonDepress(int theId)
     else if (theId == Dialog::ID_FOOTER)
     {
         mApp->KillDialog(Dialogs::DIALOG_GAME_OVER);
+        // @pvz-online: 联机全队败后重开 = 整队重来同一关（主机那个按钮，见
+        // LawnApp::RetryOnlineLevel）；单机还是原版的重打本关。
+        if (mApp->IsOnlineGame())
+        {
+            mApp->RetryOnlineLevel();
+            return;
+        }
         mApp->EndLevel();
     }
 }

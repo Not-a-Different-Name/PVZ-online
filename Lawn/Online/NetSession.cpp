@@ -673,6 +673,8 @@ void NetSession::UpdateStatusText()
 					: aBuilds + " Waiting for the host.";
 			}
 			else
+				// 连上之后该点哪块牌子，按当前设计是"看情况"的：想一起打单关走 PUZZLE，
+				// 组队闯关要等 R5——所以这儿不说牌子名，只说"主机来挑"。
 				mStatusText = (mRole == Role::HOST)
 					? "Connected. Pick a level from the menu."
 					: "Connected. Waiting for the host to pick a level.";

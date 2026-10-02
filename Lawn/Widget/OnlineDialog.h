@@ -8,11 +8,15 @@ class LawnApp;
 class LawnEditWidget;
 class LawnStoneButton;
 
-// @pvz-online: M2 联机面板——建房 / 按 IP 加入 / 关面板，外加两行状态。
-// 文案全英文：位图字体没有中文字形。
+// @pvz-online: 组队页面（从主位那块 ADVENTURE 大墓碑、主菜单左上角的小状态条进来）
+// ——建房 / 按 IP 加入 / 关面板，外加两行状态。文案全英文：位图字体没有中文字形。
 //
-// 面板只是"遥控器"：连接本身活在 LawnApp::mOnlineSession 里，关掉面板连接照旧，
-// 这样才能先建房、再回主菜单点关卡开局。
+// 面板只是"遥控器"：组队本身活在 LawnApp::mOnlineSession 里，关掉面板队伍照旧，
+// 这样才能先建房、再回主菜单点入口开局（主菜单左上角的小状态条随时能把面板叫回来）。
+//
+// 闯关的入口在主位大墓碑上：没队伍时点它先把这个面板叫出来，队伍在手（一个人的队伍
+// 也算）再点就开一局闯关（LawnApp::RequestAdventure）。第三槽那块 PUZZLE 石板是原版
+// 战役入口，不参与组队闯关；队友连着时点它还是原来的单关联机流程（R5 才把队友拉进闯关）。
 
 class OnlineDialog : public LawnDialog, public EditListener
 {

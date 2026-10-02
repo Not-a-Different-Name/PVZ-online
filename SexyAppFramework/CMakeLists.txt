@@ -71,6 +71,17 @@ set(Lawn__Online__Online_Source
 )
 source_group("Lawn\\Online\\Online Source" FILES ${Lawn__Online__Online_Source})
 
+# @pvz-online: 全流程闯关（肉鸽）的状态与检查点
+set(Lawn__Run__Run_Include
+    "../Lawn/Run/RunState.h"
+)
+source_group("Lawn\\Run\\Run Include" FILES ${Lawn__Run__Run_Include})
+
+set(Lawn__Run__Run_Source
+    "../Lawn/Run/RunState.cpp"
+)
+source_group("Lawn\\Run\\Run Source" FILES ${Lawn__Run__Run_Source})
+
 set(Lawn__System__System_Include
     "../Lawn/System/DataSync.h"
     "../Lawn/System/Music.h"
@@ -202,6 +213,8 @@ set(ALL_FILES
     ${Lawn__Common__Common_Source}
     ${Lawn__Online__Online_Include}
     ${Lawn__Online__Online_Source}
+    ${Lawn__Run__Run_Include}
+    ${Lawn__Run__Run_Source}
     ${Lawn__System__System_Include}
     ${Lawn__System__System_Source}
     ${Lawn__Widget__Widget_Include}

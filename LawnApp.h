@@ -29,6 +29,7 @@ class StoreScreen;
 class AlmanacDialog;
 class TypingCheck;
 class NetSession;
+class RunState;
 
 namespace Sexy
 {
@@ -150,6 +151,14 @@ public:
 	// 棋盘上那句"等队友们"是不是我们挂上去的。是的话状态一变要由我们收掉——
 	// 不记这一笔就会把别人（戴夫、波次提示）的 advice 一起擦掉。
 	bool							mOnlineWaitingAdviceOn;
+	// @pvz-online: 闯关（肉鸽）模式的状态。只在"闯关的一关正在打（含刚点完入口、
+	// 正要进场）"时非空——回主菜单即删，检查点留在 userdata/run%d.dat，续关时重新读。
+	// IsRunMode() 就认这个指针。
+	RunState*						mRunState;
+	// @pvz-online: 闯关入口（主位那块 ADVENTURE 大墓碑）被按下了。按下时只摆一个标记，
+	// 真开局全在主循环：要拆面板、拆主菜单、建棋盘，还可能先弹一个"续不续"的询问框
+	// （询问框是 WaitForResult，只能从主循环里调）。见 LawnApp::RequestAdventure。
+	bool							mPendingAdventure;
 
 public:
 	LawnApp();
@@ -198,6 +207,9 @@ public:
 	// IsOnlineStartAllowed = 现在能不能开局（单机永远可以；联机只有已连上的主机可以）。
 	bool							IsOnlineGame();
 	bool							IsOnlineStartAllowed();
+	// 我这台是"跟着主机走"的那一头吗（客户端）——全队败后开不开新局由主机一个人定，
+	// 所以 GameOverDialog 得先分得出主客（见 LawnApp::RetryOnlineLevel）。
+	bool							IsOnlineClient();
 	void							SetOnlineStartOverride(int theLevel, int theSeed);
 	bool							GetOnlineStartOverride(int& theLevel, int& theSeed);
 	void							ClearOnlineStartOverride();
@@ -219,6 +231,24 @@ public:
 	// @pvz-online: 这一关对全队结束没有——报"我清完了"、全队清完就一起回菜单、
 	// 队友那边报了全队败就跟着收摊。棋盘侧的收口都在这儿（见函数上的注释）。
 	void							UpdateOnlineEnd();
+	// @pvz-online: 全队败之后主机按了 Try Again——整队重来同一关（同关卡号、同波表种子）。
+	// 客户端那台没有这个入口，只等着跟进来（见 UpdateOnlineStart 里那段）。
+	void							RetryOnlineLevel();
+	// @pvz-online: 闯关（肉鸽）。入口是主菜单主位那块烤字 ADVENTURE 的大墓碑（第三槽的
+	// PUZZLE 石板是原版战役入口，不走这条路）：没队伍先把组队面板叫出来，
+	// 队伍在手（主菜单左上角的小状态条随时能把面板叫回来）再由主机起闯关；
+	// 队友连着的时候还走原来的单关联机流程，R5 才把队友拉进闯关——同一套关卡流水线。
+	// IsRunMode = 现在这一局是闯关局——棋盘侧据此关掉小推车与续玩存档、种子栏按卡池填、
+	// "首次冒险"的特殊待遇一律不算。
+	bool							IsRunMode() const { return mRunState != nullptr; }
+	RunState*						GetRunState() { return mRunState; }
+	// "冒险"牌按下：true = 已经受理（开面板或排队等开局），false = 落回原来的单关联机流程。
+	bool							RequestAdventure();
+	void							UpdateAdventureRequest();
+	void							StartRun();
+	void							ContinueRun();
+	void							EnterRunLevel();
+	void							UpdateRunEnd();
 	void							ShowGameSelector();
 	void							KillGameSelector();
 	void							ShowAwardScreen(AwardType theAwardType, bool theShowAchievements); // @Patoke: add argument

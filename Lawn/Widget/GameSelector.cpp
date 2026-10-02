@@ -1387,8 +1387,10 @@ void GameSelector::ButtonPress(int theId)
 // GOTY @Patoke: 0x44F270
 void GameSelector::ClickedAdventure()
 {
-	// @pvz-online: 联机局的关卡由主机定，而且要先连上人才能开。不满足就把联机面板调出来——
-	// 面板的状态行正好写着卡在哪一步（等人加入 / 正在连 / 等主机选关）。
+	// @pvz-online: 这块牌子（第三槽的 PUZZLE 石板）是**原版战役入口**，不参与组队闯关——
+	// 用户 2026-10-02 拍板。组队闯关挂在主位大墓碑上（见 ButtonDepress 的 GameSelector_Online）。
+	// 下面的老路子留给"队友连着"的联机局：关卡由主机定，而且要先连上人才能开。不满足就把联机
+	// 面板调出来——面板的状态行正好写着卡在哪一步（等人加入 / 正在连 / 等主机选关）。
 	// 用面板而不是模态框：模态框是 WaitForResult，会把主循环连同心跳一起冻住。
 	if (!mApp->IsOnlineStartAllowed())
 	{
@@ -1496,6 +1498,11 @@ void GameSelector::ButtonDepress(int theId)
 		// GameSelector::ShowQuickPlayScreen();
 		break;
 	case GameSelector::GameSelector_Online:
+		// @pvz-online: 主位大墓碑（烤字 ADVENTURE）= 组队闯关入口：没队伍先把组队页面
+		// 调出来，单人队伍直接排一局闯关。真跟队友连上了（把队友拉进闯关要等 R5）就
+		// 落回开面板这条老路；想打原版战役的走第三槽那块 PUZZLE 石板。
+		if (mApp->RequestAdventure())
+			break;
 		mApp->DoOnlineDialog();
 		break;
 	}

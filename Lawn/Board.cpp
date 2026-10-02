@@ -34,6 +34,7 @@
 #include "misc/PerfTimer.h"
 #include "Widget/AchievementsWidget.h"
 #include "Online/NetSession.h"
+#include "Run/RunState.h"
 
 //#define SEXY_MEMTRACE
 //#include "../SexyAppFramework/memmgr.h"
@@ -328,7 +329,9 @@ void Board::TryToSaveGame()
 	// @pvz-online: 联机局不写档。这里存的是"这一局打到哪儿了、下次接着打"的续玩存档，
 	// 联机的一盘棋是两边一起走的，没有"下次我一个人接着打"这回事。三个调用点
 	// （退关、清桌面、关窗）都从这一个口子走，所以在这儿早退就够。
-	if (mApp->IsOnlineGame()) return;
+	// 闯关局同理：一局 5 关记在自己的检查点里，"接着打"由 CONTINUE RUN 负责，
+	// 不走原版的续玩存档（那会去动 user%d.dat 里的 mLevel）。
+	if (mApp->IsOnlineGame() || mApp->IsRunMode()) return;
 
 	std::string aFileName = GetSavedGameName(mApp->mGameMode, mApp->mPlayerInfo->mId);
 
@@ -619,7 +622,9 @@ void Board::PickZombieWaves()
 		else
 		{
 			mNumWaves = gZombieWaves[ClampInt(mLevel - 1, 0, 49)];
-			if (!mApp->IsFirstTimeAdventureMode() && !mApp->IsMiniBossLevel())
+			// @pvz-online: 闯关不吃"+10"这一勺：5 关的波数固定是波表的原始值
+			//（4/8/8/10/20），谁玩、在哪个档案上玩都一样。难度靠关卡号和怪的种类涨。
+			if (!mApp->IsFirstTimeAdventureMode() && !mApp->IsMiniBossLevel() && !mApp->IsRunMode())
 			{
 				mNumWaves = mNumWaves < 10 ? 20 : mNumWaves + 10;
 			}
@@ -1612,6 +1617,18 @@ void Board::InitLevel()
 		mSeedBank->mSeedPackets[1].SetPacketType(SeedType::SEED_GRAVEBUSTER);
 		mSeedBank->mSeedPackets[2].SetPacketType(mApp->IsAdventureMode() ? SeedType::SEED_CHERRYBOMB : SeedType::SEED_ICESHROOM);
 	}
+	else if (mApp->IsRunMode() && !ChooseSeedsOnCurrentLevel())
+	{
+		// 闯关的卡槽按这一局的卡池填（卡池 ≤8 时全带上、直接开打，不进选卡界面）。
+		// R1 的卡池还只有两株，之后每关 +2，到第 4 关超过 8 格才会轮到玩家自己挑。
+		RunState* aRun = mApp->GetRunState();
+		mSeedBank->mNumPackets = GetNumSeedsInBank();
+		for (int i = 0; i < mSeedBank->mNumPackets; i++)
+		{
+			mSeedBank->mSeedPackets[i].SetPacketType(aRun->mPool[i]);
+		}
+		mSeedBank->UpdateWidth();
+	}
 	else if (!ChooseSeedsOnCurrentLevel() && !HasConveyorBeltSeedBank())
 	{
 		mSeedBank->mNumPackets = GetNumSeedsInBank();
@@ -1702,7 +1719,8 @@ void Board::InitLawnMowers()
 	GameMode aGameMode = mApp->mGameMode;
 	// 这里优化一下原版的代码，事先列举一些不创建小推车的关卡
 	// @pvz-online: 联机局一律没有小推车——漏怪要传到队友那边去，房前不留兜底。
-	if (mApp->IsOnlineGame() ||
+	// 闯关局同理（已拍板）：房前不留兜底，漏一只就是这一关没过。
+	if (mApp->IsOnlineGame() || mApp->IsRunMode() ||
 		aGameMode == GameMode::GAMEMODE_CHALLENGE_BEGHOULED || aGameMode == GameMode::GAMEMODE_CHALLENGE_BEGHOULED_TWIST ||
 		aGameMode == GameMode::GAMEMODE_CHALLENGE_ZEN_GARDEN || aGameMode == GameMode::GAMEMODE_TREE_OF_WISDOM ||
 		aGameMode == GameMode::GAMEMODE_CHALLENGE_LAST_STAND || aGameMode == GameMode::GAMEMODE_CHALLENGE_ZOMBIQUARIUM ||
@@ -1725,6 +1743,11 @@ void Board::InitLawnMowers()
 //0x40BD30
 bool Board::ChooseSeedsOnCurrentLevel()
 {
+	// @pvz-online: 闯关的卡槽按卡池填：装得下（≤8 格）就全带上、直接开打，
+	// 装不下才轮到玩家自己挑 8 株（原版选卡界面，R2 里把候选改成卡池）。
+	if (mApp->IsRunMode())
+		return (int)mApp->GetRunState()->mPool.size() > RunState::RUN_SEED_SLOTS;
+
 	if (mApp->IsChallengeWithoutSeedBank() || HasConveyorBeltSeedBank())
 		return false;
 
@@ -5355,23 +5378,30 @@ Zombie* Board::AddRelayedZombie(int theRow, ZombieType theZombieType, int theBod
 }
 
 //0x413400
-void Board::ZombiesWon(Zombie* theZombie)
+void Board::ZombiesWon(Zombie* theZombie, bool theFromPeer)
 {
 	if (mApp->mGameScene == GameScenes::SCENE_ZOMBIES_WON)
 		return;
 
-	// @pvz-online: 联机局里的漏怪一律先走传递（见 Zombie::CheckForBoardEdge），
-	// 传不成才落到这儿——那只有末席。万一别处绕过传递直接调进来，手上还有队友可传
-	// 也不能认输：认了就是把队友也一起判了。
-	if (mApp->IsOnlineGame() && mApp->mOnlineSession->GetRelayTargetSeat() != NetProto::SEAT_UNSET)
-		return;
-
-	// @pvz-online: 到了这儿就是全队败——最后一名席位漏怪，没有下一家可传。输的不是
-	// "谁漏谁出局"，是所有人，所以先把话告诉队友（他们收到就一起收摊，见 UpdateOnlineEnd），
-	// 本机再照原版把"房子被吃"演完。mBoardResult 已经输了就不用再报一遍。
-	if (mApp->IsOnlineGame() && mApp->mBoardResult != BoardResult::BOARDRESULT_LOST)
+	// @pvz-online: theFromPeer = 队友那边先丢的草坪，这条是"照着演一遍"的命令。下面两件事
+	// 都要绕开：不许把 GAME_OVER 再回发一遍（回声），也不用问"手上还有没有队友可传"——
+	// 全队败是既成事实，两台机器演的是同一件事（见 LawnApp::UpdateOnlineEnd）。
+	if (!theFromPeer)
 	{
-		mApp->mOnlineSession->SendGameOver(NetProto::GAMEOVER_ZOMBIES_WON);
+		// @pvz-online: 联机局里的漏怪一律先走传递（见 Zombie::CheckForBoardEdge），
+		// 传不成才落到这儿——那只有末席。万一别处绕过传递直接调进来，手上还有队友可传
+		// 也不能认输：认了就是把队友也一起判了。
+		if (mApp->IsOnlineGame() && mApp->mOnlineSession->GetRelayTargetSeat() != NetProto::SEAT_UNSET)
+			return;
+
+		// @pvz-online: 到了这儿就是全队败——最后一名席位漏怪，没有下一家可传。输的不是
+		// "谁漏谁出局"，是所有人，所以先把话告诉队友（他们收到也跟着把这一局演完，
+		// 演完只有主机点得动重开，见 LawnApp::RetryOnlineLevel），本机再照原版把"房子被吃"演完。
+		// mBoardResult 已经输了就不用再报一遍。
+		if (mApp->IsOnlineGame() && mApp->mBoardResult != BoardResult::BOARDRESULT_LOST)
+		{
+			mApp->mOnlineSession->SendGameOver(NetProto::GAMEOVER_ZOMBIES_WON);
+		}
 	}
 
 	ClearAdvice(AdviceType::ADVICE_NONE);
@@ -9007,6 +9037,14 @@ bool Board::HasConveyorBeltSeedBank()
 //0x41BEE0
 int Board::GetNumSeedsInBank()
 {
+	// @pvz-online: 闯关：卡槽数就是卡池（上限 8 格），原版那套"随档案进度膨胀"的算法
+	// 一概不算——闯关的卡池由这一局的三选一决定，和本机解锁到哪儿无关。
+	if (mApp->IsRunMode())
+	{
+		int aCount = (int)mApp->GetRunState()->mPool.size();
+		return aCount > RunState::RUN_SEED_SLOTS ? RunState::RUN_SEED_SLOTS : aCount;
+	}
+
 	if (mApp->IsScaryPotterLevel())
 	{
 		return 1;
