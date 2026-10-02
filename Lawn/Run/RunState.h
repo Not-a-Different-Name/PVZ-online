@@ -83,6 +83,9 @@ public:
 
 	bool				IsComplete() const { return mLevelIndex >= RUN_LEVEL_COUNT; }
 	void				AdvanceLevel() { mLevelIndex++; }
+	// 本关失败一次：mFailCounts 对应格 +1（R4）。只记账，怎么用留平衡阶段；
+	// 落盘由调用方（LawnApp::RunNoteFailure）紧跟一句 Save 完成。
+	void				NoteLevelFailed();
 
 	// 当前关：mLevel 值的映射（1/3/5/7/9）与波表种子。序号越界返回 -1 / 0。
 	int					GetLevel() const;

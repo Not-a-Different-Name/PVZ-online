@@ -1136,6 +1136,19 @@ void LawnApp::RunPickChosen(int theIndex)
 	}
 }
 
+// R4：输一关就记账——失败次数进检查点（首版只存不用）。紧跟着写盘是刻意的：
+// 玩家接下来可能直接点 Main Menu 走人，那一笔也得在盘上。
+// "本关重开"（Retry Level）不改任何状态：关序号没动，检查点里记的就是这一关。
+void LawnApp::RunNoteFailure()
+{
+	if (mRunState == nullptr) return;
+
+	mRunState->NoteLevelFailed();
+	mRunState->Save(mPlayerInfo->mId);
+	TodLog("[run] level %d failed (attempt %d)", mRunState->mLevelIndex,
+		mRunState->mFailCounts[mRunState->mLevelIndex]);
+}
+
 // R3 的 buff 数值：乘数型 = 1 + 每层修正 × 层数（没拿到 / 不在闯关 = 1.0），
 // 加成型 = 每层加成 × 层数（同上 = 0）。下限保护：表里数字写歪也不至于把间隔压成 0。
 float LawnApp::RunBuffMul(int theBuffId) const

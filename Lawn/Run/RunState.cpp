@@ -245,6 +245,13 @@ int RunState::GetLevelSeed() const
 	return (int)aSeed;
 }
 
+// 本关失败一次。序号越界只会出现在"已通关 / 空局"这种不该有人报失败的时候，直接不理。
+void RunState::NoteLevelFailed()
+{
+	if (mLevelIndex < 0 || mLevelIndex >= RUN_LEVEL_COUNT) return;
+	mFailCounts[mLevelIndex]++;
+}
+
 std::string RunState::GetCheckpointName(int theProfileId)
 {
 	return GetAppDataFolder() + StrFormat("userdata/run%d.dat", theProfileId);

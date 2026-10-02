@@ -5399,6 +5399,13 @@ void Board::ZombiesWon(Zombie* theZombie, bool theFromPeer)
 		if (mApp->IsOnlineGame() && mApp->mOnlineSession->GetRelayTargetSeat() != NetProto::SEAT_UNSET)
 			return;
 
+		// @pvz-online: 闯关（R4）输一关记一笔失败（进检查点，首版只存不用）。
+		// mBoardResult 已经是 LOST 说明这一败记过账了，不再重复。
+		if (mApp->IsRunMode() && mApp->mBoardResult != BoardResult::BOARDRESULT_LOST)
+		{
+			mApp->RunNoteFailure();
+		}
+
 		// @pvz-online: 到了这儿就是全队败——最后一名席位漏怪，没有下一家可传。输的不是
 		// "谁漏谁出局"，是所有人，所以先把话告诉队友（他们收到也跟着把这一局演完，
 		// 演完只有主机点得动重开，见 LawnApp::RetryOnlineLevel），本机再照原版把"房子被吃"演完。

@@ -254,6 +254,9 @@ public:
 	// 屏和关卡互斥——棋盘在的时候这一屏不该出现（换关的空档里 mBoard 一定是空的）。
 	void							UpdateRunPick();
 	void							RunPickChosen(int theIndex);
+	// @pvz-online: R4 闯关输一关：失败计数 +1 并立刻写检查点（首版只存不用，
+	// 惩罚留平衡阶段）。由 Board::ZombiesWon 在判负的那一下调。
+	void							RunNoteFailure();
 	// @pvz-online: R3 的 buff 数值取用口。非闯关局 / 没拿到这条 = 中性值（乘数 1.0、
 	// 加数 0），调用点写一行就够，不用自己判 mRunState。数值本体在 RunBuffs.cpp 的表里。
 	float							RunBuffMul(int theBuffId) const;

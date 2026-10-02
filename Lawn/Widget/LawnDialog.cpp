@@ -465,6 +465,14 @@ GameOverDialog::GameOverDialog(const SexyString& theMessage, bool theShowChallen
         mLawnYesButton->mVisible = false;
         mDialogLines = "The host decides whether to try again.";
     }
+    // @pvz-online: 闯关失败（R4）：按钮和文案换成闯关的说法。"Retry Level" 重开本关——
+    // 走的是原版 Try Again 那条路（冒险模式 → EndLevel），关卡号和波表种子都还在，
+    // 卡池 / 增益本来就跟着 mRunState 不放；"Main Menu" 回菜单，检查点还在，下次能续。
+    else if (mApp->IsRunMode())
+    {
+        mLawnYesButton->SetLabel(_S("Retry Level"));
+        mDialogLines = "Your run is saved. Retry this level or return to the menu.";
+    }
 
     if (theMessage.size() == 0)
     {
