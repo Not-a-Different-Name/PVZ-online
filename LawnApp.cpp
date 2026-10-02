@@ -3730,8 +3730,16 @@ bool LawnApp::IsShovelLevel()
 
 //0x453840
 // GOTY @Patoke: 0x456D10
+// @pvz-online: 下面这一簇"档案关型"判定（1-5 保龄球 / 2-5 打僵尸 / 3-5 小僵尸 / 4-5 打罐子 /
+// 4-10 雾夜 / 5-5 蹦极 / 10·20·30 迷你 boss / 50 僵王）都直接读 mPlayerInfo->mLevel——那是
+// 本机档案进度，联机两端可以不一样。闯关借的是 GAMEMODE_ADVENTURE，档案停在哪一关都不许让
+// 这些判定为真：点数倍率、传送带种子栏、boss 音乐全挂在这上面，两端档案不同就是直接不同步。
+// 所以闯关里一律返回 false；原版战役（非闯关）行为一字不变。
 bool LawnApp::IsWallnutBowlingLevel()
 {
+	if (IsRunMode())
+		return false;	// @pvz-online: 闯关不算任何"档案关型"
+
 	if (mBoard == nullptr)
 		return false;
 
@@ -3750,6 +3758,9 @@ bool LawnApp::IsSlotMachineLevel()
 //0x453890
 bool LawnApp::IsWhackAZombieLevel()
 {
+	if (IsRunMode())
+		return false;	// @pvz-online: 闯关不算任何"档案关型"
+
 	if (mBoard == nullptr)
 		return false;
 
@@ -3762,12 +3773,18 @@ bool LawnApp::IsWhackAZombieLevel()
 //0x4538C0
 bool LawnApp::IsLittleTroubleLevel()
 {
+	if (IsRunMode())
+		return false;	// @pvz-online: 闯关不算任何"档案关型"
+
 	return (mBoard && (mGameMode == GameMode::GAMEMODE_CHALLENGE_LITTLE_TROUBLE || (mGameMode == GameMode::GAMEMODE_ADVENTURE && mPlayerInfo->mLevel == 25)));
 }
 
 //0x4538F0
 bool LawnApp::IsScaryPotterLevel()
 {
+	if (IsRunMode())
+		return false;	// @pvz-online: 闯关不算任何"档案关型"
+
 	if (mGameMode >= GameMode::GAMEMODE_SCARY_POTTER_1 && mGameMode <= GameMode::GAMEMODE_SCARY_POTTER_9)
 		return true;
 
@@ -3777,6 +3794,9 @@ bool LawnApp::IsScaryPotterLevel()
 //0x453920
 bool LawnApp::IsStormyNightLevel()
 {
+	if (IsRunMode())
+		return false;	// @pvz-online: 闯关不算任何"档案关型"
+
 	if (mBoard == nullptr)
 		return false;
 
@@ -3789,6 +3809,9 @@ bool LawnApp::IsStormyNightLevel()
 //0x453950
 bool LawnApp::IsBungeeBlitzLevel()
 {
+	if (IsRunMode())
+		return false;	// @pvz-online: 闯关不算任何"档案关型"
+
 	if (mBoard == nullptr)
 		return false;
 
@@ -3801,6 +3824,9 @@ bool LawnApp::IsBungeeBlitzLevel()
 //0x453980
 bool LawnApp::IsMiniBossLevel()
 {
+	if (IsRunMode())
+		return false;	// @pvz-online: 闯关不算任何"档案关型"
+
 	if (mBoard == nullptr)
 		return false;
 
@@ -3813,6 +3839,9 @@ bool LawnApp::IsMiniBossLevel()
 //0x4539D0
 bool LawnApp::IsFinalBossLevel()
 {
+	if (IsRunMode())
+		return false;	// @pvz-online: 闯关不算任何"档案关型"
+
 	if (mBoard == nullptr)
 		return false;
 
