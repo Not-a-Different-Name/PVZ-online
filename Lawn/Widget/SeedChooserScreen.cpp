@@ -1129,6 +1129,12 @@ bool SeedChooserScreen::PickedPlantType(SeedType theSeedType)
 //0x486D20
 void SeedChooserScreen::CloseSeedChooser()
 {
+	// @pvz-online: 选卡等队友（SEEDS_READY）。联机局里按了 Let's Rock 不能一个人先开打——
+	// 本机"选好了"要等所有上座席位也选好，没齐就把这次关屏拦下来（挂等待框），
+	// 齐了由 LawnApp::UpdateOnlineSeeds 撤框、重新走一遍这里。单机 / 掉了线直接放行。
+	// 拦下时下面这些事一件都没做（卡槽还没落定），放行那一遍才真正落定——见那个函数的注释。
+	if (mApp->TryHoldSeedChooserForTeammates()) return;
+
 	DBG_ASSERT(mBoard->mSeedBank->mNumPackets == mBoard->GetNumSeedsInBank());
 	for (int anIndex = 0; anIndex < mBoard->mSeedBank->mNumPackets; anIndex++)
 	{

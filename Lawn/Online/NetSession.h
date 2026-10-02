@@ -102,6 +102,16 @@ public:
 	// 客户端侧：主机放行了吗（取一次就清）。拿到才把选项屏放出来。
 	bool			TakeRunGo();
 
+	// 双向：报"我这一轮的选卡状态"（theReady=1 选好了 / 0 还在选）。选完卡不能一个人
+	// 先开打——两边各按各的 Let's Rock，开打时间就对不上；谁先选完谁先报，等所有人到齐。
+	// 是个状态不是事件，所以同一轮里重复报同一个值会被去重（和 SendLevelDone 同款）。
+	// M3 扩到四个席位：对面不止一个，这里要改成对每个上座席位各发一帧，
+	// 收齐的记账同理（现在别写死"就是那两个人"）。
+	bool			SendSeedsReady(bool theReady = true);
+
+	// 对面这一轮选好了没有（收到的就是个状态，本地只在开局/回菜单时重置）。
+	bool			IsPeerSeedsReady();
+
 	// 我离开这一局了（回主菜单）。对面收到会跟着退——不然一边在关卡里、一边在菜单上，
 	// 退的那边再点关卡开局时还会撞上"对面不在菜单、开局命令被丢掉"的卡死。
 	bool			SendLevelExit(uint8_t theReason = NetProto::EXIT_QUIT_TO_MENU);
@@ -261,6 +271,8 @@ private:
 	bool				mHasStartAck;
 	bool				mStartAckAccepted;	// 上一条 START_ACK 是"进场"还是"现在不行"
 	bool				mHasRunGo;			// 主机放行了没有（客户端侧收下的 RUN_GO，取一次就清）
+	bool				mPeerSeedsReady;	// 对面这一轮选好了没有（对面报的状态，本地只读）
+	bool				mLocalSeedsReady;	// 我上一次报出去的状态（同一轮里重复报去重）
 	bool				mHasPendingLevelExit;
 	NetProto::MsgLevelExit	mPendingLevelExit;
 	// 各席位"草坪清干净了没有"，按下标=席位号（0 号位不用）。用数组而不是两个布尔：

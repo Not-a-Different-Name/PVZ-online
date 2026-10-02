@@ -177,6 +177,12 @@ public:
 	bool							mOnlineStartPromptActive;
 	NetProto::MsgStartLevel			mOnlineStartPromptMsg;
 	int								mOnlineStartPromptFrames;
+	// @pvz-online: 选卡等队友（SEEDS_READY）。按了 Let's Rock 不再是自己开打：本机选好了
+	// 要等所有上座席位也选好。这个标记 = "这次关屏被拦下来了、等待框挂着"——它是拦下的
+	// 记录也是解除的条件之一（见 UpdateOnlineSeeds / TryHoldSeedChooserForTeammates）。
+	// 另一头的"他选好了没有"由会话层按对面报的状态记着（NetSession::IsPeerSeedsReady）。
+	// 每轮选卡开始时清（ShowSeedChooserScreen），回主菜单时清（ShowGameSelector）。
+	bool							mOnlineSeedsHeld;
 
 public:
 	LawnApp();
@@ -246,6 +252,11 @@ public:
 	// 客户端进场收口（询问框点了"加入" / 吃脑子残局上整队重来）：摆覆盖值、拆菜单、回 ACK、建棋盘。
 	void							EnterOnlineStart(const NetProto::MsgStartLevel& theMsg);
 	void							UpdateOnlineRelay();
+	// @pvz-online: 选卡等队友（SEEDS_READY）的两半。TryHold... 挂在选卡界面关屏的门口
+	// （SeedChooserScreen::CloseSeedChooser）：本机报"选好了"，对面也选好才放行，没到就
+	// 拦下来挂等待框；UpdateOnlineSeeds 每帧看着对面的状态，齐了撤框、重新走一遍关屏。
+	void							UpdateOnlineSeeds();
+	bool							TryHoldSeedChooserForTeammates();
 	// @pvz-online: 队友退关了我这边跟着退。theNotifyOnline=false 用于"是我先退的/我是被通知的"，
 	// 免得两边互相回话形成回声。
 	void							UpdateOnlineLevelExit();

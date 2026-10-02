@@ -12,6 +12,7 @@ const int	HELLO_ACK_PAYLOAD_SIZE	= 7 + NetProto::NAME_SIZE;		// src, dst, u16 ve
 const int	START_LEVEL_PAYLOAD_SIZE = 17;	// src, dst, u8 mode, u32 level, i32 seed, u8 isRun, i32 runSeed, u8 runLevelIndex
 const int	START_ACK_PAYLOAD_SIZE	= 3;	// src, dst, u8 accepted
 const int	RUN_GO_PAYLOAD_SIZE		= 2;	// src, dst
+const int	SEEDS_READY_PAYLOAD_SIZE = 3;	// src, dst, u8 ready
 const int	SWAP_REQUEST_PAYLOAD_SIZE = 2;	// src, dst
 const int	SWAP_REPLY_PAYLOAD_SIZE = 3;	// src, dst, u8 accepted
 const int	ESCAPED_ZOMBIE_PAYLOAD_SIZE = 22;	// src, dst, u8 row, u16 type, u8 flags, i32 ×4 血量
@@ -66,6 +67,8 @@ NetSession::NetSession()
 	mHasStartAck = false;
 	mStartAckAccepted = false;
 	mHasRunGo = false;
+	mPeerSeedsReady = false;
+	mLocalSeedsReady = false;
 	mHasPendingLevelExit = false;
 	mAllDoneTaken = false;
 	mHasPendingGameOver = false;
@@ -277,6 +280,11 @@ bool NetSession::TakeRunGo()
 
 	mHasRunGo = false;
 	return true;
+}
+
+bool NetSession::IsPeerSeedsReady()
+{
+	return mPeerSeedsReady;
 }
 
 bool NetSession::TakePendingLevelExit(NetProto::MsgLevelExit& theMsg)
@@ -498,6 +506,8 @@ void NetSession::DiscardLevelPackets()
 	mHasStartAck = false;
 	mStartAckAccepted = false;
 	mHasRunGo = false;
+	mPeerSeedsReady = false;
+	mLocalSeedsReady = false;
 	mHasPendingLevelExit = false;
 	mPendingEscapedZombies.clear();
 	ClearPauseState();
@@ -1096,6 +1106,22 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 		}
 		break;
 
+	case NetProto::MSG_SEEDS_READY:
+		{
+			// 双向：谁先选完谁先报，两边都收
+			NetProto::MsgSeedsReady aMsg;
+			if (aPayloadSize != SEEDS_READY_PAYLOAD_SIZE || !NetProto::DecodeSeedsReady(aPayload, aPayloadSize, aMsg))
+			{
+				SetDead("A player sent a malformed packet.");
+				return;
+			}
+			// 收下的是个状态（"他这一轮选好了没有"），后到的覆盖先到的——对面新一轮开始
+			// 会再报一次 0，本地不用挑时机清（清位就是丢消息，见 NetProtocol.h 那段）。
+			mPeerSeedsReady = aMsg.mReady != 0;
+			TodLog("[net] the teammate %s", mPeerSeedsReady ? "picked their plants" : "is picking plants");
+		}
+		break;
+
 	default:
 		// 没见过的消息类型：长度合法性已经在头上查过，帧长（头里的 len）还对得上，
 		// 所以丢掉这一条就行，不必断线。跨版本不是靠这儿挡的——构建代次不同现在照连
@@ -1222,6 +1248,29 @@ bool NetSession::SendRunGo()
 
 	TodLog("[net] telling the team to start their picks");
 	return SendRaw(NetProto::MSG_RUN_GO, aPayload, aSize);
+}
+
+// 双向：报"我这一轮的选卡状态"。是个状态不是事件——同一轮里重复报同一个值就不发
+// （和 SendLevelDone 同款去重）；新一轮开始调用方会报一次当下的状态（要选卡的报 0，
+// 不用选卡的报 1），所以去重不会把该报的漏掉。
+bool NetSession::SendSeedsReady(bool theReady)
+{
+	if (mRole == Role::NONE || !IsConnected()) return false;
+	if (mLocalSeedsReady == theReady) return false;		// 状态没变，对面本来就是对的
+
+	NetProto::MsgSeedsReady aMsg;
+	aMsg.mSrcSeat = mLocalSeat;
+	aMsg.mDstSeat = mPeerSeat;
+	aMsg.mReady = theReady ? 1 : 0;
+
+	uint8_t aPayload[NetProto::MAX_PAYLOAD];
+	int aSize = NetProto::EncodeSeedsReady(aPayload, (int)sizeof(aPayload), aMsg);
+	if (aSize <= 0) return false;
+
+	mLocalSeedsReady = theReady;
+	TodLog(theReady ? "[net] told the team my plants are picked"
+		: "[net] told the team I am still picking plants");
+	return SendRaw(NetProto::MSG_SEEDS_READY, aPayload, aSize);
 }
 
 bool NetSession::SendLevelExit(uint8_t theReason)

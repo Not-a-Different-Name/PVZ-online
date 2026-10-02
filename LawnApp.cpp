@@ -171,6 +171,7 @@ LawnApp::LawnApp()
 	mRunIntroHeld = false;
 	mOnlineStartPromptActive = false;
 	mOnlineStartPromptFrames = 0;
+	mOnlineSeedsHeld = false;
 }
 
 //0x44EDD0、0x44EDF0
@@ -906,6 +907,69 @@ void LawnApp::DismissOnlineStartPrompt(bool theSendAck)
 	KillDialog(Dialogs::DIALOG_ONLINE_START);
 	if (mGameSelector) mGameSelector->SetMenuButtonsDisabled(false);
 	if (theSendAck && mOnlineSession) mOnlineSession->SendStartAck(false);
+}
+
+// @pvz-online: 选卡等队友（SEEDS_READY）。挂在选卡界面关屏的门口（SeedChooserScreen::
+// CloseSeedChooser 第一行）：返回 true = 这次关屏被拦下（等待框已挂上），false = 照常开打。
+//
+// 为什么要有这道门：Let's Rock 一按就开打，两边各按各的——选得快的那台能领先一整段，
+// 越到后面卡池越大、选项越多，差得越明显（第三关以后才露出来就是因为它）。
+//
+// 为什么是"报状态"而不是"报事件"：这一关不用选卡的机器（卡池 ≤8 之类）根本走不到这儿，
+// 它得在自己草坪建好时主动报一次"我这一轮的状态"。各家都在新一轮开始时报"还没选"、
+// 真选好了再报"选好了"；收的人只读对面当下的状态，不挑时机清位——清位就是丢消息
+// （对面报得早、本地清得晚，两边就会互相干等）。见 NetProtocol.h 的 SEEDS_READY 一段。
+//
+// 等待框：一张"你选好了、等队友"的看板。每帧自检会再摆（被谁误关都不会把等待卡住），
+// 所以挂之前先看有没有，别叠两张。
+static void EnsureSeedsWaitDialog(LawnApp* theApp)
+{
+	if (theApp->GetDialog(Dialogs::DIALOG_ONLINE_START) != nullptr) return;
+
+	OnlineStartDialog* aDialog = new OnlineStartDialog(theApp,
+		"等待队友选卡", "你已经选好植物了，队友选完就开打。", nullptr, nullptr, false);
+	theApp->CenterDialog(aDialog, aDialog->mWidth, aDialog->mHeight);
+	theApp->AddDialog(Dialogs::DIALOG_ONLINE_START, aDialog);
+}
+
+bool LawnApp::TryHoldSeedChooserForTeammates()
+{
+	if (!IsOnlineGame()) return false;			// 单机 / 掉了线：原版节奏，不等
+
+	if (mOnlineSeedsHeld) return true;			// 已经拦下过一次：继续等（放行走 UpdateOnlineSeeds）
+
+	mOnlineSession->SendSeedsReady(true);
+	if (mOnlineSession->IsPeerSeedsReady())
+	{
+		TodLog("[net] the teammate picked their plants too - starting right away");
+		return false;
+	}
+
+	mOnlineSeedsHeld = true;
+	TodLog("[net] plants picked - holding the start until the whole team is ready");
+	EnsureSeedsWaitDialog(this);
+	return true;
+}
+
+// 门开着的时候每帧看一眼：对面也选好了就撤框、重新走一遍关屏（这一遍门会放行）。
+// 掉线（会话没了 / 断了）也放行——等的人不会来了，后面本来就是单机收场，
+// 别把选卡界面锁死在"等待队友"上。
+void LawnApp::UpdateOnlineSeeds()
+{
+	if (!mOnlineSeedsHeld) return;
+
+	bool aConnected = IsOnlineGame();
+	if (aConnected && !mOnlineSession->IsPeerSeedsReady())
+	{
+		EnsureSeedsWaitDialog(this);			// 框被误关了再摆一张
+		return;
+	}
+
+	TodLog(aConnected ? "[net] the whole team is ready - here we go"
+		: "[net] the teammate is gone - the start is no longer held");
+	KillDialog(Dialogs::DIALOG_ONLINE_START);
+	mOnlineSeedsHeld = false;
+	if (mSeedChooserScreen) mSeedChooserScreen->CloseSeedChooser();
 }
 
 // @pvz-online: 队友传过来的漏怪。收包链里不建僵尸（要动棋盘、加载美术），这里每帧
@@ -1696,6 +1760,13 @@ void LawnApp::NewGame()
 	mBoardResult = BoardResult::BOARDRESULT_NONE;
 	mGameScene = GameScenes::SCENE_LEVEL_INTRO;
 
+	// @pvz-online: 选卡等队友（SEEDS_READY）：新一轮从"草坪刚建好"这一刻算起，先报
+	// "我还没选好"。报在这儿而不是选卡界面打开时：这一关欠着三选一（含补发追赶）的机器
+	// 可能过很久才轮到选卡，中间这段不能让对面以为"他早就选好了"（那会直接放行、白等一场）。
+	// 真选好了（按 Let's Rock / 这一关不用选卡）再报 1，见 TryHoldSeedChooserForTeammates
+	// 与 ShowSeedChooserScreen。
+	if (IsOnlineGame()) mOnlineSession->SendSeedsReady(false);
+
 	// @pvz-online: 联机闯关（R6）：草坪先建、选项后做——这一关还欠着三选一（含补发追赶）
 	// 的时候，把"选卡 + 开场"压住：人先站在自己的新草坪上，选项屏盖在草坪上做完，
 	// 才由 UpdateRunPick 放开（见那边的 ①）。单关局 / 非闯关一条路都不变。
@@ -1732,6 +1803,10 @@ void LawnApp::ShowGameSelector()
 	mOnlineRunStartHeld = false;
 	mOnlineRunGo = false;
 	mRunIntroHeld = false;
+	// @pvz-online: 选卡等队友（SEEDS_READY）的等待残留同理——留着的话下一局的门口会带着
+	// 上一局的等待框（框本身也一起撤掉：等待态没了，框就没主了）。
+	mOnlineSeedsHeld = false;
+	KillDialog(Dialogs::DIALOG_ONLINE_START);
 	//UpdateRegisterInfo();
 	if (mGameSelector)
 	{
@@ -1864,6 +1939,15 @@ void LawnApp::KillStoreScreen()
 void LawnApp::ShowSeedChooserScreen()
 {
 	TOD_ASSERT(mSeedChooserScreen == nullptr);
+
+	// @pvz-online: 选卡等队友（SEEDS_READY）：新一轮的选卡界面要开了，本机这一轮的等待
+	// 残留先清掉，同时把本机这一轮的状态报准——这一关根本不用选卡的机器（卡池 ≤8 之类
+	// 全场不开选卡界面）直接算"选好了"：它走不到 Let's Rock，不主动报就会让队友干等。
+	mOnlineSeedsHeld = false;
+	if (IsOnlineGame() && mBoard != nullptr)
+	{
+		mOnlineSession->SendSeedsReady(!mBoard->ChooseSeedsOnCurrentLevel());
+	}
 
 	mSeedChooserScreen = new SeedChooserScreen();
 	mSeedChooserScreen->Resize(0, 0, mWidth, mHeight);
@@ -2948,6 +3032,8 @@ void LawnApp::UpdateFrames()
 	UpdateOnlinePause();
 	UpdateOnlineEvents();
 	UpdateOnlineEnd();
+	// 选卡等队友（SEEDS_READY）：门口拦下的那次等对面也选好，齐了撤框、重新关屏。
+	UpdateOnlineSeeds();
 	// 闯关入口的请求（"冒险"牌只记账，动手在这儿）——和联机开局同一套路数。
 	UpdateAdventureRequest();
 	// 闯关的三选一屏（刚开局、刚过完一关）：不动 UI 和棋盘，只是把屏开出来等玩家点。
