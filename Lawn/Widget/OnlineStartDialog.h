@@ -6,8 +6,9 @@
 class LawnApp;
 class LawnStoneButton;
 
-// @pvz-online: 联机开局流程的中文框，一张类管三种面孔：
-//   等待其他玩家（主机，无按钮） / 是否加入（客户端，[加入][暂不]） / 继续闯关？（主机，[继续][重新开始]）。
+// @pvz-online: 联机开局流程的中文框，一张类管几种面孔：
+//   等待其他玩家（主机，[取消]） / 是否加入（客户端，[加入][暂不]） / 继续闯关？（主机，[继续][重新开始]） /
+//   纯看板（"等待队友选卡"，无按钮）。
 // 为什么自己做：位图字体（main.pak 里的 BrianneTod 全系）只到 Latin，画不了汉字。
 // 这里走 SysFont（GDI）——源码字面量是 UTF-8，转成本机码页（简中 = GBK）的字节，
 // 由 TextOutA 画出去；参数照 SysFont::Init。这条路先用 tools/cjk_probe 单独验证过
@@ -16,11 +17,20 @@ class LawnStoneButton;
 class OnlineStartDialog : public LawnDialog
 {
 public:
-	// theNotifyApp=true：非阻塞（联机询问框），点按钮回 LawnApp::OnlineStartPromptAnswer；
-	// false：阻塞（WaitForResult 等返回值，比如"续不续存档"、单按钮的通知）。
-	// 按钮文案传空指针 = 不摆那个按钮；两个都空 = 纯看板（"等待其他玩家"那张）。
+	// 按钮按下去之后这框跟谁说：
+	//   NOTIFY_NONE          不通知：阻塞框自己从 WaitForResult 收结果（续不续存档），纯看板没有按钮
+	//   NOTIFY_INVITE_ANSWER 联机"是否加入"询问框 → LawnApp::OnlineStartPromptAnswer
+	//   NOTIFY_WAIT_CANCEL   主机"等待其他玩家"上的取消 → LawnApp::OnlineStartWaitCancelled
+	enum Notify
+	{
+		NOTIFY_NONE,
+		NOTIFY_INVITE_ANSWER,
+		NOTIFY_WAIT_CANCEL
+	};
+
+	// 按钮文案传空指针 = 不摆那个按钮；两个都空 = 纯看板。
 	OnlineStartDialog(LawnApp* theApp, const char* theTitleUtf8, const char* theBodyUtf8,
-		const char* theYesUtf8, const char* theNoUtf8, bool theNotifyApp);
+		const char* theYesUtf8, const char* theNoUtf8, Notify theNotify);
 	virtual ~OnlineStartDialog();
 
 	virtual void			Draw(Graphics* g);
@@ -38,7 +48,7 @@ private:
 	int						mBodyY;
 	int						mButtonCount;
 	LawnStoneButton*		mButtons[2];
-	bool					mNotifyApp;
+	Notify					mNotify;
 };
 
 #endif

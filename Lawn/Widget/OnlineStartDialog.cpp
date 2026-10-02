@@ -123,10 +123,10 @@ public:
 };
 
 OnlineStartDialog::OnlineStartDialog(LawnApp* theApp, const char* theTitleUtf8, const char* theBodyUtf8,
-	const char* theYesUtf8, const char* theNoUtf8, bool theNotifyApp) : LawnDialog(
+	const char* theYesUtf8, const char* theNoUtf8, Notify theNotify) : LawnDialog(
 		theApp, Dialogs::DIALOG_ONLINE_START, true, _S(""), _S(""), _S(""), Dialog::BUTTONS_NONE)
 {
-	mNotifyApp = theNotifyApp;
+	mNotify = theNotify;
 	mTitle = Utf8ToAnsi(theTitleUtf8 != nullptr ? theTitleUtf8 : "");
 	mBody = Utf8ToAnsi(theBodyUtf8 != nullptr ? theBodyUtf8 : "");
 	mTitleY = 0;
@@ -287,10 +287,19 @@ void OnlineStartDialog::ButtonDepress(int theId)
 	// 不调 Dialog::ButtonDepress：那条路会把结果转成 2000+/3000+ 的标准对话框编号发给
 	// LawnApp::ButtonDepress——这套框的故事只在 LawnApp 的两个入口里，不走那套路由。
 	mResult = theId;
-	if (mNotifyApp)
+	switch (mNotify)
 	{
+	case NOTIFY_INVITE_ANSWER:
 		// 联机询问框：把结果交回主循环侧（撤框、回 ACK / 续进场都在那儿）
 		mApp->OnlineStartPromptAnswer(theId == Dialog::ID_YES);
+		break;
+
+	case NOTIFY_WAIT_CANCEL:
+		// 主机等队友的看板：取消这次开局（撤框、清覆盖值、菜单交还给玩家）
+		mApp->OnlineStartWaitCancelled();
+		break;
+
+	default:
+		break;	// 阻塞那些（"续不续存档"、单按钮通知）由 WaitForResult 自己收摊。
 	}
-	// 阻塞那些（"续不续存档"、单按钮通知）由 WaitForResult 自己收摊。
 }

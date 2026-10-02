@@ -239,8 +239,9 @@ public:
 	void							ClearOnlineStartOverride();
 	// 主机正等队友确认进场（面板/小条据此显示"等队友就位"）。
 	bool							IsOnlineWaitingStartAck() const { return mOnlineWaitingStartAck; }
-	// 现在点开局，会不会走"广播命令、等队友 START_ACK"那条路（= 已连上的主机）。
+	// 现在点开局，会不会走"广播命令、等队友 START_ACK"那条路（= 已连上的主机，且房里还有别人）。
 	// 会的话主菜单得先留着不能拆——不然等待的那几秒屏幕上什么都没有（见 GameSelector::Update）。
+	// 房里就我一个时不算：没有可等的人，直接开局（不然闯关局没超时，门就关上了）。
 	bool							WillWaitForStartAck();
 	void							UpdateOnlineStart();
 	// @pvz-online: 客户端在菜单上收到开局命令 → 摆"是否加入"的询问框（命令寄存进成员变量）。
@@ -249,6 +250,9 @@ public:
 	void							ShowOnlineStartPrompt(const NetProto::MsgStartLevel& theMsg);
 	void							OnlineStartPromptAnswer(bool theAccepted);
 	void							DismissOnlineStartPrompt(bool theSendAck);
+	// @pvz-online: 主机在等待框上按了"取消"——这次开局作废、人回菜单（等待本身就这一条出路，
+	// 闯关局的等待没有超时；取消键是玩家自己按的"不等了"）。
+	void							OnlineStartWaitCancelled();
 	// 客户端进场收口（询问框点了"加入" / 吃脑子残局上整队重来）：摆覆盖值、拆菜单、回 ACK、建棋盘。
 	void							EnterOnlineStart(const NetProto::MsgStartLevel& theMsg);
 	void							UpdateOnlineRelay();

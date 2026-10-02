@@ -520,6 +520,18 @@ void LawnApp::PreNewGame(GameMode theGameMode, bool theLookForSavedGame)
 			return;
 		}
 
+		// 房里就我一个（队友还没来）：没有要通知的人，也就没有 ACK 可等——直接进场。
+		// 摆"本机的数要和广播出去的一致"那套覆盖值也免了：没广播，就无所谓一致不一致。
+		// 队友之后中途进来会被主机当场拉进这一关（见 UpdateOnlineEvents）。
+		if (!WillWaitForStartAck())
+		{
+			TodLog("[net] no one else in the room - entering the level right away");
+			KillDialog(Dialogs::DIALOG_ONLINE);
+			KillGameSelector();
+			NewGame();
+			return;
+		}
+
 		// 主场先广播、后进场：队友没收到命令的话，主机一个人开着关跑下去是最糟的结局。
 		// 广播要带关卡和种子，可这时候棋盘还没建（要等 ACK 才建）——所以按 Board 的算式
 		// 在这儿算一份，设成覆盖值；等 ACK 到了 NewGame()，InitLevel 和 GetLevelRandSeed
@@ -575,11 +587,15 @@ bool LawnApp::IsOnlineClient()
 
 // 现在点开局会不会走"广播命令、等队友 START_ACK"这条路。会的话主菜单先留着：
 // 等待的那几秒里，屏幕上至少得是个能看、等不到还能重试的菜单，而不是一片黑。
+// 房里只有我一个（联机房间刚建、队友还没进来）时不算：没有要通知的人，也就没有 ACK 可等，
+// 等下去是白等——闯关局的等待本来就不设超时（见 ONLINE_START_WAIT_TIMEOUT_FRAMES 那段），
+// 一个人开的房点开局会永久挂起。这时候直接开局，队友中途进来会被当场拉进这一关。
 bool LawnApp::WillWaitForStartAck()
 {
 	return mOnlineSession != nullptr
 		&& mOnlineSession->IsConnected()
-		&& mOnlineSession->GetRole() == NetSession::Role::HOST;
+		&& mOnlineSession->GetRole() == NetSession::Role::HOST
+		&& mOnlineSession->HasOtherSeats();
 }
 
 void LawnApp::SetOnlineStartOverride(int theLevel, int theSeed)
@@ -640,7 +656,8 @@ void LawnApp::UpdateOnlineStart()
 		if (mBoard == nullptr && GetDialog(Dialogs::DIALOG_ONLINE_START) == nullptr)
 		{
 			OnlineStartDialog* aWaitDialog = new OnlineStartDialog(this,
-				"等待其他玩家", "邀请已发出，等待确认…", nullptr, nullptr, false);
+				"等待其他玩家", "邀请已发出，等待确认…", "取消", nullptr,
+				OnlineStartDialog::NOTIFY_WAIT_CANCEL);
 			CenterDialog(aWaitDialog, aWaitDialog->mWidth, aWaitDialog->mHeight);
 			AddDialog(Dialogs::DIALOG_ONLINE_START, aWaitDialog);
 		}
@@ -680,7 +697,8 @@ void LawnApp::UpdateOnlineStart()
 				ShowGameSelector();
 				TodLog("online start: the teammate turned it down");
 				OnlineStartDialog* aDialog = new OnlineStartDialog(this,
-					"队友暂不加入", "他可能还在别的关卡里，可以稍后再试。", "知道了", nullptr, false);
+					"队友暂不加入", "他可能还在别的关卡里，可以稍后再试。", "知道了", nullptr,
+					OnlineStartDialog::NOTIFY_NONE);
 				CenterDialog(aDialog, aDialog->mWidth, aDialog->mHeight);
 				AddDialog(Dialogs::DIALOG_ONLINE_START, aDialog);
 				aDialog->WaitForResult();   // 阻塞框，泵主循环——联机心跳不受影响
@@ -698,7 +716,8 @@ void LawnApp::UpdateOnlineStart()
 			ShowGameSelector();
 			TodLog("online start: no answer from the teammate in time, start dropped");
 			OnlineStartDialog* aDialog = new OnlineStartDialog(this,
-				"没有等到回应", "队友没有及时确认，可以再试一次。", "知道了", nullptr, false);
+				"没有等到回应", "队友没有及时确认，可以再试一次。", "知道了", nullptr,
+				OnlineStartDialog::NOTIFY_NONE);
 			CenterDialog(aDialog, aDialog->mWidth, aDialog->mHeight);
 			AddDialog(Dialogs::DIALOG_ONLINE_START, aDialog);
 			aDialog->WaitForResult();
@@ -828,6 +847,21 @@ void LawnApp::UpdateOnlineStart()
 	EnterOnlineStart(aStart);
 }
 
+// @pvz-online: 主机等待框上按了"取消"：这次开局作废，人回主菜单。和"没有等到回应"
+// 那条路一个收法（清记号、撤框、覆盖值作废、菜单交还），只是这次是玩家自己按的。
+// 菜单不在等待里被拆（WillWaitForStartAck 为真时 GameSelector::Update 会保住它），
+// 所以 ShowGameSelector 会把旧的拆掉重摆一个——上面被按死的按钮跟着一起活过来。
+void LawnApp::OnlineStartWaitCancelled()
+{
+	if (!mOnlineWaitingStartAck) return;	// 早撤了（已经进场 / 这次已经作废）：这一下不算数
+
+	mOnlineWaitingStartAck = false;
+	KillDialog(Dialogs::DIALOG_ONLINE_START);
+	ClearOnlineStartOverride();
+	ShowGameSelector();
+	TodLog("online start: the host cancelled the wait");
+}
+
 // @pvz-online: 客户端进场的收口（主机的开局命令已经受理、该点都点过了）：摆好覆盖值、
 // 拆菜单、回 ACK、建棋盘。两条来路——菜单上的询问框点了"加入"，还是人停在吃脑子的
 // 残局上（整队重来）——都汇到这儿，顺序和以前一模一样。
@@ -859,7 +893,8 @@ void LawnApp::ShowOnlineStartPrompt(const NetProto::MsgStartLevel& theMsg)
 	TodLog("[net] the host starts a level - the invite is on screen");
 	if (mGameSelector) mGameSelector->SetMenuButtonsDisabled(true);
 
-	OnlineStartDialog* aDialog = new OnlineStartDialog(this, "房主开始了游戏", "是否加入？", "加入", "暂不", true);
+	OnlineStartDialog* aDialog = new OnlineStartDialog(this, "房主开始了游戏", "是否加入？", "加入", "暂不",
+		OnlineStartDialog::NOTIFY_INVITE_ANSWER);
 	CenterDialog(aDialog, aDialog->mWidth, aDialog->mHeight);
 	AddDialog(Dialogs::DIALOG_ONLINE_START, aDialog);
 }
@@ -927,7 +962,8 @@ static void EnsureSeedsWaitDialog(LawnApp* theApp)
 	if (theApp->GetDialog(Dialogs::DIALOG_ONLINE_START) != nullptr) return;
 
 	OnlineStartDialog* aDialog = new OnlineStartDialog(theApp,
-		"等待队友选卡", "你已经选好植物了，队友选完就开打。", nullptr, nullptr, false);
+		"等待队友选卡", "你已经选好植物了，队友选完就开打。", nullptr, nullptr,
+		OnlineStartDialog::NOTIFY_NONE);
 	theApp->CenterDialog(aDialog, aDialog->mWidth, aDialog->mHeight);
 	theApp->AddDialog(Dialogs::DIALOG_ONLINE_START, aDialog);
 }
@@ -1383,7 +1419,7 @@ void LawnApp::UpdateAdventureRequest()
 	if (RunState::HasCheckpoint(mPlayerInfo->mId))
 	{
 		OnlineStartDialog* aDialog = new OnlineStartDialog(this,
-			"继续闯关？", "有一局没有打完。", "继续", "重新开始", false);
+			"继续闯关？", "有一局没有打完。", "继续", "重新开始", OnlineStartDialog::NOTIFY_NONE);
 		CenterDialog(aDialog, aDialog->mWidth, aDialog->mHeight);
 		AddDialog(Dialogs::DIALOG_ONLINE_START, aDialog);
 		if (aDialog->WaitForResult() == Dialog::ID_YES)
