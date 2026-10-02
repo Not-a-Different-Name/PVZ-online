@@ -49,6 +49,7 @@ struct NetLink::Impl
 	uint16_t			mPort;
 	char				mLastError[160];
 	bool				mWsaReady;
+	bool				mThreadLeaked;		// Close() 等不回线程时置位：Impl 归线程，谁也别再碰
 
 	// 一次连接尝试的结果
 	enum AttemptResult
@@ -356,6 +357,7 @@ NetLink::NetLink()
 	mImpl->mPort = 0;
 	mImpl->mLastError[0] = '\0';
 	mImpl->mWsaReady = false;
+	mImpl->mThreadLeaked = false;
 	InitializeCriticalSection(&mImpl->mQueueLock);
 
 	WSADATA aData;
@@ -374,6 +376,12 @@ NetLink::~NetLink()
 	if (!mImpl) return;
 
 	Close();
+	if (mImpl->mThreadLeaked)
+	{
+		// 线程还在跑（见 Close()）：临界区、winsock、内存都在被它用，不能动，留给进程收尾。
+		mImpl = nullptr;
+		return;
+	}
 	DeleteCriticalSection(&mImpl->mQueueLock);
 	if (mImpl->mWsaReady) WSACleanup();
 
@@ -447,6 +455,7 @@ void NetLink::Close()
 {
 	Impl* anImpl = mImpl;
 	if (!anImpl) return;
+	if (anImpl->mThreadLeaked) return;		// 放弃过的 Impl，一个字段都别再碰
 
 	InterlockedExchange(&anImpl->mStop, 1);
 
@@ -455,8 +464,14 @@ void NetLink::Close()
 		DWORD aWait = WaitForSingleObject(anImpl->mThread, THREAD_EXIT_WAIT_MS);
 		if (aWait != WAIT_OBJECT_0)
 		{
-			// 所有阻塞调用都是 100ms 分片的，正常不可能走到这里
-			TodLog("[net] warning: receive thread did not exit in time");
+			// 线程还活着（最可能卡在 getaddrinfo 这类不可打断的调用上）。它还在读 Impl，
+			// 从这里往下任何一步——关 socket、清队列、删临界区、释放内存——都是 use-after-free。
+			// 线程句柄也不能关：留着它，下一次 Listen/Connect 见 mThread 非空会直接拒绝，
+			// 不会起第二个线程和它抢同一份 Impl。整块 Impl 留给线程，进程退出时一起还给系统。
+			TodLog("[net] warning: receive thread did not exit in time; abandoning this link");
+			anImpl->mThreadLeaked = true;
+			anImpl->Fail("The network thread is stuck. Restart the game to play online again.");
+			return;
 		}
 		CloseHandle(anImpl->mThread);
 		anImpl->mThread = nullptr;
