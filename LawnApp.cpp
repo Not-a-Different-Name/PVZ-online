@@ -1673,6 +1673,11 @@ void LawnApp::UpdateRunPick()
 		if (mOnlineRunGo) EnterRunLevel();
 		return;
 	}
+	// @pvz-online: 点名已经发出去了（主机在等 START_ACK）就别再点——这条路口每帧都经过，
+	// 不拦的话等待期每一帧都会再广播一次 START_LEVEL：队友那头"房主开始了游戏 / 是否加入"
+	// 的框会一次次重新武装（答过的又弹出来，再答一次又是一个迟到的 ACK）。
+	// 等 ACK 的收口在 UpdateOnlineStart ③：人齐在那儿直接进场，不经过这里。
+	if (mOnlineWaitingStartAck) return;
 	EnterRunLevel();
 }
 
