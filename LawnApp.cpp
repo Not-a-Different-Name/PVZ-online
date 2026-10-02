@@ -399,10 +399,11 @@ void LawnApp::GotFocus()
 //0x44F460
 void LawnApp::LostFocus()
 {
-	// @pvz-online: 联机局里切出去不暂停。这个简化暂停框开的 DIALOG_PAUSED 本来就不参与
-	// 暂停同步（同步只认 DIALOG_NEWOPTIONS），一弹就是"只停自己"：队友还在打，僵尸照样
-	// 往这边漏。要暂停请按 ESC 走同步的那条路。单机保留原版行为。
-	if (IsOnlineGame()) return;
+	// @pvz-online: 联机环境里切出去一律不暂停——建房等待、连接中、已连上都算（用户拍板：
+	// 这个简化框开的 DIALOG_PAUSED 不参与暂停同步，一弹就是"只停自己"：队友还在打，
+	// 僵尸照样往这边漏；哪怕房还空着，跑局中途也可能有人连进来）。要暂停请按 ESC 走
+	// 同步的那条路。只有完全没碰过联机面板的单机局保留原版行为。
+	if (mOnlineSession != nullptr && mOnlineSession->IsActive()) return;
 
 	if (!mTodCheatKeys && CanPauseNow())
 	{
@@ -807,8 +808,8 @@ void LawnApp::UpdateOnlineLevelExit()
 // 本机"我暂停了/我继续了"不挂钩子，看状态：暂停菜单（DIALOG_NEWOPTIONS）开着没有，
 // 与上一帧比。这样 ESC、右上角 Menu、选卡界面的 Menu、Back to Game、Main Menu……
 // 所有开合路径一网打尽，不用在六处调用点各加一行，也不会漏。
-// 刻意不参与同步的是 DoPauseDialog 那个简化框（空格键、Alt-Tab 失焦）：
-// 自己切出去不该把队友强按进暂停菜单。
+// 刻意不参与同步的是 DoPauseDialog 那个简化框（现在就剩空格键开的——联机环境下
+// 切出去不再开它，见 LostFocus）：自己切出去不该把队友强按进暂停菜单。
 void LawnApp::UpdateOnlinePause()
 {
 	if (!mOnlineSession) return;
