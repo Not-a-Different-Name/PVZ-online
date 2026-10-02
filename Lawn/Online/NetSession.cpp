@@ -764,6 +764,15 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 			// 编解码对得上；不配套的只是行为，UI 上挂一句提醒，真撞上不对劲玩家自己会更新。
 			// 拒绝只留给 PROTOCOL_VERSION 和 HELLO 长度——那两种连包都读不出来。
 
+			// 席位号是包里的一个字节，会经换位流进 mLocalSeat，再拿去索引 mSeatDone——
+			// 越界就是写穿（同 MSG_LEVEL_DONE 那条注释）。合法席位只有 1..4，且不会是本机自己。
+			if (aMsg.mSrcSeat < 1 || aMsg.mSrcSeat > NetProto::MAX_PLAYERS
+				|| aMsg.mSrcSeat == mLocalSeat)
+			{
+				SetDead("A player sent a bogus seat number.");
+				return;
+			}
+
 			mPeerSeat = aMsg.mSrcSeat;
 			mPeerBuild = aMsg.mBuild;
 			mPeerName = SanitizeName(aMsg.mName, NetProto::NAME_SIZE);
@@ -806,6 +815,16 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 			}
 			// 构建代次不一样不再拒绝（同主机侧，见 MSG_HELLO 那段）：记下、提示、照常连。
 
+			// 席位号要过和主机侧同样的筛：以前这里是"对面固定 1 号位"的写死假设，
+			// 现在改听主机自报，也得防它报个越界或本机的席位（理由见 MSG_HELLO 那段）。
+			if (aMsg.mSrcSeat < 1 || aMsg.mSrcSeat > NetProto::MAX_PLAYERS
+				|| aMsg.mSrcSeat == mLocalSeat)
+			{
+				SetDead("A player sent a bogus seat number.");
+				return;
+			}
+
+			mPeerSeat = aMsg.mSrcSeat;
 			mPeerBuild = aMsg.mBuild;
 			mPeerName = SanitizeName(aMsg.mName, NetProto::NAME_SIZE);
 			SetConnected();
