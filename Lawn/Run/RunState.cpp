@@ -90,6 +90,9 @@ void RunState::StartNew(int theRunSeed, int theRunMode)
 	mPendingPlantPicks = 0;
 	mPendingBuffPicks = 0;
 	mPickCounter = 0;
+	// 本机随机盐（用户 2026-10-03 定案：各玩家的候选不共用一套随机数）。不进检查点、
+	// 不随联机命令走——pending 屏本来就不落盘，读档/追赶时重抽的屏用什么盐都合法。
+	mPickSalt = (unsigned int)Sexy::Rand() ^ ((unsigned int)Sexy::Rand() << 16);
 	mCatchUpLevel = -1;
 	for (int i = 0; i < RUN_CHOICES; i++)
 	{
@@ -128,13 +131,15 @@ bool RunState::CanOfferPlantPick() const
 }
 
 // 抽一屏的三条候选。种子挂上"这一屏是第几次抽"（mPickCounter），所以同一局里
-// 两屏不会抽出同一组；又因为一切都是 runSeed 推出来的，失败重打这一关时
-// 抽出来的还是同一组三条——重开不会变成"刷候选"。
+// 两屏不会抽出同一组；runSeed 之外还混了本机随机盐 mPickSalt（用户定案：联机里
+// 每个玩家的候选各不相同）。盐在进程内稳定，所以失败重打这一关时抽出来的
+// 还是同一组三条——重开不会变成"刷候选"；换进程/换机器才换盐。
 void RunState::RollChoices()
 {
 	unsigned int aSeed = (unsigned int)mRunSeed
 		^ (0x9E3779B9u * (unsigned int)(mLevelIndex + 1))
-		^ (0x85EBCA6Bu * (mPickCounter + 1));
+		^ (0x85EBCA6Bu * (mPickCounter + 1))
+		^ (0xC2B2AE3Du * mPickSalt);
 	if (IsPlantPick()) aSeed ^= 0x5BF03635u;
 	mPickCounter++;
 
@@ -486,5 +491,7 @@ bool RunState::Load(int theProfileId)
 	mBuffs = aBuffs;
 	// 检查点里没有"补发追赶"这回事（它只活在联机对齐的那一刻），读进来一律清掉。
 	mCatchUpLevel = -1;
+	// 读档也换一次盐（与 StartNew 同口径）：待选屏不进检查点，读档后重抽用新盐。
+	mPickSalt = (unsigned int)Sexy::Rand() ^ ((unsigned int)Sexy::Rand() << 16);
 	return true;
 }

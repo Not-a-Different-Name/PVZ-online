@@ -52,12 +52,15 @@ public:
 	// @pvz-online: "三选一"的待选状态（R2）。只在内存里活着，不进检查点——
 	// 选了才写进卡池 / buff 表；检查点只在选卡做完的那一刻落盘（见头注释的写入时机）。
 	// 所以退在选卡屏里，这一屏的欠账不恢复：从上一关重打，回到这一关时重新抽。
-	// 候选由 runSeed 推导，抽出来还是同一组三条，玩家不会因此占便宜也不会吃亏。
+	// 候选由 runSeed + mPickSalt 推导（用户 2026-10-03 定案）：盐是本机自己随机的，
+	// 不随联机命令走——联机里每个玩家看到的候选各不相同，选什么更是各选各的。
 	int							mPendingPlantPicks;		// 还欠几株新植物（一屏只选一株，选完减一）
 	int							mPendingBuffPicks;		// 还欠几个增益
 	SeedType					mPlantChoices[RUN_CHOICES];
 	unsigned short				mBuffChoices[RUN_CHOICES];
 	unsigned int				mPickCounter;			// 抽过几次：同一局里每屏的候选都不一样
+	unsigned int				mPickSalt;				// 本机随机盐：StartNew/Load 时各生成一次，进程内不变——
+														// 同一局里重开同关还是同一组三条（防刷），换进程/换机器就不同
 
 public:
 	// @pvz-online 内存态：这一局正在打（含"刚过关、正要进下一关"的空档）。
