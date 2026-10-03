@@ -160,6 +160,9 @@ public:
 	// 真开局全在主循环：要拆面板、拆主菜单、建棋盘，还可能先弹一个"续不续"的询问框
 	// （询问框是 WaitForResult，只能从主循环里调）。见 LawnApp::RequestAdventure。
 	bool							mPendingAdventure;
+	// @pvz-online: 进入游戏后的玩法公告（2026-10-03 用户要的）：启动后第一次落到主菜单
+	// 弹一次，讲联机玩法和功能。每进程只弹一次，故意不落盘——每次进游戏都该看得到。
+	bool							mShowedStartupAnnounce;
 	// @pvz-online: 联机闯关（R5/R6）客户端侧：主机的"进这一关"命令到了，但自己这屏三选一
 	// （补发追赶可能是好几屏）还没选完——命令先寄存着，选完由 UpdateRunPick 收口进场。
 	// 从收到命令起为真（收到就回 START_ACK，"我进场了"），直到真放开开场、掉线或重开为止。
@@ -286,6 +289,7 @@ public:
 	// "冒险"牌按下：true = 已经受理（开面板或排队等开局），false = 落回原来的单关联机流程。
 	bool							RequestAdventure();
 	void							UpdateAdventureRequest();
+	void							UpdateStartupAnnounce();
 	void							StartRun(int theRunMode);	// theRunMode = RunState::RUN_MODE_*（时长档）
 	void							ContinueRun();
 	void							EnterRunLevel();

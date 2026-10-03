@@ -11,6 +11,9 @@
 // 两枚按钮之间的间距（构造时定版心、Resize 里摆位共用同一个数）
 #define BUTTON_GAP 24
 
+// 正文多行（公告那种）的行距；单行正文时用不到
+#define BODY_LINE_GAP 6
+
 // 源码里的中文字面量是 UTF-8（整个仓库都带 /utf-8 编译）；SysFont 的 DrawString 走 TextOutA，
 // 字节按系统码页解释——简中 Windows 上就是 GBK。所以在这儿做一次转换，两边就对上了。
 static std::string Utf8ToAnsi(const char* theText)
@@ -47,6 +50,40 @@ static _Font* GetCjkFont(int thePointSize, bool theBold)
 		aSlot = new SysFont(gSexyAppBase, "Microsoft YaHei", thePointSize, aCharset, theBold, false, false);
 	}
 	return aSlot;
+}
+
+// 正文支持 '\n' 手动分行（启动公告那种多行说明；单行文本 = 一行，老面孔不受影响）。
+// '\n' 是 ASCII，Utf8ToAnsi 转码原样保留。手分行而不是自动换行：宽度可控，
+// 换行点由文案自己定，不会在词中间断开也不知道弹窗有多宽。
+static int CountBodyLines(const std::string& theBody)
+{
+	int aCount = 1;
+	for (size_t i = 0; i < theBody.size(); i++)
+	{
+		if (theBody[i] == '\n') aCount++;
+	}
+	return aCount;
+}
+
+static int MeasureBodyWidth(_Font* theFont, const std::string& theBody)
+{
+	int aMaxWidth = 0;
+	size_t aStart = 0;
+	for (size_t i = 0; i <= theBody.size(); i++)
+	{
+		if (i == theBody.size() || theBody[i] == '\n')
+		{
+			int aWidth = theFont->StringWidth(theBody.substr(aStart, i - aStart));
+			if (aWidth > aMaxWidth) aMaxWidth = aWidth;
+			aStart = i + 1;
+		}
+	}
+	return aMaxWidth;
+}
+
+static int BodyBlockHeight(_Font* theFont, int theLineCount)
+{
+	return theFont->GetHeight() + (theLineCount - 1) * (theFont->GetHeight() + BODY_LINE_GAP);
 }
 
 // 石材按钮是"左端贴图 + 中段贴图 × n + 右端贴图"平铺画的（见 CjkStoneButton::Draw），
@@ -161,11 +198,11 @@ OnlineStartDialog::OnlineStartDialog(LawnApp* theApp, const char* theTitleUtf8, 
 	_Font* aTitleFont = GetCjkFont(16, true);
 	_Font* aBodyFont = GetCjkFont(14, false);
 	int aTextWidth = aTitleFont->StringWidth(mTitle);
-	int aBodyWidth = aBodyFont->StringWidth(mBody);
+	int aBodyWidth = MeasureBodyWidth(aBodyFont, mBody);
 	if (aBodyWidth > aTextWidth) aTextWidth = aBodyWidth;
 
 	int anExtraX = aTextWidth + 80;
-	int anExtraY = aTitleFont->GetHeight() + 14 + aBodyFont->GetHeight() + 46;
+	int anExtraY = aTitleFont->GetHeight() + 14 + BodyBlockHeight(aBodyFont, CountBodyLines(mBody)) + 46;
 	if (mButtonCount > 0)
 	{
 		// 版心也得放得下整行按钮：按最长的一条标签定每枚按钮的宽度（两侧各留 16），
@@ -210,7 +247,7 @@ void OnlineStartDialog::Resize(int theX, int theY, int theWidth, int theHeight)
 	int aTextBottom = (mButtonCount > 0)
 		? aButtonY - 10
 		: mHeight - mContentInsets.mBottom - mBackgroundInsets.mBottom;
-	int aBlockHeight = aTitleFont->GetHeight() + 14 + aBodyFont->GetHeight();
+	int aBlockHeight = aTitleFont->GetHeight() + 14 + BodyBlockHeight(aBodyFont, CountBodyLines(mBody));
 	int aBlockY = aTextTop + (aTextBottom - aTextTop - aBlockHeight) / 2;
 	if (aBlockY < aTextTop) aBlockY = aTextTop;
 	mTitleY = aBlockY + aTitleFont->GetAscent();
@@ -260,9 +297,20 @@ void OnlineStartDialog::Draw(Graphics* g)
 	}
 	if (!mBody.empty())
 	{
-		g->SetFont(GetCjkFont(14, false));
+		_Font* aBodyFont = GetCjkFont(14, false);
+		g->SetFont(aBodyFont);
 		g->SetColor(mColors[Dialog::COLOR_LINES]);
-		WriteCenteredLine(g, mBodyY, mBody);
+		int aY = mBodyY;
+		size_t aStart = 0;
+		for (size_t i = 0; i <= mBody.size(); i++)
+		{
+			if (i == mBody.size() || mBody[i] == '\n')
+			{
+				WriteCenteredLine(g, aY, mBody.substr(aStart, i - aStart));
+				aY += aBodyFont->GetHeight() + BODY_LINE_GAP;
+				aStart = i + 1;
+			}
+		}
 	}
 }
 

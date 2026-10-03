@@ -168,6 +168,7 @@ LawnApp::LawnApp()
 	mOnlineWaitingAdviceOn = false;
 	mRunState = nullptr;
 	mPendingAdventure = false;
+	mShowedStartupAnnounce = false;
 	mOnlineRunStartHeld = false;
 	mOnlineRunGo = false;
 	mRunIntroHeld = false;
@@ -1494,6 +1495,32 @@ void LawnApp::UpdateAdventureRequest()
 		return;
 	}
 	StartRun(aModeResult - RunModeDialog::RunModeDialog_Mode0);
+}
+
+// @pvz-online: 进入游戏后的玩法公告（2026-10-03 用户要的）：启动后第一次落到主菜单时弹一次，
+// 简要说明联机玩法与功能（正文按 OnlineStartDialog 的 '\n' 手动分行）。每进程只弹一次；
+// 阻塞式（WaitForResult 泵主循环）——这时候会话要么还没建、要么在后台自己跑心跳，不受影响。
+void LawnApp::UpdateStartupAnnounce()
+{
+	if (mShowedStartupAnnounce) return;
+	if (mGameSelector == nullptr) return;	// 还停在标题屏 / 加载中，不是"进游戏"
+
+	mShowedStartupAnnounce = true;
+
+	OnlineStartDialog* aDialog = new OnlineStartDialog(this, "欢迎来到 PvZ 联机合作版",
+		"· 2~4 人合作各守一块草坪，漏掉的僵尸\n"
+		"  传给下一位队友（保留血量）。\n"
+		"· 最后一位漏怪 = 全队失败；联机局没有除草机。\n"
+		"· 出怪量按席位顺位递减（1 号位最多）。\n"
+		"· 主位大墓碑 = 组队 / 加入房间；队友连着时\n"
+		"  主机可发起「组队闯关」（25 关跨场景连打）。\n"
+		"· 第三槽 PUZZLE 石板 = 一起打单关 / 原版战役。\n"
+		"· 局内：ESC 暂停；T / E 短语与表情（数字键选）。\n"
+		"· 左上小条 = 名册与换位；回主菜单 = 一起退关。",
+		"知道了", nullptr, OnlineStartDialog::NOTIFY_NONE);
+	CenterDialog(aDialog, aDialog->mWidth, aDialog->mHeight);
+	AddDialog(Dialogs::DIALOG_ONLINE_START, aDialog);
+	aDialog->WaitForResult();
 }
 
 void LawnApp::StartRun(int theRunMode)
@@ -3230,6 +3257,8 @@ void LawnApp::UpdateFrames()
 	UpdateAdventureRequest();
 	// 闯关的三选一屏（刚开局、刚过完一关）：不动 UI 和棋盘，只是把屏开出来等玩家点。
 	UpdateRunPick();
+	// 玩法公告：第一次落到主菜单时弹一次（进程内一次，联机开局之前先看得到）。
+	UpdateStartupAnnounce();
 
 	if ((!mActive || mMinimized) && mBoard)
 	{
