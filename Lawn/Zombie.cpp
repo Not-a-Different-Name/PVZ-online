@@ -3919,7 +3919,8 @@ void Zombie::UpdateDamageStates(unsigned int theDamageFlags)
         DropLoot();
         StopZombieSound();
 
-        if (mBoard->HasLevelAwardDropped())
+        // @pvz-online: 联机等待窗里漏怪掉头照走（清空 ≠ 结束，见 Board::OnlineWaitingForTeam）
+        if (mBoard->HasLevelAwardDropped() && !mBoard->OnlineWaitingForTeam())
         {
             PlayDeathAnim(theDamageFlags);
         }
@@ -4604,7 +4605,9 @@ void Zombie::UpdatePlaying()
 
     mGroanCounter--;
     int aZombiesCount = mBoard->mZombies.mSize;
-    if (mGroanCounter == 0 && Rand(aZombiesCount) == 0 && mHasHead && mZombieType != ZombieType::ZOMBIE_BOSS && !mBoard->HasLevelAwardDropped())
+    // @pvz-online: 等待窗里呻吟照旧（清空 ≠ 结束，见 Board::OnlineWaitingForTeam）
+    if (mGroanCounter == 0 && Rand(aZombiesCount) == 0 && mHasHead && mZombieType != ZombieType::ZOMBIE_BOSS
+        && (!mBoard->HasLevelAwardDropped() || mBoard->OnlineWaitingForTeam()))
     {
         float aPitch = 0.0f;
         if (mApp->IsLittleTroubleLevel())
@@ -7407,7 +7410,9 @@ void Zombie::DropLoot()
     }
 
     TrySpawnLevelAward();
-    if (mDroppedLoot || mBoard->HasLevelAwardDropped() || !mBoard->CanDropLoot())
+    // @pvz-online: 等待窗里照常掉币（清空 ≠ 结束，见 Board::OnlineWaitingForTeam）；
+    // 上面 TrySpawnLevelAward 的发奖闸不动——mLevelAwardSpawned 已置位，不会重复发。
+    if (mDroppedLoot || (mBoard->HasLevelAwardDropped() && !mBoard->OnlineWaitingForTeam()) || !mBoard->CanDropLoot())
         return;
 
     mDroppedLoot = true;

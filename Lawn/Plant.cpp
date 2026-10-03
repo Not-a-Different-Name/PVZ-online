@@ -1058,7 +1058,8 @@ void Plant::UpdateProductionPlant()
     if (!IsInPlay() || mApp->IsIZombieLevel() || mApp->mGameMode == GameMode::GAMEMODE_UPSELL || mApp->mGameMode == GameMode::GAMEMODE_INTRO)
         return;
 
-    if (mBoard->HasLevelAwardDropped())
+    // @pvz-online: 联机等待窗里照常生产（清空 ≠ 结束，见 Board::OnlineWaitingForTeam）
+    if (mBoard->HasLevelAwardDropped() && !mBoard->OnlineWaitingForTeam())
         return;
 
     if (mSeedType == SeedType::SEED_MARIGOLD && mBoard->mCurrentWave == mBoard->mNumWaves)
