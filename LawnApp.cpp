@@ -30,6 +30,7 @@
 #include "Lawn/Widget/CheatDialog.h"
 #include "Lawn/Widget/OnlineDialog.h"
 #include "Lawn/Widget/OnlineStartDialog.h"
+#include "Lawn/Widget/RunModeDialog.h"
 #include "Lawn/Online/NetSession.h"
 #include "Lawn/Run/RunState.h"
 #include "Lawn/Run/RunBuffs.h"
@@ -1469,7 +1470,7 @@ void LawnApp::UpdateAdventureRequest()
 	if (RunState::HasCheckpoint(mPlayerInfo->mId))
 	{
 		OnlineStartDialog* aDialog = new OnlineStartDialog(this,
-			"继续闯关？", "有一局没有打完。", "继续", "重新开始", OnlineStartDialog::NOTIFY_NONE);
+			"继续闯关？", "有一局没有打完。", "继续", "新开一局", OnlineStartDialog::NOTIFY_NONE);
 		CenterDialog(aDialog, aDialog->mWidth, aDialog->mHeight);
 		AddDialog(Dialogs::DIALOG_ONLINE_START, aDialog);
 		if (aDialog->WaitForResult() == Dialog::ID_YES)
@@ -1478,8 +1479,20 @@ void LawnApp::UpdateAdventureRequest()
 			return;
 		}
 	}
-	// 完整版：M4-b 的选模式页（提交 3）接线后，这里换成选模式页返回的档位。
-	StartRun(RunState::RUN_MODE_FULL);
+
+	// 新局（无检查点，或上面选了"新开一局"）：先选时长档再开局。同样阻塞式；返回值是
+	// 卡片按钮编号（Mode0 = 完整版，依序普通/快速），取消 = 关弹窗不开局。
+	// 联机不另问：只有主机走到这儿，选完由 START_LEVEL 的模式字节带动队友对齐。
+	RunModeDialog* aModeDialog = new RunModeDialog(this);
+	CenterDialog(aModeDialog, aModeDialog->mWidth, aModeDialog->mHeight);
+	AddDialog(Dialogs::DIALOG_ONLINE_START, aModeDialog);
+	int aModeResult = aModeDialog->WaitForResult();
+	if (aModeResult < RunModeDialog::RunModeDialog_Mode0 || aModeResult > RunModeDialog::RunModeDialog_Mode2)
+	{
+		TodTrace("adventure: the mode picker was cancelled, no run starts");
+		return;
+	}
+	StartRun(aModeResult - RunModeDialog::RunModeDialog_Mode0);
 }
 
 void LawnApp::StartRun(int theRunMode)
