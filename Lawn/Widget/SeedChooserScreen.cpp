@@ -179,7 +179,10 @@ SeedChooserScreen::SeedChooserScreen()
 		aStarFruit.mSeedIndexInBank = 0;
 		mSeedsInBank++;
 	}
-	if (mApp->IsAdventureMode() && !mApp->IsFirstTimeAdventureMode())
+	// @pvz-online: 闯关不演戴夫（§5.6 同款纪律）：原版"重打战役时戴夫代选三株 + 悬停提示
+	// [CRAZY_DAVE_WANTS]"是借 GAMEMODE_ADVENTURE 带进闯关的——卡池是玩家自己攒的，
+	// 每关阵容也该玩家自己挑，不代选、不出那条英文提示。原版战役（PUZZLE 石板）照旧。
+	if (mApp->IsAdventureMode() && !mApp->IsFirstTimeAdventureMode() && !mApp->IsRunMode())
 		CrazyDavePickSeeds();
 	UpdateImitaterButton();
 }
