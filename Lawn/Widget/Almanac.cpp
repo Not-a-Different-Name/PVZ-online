@@ -14,90 +14,53 @@
 #include "../../Sexy.TodLib/TodStringFile.h"
 #include "widget/WidgetManager.h"
 #include "../Run/RunBuffs.h"
-#include "graphics/SysFont.h"
+#include "../ModText.h"
 #include <string>
 #include <vector>
 
 bool gZombieDefeated[NUM_ZOMBIE_TYPES] = { false };
 
-// ── 词条附录的中文绘制（图鉴全解锁批，2026-10-03）────────────────────────
-// 词条文案（RunBuffs 表）是 UTF-8 中文，main.pak 那套位图字体没有汉字字形——
-// 照 OnlineStartDialog / RunPickDialog 的先例走 GDI（SysFont + TextOutA）。
-// 字体按"目标像素高"反算点值（同 OnlineStartDialog）：150% 缩放下写死的点值会被
+// ── 词条附录的中文绘制（图鉴全解锁批，2026-10-03；语言批起走 ModText）────────
+// 词条文案（RunBuffs 表）是 UTF-8 中文，main.pak 那套位图字体没有汉字字形——自
+// 2026-10-03 语言批起走 ModText 的宽字符直绘（UTF-8 → UTF-16 → TextOutW，与系统码页
+// 脱钩）；原先这里的 Utf8ToAnsi 与本地字体（SysFont + TextOutA、雅黑/黑体/宋体回退、
+// 进程级缓存）已并入 Lawn/ModText。
+// 字号仍按"目标像素高"反算点值（同 OnlineStartDialog）：150% 缩放下写死的点值会被
 // 放大近 2 倍，258px 宽的卡面放不下。取 12px：13px 时块高 68px，最长简介（机枪豌豆）
 // 底下只剩 41px 塞不下，统一降一档配合「连接式单行」结构（见 DrawAlmanacRunEntry）。
-// 转码/断行这几个小工具与 RunPickDialog.cpp 的同源实现各自留一份（那边的也是文件内
-// static，属本项目现有惯例）。
+// 断行工具已宽字符化（不再有 CP936 双字节的字节口径，一个 wchar_t = 一个单元）。
 #define ALMANAC_CJK_PX 12
 
-static std::string AlmanacAnsiFromUtf8(const char* theUtf8)
+static int AlmanacCjkPointSize()
 {
-	std::string aText(theUtf8 != nullptr ? theUtf8 : "");
-	if (aText.empty()) return aText;
-
-	int aWideLen = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, aText.c_str(), (int)aText.size(), nullptr, 0);
-	if (aWideLen <= 0) return aText;
-	std::vector<wchar_t> aWide(aWideLen);
-	MultiByteToWideChar(CP_UTF8, 0, aText.c_str(), (int)aText.size(), &aWide[0], aWideLen);
-
-	int anAnsiLen = WideCharToMultiByte(CP_ACP, 0, &aWide[0], aWideLen, nullptr, 0, nullptr, nullptr);
-	if (anAnsiLen <= 0) return aText;
-	std::string anAnsi(anAnsiLen, '\0');
-	WideCharToMultiByte(CP_ACP, 0, &aWide[0], aWideLen, &anAnsi[0], anAnsiLen, nullptr, nullptr);
-	return anAnsi;
+	HDC aDC = ::GetDC(gSexyAppBase->mHWnd);
+	int aDpi = GetDeviceCaps(aDC, LOGPIXELSY);
+	::ReleaseDC(gSexyAppBase->mHWnd, aDC);
+	if (aDpi <= 0) aDpi = 96;
+	int aPointSize = (ALMANAC_CJK_PX * 72 + aDpi / 2) / aDpi;
+	return aPointSize < 1 ? 1 : aPointSize;
 }
 
-// 词条用的一支字（粗 = 标题行，细 = 说明正文），进程级缓存、故意不释放（同前例）。
-static SysFont* AlmanacCjkFont(bool theBold)
+// 宽字符版折行单元：一个 wchar_t = 一个单元；ASCII 连续段仍算一个整体——
+// 「×0.75」「20%」不在中间断开（同 RunPickDialog 的语义）
+static int AlmanacBreakUnit(const std::wstring& theText, int theIndex)
 {
-	static SysFont* aHeadFont = nullptr;
-	static SysFont* aBodyFont = nullptr;
-	SysFont*& aSlot = theBold ? aHeadFont : aBodyFont;
-	if (aSlot == nullptr)
-	{
-		const char* aFace = "Microsoft YaHei";
-		if (GetFileAttributesA("C:\\Windows\\Fonts\\msyh.ttc") == INVALID_FILE_ATTRIBUTES)
-		{
-			aFace = (GetFileAttributesA("C:\\Windows\\Fonts\\simhei.ttf") != INVALID_FILE_ATTRIBUTES) ? "SimHei" : "SimSun";
-		}
-		HDC aDC = ::GetDC(gSexyAppBase->mHWnd);
-		int aDpi = GetDeviceCaps(aDC, LOGPIXELSY);
-		::ReleaseDC(gSexyAppBase->mHWnd, aDC);
-		if (aDpi <= 0) aDpi = 96;
-		int aPointSize = (ALMANAC_CJK_PX * 72 + aDpi / 2) / aDpi;
-		if (aPointSize < 1) aPointSize = 1;
-		int aCharset = (GetACP() == 936) ? GB2312_CHARSET : ANSI_CHARSET;
-		aSlot = new SysFont(gSexyAppBase, aFace, aPointSize, aCharset, theBold, false, false);
-	}
-	return aSlot;
-}
-
-// CP936 里一个字的字节数：ASCII 一字节，其余两字节（同 RunPickDialog）
-static int AlmanacAnsiUnit(const std::string& theText, int theIndex)
-{
-	if (((unsigned char)theText[theIndex]) < 0x80) return 1;
-	return (theIndex + 1 < (int)theText.size()) ? 2 : 1;
-}
-
-// 折行的最小单元：ASCII 连续段算一个整体——「×0.75」「20%」不在中间断开（同 RunPickDialog）
-static int AlmanacBreakUnit(const std::string& theText, int theIndex)
-{
-	if (((unsigned char)theText[theIndex]) >= 0x80) return AlmanacAnsiUnit(theText, theIndex);
+	if (theText[theIndex] >= 0x80) return 1;
 	int anEnd = theIndex;
-	while (anEnd < (int)theText.size() && ((unsigned char)theText[anEnd]) < 0x80) anEnd++;
+	while (anEnd < (int)theText.size() && theText[anEnd] < 0x80) anEnd++;
 	return anEnd - theIndex;
 }
 
 // 显式 \n 分段 + 按列宽折行（表里说法都短，折行是保险，防以后加长文案溢出）
-static void AlmanacWrapEntry(SysFont* theFont, const std::string& theText, int theWidth, std::vector<std::string>& theLines)
+static void AlmanacWrapEntry(ModText::Font* theFont, const std::wstring& theText, int theWidth, std::vector<std::wstring>& theLines)
 {
 	if (theWidth <= 0) theWidth = 1;
 	int aStart = 0;
 	while (true)
 	{
-		int aBreak = (int)theText.find('\n', aStart);
+		int aBreak = (int)theText.find(L'\n', aStart);
 		if (aBreak < 0) aBreak = (int)theText.size();
-		std::string aPara = theText.substr(aStart, aBreak - aStart);
+		std::wstring aPara = theText.substr(aStart, aBreak - aStart);
 		int aPos = 0;
 		while (aPos < (int)aPara.size())
 		{
@@ -106,7 +69,7 @@ static void AlmanacWrapEntry(SysFont* theFont, const std::string& theText, int t
 			while (aCursor < (int)aPara.size())
 			{
 				int aNext = aCursor + AlmanacBreakUnit(aPara, aCursor);
-				if (aFit > aPos && theFont->StringWidth(aPara.substr(aPos, aNext - aPos)) > theWidth) break;
+				if (aFit > aPos && ModText::TextWidth(theFont, aPara.substr(aPos, aNext - aPos)) > theWidth) break;
 				aFit = aNext;
 				aCursor = aNext;
 			}
@@ -136,23 +99,24 @@ static void AlmanacWrapEntry(SysFont* theFont, const std::string& theText, int t
 // 任何一档都套「越死线整块上提」兜底；实测最长简介（13 行）在 3) 下不越线。
 static void DrawAlmanacRunEntry(Graphics* g, int theEntryIndex, int theDescBottom)
 {
-	SysFont* aHeadFont = AlmanacCjkFont(true);
-	SysFont* aBodyFont = AlmanacCjkFont(false);
-	if (aHeadFont == nullptr || aBodyFont == nullptr) return;
+	ModText::Font* aHeadFont = ModText::GetFont(AlmanacCjkPointSize(), true);
+	ModText::Font* aBodyFont = ModText::GetFont(AlmanacCjkPointSize(), false);
 
 	int aId = RUN_BUFF_COUNT + theEntryIndex;
-	std::string aDesc = AlmanacAnsiFromUtf8(GetRunChoiceDesc(aId));
-	std::string aJoined = aDesc;
-	for (size_t aPos = aJoined.find('\n'); aPos != std::string::npos; aPos = aJoined.find('\n', aPos))
+	// 词条文案与三选一屏同源（UTF-8），折行/量宽/绘制全走宽字符；
+	// DrawTextWide 收顶对齐（原 DrawString 是基线口径，这里换算成 y 即顶）
+	std::wstring aDesc = ModText::WideFromUtf8(GetRunChoiceDesc(aId));
+	std::wstring aJoined = aDesc;
+	for (size_t aPos = aJoined.find(L'\n'); aPos != std::wstring::npos; aPos = aJoined.find(L'\n', aPos))
 		aJoined.erase(aPos, 1);
 
-	std::vector<std::string> aSplitLines;
-	std::vector<std::string> aJoinedLines;
+	std::vector<std::wstring> aSplitLines;
+	std::vector<std::wstring> aJoinedLines;
 	AlmanacWrapEntry(aBodyFont, aDesc, ALMANAC_ENTRY_W, aSplitLines);
 	AlmanacWrapEntry(aBodyFont, aJoined, ALMANAC_ENTRY_W, aJoinedLines);
 
-	int aLineHeight = aBodyFont->GetHeight() + 3;
-	int aHeadStep = aHeadFont->GetHeight() + 2;
+	int aLineHeight = ModText::LineHeight(aBodyFont) + 3;
+	int aHeadStep = ModText::LineHeight(aHeadFont) + 2;
 	int aSplitBlock = aHeadStep + (int)aSplitLines.size() * aLineHeight;
 	int aJoinedBlock = aHeadStep + (int)aJoinedLines.size() * aLineHeight;
 
@@ -162,19 +126,15 @@ static void DrawAlmanacRunEntry(Graphics* g, int theEntryIndex, int theDescBotto
 	if (aFitsSplit || aFitsJoined)		// 1)/2) 带标题行
 	{
 		int aY = theDescBottom + (aFitsSplit ? 5 : 3);
-		g->SetFont(aHeadFont);
-		g->SetColor(Color(160, 75, 15));
-		std::string aHead = AlmanacAnsiFromUtf8("闯关词条 · ");
-		aHead += GetRunChoiceName(aId);		// 英文条名与三选一屏按钮同字
-		g->DrawString(aHead, ALMANAC_ENTRY_X, aY + aHeadFont->GetAscent());
+		std::wstring aHead = ModText::WideFromUtf8("闯关词条 · ");
+		aHead += ModText::WideFromUtf8(GetRunChoiceName(aId));		// 英文条名与三选一屏按钮同字
+		ModText::DrawTextWide(g, aHeadFont, ALMANAC_ENTRY_X, aY, aHead, Color(160, 75, 15), g->mClipRect);
 		aY += aHeadStep;
 
-		const std::vector<std::string>& aLines = aFitsSplit ? aSplitLines : aJoinedLines;
-		g->SetFont(aBodyFont);
-		g->SetColor(Color(125, 65, 30));
+		const std::vector<std::wstring>& aLines = aFitsSplit ? aSplitLines : aJoinedLines;
 		for (int i = 0; i < (int)aLines.size(); i++)
 		{
-			g->DrawString(aLines[i], ALMANAC_ENTRY_X, aY + aBodyFont->GetAscent());
+			ModText::DrawTextWide(g, aBodyFont, ALMANAC_ENTRY_X, aY, aLines[i], Color(125, 65, 30), g->mClipRect);
 			aY += aLineHeight;
 		}
 		return;
@@ -185,24 +145,21 @@ static void DrawAlmanacRunEntry(Graphics* g, int theEntryIndex, int theDescBotto
 	int aY = theDescBottom + 3;
 	if (aY + aBlock > ALMANAC_ENTRY_BOTTOM) aY = ALMANAC_ENTRY_BOTTOM - aBlock;
 
-	std::string aName = AlmanacAnsiFromUtf8(GetRunChoiceName(aId));
-	std::string aColon = AlmanacAnsiFromUtf8("：");
-	int aPrefixW = aHeadFont->StringWidth(aName + aColon);
-	bool aWithName = !aJoinedLines.empty() && aPrefixW + aBodyFont->StringWidth(aJoinedLines[0]) <= ALMANAC_ENTRY_W;
+	std::wstring aName = ModText::WideFromUtf8(GetRunChoiceName(aId));
+	std::wstring aColon = ModText::WideFromUtf8("：");
+	int aPrefixW = ModText::TextWidth(aHeadFont, aName + aColon);
+	bool aWithName = !aJoinedLines.empty() && aPrefixW + ModText::TextWidth(aBodyFont, aJoinedLines[0]) <= ALMANAC_ENTRY_W;
 
 	int aLineX = ALMANAC_ENTRY_X;
 	if (aWithName)
 	{
-		g->SetFont(aHeadFont);
-		g->SetColor(Color(160, 75, 15));
-		g->DrawString(aName + aColon, ALMANAC_ENTRY_X, aY + aHeadFont->GetAscent());
+		ModText::DrawTextWide(g, aHeadFont, ALMANAC_ENTRY_X, aY, aName + aColon, Color(160, 75, 15), g->mClipRect);
 		aLineX += aPrefixW;
 	}
-	g->SetFont(aBodyFont);
-	g->SetColor(Color(125, 65, 30));
 	for (int i = 0; i < (int)aJoinedLines.size(); i++)
 	{
-		g->DrawString(aJoinedLines[i], (i == 0 && aWithName) ? aLineX : ALMANAC_ENTRY_X, aY + aBodyFont->GetAscent());
+		ModText::DrawTextWide(g, aBodyFont, (i == 0 && aWithName) ? aLineX : ALMANAC_ENTRY_X, aY,
+			aJoinedLines[i], Color(125, 65, 30), g->mClipRect);
 		aY += aLineHeight;
 	}
 }

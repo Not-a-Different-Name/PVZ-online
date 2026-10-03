@@ -8,66 +8,35 @@
 #include "../../Resources.h"
 #include "../../ConstEnums.h"
 #include "graphics/ImageFont.h"
-#include "graphics/SysFont.h"
+#include "graphics/Graphics.h"
+#include "../ModText.h"
 #include <cstdio>
 #include <vector>
 
 // ── 中文描述这一档 ──────────────────────────────────────────────────────
-// 引擎自带的字体全是位图字体，没有中文字形，所以这一屏的中文说明改走 GDI（SysFont）。
-// 源文件按 UTF-8 编译（根 CMakeLists 的 /utf-8），而 TextOutA 认的是系统 ANSI
-// （简体中文机器上是 CP936）：画之前先转一次码；转不出来（构建配置换了）就原样当 ANSI。
-static std::string RunPickAnsiFromUtf8(const char* theUtf8)
+// 引擎自带的字体全是位图字体，没有中文字形，所以这一屏的中文说明走 ModText 的宽字符
+// 直绘（UTF-8 → UTF-16 → TextOutW，与系统码页脱钩；2026-10-03 语言批起）。
+// 原先这里的转码（RunPickAnsiFromUtf8）与字体缓存（RunPickCjkFont、13pt）已并入
+// Lawn/ModText；断行系统一并宽字符化——不再有 CP936 双字节的字节口径，一个 wchar_t
+// 就是一个单元。
+
+static ModText::Font* RunPickCjkFont() { return ModText::GetFont(13, false); }
+
+// 折行时的最小单元：ASCII 连续段算一个整体——「×0.75」「20%」这种不许在中间断开
+// （2026-10-03 玩家截图里「0.75」被拆成两行），中文照旧一字一个（宽字符天然 1 个）。
+static int RunPickBreakUnit(const std::wstring& theText, int theIndex)
 {
-	std::string aText(theUtf8 != NULL ? theUtf8 : "");
-	if (aText.empty()) return aText;
-
-	int aWideLen = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, aText.c_str(), (int)aText.size(), NULL, 0);
-	if (aWideLen <= 0) return aText;
-	std::vector<wchar_t> aWide(aWideLen);
-	MultiByteToWideChar(CP_UTF8, 0, aText.c_str(), (int)aText.size(), &aWide[0], aWideLen);
-
-	int anAnsiLen = WideCharToMultiByte(CP_ACP, 0, &aWide[0], aWideLen, NULL, 0, NULL, NULL);
-	if (anAnsiLen <= 0) return aText;
-	std::string anAnsi(anAnsiLen, '\0');
-	WideCharToMultiByte(CP_ACP, 0, &aWide[0], aWideLen, &anAnsi[0], anAnsiLen, NULL, NULL);
-	return anAnsi;
-}
-
-// 进程共用的中文字体：雅黑 → 黑体 → 宋体；都找不到也照样建（GDI 会替一支能画的）。
-// 字号和 OnlineStartDialog 的正文一档（13pt）。charset 跟着系统码页走（同那边）：
-// 简中（CP936）配 GB2312_CHARSET，其他码页退回 ANSI_CHARSET——上面的转码也是按
-// 系统码页转的，两边始终对得上。
-static SysFont* RunPickCjkFont()
-{
-	static SysFont* sFont = NULL;
-	static bool sTried = false;
-	if (!sTried)
-	{
-		sTried = true;
-		const char* aFace = "Microsoft YaHei";
-		if (GetFileAttributesA("C:\\Windows\\Fonts\\msyh.ttc") == INVALID_FILE_ATTRIBUTES)
-		{
-			aFace = (GetFileAttributesA("C:\\Windows\\Fonts\\simhei.ttf") != INVALID_FILE_ATTRIBUTES) ? "SimHei" : "SimSun";
-		}
-		int aCharset = (GetACP() == 936) ? GB2312_CHARSET : ANSI_CHARSET;
-		sFont = new SysFont(gSexyAppBase, aFace, 13, aCharset);
-	}
-	return sFont;
-}
-
-// CP936 里一个字的字节数：ASCII 一字节，其余两字节
-static int RunPickAnsiUnit(const std::string& theText, int theIndex)
-{
-	if (((unsigned char)theText[theIndex]) < 0x80) return 1;
-	return (theIndex + 1 < (int)theText.size()) ? 2 : 1;
+	if (theText[theIndex] >= 0x80) return 1;
+	int anEnd = theIndex;
+	while (anEnd < (int)theText.size() && theText[anEnd] < 0x80) anEnd++;
+	return anEnd - theIndex;
 }
 
 // 不能起行的字（收尾标点）；断行时把它们留在上一行
-static bool RunPickNoLineStart(const std::string& theText, int theIndex)
+static bool RunPickNoLineStart(const std::wstring& theText, int theIndex)
 {
-	static const char* aPuncts[] = { "、","，","。","！","？","：","；","）","】","》","”","’","%","…" };
-	int aLen = RunPickAnsiUnit(theText, theIndex);
-	std::string aUnit = theText.substr(theIndex, aLen);
+	static const wchar_t* aPuncts[] = { L"、",L"，",L"。",L"！",L"？",L"：",L"；",L"）",L"】",L"》",L"”",L"’",L"%",L"…" };
+	std::wstring aUnit = theText.substr(theIndex, 1);
 	for (int i = 0; i < (int)(sizeof(aPuncts) / sizeof(aPuncts[0])); i++)
 	{
 		if (aUnit == aPuncts[i]) return true;
@@ -76,16 +45,16 @@ static bool RunPickNoLineStart(const std::string& theText, int theIndex)
 }
 
 // 一条描述按显式 \n 拆行后的最大行宽——列宽就按它定，不让任何一条被硬折
-static int RunPickDescWidth(SysFont* theFont, const char* theUtf8)
+static int RunPickDescWidth(ModText::Font* theFont, const char* theUtf8)
 {
-	std::string aText = RunPickAnsiFromUtf8(theUtf8);
+	std::wstring aText = ModText::WideFromUtf8(theUtf8);
 	int aMax = 0;
 	int aStart = 0;
 	while (true)
 	{
-		int aBreak = (int)aText.find('\n', aStart);
+		int aBreak = (int)aText.find(L'\n', aStart);
 		if (aBreak < 0) aBreak = (int)aText.size();
-		int aWidth = theFont->StringWidth(aText.substr(aStart, aBreak - aStart));
+		int aWidth = ModText::TextWidth(theFont, aText.substr(aStart, aBreak - aStart));
 		if (aWidth > aMax) aMax = aWidth;
 		if (aBreak >= (int)aText.size()) break;
 		aStart = aBreak + 1;
@@ -93,27 +62,17 @@ static int RunPickDescWidth(SysFont* theFont, const char* theUtf8)
 	return aMax;
 }
 
-// 折行时的最小单元：ASCII 连续段算一个整体——「×0.75」「20%」这种不许在中间断开
-// （2026-10-03 玩家截图里「0.75」被拆成两行），中文照旧一字一个。
-static int RunPickBreakUnit(const std::string& theText, int theIndex)
-{
-	if (((unsigned char)theText[theIndex]) >= 0x80) return RunPickAnsiUnit(theText, theIndex);
-	int anEnd = theIndex;
-	while (anEnd < (int)theText.size() && ((unsigned char)theText[anEnd]) < 0x80) anEnd++;
-	return anEnd - theIndex;
-}
-
 // 断行的唯一实现（显式 \n 分段 + 按列宽折行）：绘制与面积测算共用同一份——
 // 2026-10-03 的文本重叠就是两边各算各的、算的比画的少两行算出来的。
-static void RunPickWrapLines(SysFont* theFont, const std::string& theText, int theWidth, std::vector<std::string>& theLines)
+static void RunPickWrapLines(ModText::Font* theFont, const std::wstring& theText, int theWidth, std::vector<std::wstring>& theLines)
 {
 	if (theWidth <= 0) theWidth = 1;
 	int aStart = 0;
 	while (true)
 	{
-		int aBreak = (int)theText.find('\n', aStart);
+		int aBreak = (int)theText.find(L'\n', aStart);
 		if (aBreak < 0) aBreak = (int)theText.size();
-		std::string aPara = theText.substr(aStart, aBreak - aStart);
+		std::wstring aPara = theText.substr(aStart, aBreak - aStart);
 		int aPos = 0;
 		while (aPos < (int)aPara.size())
 		{
@@ -122,7 +81,7 @@ static void RunPickWrapLines(SysFont* theFont, const std::string& theText, int t
 			while (aCursor < (int)aPara.size())
 			{
 				int aNext = aCursor + RunPickBreakUnit(aPara, aCursor);
-				if (aFit > aPos && theFont->StringWidth(aPara.substr(aPos, aNext - aPos)) > theWidth) break;
+				if (aFit > aPos && ModText::TextWidth(theFont, aPara.substr(aPos, aNext - aPos)) > theWidth) break;
 				aFit = aNext;
 				aCursor = aNext;
 			}
@@ -140,32 +99,34 @@ static void RunPickWrapLines(SysFont* theFont, const std::string& theText, int t
 }
 
 // 这条说明在给定列宽下画出来是几行——对话框的面积按它算（显式 \n 与折行一格不落）。
-static int RunPickCountLines(SysFont* theFont, const char* theUtf8, int theWidth)
+static int RunPickCountLines(ModText::Font* theFont, const char* theUtf8, int theWidth)
 {
-	if (theFont == NULL) return 1;
-	std::vector<std::string> aLines;
-	RunPickWrapLines(theFont, RunPickAnsiFromUtf8(theUtf8), theWidth, aLines);
+	std::vector<std::wstring> aLines;
+	RunPickWrapLines(theFont, ModText::WideFromUtf8(theUtf8), theWidth, aLines);
 	return (int)aLines.size() > 0 ? (int)aLines.size() : 1;
 }
 
 // 中文没有空格，WriteWordWrapped 那套按词断行的排版用不了：自己量着宽度断
 // （行内的显式 \n 先拆段）。断点不会超列宽，所以文字不会再压到按钮上；
 // 整块垂直居中、逐行水平居中。
-static void RunPickDrawCjkLines(Graphics* g, SysFont* theFont, const Rect& theRect, const char* theUtf8)
+static void RunPickDrawCjkLines(Graphics* g, ModText::Font* theFont, const Rect& theRect,
+	const char* theUtf8, const Sexy::Color& theColor)
 {
-	if (theFont == NULL || theRect.mWidth <= 0) return;
+	if (theRect.mWidth <= 0) return;
 
-	std::vector<std::string> aLines;
-	RunPickWrapLines(theFont, RunPickAnsiFromUtf8(theUtf8), theRect.mWidth, aLines);
+	std::vector<std::wstring> aLines;
+	RunPickWrapLines(theFont, ModText::WideFromUtf8(theUtf8), theRect.mWidth, aLines);
 
-	int aLineHeight = theFont->GetHeight() + 3;
+	int aLineHeight = ModText::LineHeight(theFont) + 3;
 	int aY = theRect.mY + (theRect.mHeight - (int)aLines.size() * aLineHeight) / 2;
 	if (aY < theRect.mY) aY = theRect.mY;
 	for (int i = 0; i < (int)aLines.size(); i++)
 	{
-		int aX = theRect.mX + (theRect.mWidth - theFont->StringWidth(aLines[i])) / 2;
+		int aX = theRect.mX + (theRect.mWidth - ModText::TextWidth(theFont, aLines[i])) / 2;
 		if (aX < theRect.mX) aX = theRect.mX;
-		g->DrawString(aLines[i], aX, aY + theFont->GetAscent() + i * aLineHeight);
+		// 原 DrawString 是基线口径（y + Ascent 才是顶），这里收顶对齐：
+		// 行的顶就是 aY + i * aLineHeight
+		ModText::DrawTextWide(g, theFont, aX, aY + i * aLineHeight, aLines[i], theColor, g->mClipRect);
 	}
 }
 
@@ -216,7 +177,7 @@ RunPickDialog::RunPickDialog(LawnApp* theApp, RunState* theRun) : LawnDialog(
 	// 「已有 x/N」）。再加标题行与「已有」行。宽不够就长一轮、高不够也长一轮，两个都
 	// 够了才收手；到顶了也收手（剩下的靠绘制端断行兜住，宁可折行不再叠字）。以后改
 	// 文案不用回来调数字。
-	SysFont* aCjkFont = RunPickCjkFont();
+	ModText::Font* aCjkFont = RunPickCjkFont();
 	int aTargetColumn = 0;
 	for (int i = 0; i < RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT; i++)
 	{
@@ -224,7 +185,7 @@ RunPickDialog::RunPickDialog(LawnApp* theApp, RunState* theRun) : LawnDialog(
 		if (aWidth > aTargetColumn) aTargetColumn = aWidth;
 	}
 	aTargetColumn += 12; // 两侧各留一点白
-	int aFitLineHeight = (aCjkFont != NULL ? aCjkFont->GetHeight() : mLinesFont->GetHeight()) + 3;
+	int aFitLineHeight = ModText::LineHeight(aCjkFont) + 3;
 	// 底部是两行按钮（三张卡一行、最底「放弃」单独一行）：最小高与上限高都比原来多让
 	// 出一行（按钮高 + 6，与 Resize 里三张卡那一行上移的量是同一笔账）。卡片区口径不变。
 	int aExtraHeight = IMAGE_BUTTON_LEFT->mHeight + 6;
@@ -234,20 +195,7 @@ RunPickDialog::RunPickDialog(LawnApp* theApp, RunState* theRun) : LawnDialog(
 		int aMaxLines = 1;
 		for (int j = 0; j < RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT; j++)
 		{
-			const char* aDesc = GetRunChoiceDesc(j);
-			int aLines;
-			if (aCjkFont != NULL)
-			{
-				aLines = RunPickCountLines(aCjkFont, aDesc, mColumnWidth - 4);
-			}
-			else
-			{
-				aLines = 1;
-				for (const char* aCursor = aDesc; *aCursor != '\0'; aCursor++)
-				{
-					if (*aCursor == '\n') aLines++;
-				}
-			}
+			int aLines = RunPickCountLines(aCjkFont, GetRunChoiceDesc(j), mColumnWidth - 4);
 			if (aLines > aMaxLines) aMaxLines = aLines;
 		}
 		int aNeededArea = (aMaxLines + 2) * aFitLineHeight + 6;
@@ -346,51 +294,42 @@ void RunPickDialog::Draw(Graphics* g)
 			if (aBuffId == RunState::RUN_BUFF_CHOICE_NONE) continue;
 
 			// 效果说明贴着各自的按钮画：三列各说各的，不用让人去猜哪句话配哪个名字。
-			// 中文走 SysFont（位图字体没有中文字形），按列宽断行、逐行居中。
-			SysFont* aFont = RunPickCjkFont();
-			int aLineHeight = (aFont != NULL ? aFont->GetHeight() : mLinesFont->GetHeight()) + 3;
+			// 中文走 ModText 宽字符直绘，按列宽断行、逐行居中。
+			ModText::Font* aFont = RunPickCjkFont();
+			int aLineHeight = ModText::LineHeight(aFont) + 3;
 			// 单株升级在列顶加一行【植物名】（2026-10-03 玩家反馈）：按钮名字是英文位图
 			// 字体、说明文案多数也不含植物名——不标出来分不清这条 buff 是哪株的。
 			const char* aPlantName = GetRunChoicePlantName(aBuffId);
-			bool aHasHead = (aFont != NULL && aPlantName != NULL);
+			bool aHasHead = (aPlantName != NULL);
 			// 说明区：顶边整行让给【植物名】（aRect 往下挪一行再居中——让出的行不参与
 			// 居中，说明就不会往上顶到标题上）、底边整行让给「已有 x/N」。列高在构造时
 			// 按真实折行数算过，正常放得下；真到尺寸上限也只会往下压「已有」一行，
 			// 2026-10-03 那种标题/说明/已有三头叠字不会再出现。
 			Rect aRect(mColumnX[i] + 2, mAreaTop + (aHasHead ? aLineHeight : 0), mColumnWidth - 4,
 				mAreaHeight - aLineHeight - 4 - (aHasHead ? aLineHeight : 0));
-			if (aFont != NULL)
+			if (aHasHead)
 			{
-				g->SetFont(aFont);
-				g->SetColor(mColors[Dialog::COLOR_LINES]);
-				if (aHasHead)
-				{
-					std::string aHead = RunPickAnsiFromUtf8((std::string("【") + aPlantName + "】").c_str());
-					int aHeadX = mColumnX[i] + (mColumnWidth - aFont->StringWidth(aHead)) / 2;
-					if (aHeadX < mColumnX[i]) aHeadX = mColumnX[i];
-					g->DrawString(aHead, aHeadX, mAreaTop + aFont->GetAscent());
-				}
-				RunPickDrawCjkLines(g, aFont, aRect, GetRunChoiceDesc(aBuffId));
+				std::string aHeadUtf8 = std::string("【") + aPlantName + "】";
+				std::wstring aHead = ModText::WideFromUtf8(aHeadUtf8.c_str());
+				int aHeadX = mColumnX[i] + (mColumnWidth - ModText::TextWidth(aFont, aHead)) / 2;
+				if (aHeadX < mColumnX[i]) aHeadX = mColumnX[i];
+				ModText::DrawTextWide(g, aFont, aHeadX, mAreaTop, aHead,
+					mColors[Dialog::COLOR_LINES], g->mClipRect);
+			}
+			RunPickDrawCjkLines(g, aFont, aRect, GetRunChoiceDesc(aBuffId), mColors[Dialog::COLOR_LINES]);
 
-				// 「已有 x/N」：封顶条目带 /N；无限条目只报已有层数。画在卡片区底边、逐列居中。
-				int aOwned = mRun->GetBuffCount(aBuffId);
-				int aCap = GetRunChoiceMaxStacks(aBuffId);
-				char aCountUtf8[64];
-				if (aCap > 0) snprintf(aCountUtf8, sizeof(aCountUtf8), "已有 %d/%d", aOwned, aCap);
-				else snprintf(aCountUtf8, sizeof(aCountUtf8), "已有 %d", aOwned);
-				std::string aCountText = RunPickAnsiFromUtf8(aCountUtf8);
-				int aCountY = mAreaTop + mAreaHeight - aLineHeight;
-				if (aCountY < mAreaTop) aCountY = mAreaTop;
-				int aCountX = mColumnX[i] + (mColumnWidth - aFont->StringWidth(aCountText)) / 2;
-				g->DrawString(aCountText, aCountX, aCountY + aFont->GetAscent());
-			}
-			else
-			{
-				// 连系统字体都建不出来时的兜底：照旧走位图字体（中文会缺字形，但不崩）
-				g->SetFont(mLinesFont);
-				WriteWordWrapped(g, aRect, SexyString(GetRunChoiceDesc(aBuffId)),
-					mLinesFont->GetLineSpacing() + mLineSpacingOffset, mTextAlign);
-			}
+			// 「已有 x/N」：封顶条目带 /N；无限条目只报已有层数。画在卡片区底边、逐列居中。
+			int aOwned = mRun->GetBuffCount(aBuffId);
+			int aCap = GetRunChoiceMaxStacks(aBuffId);
+			char aCountUtf8[64];
+			if (aCap > 0) snprintf(aCountUtf8, sizeof(aCountUtf8), "已有 %d/%d", aOwned, aCap);
+			else snprintf(aCountUtf8, sizeof(aCountUtf8), "已有 %d", aOwned);
+			std::wstring aCountText = ModText::WideFromUtf8(aCountUtf8);
+			int aCountY = mAreaTop + mAreaHeight - aLineHeight;
+			if (aCountY < mAreaTop) aCountY = mAreaTop;
+			int aCountX = mColumnX[i] + (mColumnWidth - ModText::TextWidth(aFont, aCountText)) / 2;
+			ModText::DrawTextWide(g, aFont, aCountX, aCountY, aCountText,
+				mColors[Dialog::COLOR_LINES], g->mClipRect);
 		}
 	}
 }

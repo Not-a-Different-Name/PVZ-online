@@ -3,10 +3,9 @@
 #include "../../LawnApp.h"
 #include "../../Resources.h"
 #include "../../ConstEnums.h"
-#include "graphics/Font.h"
-#include "graphics/SysFont.h"
 #include "graphics/Graphics.h"
 #include "widget/WidgetManager.h"
+#include "../ModText.h"
 
 // 两枚按钮之间的间距（构造时定版心、Resize 里摆位共用同一个数）
 #define BUTTON_GAP 24
@@ -14,63 +13,30 @@
 // 正文多行（公告那种）的行距；单行正文时用不到
 #define BODY_LINE_GAP 6
 
-// 源码里的中文字面量是 UTF-8（整个仓库都带 /utf-8 编译）；SysFont 的 DrawString 走 TextOutA，
-// 字节按系统码页解释——简中 Windows 上就是 GBK。所以在这儿做一次转换，两边就对上了。
-static std::string Utf8ToAnsi(const char* theText)
-{
-	int aWideLength = MultiByteToWideChar(CP_UTF8, 0, theText, -1, nullptr, 0);
-	if (aWideLength <= 0) return std::string();
-
-	std::wstring aWide((size_t)aWideLength, L'\0');
-	MultiByteToWideChar(CP_UTF8, 0, theText, -1, &aWide[0], aWideLength);
-
-	int anAnsiLength = WideCharToMultiByte(CP_ACP, 0, aWide.c_str(), -1, nullptr, 0, nullptr, nullptr);
-	if (anAnsiLength <= 0) return std::string();
-
-	std::string anAnsi((size_t)anAnsiLength, '\0');
-	WideCharToMultiByte(CP_ACP, 0, aWide.c_str(), -1, &anAnsi[0], anAnsiLength, nullptr, nullptr);
-	if (!anAnsi.empty() && anAnsi.back() == '\0') anAnsi.pop_back();
-	return anAnsi;
-}
-
-// 中文用的两支字体（粗 = 标题，细 = 正文/按钮），进程级缓存、故意不释放：对话框的
-// 生命周期比它短，框架里也没有统一的字体属主，谁先析构都拿不准——进程退出时系统
-// 回收就完了。charset 跟着系统码页走：简中（CP936）配 GB2312_CHARSET，其他码页退回
-// ANSI_CHARSET（那时候上面转出来的字节也是那个码页的，仍能对上）。
-// 参数是"目标像素高"而不是点值：SysFont 会把点值按屏幕 DPI 折算成像素
-// （SysFont::Init 里 -MulDiv(pt, GetDeviceCaps(LOGPIXELSY), 72)），150% 缩放（144 DPI）
-// 下写死的点值会被放大出近 2 倍——公告（9 行正文）的弹窗正是这样被撑到 800×600 之外、
-// "知道了"按钮掉出屏幕。所以这里反着折算：由目标像素高推点值，让最终落地的像素高
-// 与 DPI 无关。字号只在这两档上用。
+// 源码里的中文字面量是 UTF-8（整个仓库都带 /utf-8 编译）。自 2026-10-03 语言批起，
+// 中文绘制走 ModText 的宽字符直绘（UTF-8 → UTF-16 → TextOutW，与系统码页脱钩）：
+// 字符串一律存 UTF-8 原样、绘制/量宽时现转；原先这里的 Utf8ToAnsi + GetCjkFont
+// （SysFont + TextOutA、进程级缓存）已并入 Lawn/ModText。
+// 字号仍按"目标像素高"反算点值：ModText::GetFont 会把点值按屏幕 DPI 折算成像素
+// （-MulDiv(pt, GetDeviceCaps(LOGPIXELSY), 72)），150% 缩放（144 DPI）下写死的点值
+// 会被放大出近 2 倍——公告（9 行正文）的弹窗正是这样被撑到 800×600 之外、"知道了"
+// 按钮掉出屏幕。所以这里反着折算，让最终落地的像素高与 DPI 无关。字号只在这两档上用。
 #define CJK_TITLE_PX 22
 #define CJK_BODY_PX 20
 
-static _Font* GetCjkFont(int thePixelHeight, bool theBold)
+static int CjkPointSize(int thePixelHeight)
 {
-	static _Font* aTitleFont = nullptr;
-	static _Font* aBodyFont = nullptr;
-	_Font*& aSlot = theBold ? aTitleFont : aBodyFont;
-
-	if (aSlot == nullptr)
-	{
-		// 与 SysFont::Init 探的是同一支 DC（同一个窗口），这里的反算严格对上它的正算
-		HDC aDC = ::GetDC(gSexyAppBase->mHWnd);
-		int aDpi = GetDeviceCaps(aDC, LOGPIXELSY);
-		::ReleaseDC(gSexyAppBase->mHWnd, aDC);
-		if (aDpi <= 0) aDpi = 96;
-
-		int aPointSize = (thePixelHeight * 72 + aDpi / 2) / aDpi;
-		if (aPointSize < 1) aPointSize = 1;
-
-		int aCharset = (GetACP() == 936) ? GB2312_CHARSET : ANSI_CHARSET;
-		aSlot = new SysFont(gSexyAppBase, "Microsoft YaHei", aPointSize, aCharset, theBold, false, false);
-	}
-	return aSlot;
+	HDC aDC = ::GetDC(gSexyAppBase->mHWnd);
+	int aDpi = GetDeviceCaps(aDC, LOGPIXELSY);
+	::ReleaseDC(gSexyAppBase->mHWnd, aDC);
+	if (aDpi <= 0) aDpi = 96;
+	int aPointSize = (thePixelHeight * 72 + aDpi / 2) / aDpi;
+	return aPointSize < 1 ? 1 : aPointSize;
 }
 
 // 正文支持 '\n' 手动分行（启动公告那种多行说明；单行文本 = 一行，老面孔不受影响）。
-// '\n' 是 ASCII，Utf8ToAnsi 转码原样保留。手分行而不是自动换行：宽度可控，
-// 换行点由文案自己定，不会在词中间断开也不知道弹窗有多宽。
+// '\n' 是 ASCII：UTF-8 字节流里 0x0A 不会出现在多字节序列内部，按字节数行天然安全。
+// 手分行而不是自动换行：宽度可控，换行点由文案自己定，不会在词中间断开也不知道弹窗有多宽。
 static int CountBodyLines(const std::string& theBody)
 {
 	int aCount = 1;
@@ -81,7 +47,7 @@ static int CountBodyLines(const std::string& theBody)
 	return aCount;
 }
 
-static int MeasureBodyWidth(_Font* theFont, const std::string& theBody)
+static int MeasureBodyWidth(ModText::Font* theFont, const std::string& theBody)
 {
 	int aMaxWidth = 0;
 	size_t aStart = 0;
@@ -89,7 +55,9 @@ static int MeasureBodyWidth(_Font* theFont, const std::string& theBody)
 	{
 		if (i == theBody.size() || theBody[i] == '\n')
 		{
-			int aWidth = theFont->StringWidth(theBody.substr(aStart, i - aStart));
+			// 只在 '\n' 处切字节，不会切进多字节字符；切片仍是完整 UTF-8
+			std::wstring aLine = ModText::WideFromUtf8(theBody.substr(aStart, i - aStart).c_str());
+			int aWidth = ModText::TextWidth(theFont, aLine);
 			if (aWidth > aMaxWidth) aMaxWidth = aWidth;
 			aStart = i + 1;
 		}
@@ -97,9 +65,10 @@ static int MeasureBodyWidth(_Font* theFont, const std::string& theBody)
 	return aMaxWidth;
 }
 
-static int BodyBlockHeight(_Font* theFont, int theLineCount)
+static int BodyBlockHeight(ModText::Font* theFont, int theLineCount)
 {
-	return theFont->GetHeight() + (theLineCount - 1) * (theFont->GetHeight() + BODY_LINE_GAP);
+	int aLineHeight = ModText::LineHeight(theFont);
+	return aLineHeight + (theLineCount - 1) * (aLineHeight + BODY_LINE_GAP);
 }
 
 // 石材按钮是"左端贴图 + 中段贴图 × n + 右端贴图"平铺画的（见 CjkStoneButton::Draw），
@@ -130,7 +99,7 @@ static int StoneButtonWidth(int theWidth, bool theRoundUp)
 }
 
 // 石材按钮 + 中文标签：原版 DrawStoneButton 把标签字体写死成位图字体（没有汉字），
-// 这里照抄它的画法（贴图平铺、按下位移、居中），只把字体和颜色换掉。
+// 这里照抄它的画法（贴图平铺、按下位移、居中），只把标签绘制换成 ModText 宽字符。
 class CjkStoneButton : public LawnStoneButton
 {
 public:
@@ -166,12 +135,13 @@ public:
 		}
 		g->DrawImage(aRightImage, aImageX, 0);
 
-		_Font* aFont = GetCjkFont(CJK_BODY_PX, false);
-		g->SetFont(aFont);
-		g->SetColor(mIsOver ? Color(0x9B, 0xF0, 0x60) : Color(0x2F, 0x6B, 0x2B));
-		aFontX += (mWidth - aFont->StringWidth(mLabel)) / 2;
-		aFontY += (mHeight - aFont->GetHeight()) / 2 + aFont->GetAscent();
-		g->DrawString(mLabel, aFontX, aFontY);
+		// 标签是 UTF-8 原样（SetLabel 收的也是原样字节），绘制现转宽字符（顶对齐）
+		ModText::Font* aFont = ModText::GetFont(CjkPointSize(CJK_BODY_PX), false);
+		std::wstring aLabel = ModText::WideFromUtf8(mLabel.c_str());
+		aFontX += (mWidth - ModText::TextWidth(aFont, aLabel)) / 2;
+		aFontY += (mHeight - ModText::LineHeight(aFont)) / 2;
+		ModText::DrawTextWide(g, aFont, aFontX, aFontY, aLabel,
+			mIsOver ? Color(0x9B, 0xF0, 0x60) : Color(0x2F, 0x6B, 0x2B), g->mClipRect);
 	}
 };
 
@@ -180,8 +150,8 @@ OnlineStartDialog::OnlineStartDialog(LawnApp* theApp, const char* theTitleUtf8, 
 		theApp, Dialogs::DIALOG_ONLINE_START, true, _S(""), _S(""), _S(""), Dialog::BUTTONS_NONE)
 {
 	mNotify = theNotify;
-	mTitle = Utf8ToAnsi(theTitleUtf8 != nullptr ? theTitleUtf8 : "");
-	mBody = Utf8ToAnsi(theBodyUtf8 != nullptr ? theBodyUtf8 : "");
+	mTitle = (theTitleUtf8 != nullptr) ? theTitleUtf8 : "";
+	mBody = (theBodyUtf8 != nullptr) ? theBodyUtf8 : "";
 	mTitleY = 0;
 	mBodyY = 0;
 
@@ -191,7 +161,7 @@ OnlineStartDialog::OnlineStartDialog(LawnApp* theApp, const char* theTitleUtf8, 
 	if (theYesUtf8 != nullptr && theYesUtf8[0] != '\0')
 	{
 		mButtons[mButtonCount] = new CjkStoneButton(Dialog::ID_YES, this);
-		mButtons[mButtonCount]->SetLabel(Utf8ToAnsi(theYesUtf8));
+		mButtons[mButtonCount]->SetLabel(theYesUtf8);
 		mButtons[mButtonCount]->mHasAlpha = true;
 		mButtons[mButtonCount]->mHasTransparencies = true;
 		mButtonCount++;
@@ -199,7 +169,7 @@ OnlineStartDialog::OnlineStartDialog(LawnApp* theApp, const char* theTitleUtf8, 
 	if (theNoUtf8 != nullptr && theNoUtf8[0] != '\0')
 	{
 		mButtons[mButtonCount] = new CjkStoneButton(Dialog::ID_NO, this);
-		mButtons[mButtonCount]->SetLabel(Utf8ToAnsi(theNoUtf8));
+		mButtons[mButtonCount]->SetLabel(theNoUtf8);
 		mButtons[mButtonCount]->mHasAlpha = true;
 		mButtons[mButtonCount]->mHasTransparencies = true;
 		mButtonCount++;
@@ -211,14 +181,14 @@ OnlineStartDialog::OnlineStartDialog(LawnApp* theApp, const char* theTitleUtf8, 
 	// 版心比最长的一行两侧各宽 40；高度 = 标题 + 间距 + 正文（+ 按钮行），上下都留白——
 	// "弹窗不能挤"就落在这些数字上。CalcSize 会按对话框贴图再取整/加高，多出来的空隙
 	// 由 Resize 里的居中吸收。
-	_Font* aTitleFont = GetCjkFont(CJK_TITLE_PX, true);
-	_Font* aBodyFont = GetCjkFont(CJK_BODY_PX, false);
-	int aTextWidth = aTitleFont->StringWidth(mTitle);
+	ModText::Font* aTitleFont = ModText::GetFont(CjkPointSize(CJK_TITLE_PX), true);
+	ModText::Font* aBodyFont = ModText::GetFont(CjkPointSize(CJK_BODY_PX), false);
+	int aTextWidth = ModText::TextWidth(aTitleFont, ModText::WideFromUtf8(mTitle.c_str()));
 	int aBodyWidth = MeasureBodyWidth(aBodyFont, mBody);
 	if (aBodyWidth > aTextWidth) aTextWidth = aBodyWidth;
 
 	int anExtraX = aTextWidth + 80;
-	int anExtraY = aTitleFont->GetHeight() + 14 + BodyBlockHeight(aBodyFont, CountBodyLines(mBody)) + 46;
+	int anExtraY = ModText::LineHeight(aTitleFont) + 14 + BodyBlockHeight(aBodyFont, CountBodyLines(mBody)) + 46;
 	if (mButtonCount > 0)
 	{
 		// 版心也得放得下整行按钮：按最长的一条标签定每枚按钮的宽度（两侧各留 16），
@@ -227,7 +197,7 @@ OnlineStartDialog::OnlineStartDialog(LawnApp* theApp, const char* theTitleUtf8, 
 		int aButtonWidth = 0;
 		for (int i = 0; i < mButtonCount; i++)
 		{
-			int aLabelWidth = aBodyFont->StringWidth(mButtons[i]->mLabel) + 32;
+			int aLabelWidth = ModText::TextWidth(aBodyFont, ModText::WideFromUtf8(mButtons[i]->mLabel.c_str())) + 32;
 			if (aLabelWidth > aButtonWidth) aButtonWidth = aLabelWidth;
 		}
 		aButtonWidth = StoneButtonWidth(aButtonWidth, true);
@@ -251,8 +221,8 @@ void OnlineStartDialog::Resize(int theX, int theY, int theWidth, int theHeight)
 {
 	LawnDialog::Resize(theX, theY, theWidth, theHeight);
 
-	_Font* aTitleFont = GetCjkFont(CJK_TITLE_PX, true);
-	_Font* aBodyFont = GetCjkFont(CJK_BODY_PX, false);
+	ModText::Font* aTitleFont = ModText::GetFont(CjkPointSize(CJK_TITLE_PX), true);
+	ModText::Font* aBodyFont = ModText::GetFont(CjkPointSize(CJK_BODY_PX), false);
 
 	int aButtonHeight = IMAGE_BUTTON_LEFT->mHeight;
 	int aButtonY = mHeight - mContentInsets.mBottom - mBackgroundInsets.mBottom - aButtonHeight + 2;
@@ -263,11 +233,11 @@ void OnlineStartDialog::Resize(int theX, int theY, int theWidth, int theHeight)
 	int aTextBottom = (mButtonCount > 0)
 		? aButtonY - 10
 		: mHeight - mContentInsets.mBottom - mBackgroundInsets.mBottom;
-	int aBlockHeight = aTitleFont->GetHeight() + 14 + BodyBlockHeight(aBodyFont, CountBodyLines(mBody));
+	int aBlockHeight = ModText::LineHeight(aTitleFont) + 14 + BodyBlockHeight(aBodyFont, CountBodyLines(mBody));
 	int aBlockY = aTextTop + (aTextBottom - aTextTop - aBlockHeight) / 2;
 	if (aBlockY < aTextTop) aBlockY = aTextTop;
-	mTitleY = aBlockY + aTitleFont->GetAscent();
-	mBodyY = aBlockY + aTitleFont->GetHeight() + 14 + aBodyFont->GetAscent();
+	mTitleY = aBlockY;							// ModText 顶对齐：存的直接是顶（原来是基线口径）
+	mBodyY = aBlockY + ModText::LineHeight(aTitleFont) + 14;
 
 	if (mButtonCount > 0)
 	{
@@ -307,23 +277,26 @@ void OnlineStartDialog::Draw(Graphics* g)
 
 	if (!mTitle.empty())
 	{
-		g->SetFont(GetCjkFont(CJK_TITLE_PX, true));
-		g->SetColor(mColors[Dialog::COLOR_HEADER]);
-		WriteCenteredLine(g, mTitleY, mTitle);
+		ModText::Font* aTitleFont = ModText::GetFont(CjkPointSize(CJK_TITLE_PX), true);
+		std::wstring aTitle = ModText::WideFromUtf8(mTitle.c_str());
+		ModText::DrawTextWide(g, aTitleFont,
+			(mWidth - ModText::TextWidth(aTitleFont, aTitle)) / 2, mTitleY,
+			aTitle, mColors[Dialog::COLOR_HEADER], g->mClipRect);
 	}
 	if (!mBody.empty())
 	{
-		_Font* aBodyFont = GetCjkFont(CJK_BODY_PX, false);
-		g->SetFont(aBodyFont);
-		g->SetColor(mColors[Dialog::COLOR_LINES]);
+		ModText::Font* aBodyFont = ModText::GetFont(CjkPointSize(CJK_BODY_PX), false);
 		int aY = mBodyY;
 		size_t aStart = 0;
 		for (size_t i = 0; i <= mBody.size(); i++)
 		{
 			if (i == mBody.size() || mBody[i] == '\n')
 			{
-				WriteCenteredLine(g, aY, mBody.substr(aStart, i - aStart));
-				aY += aBodyFont->GetHeight() + BODY_LINE_GAP;
+				std::wstring aLine = ModText::WideFromUtf8(mBody.substr(aStart, i - aStart).c_str());
+				ModText::DrawTextWide(g, aBodyFont,
+					(mWidth - ModText::TextWidth(aBodyFont, aLine)) / 2, aY,
+					aLine, mColors[Dialog::COLOR_LINES], g->mClipRect);
+				aY += ModText::LineHeight(aBodyFont) + BODY_LINE_GAP;
 				aStart = i + 1;
 			}
 		}

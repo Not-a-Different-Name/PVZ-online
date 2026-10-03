@@ -10,10 +10,10 @@ class LawnStoneButton;
 //   等待其他玩家（主机，[取消]） / 是否加入（客户端，[加入][暂不]） / 继续闯关？（主机，[继续][新开一局]） /
 //   启动玩法公告（[知道了]，正文多行按 '\n' 分行） / 纯看板（"等待队友选卡"，无按钮）。
 // 为什么自己做：位图字体（main.pak 里的 BrianneTod 全系）只到 Latin，画不了汉字。
-// 这里走 SysFont（GDI）——源码字面量是 UTF-8，转成本机码页（简中 = GBK）的字节，
-// 由 TextOutA 画出去；参数照 SysFont::Init。这条路先用 tools/cjk_probe 单独验证过
-// （仓库外，不进版本库），探针图里四条文案都清晰可读。
-// 按钮是石材按钮的原画法，只是标签字体换掉（原版 DrawStoneButton 把字体写死成位图字体）。
+// 自 2026-10-03 语言批起走 ModText 的宽字符直绘（UTF-8 → UTF-16 → TextOutW，与系统码页
+// 脱钩）；此前是 SysFont + Utf8ToAnsi（转本机码页再 TextOutA），已并入 Lawn/ModText，
+// 这条路先用 tools/cjk_probe 单独验证过（仓库外，不进版本库）。
+// 按钮是石材按钮的原画法，只是标签绘制换成 ModText 宽字符（原版 DrawStoneButton 把字体写死成位图字体）。
 class OnlineStartDialog : public LawnDialog
 {
 public:
@@ -42,7 +42,7 @@ public:
 	virtual void			RemovedFromManager(WidgetManager* theWidgetManager);
 
 private:
-	std::string				mTitle;			// 已经转成本机 ANSI（简中 = GBK）的文本
+	std::string				mTitle;			// UTF-8 原样（绘制走 ModText::WideFromUtf8）
 	std::string				mBody;
 	int						mTitleY;
 	int						mBodyY;

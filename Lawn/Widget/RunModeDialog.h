@@ -38,13 +38,13 @@ public:
 	LawnStoneButton*	mCancelButton;		// 取消 = 关弹窗不开局
 	int					mCancelWidth;		// 构造时按标签量好（石材贴图整段），Resize 直接用
 	int					mDiffWidths[3];		// 三枚难度按钮的宽度（等宽，取最长标签量好）
-	int					mDiffCaptionY;		// "出怪难度"一行的基线
-	std::string			mTitle;				// 已转 ANSI（GDI 直接画）
-	std::string			mCardNames[3];		// 卡上名字（已转 ANSI）
-	std::string			mCardDescs[3];		// 卡下说明（已转 ANSI）
-	std::string			mDiffLabels[3];		// 难度按钮标签（已转 ANSI）
-	std::string			mDiffCaption;		// 难度行的小标题（已转 ANSI）
-	int					mTitleY;
+	int					mDiffCaptionY;		// "出怪难度"一行的顶部（ModText 顶对齐口径）
+	std::string			mTitle;				// UTF-8 原样（绘制走 ModText::WideFromUtf8）
+	std::string			mCardNames[3];		// 卡上名字（UTF-8 原样）
+	std::string			mCardDescs[3];		// 卡下说明（UTF-8 原样）
+	std::string			mDiffLabels[3];		// 难度按钮标签（UTF-8 原样）
+	std::string			mDiffCaption;		// 难度行的小标题（UTF-8 原样）
+	int					mTitleY;			// 标题顶部（ModText 顶对齐口径）
 
 public:
 	RunModeDialog(LawnApp* theApp, bool theShowDiff);

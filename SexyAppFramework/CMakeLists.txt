@@ -47,12 +47,14 @@ set(Lawn__Common__Common_Include
     "../GameConstants.h"
     "../Lawn/BoardInclude.h"
     "../Lawn/LawnCommon.h"
+    "../Lawn/ModText.h"
     "../Resources.h"
 )
 source_group("Lawn\\Common\\Common Include" FILES ${Lawn__Common__Common_Include})
 
 set(Lawn__Common__Common_Source
     "../Lawn/LawnCommon.cpp"
+    "../Lawn/ModText.cpp"
     "../Resources.cpp"
 )
 source_group("Lawn\\Common\\Common Source" FILES ${Lawn__Common__Common_Source})

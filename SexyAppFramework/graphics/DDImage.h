@@ -6,6 +6,17 @@
 
 namespace Sexy
 {
+	class DDImage;
+}
+// @pvz-online: ModText 的宽字符直绘（同 SysFont 的 DD 路径）要作废被 GDI 改过的
+// 派生位缓存；DeleteAllNonSurfaceData 只 friend 了 SysFont，这里留一座桥。
+namespace ModText
+{
+	void DeleteNonSurfaceDataForDraw(Sexy::DDImage* theImage);
+}
+
+namespace Sexy
+{
 
 class DDInterface;
 class SysFont;
@@ -14,6 +25,7 @@ class DDImage : public MemoryImage
 {
 protected:
 	friend class			SysFont;
+	friend void ::ModText::DeleteNonSurfaceDataForDraw(Sexy::DDImage* theImage);
 	void					DeleteAllNonSurfaceData();
 
 public:

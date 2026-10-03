@@ -35,6 +35,7 @@
 #include "Widget/AchievementsWidget.h"
 #include "Online/NetSession.h"
 #include "Online/QuickChat.h"
+#include "ModText.h"
 #include "Run/RunState.h"
 #include "Run/RunBuffs.h"
 #include "Run/RunZombieRoster.h"
@@ -44,37 +45,9 @@
 
 bool gShownMoreSunTutorial = false;
 
-// @pvz-online: 局内快捷聊天的中文绘制（GDI 位图字体没有汉字）。与 OnlineStartDialog.cpp
-// 里的同名工具是同款第三份拷贝——先跑通，不急着重构（那边两份一个在对话框一个在按钮，
-// 归属和生命周期都不一样）。源码字面量是 UTF-8，SysFont 走 TextOutA 按系统码页解释，
-// 所以先转 ANSI；字体进程级缓存、故意不释放（同 OnlineStartDialog 的理由）。
-static std::string QuickChatUtf8ToAnsi(const char* theText)
-{
-	int aWideLength = MultiByteToWideChar(CP_UTF8, 0, theText, -1, nullptr, 0);
-	if (aWideLength <= 0) return std::string();
-
-	std::wstring aWide((size_t)aWideLength, L'\0');
-	MultiByteToWideChar(CP_UTF8, 0, theText, -1, &aWide[0], aWideLength);
-
-	int anAnsiLength = WideCharToMultiByte(CP_ACP, 0, aWide.c_str(), -1, nullptr, 0, nullptr, nullptr);
-	if (anAnsiLength <= 0) return std::string();
-
-	std::string anAnsi((size_t)anAnsiLength, '\0');
-	WideCharToMultiByte(CP_ACP, 0, aWide.c_str(), -1, &anAnsi[0], anAnsiLength, nullptr, nullptr);
-	if (!anAnsi.empty() && anAnsi.back() == '\0') anAnsi.pop_back();
-	return anAnsi;
-}
-
-static _Font* QuickChatGetCjkFont()
-{
-	static _Font* aFont = nullptr;
-	if (aFont == nullptr)
-	{
-		int aCharset = (GetACP() == 936) ? GB2312_CHARSET : ANSI_CHARSET;
-		aFont = new SysFont(gSexyAppBase, "Microsoft YaHei", 12, aCharset, false, false, false);
-	}
-	return aFont;
-}
+// @pvz-online: 局内快捷聊天的中文绘制自 2026-10-03 语言批起走 ModText 的宽字符直绘
+// （UTF-8 → UTF-16 → TextOutW，与系统码页脱钩）；原先这里有一份 Utf8ToAnsi +
+// SysFont(TextOutA) 的本地助手，已并入 Lawn/ModText。
 
 // 把种子卡图（图集 cel / Plant::DrawSeedType，种子栏同源）缩放画在 (theX, theY) 左上角。
 // SeedPacketDrawSeed 的两条内部支路都按 g 的变换绘制，所以用"平移 + 缩放"的子图形：
@@ -8522,7 +8495,8 @@ void Board::UpdateQuickChat()
 
 void Board::DrawQuickChat(Graphics* g)
 {
-	_Font* aFont = QuickChatGetCjkFont();
+	ModText::Font* aFont = ModText::GetFont(12, false);
+	const int anAscent = ModText::Ascent(aFont);	// 原 DrawString 是基线口径，转 ModText 顶对齐
 
 	if (mChatPanelOpen)
 	{
@@ -8532,35 +8506,34 @@ void Board::DrawQuickChat(Graphics* g)
 		g->SetColor(Color(255, 255, 255, 255));
 		g->DrawRect(PANEL_X, PANEL_Y, PANEL_W - 1, PANEL_H - 1);
 
-		std::string anAnsiTitle = QuickChatUtf8ToAnsi(mChatEmotePage ? "表情 (E)" : "快捷短语 (T)");
-		std::string anAnsiHint = QuickChatUtf8ToAnsi("按 1-8 发送 · T/E 切页 · Esc 关闭");
+		std::wstring aTitle = ModText::WideFromUtf8(mChatEmotePage ? "表情 (E)" : "快捷短语 (T)");
+		std::wstring aHint = ModText::WideFromUtf8("按 1-8 发送 · T/E 切页 · Esc 关闭");
 
-		g->SetFont(aFont);
-		g->SetColor(Color(255, 255, 255, 255));
-		g->DrawString(anAnsiTitle, PANEL_X + 12, PANEL_Y + 6);
-		g->SetColor(Color(170, 170, 170, 255));
-		g->DrawString(anAnsiHint, PANEL_X + 12, PANEL_Y + PANEL_H - 18);
+		ModText::DrawTextWide(g, aFont, PANEL_X + 12, PANEL_Y + 6 - anAscent,
+			aTitle, Color(255, 255, 255, 255), g->mClipRect);
+		ModText::DrawTextWide(g, aFont, PANEL_X + 12, PANEL_Y + PANEL_H - 18 - anAscent,
+			aHint, Color(170, 170, 170, 255), g->mClipRect);
 
 		// 八行条目：短语页 = "n  文案"；表情页 = "n  卡图 + 中文名"（行高 22）
 		for (int i = 0; i < QuickChat::PHRASE_COUNT; i++)
 		{
 			int aRowY = PANEL_Y + 28 + i * 22;
-			std::string aNumStr = QuickChatUtf8ToAnsi(std::to_string(i + 1).c_str());
-			g->SetColor(Color(255, 220, 120, 255));
-			g->DrawString(aNumStr, PANEL_X + 12, aRowY + 3);
+			std::wstring aNum = ModText::WideFromUtf8(std::to_string(i + 1).c_str());
+			ModText::DrawTextWide(g, aFont, PANEL_X + 12, aRowY + 3 - anAscent,
+				aNum, Color(255, 220, 120, 255), g->mClipRect);
 
 			if (!mChatEmotePage)
 			{
-				std::string aText = QuickChatUtf8ToAnsi(QuickChat::PHRASES[i]);
-				g->SetColor(Color(255, 255, 255, 255));
-				g->DrawString(aText, PANEL_X + 34, aRowY + 3);
+				std::wstring aText = ModText::WideFromUtf8(QuickChat::PHRASES[i]);
+				ModText::DrawTextWide(g, aFont, PANEL_X + 34, aRowY + 3 - anAscent,
+					aText, Color(255, 255, 255, 255), g->mClipRect);
 			}
 			else
 			{
 				QuickChatDrawEmote(g, (float)(PANEL_X + 30), (float)aRowY, QuickChat::EMOTE_SEEDS[i], 0.32f);
-				std::string aText = QuickChatUtf8ToAnsi(QuickChat::EMOTE_NAMES[i]);
-				g->SetColor(Color(255, 255, 255, 255));
-				g->DrawString(aText, PANEL_X + 54, aRowY + 3);
+				std::wstring aText = ModText::WideFromUtf8(QuickChat::EMOTE_NAMES[i]);
+				ModText::DrawTextWide(g, aFont, PANEL_X + 54, aRowY + 3 - anAscent,
+					aText, Color(255, 255, 255, 255), g->mClipRect);
 			}
 		}
 	}
@@ -8591,11 +8564,11 @@ void Board::DrawQuickChat(Graphics* g)
 		{
 			aTextUtf8 += QuickChat::PHRASES[anId - 1];
 		}
-		std::string anAnsi = QuickChatUtf8ToAnsi(aTextUtf8.c_str());
+		std::wstring aText = ModText::WideFromUtf8(aTextUtf8.c_str());
 
 		// 横幅：横向居中 y=84（种子栏底下、避开进度条与 mAdvice 带）；表情多一块卡图的空间
 		int aBannerH = anIsEmote ? 44 : 26;
-		int aTextW = aFont->StringWidth(anAnsi);
+		int aTextW = ModText::TextWidth(aFont, aText);
 		int aBoxW = aTextW + 24 + (anIsEmote ? 30 : 0);
 		int aBoxX = (BOARD_WIDTH - aBoxW) / 2;
 		int aBoxY = 84;
@@ -8603,17 +8576,14 @@ void Board::DrawQuickChat(Graphics* g)
 		g->SetColor(Color(0, 0, 0, 150));
 		g->FillRect(aBoxX, aBoxY, aBoxW, aBannerH);
 
-		g->SetFont(aFont);
 		int aTextX = aBoxX + 12;
-		int aTextY = aBoxY + (anIsEmote ? 24 : 5);
+		int aTextY = aBoxY + (anIsEmote ? 24 : 5) - anAscent;
 		// 白字黑描边：四角偏移各画一遍黑、再画白——横幅底下就是草坪，不描边看不清
-		g->SetColor(Color(0, 0, 0, 255));
-		g->DrawString(anAnsi, aTextX + 1, aTextY + 1);
-		g->DrawString(anAnsi, aTextX - 1, aTextY + 1);
-		g->DrawString(anAnsi, aTextX + 1, aTextY - 1);
-		g->DrawString(anAnsi, aTextX - 1, aTextY - 1);
-		g->SetColor(Color(255, 255, 255, 255));
-		g->DrawString(anAnsi, aTextX, aTextY);
+		ModText::DrawTextWide(g, aFont, aTextX + 1, aTextY + 1, aText, Color(0, 0, 0, 255), g->mClipRect);
+		ModText::DrawTextWide(g, aFont, aTextX - 1, aTextY + 1, aText, Color(0, 0, 0, 255), g->mClipRect);
+		ModText::DrawTextWide(g, aFont, aTextX + 1, aTextY - 1, aText, Color(0, 0, 0, 255), g->mClipRect);
+		ModText::DrawTextWide(g, aFont, aTextX - 1, aTextY - 1, aText, Color(0, 0, 0, 255), g->mClipRect);
+		ModText::DrawTextWide(g, aFont, aTextX, aTextY, aText, Color(255, 255, 255, 255), g->mClipRect);
 
 		if (anIsEmote)
 		{

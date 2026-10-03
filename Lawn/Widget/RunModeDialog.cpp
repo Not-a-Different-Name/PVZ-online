@@ -6,9 +6,9 @@
 #include "../Run/RunState.h"
 #include "../../Sexy.TodLib/TodCommon.h"
 #include "graphics/Font.h"
-#include "graphics/SysFont.h"
 #include "graphics/Graphics.h"
 #include "widget/WidgetManager.h"
+#include "../ModText.h"
 
 // 卡片尺寸与摆距照抄 ChallengeScreen（卡片 104×115，横向间距 155 → 三张一行 414 宽）
 static const int CARD_W = 104;
@@ -19,52 +19,10 @@ static const int CARD_PITCH_X = 155;
 // 完整版 = 决胜魔音（终局感）、普通版 = 火爆辣椒帽子（中间档）、快速版 = 僵尸快跑（快）
 static const int kCardIcons[3] = { 19, 16, 18 };
 
-// 源码里的中文字面量是 UTF-8（整个仓库都带 /utf-8 编译）；SysFont 的 DrawString 走 TextOutA，
-// 字节按系统码页解释——简中 Windows 上就是 GBK。所以在这儿做一次转换，两边就对上了。
-static std::string Utf8ToAnsi(const char* theText)
-{
-	int aWideLength = MultiByteToWideChar(CP_UTF8, 0, theText, -1, nullptr, 0);
-	if (aWideLength <= 0) return std::string();
-
-	std::wstring aWide((size_t)aWideLength, L'\0');
-	MultiByteToWideChar(CP_UTF8, 0, theText, -1, &aWide[0], aWideLength);
-
-	int anAnsiLength = WideCharToMultiByte(CP_ACP, 0, aWide.c_str(), -1, nullptr, 0, nullptr, nullptr);
-	if (anAnsiLength <= 0) return std::string();
-
-	std::string anAnsi((size_t)anAnsiLength, '\0');
-	WideCharToMultiByte(CP_ACP, 0, aWide.c_str(), -1, &anAnsi[0], anAnsiLength, nullptr, nullptr);
-	if (!anAnsi.empty() && anAnsi.back() == '\0') anAnsi.pop_back();
-	return anAnsi;
-}
-
-// 中文用的几支字体（16 粗 = 弹窗标题，14 粗 = 卡上名字，14 细 = 按钮标签，12 细 = 卡下说明），
-// 进程级缓存、故意不释放——理由同 OnlineStartDialog：对话框的生命周期比它短，框架里没有
-// 统一的字体属主，谁先析构都拿不准，进程退出时系统回收就完了。charset 跟着系统码页走：
-// 简中（CP936）配 GB2312_CHARSET，其他码页退回 ANSI_CHARSET（转出来的字节也是那个码页的）。
-// 没登记的规格一律并进 14 细那支（字号只在表里这几档上用，够用就行）。
-static _Font* GetCjkFont(int thePointSize, bool theBold)
-{
-	struct FontSlot { int mPointSize; bool mBold; _Font* mFont; };
-	static FontSlot aSlots[] = {
-		{ 16, true, nullptr }, { 14, true, nullptr }, { 14, false, nullptr }, { 12, false, nullptr },
-	};
-	_Font** aSlot = &aSlots[2].mFont;	// 兜底：14 细
-	for (FontSlot& aEntry : aSlots)
-	{
-		if (aEntry.mPointSize == thePointSize && aEntry.mBold == theBold)
-		{
-			aSlot = &aEntry.mFont;
-			break;
-		}
-	}
-	if (*aSlot == nullptr)
-	{
-		int aCharset = (GetACP() == 936) ? GB2312_CHARSET : ANSI_CHARSET;
-		*aSlot = new SysFont(gSexyAppBase, "Microsoft YaHei", thePointSize, aCharset, theBold, false, false);
-	}
-	return *aSlot;
-}
+// 中文字面量（UTF-8）的绘制自 2026-10-03 语言批起改走 ModText 的宽字符直绘
+// （UTF-8 → UTF-16 → TextOutW，与系统码页脱钩）；原先这里各有一份 Utf8ToAnsi +
+// SysFont(TextOutA) 助手，已并入 Lawn/ModText。字符串成员一律存 UTF-8 原样，
+// 绘制/量宽时现转宽字符。
 
 // 石材按钮是"左端贴图 + 中段贴图 × n + 右端贴图"平铺画的（见 CjkStoneButton::Draw），
 // 宽度必须正好是这三段的和；照抄 OnlineStartDialog 的同一支（含"至少带一个中段"的下限）。
@@ -127,12 +85,13 @@ public:
 		}
 		g->DrawImage(aRightImage, aImageX, 0);
 
-		_Font* aFont = GetCjkFont(14, false);
-		g->SetFont(aFont);
-		g->SetColor(mIsOver ? Color(0x9B, 0xF0, 0x60) : Color(0x2F, 0x6B, 0x2B));
-		aFontX += (mWidth - aFont->StringWidth(mLabel)) / 2;
-		aFontY += (mHeight - aFont->GetHeight()) / 2 + aFont->GetAscent();
-		g->DrawString(mLabel, aFontX, aFontY);
+		// 标签是 UTF-8 原样（SetLabel 收的也是原样字节），绘制现转宽字符（顶对齐）
+		ModText::Font* aFont = ModText::GetFont(14, false);
+		std::wstring aLabel = ModText::WideFromUtf8(mLabel.c_str());
+		aFontX += (mWidth - ModText::TextWidth(aFont, aLabel)) / 2;
+		aFontY += (mHeight - ModText::LineHeight(aFont)) / 2;
+		ModText::DrawTextWide(g, aFont, aFontX, aFontY, aLabel,
+			mIsOver ? Color(0x9B, 0xF0, 0x60) : Color(0x2F, 0x6B, 0x2B), g->mClipRect);
 	}
 };
 
@@ -142,13 +101,13 @@ RunModeDialog::RunModeDialog(LawnApp* theApp, bool theShowDiff) : LawnDialog(
 	// 卡片边框和缩略图标在 ChallengeScreen 的延迟资源组里，不加载就是空指针
 	TodLoadResources("DelayLoad_ChallengeScreen");
 
-	mTitle = Utf8ToAnsi("选择闯关模式");
-	mCardNames[0] = Utf8ToAnsi("完整版");
-	mCardNames[1] = Utf8ToAnsi("普通版");
-	mCardNames[2] = Utf8ToAnsi("快速版");
-	mCardDescs[0] = Utf8ToAnsi("25 关 · 标准奖励");
-	mCardDescs[1] = Utf8ToAnsi("15 关 · 奖励×2");
-	mCardDescs[2] = Utf8ToAnsi("10 关 · 奖励×3");
+	mTitle = "选择闯关模式";
+	mCardNames[0] = "完整版";
+	mCardNames[1] = "普通版";
+	mCardNames[2] = "快速版";
+	mCardDescs[0] = "25 关 · 标准奖励";
+	mCardDescs[1] = "15 关 · 奖励×2";
+	mCardDescs[2] = "10 关 · 奖励×3";
 	mTitleY = 0;
 
 	for (int i = 0; i < 3; i++)
@@ -166,17 +125,17 @@ RunModeDialog::RunModeDialog(LawnApp* theApp, bool theShowDiff) : LawnDialog(
 	for (int i = 0; i < 3; i++) mDiffButtons[i] = nullptr;
 	if (mShowDiff)
 	{
-		mDiffCaption = Utf8ToAnsi("出怪难度（全队倍率）");
-		mDiffLabels[0] = Utf8ToAnsi("轻松 ×0.5");
-		mDiffLabels[1] = Utf8ToAnsi("标准 ×1");
-		mDiffLabels[2] = Utf8ToAnsi("高压 ×1.5");
+		mDiffCaption = "出怪难度（全队倍率）";
+		mDiffLabels[0] = "轻松 ×0.5";
+		mDiffLabels[1] = "标准 ×1";
+		mDiffLabels[2] = "高压 ×1.5";
 
 		// 三枚等宽（取最长标签量的），石门贴图平铺对宽度有整段要求（见 StoneButtonWidth）
-		_Font* aDiffFont = GetCjkFont(14, false);
+		ModText::Font* aDiffFont = ModText::GetFont(14, false);
 		int aLabelMax = 0;
 		for (int i = 0; i < 3; i++)
 		{
-			int aWidth = aDiffFont->StringWidth(mDiffLabels[i]);
+			int aWidth = ModText::TextWidth(aDiffFont, ModText::WideFromUtf8(mDiffLabels[i].c_str()));
 			if (aWidth > aLabelMax) aLabelMax = aWidth;
 		}
 		int aDiffWidth = StoneButtonWidth(aLabelMax + 26, true);
@@ -193,10 +152,11 @@ RunModeDialog::RunModeDialog(LawnApp* theApp, bool theShowDiff) : LawnDialog(
 	}
 
 	mCancelButton = new CjkStoneButton(Dialog::ID_NO, this);
-	mCancelButton->SetLabel(Utf8ToAnsi("取消"));
+	mCancelButton->SetLabel("取消");
 	mCancelButton->mHasAlpha = true;
 	mCancelButton->mHasTransparencies = true;
-	mCancelWidth = StoneButtonWidth(GetCjkFont(14, false)->StringWidth(mCancelButton->mLabel) + 32, true);
+	mCancelWidth = StoneButtonWidth(ModText::TextWidth(ModText::GetFont(14, false),
+		ModText::WideFromUtf8(mCancelButton->mLabel.c_str())) + 32, true);
 
 	mTallBottom = true;
 	mVerticalCenterText = false;
@@ -204,17 +164,17 @@ RunModeDialog::RunModeDialog(LawnApp* theApp, bool theShowDiff) : LawnDialog(
 	// 版心：宽 = 三张一行的宽度（边框两侧各探出几像素，留 16 兜住）；高 = 标题 + 间隔
 	// + 卡片（连边框）+ （难度行）+ 按钮。CalcSize 会按对话框贴图再取整/加高，多出来的
 	// 空隙由 Resize 里"卡片贴顶、按钮贴底"吸收。
-	_Font* aTitleFont = GetCjkFont(16, true);
-	int anExtraX = aTitleFont->StringWidth(mTitle) + 80;
+	ModText::Font* aTitleFont = ModText::GetFont(16, true);
+	int anExtraX = ModText::TextWidth(aTitleFont, ModText::WideFromUtf8(mTitle.c_str())) + 80;
 	int aRowWidth = CARD_PITCH_X * 2 + CARD_W + 16;
 	if (aRowWidth > anExtraX) anExtraX = aRowWidth;
-	int anExtraY = aTitleFont->GetHeight() + 18		// 标题 + 与卡片的间隔
+	int anExtraY = ModText::LineHeight(aTitleFont) + 18	// 标题 + 与卡片的间隔
 		+ CARD_H + 14								// 卡片 + 边框上下探出
 		+ IMAGE_BUTTON_LEFT->mHeight + 18;			// 按钮行 + 与卡片的间隔
 	if (mShowDiff)
 	{
 		// 难度行：卡下说明（12 细，基线在卡底 +19）之下再塞一行——小标题 + 间隔 + 按钮
-		anExtraY += GetCjkFont(12, false)->GetHeight() + 6 + IMAGE_BUTTON_LEFT->mHeight + 8;
+		anExtraY += ModText::LineHeight(ModText::GetFont(12, false)) + 6 + IMAGE_BUTTON_LEFT->mHeight + 8;
 	}
 
 	CalcSize(anExtraX, anExtraY);
@@ -233,12 +193,12 @@ void RunModeDialog::Resize(int theX, int theY, int theWidth, int theHeight)
 {
 	LawnDialog::Resize(theX, theY, theWidth, theHeight);
 
-	_Font* aTitleFont = GetCjkFont(16, true);
+	ModText::Font* aTitleFont = ModText::GetFont(16, true);
 
 	// 标题贴顶；三张卡片横排在标题下面（一行整体在版心里左右居中）
 	int aTitleTop = mContentInsets.mTop + mBackgroundInsets.mTop + DIALOG_HEADER_OFFSET;
-	mTitleY = aTitleTop + aTitleFont->GetAscent();
-	int aCardsY = aTitleTop + aTitleFont->GetHeight() + 18;
+	mTitleY = aTitleTop;						// ModText 顶对齐：存的直接是顶
+	int aCardsY = aTitleTop + ModText::LineHeight(aTitleFont) + 18;
 	int aRowWidth = CARD_PITCH_X * 2 + CARD_W;
 	int aStartX = (mWidth - aRowWidth) / 2;
 	for (int i = 0; i < 3; i++)
@@ -251,10 +211,10 @@ void RunModeDialog::Resize(int theX, int theY, int theWidth, int theHeight)
 	// 出怪难度行：卡下说明（12 细，基线在卡底 +19）之下、取消之上，三枚等宽横排居中
 	if (mShowDiff)
 	{
-		_Font* aCaptionFont = GetCjkFont(12, false);
+		ModText::Font* aCaptionFont = ModText::GetFont(12, false);
 		int aCaptionTop = aCardsY + CARD_H + 34;
-		mDiffCaptionY = aCaptionTop + aCaptionFont->GetAscent();
-		int aDiffY = aCaptionTop + aCaptionFont->GetHeight() + 6;
+		mDiffCaptionY = aCaptionTop;			// 同上：顶对齐
+		int aDiffY = aCaptionTop + ModText::LineHeight(aCaptionFont) + 6;
 		static const int aGapX = 20;
 		int aTotalW = mDiffWidths[0] + mDiffWidths[1] + mDiffWidths[2] + aGapX * 2;
 		int aDiffX = (mWidth - aTotalW) / 2;
@@ -293,10 +253,11 @@ void RunModeDialog::Draw(Graphics* g)
 
 	if (!mTitle.empty())
 	{
-		_Font* aTitleFont = GetCjkFont(16, true);
-		g->SetFont(aTitleFont);
-		g->SetColor(mColors[Dialog::COLOR_HEADER]);
-		g->DrawString(mTitle, (mWidth - aTitleFont->StringWidth(mTitle)) / 2, mTitleY);
+		ModText::Font* aTitleFont = ModText::GetFont(16, true);
+		std::wstring aTitle = ModText::WideFromUtf8(mTitle.c_str());
+		ModText::DrawTextWide(g, aTitleFont,
+			(mWidth - ModText::TextWidth(aTitleFont, aTitle)) / 2, mTitleY,
+			aTitle, mColors[Dialog::COLOR_HEADER], g->mClipRect);
 	}
 
 	// 三张卡片，画法照 ChallengeScreen::DrawButton：按下 +1/+1 位移，缩略图标，
@@ -319,27 +280,30 @@ void RunModeDialog::Draw(Graphics* g)
 			aPosX - 6, aPosY - 2);
 
 		Color aTextColor = aHighLight ? Color(250, 40, 40) : Color(42, 42, 90);
-		_Font* aNameFont = GetCjkFont(14, true);
-		g->SetFont(aNameFont);
-		g->SetColor(aTextColor);
-		g->DrawString(mCardNames[i],
-			aPosX + (CARD_W - aNameFont->StringWidth(mCardNames[i])) / 2, aPosY + 100);
+		ModText::Font* aNameFont = ModText::GetFont(14, true);
+		std::wstring aName = ModText::WideFromUtf8(mCardNames[i].c_str());
+		ModText::DrawTextWide(g, aNameFont,
+			aPosX + (CARD_W - ModText::TextWidth(aNameFont, aName)) / 2,
+			aPosY + 100 - ModText::Ascent(aNameFont),	// 原来是 DrawString 基线，换算成顶
+			aName, aTextColor, g->mClipRect);
 
-		_Font* aDescFont = GetCjkFont(12, false);
-		g->SetFont(aDescFont);
-		g->SetColor(Color(96, 72, 40));
-		g->DrawString(mCardDescs[i],
-			aPosX + (CARD_W - aDescFont->StringWidth(mCardDescs[i])) / 2, aPosY + 134);
+		ModText::Font* aDescFont = ModText::GetFont(12, false);
+		std::wstring aDesc = ModText::WideFromUtf8(mCardDescs[i].c_str());
+		ModText::DrawTextWide(g, aDescFont,
+			aPosX + (CARD_W - ModText::TextWidth(aDescFont, aDesc)) / 2,
+			aPosY + 134 - ModText::Ascent(aDescFont),
+			aDesc, Color(96, 72, 40), g->mClipRect);
 	}
 
 	// 难度行的小标题（三枚按钮自己画自己，走控件那套）：
 	// 卡下说明之下、居中，"多出来的是全队倍率"这层意思写在标题里。
 	if (mShowDiff)
 	{
-		_Font* aCaptionFont = GetCjkFont(12, false);
-		g->SetFont(aCaptionFont);
-		g->SetColor(Color(96, 72, 40));
-		g->DrawString(mDiffCaption, (mWidth - aCaptionFont->StringWidth(mDiffCaption)) / 2, mDiffCaptionY);
+		ModText::Font* aCaptionFont = ModText::GetFont(12, false);
+		std::wstring aCaption = ModText::WideFromUtf8(mDiffCaption.c_str());
+		ModText::DrawTextWide(g, aCaptionFont,
+			(mWidth - ModText::TextWidth(aCaptionFont, aCaption)) / 2, mDiffCaptionY,
+			aCaption, Color(96, 72, 40), g->mClipRect);
 	}
 }
 

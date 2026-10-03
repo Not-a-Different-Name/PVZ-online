@@ -15,7 +15,8 @@
 #include "../../Sexy.TodLib/TodStringFile.h"
 #include "../Run/RunState.h"
 #include "../Run/RunBuffs.h"
-#include "graphics/SysFont.h"
+#include "graphics/Graphics.h"
+#include "../ModText.h"
 #include <cstdio>
 #include <string>
 #include <vector>
@@ -23,100 +24,48 @@
 using namespace Sexy;
 
 // ── 中文绘制这一档（词条查看器用）──────────────────────────────────────
-// 引擎自带的字体全是位图字体，没有中文字形，中文说明改走 GDI（SysFont）。
-// 套路与 RunPickDialog.cpp 顶部同一份（第三份拷贝，原因见那里的说明）；
-// 源文件按 UTF-8 编译（根 CMakeLists 的 /utf-8），TextOutA 认系统 ANSI：画前转码。
-// UTF-8 → 宽字符。钳制要按"字"回退（一个汉字=一个 wchar_t），所以留这个中间层。
-static std::wstring NewOptionsWideFromUtf8(const char* theUtf8)
-{
-	std::wstring aWide;
-	if (theUtf8 == NULL || theUtf8[0] == '\0') return aWide;
-	int aWideLen = MultiByteToWideChar(CP_UTF8, 0, theUtf8, -1, NULL, 0);
-	if (aWideLen <= 1) return aWide;
-	aWide.resize(aWideLen - 1);		// 去掉 -1 口径带上的结尾 NUL
-	MultiByteToWideChar(CP_UTF8, 0, theUtf8, -1, &aWide[0], aWideLen);
-	return aWide;
-}
-
-// 宽字符 → 系统 ANSI（TextOutA 认的形式）。空串安全。
-static std::string NewOptionsAnsiFromWide(const std::wstring& theWide)
-{
-	if (theWide.empty()) return std::string();
-	int anAnsiLen = WideCharToMultiByte(CP_ACP, 0, theWide.c_str(), (int)theWide.size(), NULL, 0, NULL, NULL);
-	if (anAnsiLen <= 0) return std::string();
-	std::string anAnsi(anAnsiLen, '\0');
-	WideCharToMultiByte(CP_ACP, 0, theWide.c_str(), (int)theWide.size(), &anAnsi[0], anAnsiLen, NULL, NULL);
-	return anAnsi;
-}
-
-static std::string NewOptionsAnsiFromUtf8(const char* theUtf8)
-{
-	std::string aText(theUtf8 != NULL ? theUtf8 : "");
-	if (aText.empty()) return aText;
-	std::string anAnsi = NewOptionsAnsiFromWide(NewOptionsWideFromUtf8(theUtf8));
-	return anAnsi.empty() ? aText : anAnsi;
-}
-
-// 进程共用的中文字体：雅黑 → 黑体 → 宋体；都找不到也照样建（GDI 会替一支能画的）。
-// 正文 13pt（与三选一屏同档）；入口按钮 11pt——按钮列右侧那条竖带只有 ~100px 宽
+// 引擎自带的字体全是位图字体，没有中文字形，中文说明自 2026-10-03 语言批起走 ModText
+// 的宽字符直绘（UTF-8 → UTF-16 → TextOutW，与系统码页脱钩）；此前这里是一份独立的
+// 转码 + 字体缓存拷贝（第三份），已并入 Lawn/ModText。
+// 字号 13pt = 正文（与三选一屏同档）；入口按钮 11pt——按钮列右侧那条竖带只有 ~100px 宽
 //（1:1 截图实测），13pt 无论四字还是六字都放不下，见 RunInfoEntryRect。
-// charset 跟着系统码页走。按字号分槽缓存。
-static SysFont* NewOptionsCjkFontAt(int thePoint)
-{
-	static SysFont* sFonts[2] = { NULL, NULL };
-	int aSlot = (thePoint >= 13) ? 0 : 1;
-	if (sFonts[aSlot] == NULL)
-	{
-		const char* aFace = "Microsoft YaHei";
-		if (GetFileAttributesA("C:\\Windows\\Fonts\\msyh.ttc") == INVALID_FILE_ATTRIBUTES)
-		{
-			aFace = (GetFileAttributesA("C:\\Windows\\Fonts\\simhei.ttf") != INVALID_FILE_ATTRIBUTES) ? "SimHei" : "SimSun";
-		}
-		int aCharset = (GetACP() == 936) ? GB2312_CHARSET : ANSI_CHARSET;
-		sFonts[aSlot] = new SysFont(gSexyAppBase, aFace, thePoint, aCharset);
-	}
-	return sFonts[aSlot];
-}
+static ModText::Font* NewOptionsCjkFont() { return ModText::GetFont(13, false); }
+static ModText::Font* NewOptionsCjkFontSmall() { return ModText::GetFont(11, false); }
 
-static SysFont* NewOptionsCjkFont() { return NewOptionsCjkFontAt(13); }
-static SysFont* NewOptionsCjkFontSmall() { return NewOptionsCjkFontAt(11); }
-
-// 一"行"文字的落点：调用方给的是行顶（与布局推进同一个坐标系）；
-// DrawString 的 y 是基线（SysFont.cpp 里 theY - mAscent 才是顶），这里补齐。
-static void NewOptionsDrawCjk(Sexy::Graphics* g, SysFont* theFont, int theX, int theTopY,
+// 一"行"文字的落点：调用方给的是行顶；ModText::DrawTextWide 也收顶对齐
+//（原 DrawString 是基线口径、要补 +GetAscent()，这份换算已并入 ModText 的口径）。
+static void NewOptionsDrawCjk(Sexy::Graphics* g, ModText::Font* theFont, int theX, int theTopY,
 	const char* theUtf8, const Sexy::Color& theColor)
 {
-	std::string aText = NewOptionsAnsiFromUtf8(theUtf8);
-	g->SetColor(theColor);
-	g->DrawString(aText, theX, theTopY + theFont->GetAscent());
+	ModText::DrawTextWide(g, theFont, theX, theTopY, ModText::WideFromUtf8(theUtf8), theColor, g->mClipRect);
 }
 
-static void NewOptionsDrawCjkCentered(Sexy::Graphics* g, SysFont* theFont, int theCenterX, int theTopY,
+static void NewOptionsDrawCjkCentered(Sexy::Graphics* g, ModText::Font* theFont, int theCenterX, int theTopY,
 	const char* theUtf8, const Sexy::Color& theColor)
 {
-	std::string aText = NewOptionsAnsiFromUtf8(theUtf8);
-	g->SetColor(theColor);
-	g->DrawString(aText, theCenterX - theFont->StringWidth(aText) / 2, theTopY + theFont->GetAscent());
+	std::wstring aText = ModText::WideFromUtf8(theUtf8);
+	ModText::DrawTextWide(g, theFont, theCenterX - ModText::TextWidth(theFont, aText) / 2, theTopY,
+		aText, theColor, g->mClipRect);
 }
 
 // 列宽装不下的条目：按宽字符逐字回退、接省略号——「Swift Strikes×2」宁可截名字也
 // 不丢「×N」（层数是玩家最要看的一格），连「…×N」都放不下就整条不画。这里的每一行
 // 都保证不越过给它的宽度（2026-10-03 1:1 截图实证：无钳制的两列流会互相压字、右列
-// 冲出面板右缘被对话框边缘裁断）。
-static void NewOptionsDrawCjkFit(Sexy::Graphics* g, SysFont* theFont, int theX, int theTopY,
+// 冲出面板右缘被对话框边缘裁断）。宽字符化后逐字回退即 pop_back 一个 wchar_t。
+static void NewOptionsDrawCjkFit(Sexy::Graphics* g, ModText::Font* theFont, int theX, int theTopY,
 	int theMaxW, const char* theMainUtf8, const char* theSuffixUtf8, const Sexy::Color& theColor)
 {
-	std::string aSuffix = NewOptionsAnsiFromUtf8(theSuffixUtf8);
-	std::string aDraw = NewOptionsAnsiFromUtf8(theMainUtf8) + aSuffix;
-	if (theFont->StringWidth(aDraw) > theMaxW)
+	std::wstring aSuffix = ModText::WideFromUtf8(theSuffixUtf8);
+	std::wstring aDraw = ModText::WideFromUtf8(theMainUtf8) + aSuffix;
+	if (ModText::TextWidth(theFont, aDraw) > theMaxW)
 	{
-		std::string aEll = NewOptionsAnsiFromUtf8("…");
-		std::wstring aWide = NewOptionsWideFromUtf8(theMainUtf8);
+		std::wstring aEll = ModText::WideFromUtf8("…");
+		std::wstring aWide = ModText::WideFromUtf8(theMainUtf8);
 		aDraw.clear();
 		for (;;)
 		{
-			std::string aProbe = NewOptionsAnsiFromWide(aWide) + aEll + aSuffix;
-			if (theFont->StringWidth(aProbe) <= theMaxW)
+			std::wstring aProbe = aWide + aEll + aSuffix;
+			if (ModText::TextWidth(theFont, aProbe) <= theMaxW)
 			{
 				aDraw = aProbe;
 				break;
@@ -127,8 +76,7 @@ static void NewOptionsDrawCjkFit(Sexy::Graphics* g, SysFont* theFont, int theX, 
 	}
 	if (!aDraw.empty())
 	{
-		g->SetColor(theColor);
-		g->DrawString(aDraw, theX, theTopY + theFont->GetAscent());
+		ModText::DrawTextWide(g, theFont, theX, theTopY, aDraw, theColor, g->mClipRect);
 	}
 }
 
@@ -330,17 +278,13 @@ void NewOptionsDialog::Draw(Sexy::Graphics* g)
     if (RunInfoAvailable() && !mRunInfoOpen)
     {
         Sexy::Rect aEntry = RunInfoEntryRect();
-        SysFont* aFont = NewOptionsCjkFontSmall();
+        ModText::Font* aFont = NewOptionsCjkFontSmall();
         g->SetColor(Sexy::Color(0, 0, 0, 150));
         g->FillRect(aEntry.mX, aEntry.mY, aEntry.mWidth, aEntry.mHeight);
         g->SetColor(Sexy::Color(255, 220, 100, 170));
         g->DrawRect(aEntry);
-        if (aFont != NULL)
-        {
-            g->SetFont(aFont);
-            NewOptionsDrawCjkCentered(g, aFont, aEntry.mX + aEntry.mWidth / 2, aEntry.mY + 4,
-                "本局词条", Sexy::Color(255, 220, 100));
-        }
+        NewOptionsDrawCjkCentered(g, aFont, aEntry.mX + aEntry.mWidth / 2, aEntry.mY + 4,
+            "本局词条", Sexy::Color(255, 220, 100));
     }
     if (mRunInfoOpen)
     {
@@ -570,14 +514,9 @@ Sexy::Rect NewOptionsDialog::RunInfoEntryRect()
     //（shot 495..595）。原来 13pt 六字「查看本局词条」有 185px 宽，左半段被按钮板子
     // 盖掉、只剩右缘一截，所以改成 11pt 四字、尺寸按实际文本量出来。往左别越过 495：
     // 按钮列右缘约在 shot 490。
-    SysFont* aFont = NewOptionsCjkFontSmall();
-    int aWidth = 96;
-    int aHeight = 30;
-    if (aFont != NULL)
-    {
-        aWidth = aFont->StringWidth(NewOptionsAnsiFromUtf8("本局词条")) + 14;
-        aHeight = aFont->GetHeight() + 10;
-    }
+    ModText::Font* aFont = NewOptionsCjkFontSmall();
+    int aWidth = ModText::TextWidth(aFont, ModText::WideFromUtf8("本局词条")) + 14;
+    int aHeight = ModText::LineHeight(aFont) + 10;
     return Sexy::Rect(mWidth - 16 - aWidth, 258, aWidth, aHeight);
 }
 
@@ -637,8 +576,8 @@ void NewOptionsDialog::DrawRunInfo(Sexy::Graphics* g)
     g->FillRect(0, 0, mWidth, mHeight);
 
     RunState* aRun = mApp->mRunState;
-    SysFont* aFont = NewOptionsCjkFont();
-    if (aRun == NULL || aFont == NULL)
+    ModText::Font* aFont = NewOptionsCjkFont();
+    if (aRun == NULL)
     {
         return;
     }
@@ -652,8 +591,7 @@ void NewOptionsDialog::DrawRunInfo(Sexy::Graphics* g)
     g->SetColor(Sexy::Color(255, 220, 100, 160));
     g->DrawRect(Sexy::Rect(aPanelX, aPanelY, aPanelW, aPanelH));
 
-    g->SetFont(aFont);
-    int aLineHeight = aFont->GetHeight() + 4;
+    int aLineHeight = ModText::LineHeight(aFont) + 4;
     int aCenterX = mWidth / 2;
     int aY = aPanelY + 12;
 
@@ -731,6 +669,6 @@ void NewOptionsDialog::DrawRunInfo(Sexy::Graphics* g)
         NewOptionsDrawCjk(g, aFont, aColX[0], aY, anOverflow ? "……" : "（无）", Sexy::Color(150, 150, 150));
     }
 
-    NewOptionsDrawCjkCentered(g, aFont, aCenterX, aPanelY + aPanelH - 8 - aFont->GetHeight(),
+    NewOptionsDrawCjkCentered(g, aFont, aCenterX, aPanelY + aPanelH - 8 - ModText::LineHeight(aFont),
         "单击任意处或按任意键关闭", Sexy::Color(160, 160, 160));
 }
