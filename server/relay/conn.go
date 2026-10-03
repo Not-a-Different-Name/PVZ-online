@@ -27,7 +27,7 @@ type Conn struct {
 	closeOnce sync.Once
 
 	room atomic.Pointer[Room] // 所属房间（未进房为 nil）
-	seat uint8                // 当前席位（1..4；未分配为 0）—— 持 srv.mu 改
+	seat uint8                // 当前席位（1..6；未分配为 0）—— 持 srv.mu 改
 	// seat/build/name 都由 srv.mu 保护（读席位在 forward/handle 里都持锁）
 	build uint16
 	name  [nameSize]byte

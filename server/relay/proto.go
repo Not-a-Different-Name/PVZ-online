@@ -16,7 +16,7 @@ const (
 	headerSize      = 4
 	maxPayload      = 256
 	protocolVersion = 1
-	maxPlayers      = 4
+	maxPlayers      = 6
 	nameSize        = 16
 	roomCodeLen     = 4
 

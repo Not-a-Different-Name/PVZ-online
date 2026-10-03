@@ -1,6 +1,6 @@
 # PvZ Online 中继服务器（server/relay）
 
-> Go 写的房间 + 事件中继：2–4 个客户端各自连上来，服务器**按席位转发游戏帧**。
+> Go 写的房间 + 事件中继：2–6 个客户端各自连上来，服务器**按席位转发游戏帧**。
 > 零依赖（只用标准库）、单进程、状态全在内存（无数据库、无落盘）。
 > 线格式的单一事实源是客户端的 `../../Lawn/Online/NetProtocol.h`——本目录 `proto.go`
 > 是它的 Go 镜像，两边由 Go 的 `golden_test.go` 与客户端侧 `tools/nettest/proto_golden`
@@ -98,11 +98,11 @@ GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o pvz
 |---|---|---|---|
 | 监听端口 | `-port`，默认 27777；云上 97 | `main.go` | `NetProtocol.h`：`DEFAULT_RELAY_PORT`（97）/ 直连 `DEFAULT_PORT`（27777） |
 | 协议版本 | 1 | `proto.go` | `PROTOCOL_VERSION`——对不上回 `REJECT_PROTOCOL_VERSION` |
-| 席位上限 | 4 | `proto.go` | `MAX_PLAYERS` |
+| 席位上限 | 6 | `proto.go` | `MAX_PLAYERS` |
 | 房间码 | 4 字符，字母表 `ABCDEFGHJKLMNPQRSTUVWXYZ23456789`（无 I/O/0/1，32 个），加入时不区分大小写、服务器保证在服内唯一 | `proto.go` | `ROOM_CODE_LEN` |
 | PING / 闲死 | 进过房的连接每 1s 发 `SRV_PING`；10s 收不到它的任何数据即断（广播 `PEER_LEAVE`，原因 `TIMEOUT`） | `conn.go` / `room.go` | 客户端回 `PONG` |
 | 写超时 / 写队列 | 单帧写 10s 超时；写队列 64 帧满 = 客户端卡死，断掉 | `conn.go` / `room.go` | — |
-| 转发校验 | 游戏帧 `payload[0]`（src）必须等于连接的当前席位（防冒名），`payload[1]`（dst）必须在 1..4 且非自己、非空位；不合法丢帧不断线 | `room.go` | 线格式见 `NetProtocol.h` 头部注释 |
+| 转发校验 | 游戏帧 `payload[0]`（src）必须等于连接的当前席位（防冒名），`payload[1]`（dst）必须在 1..6 且非自己、非空位；不合法丢帧不断线 | `room.go` | 线格式见 `NetProtocol.h` 头部注释 |
 
 ## 已知限制（v1 有意为之）
 

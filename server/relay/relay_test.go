@@ -5,6 +5,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"log"
 	"net"
 	"os"
@@ -323,14 +324,67 @@ func TestJoinFailures(t *testing.T) {
 	c.send(msgCliJoinRoom, joinPayload(protocolVersion+1, 16, "x", w.code))
 	c.expectReject(rejectProtocolVersion)
 
-	// 填满 4 席（host 占 1）
-	for i := 0; i < 3; i++ {
+	// 填满全部席位（host 占 1）
+	for i := 0; i < maxPlayers-1; i++ {
 		newTestClient(t, addr).join(protocolVersion, 16, "fill", w.code)
 	}
-	// 第 5 个人进不来
-	c5 := newTestClient(t, addr)
-	c5.send(msgCliJoinRoom, joinPayload(protocolVersion, 16, "late", w.code))
-	c5.expectReject(rejectRoomFull)
+	// 满员后再来一位进不来
+	cLate := newTestClient(t, addr)
+	cLate.send(msgCliJoinRoom, joinPayload(protocolVersion, 16, "late", w.code))
+	cLate.expectReject(rejectRoomFull)
+}
+
+// 4 席以上：第 5、6 位能正常进（席位 5、6），WELCOME 名册逐位齐全，
+// 跨第 6 席位的转发双向都走得通，满员（6）后第 7 位被拒。
+func TestFiveAndSixSeatJoinAndRouting(t *testing.T) {
+	_, addr := startTestServer(t, nil)
+	host := newTestClient(t, addr)
+	w := decodeWelcome(t, host.create(protocolVersion, 16, "host"))
+
+	clients := []*testClient{host}
+	for i := 2; i <= maxPlayers; i++ {
+		name := fmt.Sprintf("guest%d", i)
+		c := newTestClient(t, addr)
+		cw := decodeWelcome(t, c.join(protocolVersion, 16, name, w.code))
+		if cw.yourSeat != uint8(i) {
+			t.Fatalf("joiner %d seat = %d, want %d", i, cw.yourSeat, i)
+		}
+		if len(cw.roster) != i {
+			t.Fatalf("roster size after join %d = %d, want %d", i, len(cw.roster), i)
+		}
+		if last := cw.roster[len(cw.roster)-1]; last.seat != uint8(i) || nameOf(last) != name {
+			t.Fatalf("roster last entry = %+v, want seat %d %s", last, i, name)
+		}
+		clients = append(clients, c)
+	}
+
+	// 前面每位都收到过后来的 PEER_JOIN（host 依次收满 5 条）
+	for i := 2; i <= maxPlayers; i++ {
+		f := host.next(time.Second)
+		if f.typ != msgSrvPeerJoin {
+			t.Fatalf("host got %#x, want PEER_JOIN", f.typ)
+		}
+		seat, _, name := decodePeerJoin(t, f.payload)
+		if seat != uint8(i) || name != fmt.Sprintf("guest%d", i) {
+			t.Fatalf("PEER_JOIN = seat %d name %q, want seat %d guest%d", seat, name, i, i)
+		}
+	}
+
+	// 满员后再来一位进不来
+	cLate := newTestClient(t, addr)
+	cLate.send(msgCliJoinRoom, joinPayload(protocolVersion, 16, "late", w.code))
+	cLate.expectReject(rejectRoomFull)
+
+	// 第 5/6 席位不是摆设：2 → 6、6 → 1 各走一帧
+	c2, c6 := clients[1], clients[maxPlayers-1]
+	c2.send(5, gameFrame(2, 6, 0x66))
+	if f := c6.next(time.Second); f.typ != 5 || f.payload[2] != 0x66 {
+		t.Fatalf("seat 6 got %#x %x, want game frame with 0x66", f.typ, f.payload)
+	}
+	c6.send(5, gameFrame(6, 1, 0x77))
+	if f := host.next(time.Second); f.typ != 5 || f.payload[2] != 0x77 {
+		t.Fatalf("host got %#x %x from seat 6, want game frame with 0x77", f.typ, f.payload)
+	}
 }
 
 func TestJoinCodeCaseInsensitive(t *testing.T) {
