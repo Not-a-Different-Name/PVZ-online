@@ -3311,9 +3311,22 @@ PlantingReason Board::CanPlantAt(int theGridX, int theGridY, SeedType theSeedTyp
 	{
 		return PlantingReason::PLANTING_NEEDS_UPGRADE;
 	}
+	// @pvz-online: 闯关里加农炮同样直接种（用户 2026-10-03 定案）——不必先凑两个玉米投手；
+	// 它占锚点格 + 右邻格（占位见 GetPlantsOnLawn），所以右邻格也得留出地方：越界或已有
+	// 普通/南瓜头/飞行植物都算种不下，免得两株叠在同一格（非闯关照旧要合法炮弹位）。
 	if (theSeedType == SeedType::SEED_COBCANNON && !IsValidCobCannonSpot(theGridX, theGridY))
 	{
-		return PlantingReason::PLANTING_NEEDS_UPGRADE;
+		if (!mApp->IsRunMode())
+		{
+			return PlantingReason::PLANTING_NEEDS_UPGRADE;
+		}
+		PlantsOnLawn aRightLawn;
+		GetPlantsOnLawn(theGridX + 1, theGridY, &aRightLawn);
+		if (theGridX + 1 >= MAX_GRID_SIZE_X ||
+			aRightLawn.mNormalPlant || aRightLawn.mPumpkinPlant || aRightLawn.mFlyingPlant)
+		{
+			return PlantingReason::PLANTING_NOT_HERE;
+		}
 	}
 	// @pvz-online: 香蒲同理（用户 2026-10-03 定案）——闯关里草坪也能直接种；非闯关照旧只限泳池
 	else if (theSeedType == SeedType::SEED_CATTAIL && aGridSquare != GridSquareType::GRIDSQUARE_POOL && !mApp->IsRunMode())
