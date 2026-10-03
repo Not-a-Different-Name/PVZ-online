@@ -16,7 +16,9 @@
 #include "../Run/RunState.h"
 #include "../Run/RunBuffs.h"
 #include "graphics/Graphics.h"
+#include "graphics/Font.h"
 #include "../ModText.h"
+#include "CjkStoneButton.h"
 #include <cstdio>
 #include <string>
 #include <vector>
@@ -32,25 +34,47 @@ using namespace Sexy;
 static ModText::Font* NewOptionsCjkFont() { return ModText::GetFont(13, false); }
 static ModText::Font* NewOptionsCjkFontSmall() { return ModText::GetFont(11, false); }
 
-// ── 语言选项行（2026-10-03 语言批）──────────────────────────────────────
-// 左空带竖排四行：标题 + 三档（自动/中文/English，行 1..3 与 MODLANG_* 同序）。
-// 等步进 21px；命中区按行铺满整步、比字形略宽一点，点着不费劲。绘制与命中同一份几何。
-static const int LANGUAGE_ROW_COUNT = 4;
+// ── 语言选项行（2026-10-03 语言批；2026-10-04 改版）────────────────────
+// 左下竖带单列：标题对「语言 / Language」+ 三档「自动 Auto / 中文 / English」
+//（档位 1..3 与 MODLANG_* 同序），当前档高亮、点击即存注册表。
+// 2026-10-04 改版缘由（1:1 截图实测）：原竖排四行用 11pt——本机 150% 缩放下字形 22px、
+// 步进只有 21px，行行相贴；且「语言/Language」横排 147px 冲出左侧空带，压到 Sound FX
+// 标签上。现字号改像素口径（CjkPointSize，与 DPI 脱钩），英文部分改走游戏自带位图字体
+// DwarvenTodcraft12（与联机状态条英文同字体），不再借 GDI 渲染。
+// 落点按实测空带限宽：此段右界在 x≈107（联机局里按钮列从 107 起），故每行控在 ~65px 内。
 static const int LANGUAGE_X = 38;
-static const int LANGUAGE_TOP = 142;
-static const int LANGUAGE_STEP = 21;
+static const int LANGUAGE_TITLE_TOP = 252;      // 标题对第一行（中文）行顶
+static const int LANGUAGE_TITLE_EN_TOP = 270;   // 标题对第二行（英文）行顶
+static const int LANGUAGE_OPT_TOP = 291;        // 第一个选项行（自动 Auto）行顶
+static const int LANGUAGE_OPT_STEP = 19;
+static const int LANGUAGE_GAP = 6;              // 中文与英文之间的小间隔
 
 // 这一排文案两语并排固定、不随语言变——选择器本身得让两种语言的人都认得出，
-// 所以不走 ModText::Tr（它按当前语言择一）。
-static const char* NewOptionsLanguageRowText(int theRow)
+// 所以不走 ModText::Tr（它按当前语言择一）。0 = 标题对，1..3 = 三档。
+static const char* NewOptionsLanguageZh(int theItem)
 {
-	static const char* aRows[LANGUAGE_ROW_COUNT] = { "语言/Language", "自动/Auto", "中文", "English" };
-	return (theRow >= 0 && theRow < LANGUAGE_ROW_COUNT) ? aRows[theRow] : "";
+	static const char* aRows[4] = { "语言", "自动", "中文", "" };
+	return (theItem >= 0 && theItem <= 3) ? aRows[theItem] : "";
 }
 
-static Sexy::Rect NewOptionsLanguageRowRect(int theIndex)
+static const char* NewOptionsLanguageEn(int theItem)
 {
-	return Sexy::Rect(LANGUAGE_X - 4, LANGUAGE_TOP + theIndex * LANGUAGE_STEP - 2, 78, LANGUAGE_STEP);
+	static const char* aRows[4] = { "Language", "Auto", "", "English" };
+	return (theItem >= 0 && theItem <= 3) ? aRows[theItem] : "";
+}
+
+// 选项行（1..3）命中矩形：按两段实测宽自适应（中文宽字符量宽、英文位图字体量宽）。
+static Sexy::Rect NewOptionsLanguageItemRect(int theItem)
+{
+	ModText::Font* aCjk = ModText::GetFont(CjkPointSize(13), false);
+	const char* aZh = NewOptionsLanguageZh(theItem);
+	const char* aEn = NewOptionsLanguageEn(theItem);
+	int aWidth = 0;
+	if (aZh[0]) aWidth += ModText::TextWidth(aCjk, ModText::WideFromUtf8(aZh));
+	if (aZh[0] && aEn[0]) aWidth += LANGUAGE_GAP;
+	if (aEn[0]) aWidth += FONT_DWARVENTODCRAFT12->StringWidth(aEn);
+	int aTop = LANGUAGE_OPT_TOP + (theItem - 1) * LANGUAGE_OPT_STEP;
+	return Sexy::Rect(LANGUAGE_X - 4, aTop - 2, aWidth + 10, 18);
 }
 
 // 一"行"文字的落点：调用方给的是行顶；ModText::DrawTextWide 也收顶对齐
@@ -287,19 +311,36 @@ void NewOptionsDialog::Draw(Sexy::Graphics* g)
     TodDrawString(g, _S("3D Acceleration"), 274, 197 + a3DAccelOffset, FONT_DWARVENTODCRAFT18, aTextColor, DrawStringJustification::DS_ALIGN_RIGHT);
     TodDrawString(g, _S("Full Screen"), 274, 229 + aFullScreenOffset, FONT_DWARVENTODCRAFT18, aTextColor, DrawStringJustification::DS_ALIGN_RIGHT);
 
-    // @pvz-online: 语言选项行（2026-10-03 语言批）。左空带竖排四行：标题 + 三档（自动/中文/
-    // English），当前档高亮；点击存注册表（ModText::SetLanguageSetting）并即时生效。
-    // 这一排文案故意**两语并排固定**、不随语言变——选择器本身得让两种语言的人都认得出。
-    // 落点与命中同用 LanguageRowRect（1:1 截图实测 x≈30..115 为空带，四行原版选项的
-    // 标签右对齐到 186/274、最长文字也从 ~120 起；滑块从 199 起）。
+    // @pvz-online: 语言选项行（2026-10-03 语言批，2026-10-04 改版）。左下竖带单列：
+    // 标题对 + 三档（自动/中文/English），当前档高亮；点击存注册表（ModText::
+    // SetLanguageSetting）并即时生效。这一排文案故意**两语并排固定**、不随语言变——
+    // 选择器本身得让两种语言的人都认得出。英文部分走游戏自带位图字体（基线 = 行顶 +
+    // 中文升部），和旁边 Music/Sound FX 一个质感；落点与命中同一份几何（ItemRect）。
     {
-        ModText::Font* aLangFont = NewOptionsCjkFontSmall();
+        ModText::Font* aLangFont = ModText::GetFont(CjkPointSize(13), false);
         int aLangSel = ModText::GetLanguageSetting() + 1;   // 0 自动 / 1 中文 / 2 英文 → 行 1..3
-        for (int i = 0; i < LANGUAGE_ROW_COUNT; i++)
+        int aLangBase = ModText::Ascent(aLangFont);         // 位图英文的基线偏移
+        // 标题对分两行画（横排放不下这段空带）
+        NewOptionsDrawCjk(g, aLangFont, LANGUAGE_X, LANGUAGE_TITLE_TOP,
+            NewOptionsLanguageZh(0), aTextColor);
+        TodDrawString(g, NewOptionsLanguageEn(0), LANGUAGE_X, LANGUAGE_TITLE_EN_TOP + aLangBase,
+            FONT_DWARVENTODCRAFT12, aTextColor, DrawStringJustification::DS_ALIGN_LEFT);
+        // 三档
+        for (int i = 1; i <= 3; i++)
         {
-            NewOptionsDrawCjk(g, aLangFont, LANGUAGE_X, LANGUAGE_TOP + i * LANGUAGE_STEP,
-                NewOptionsLanguageRowText(i),
-                i == aLangSel ? Sexy::Color(255, 230, 120) : aTextColor);
+            int aTop = LANGUAGE_OPT_TOP + (i - 1) * LANGUAGE_OPT_STEP;
+            Sexy::Color aColor = (i == aLangSel) ? Sexy::Color(255, 230, 120) : aTextColor;
+            const char* aZh = NewOptionsLanguageZh(i);
+            const char* aEn = NewOptionsLanguageEn(i);
+            int aEnX = LANGUAGE_X;
+            if (aZh[0])
+            {
+                NewOptionsDrawCjk(g, aLangFont, LANGUAGE_X, aTop, aZh, aColor);
+                aEnX = LANGUAGE_X + ModText::TextWidth(aLangFont, ModText::WideFromUtf8(aZh)) + LANGUAGE_GAP;
+            }
+            if (aEn[0])
+                TodDrawString(g, aEn, aEnX, aTop + aLangBase,
+                    FONT_DWARVENTODCRAFT12, aColor, DrawStringJustification::DS_ALIGN_LEFT);
         }
     }
 
@@ -603,12 +644,12 @@ void NewOptionsDialog::MouseDown(int x, int y, int theClickCount)
         OpenRunInfo();
         return;
     }
-    // @pvz-online: 语言选项行（行 0 是标题不响应；三档命中即存注册表 + 石头按钮音）。
+    // @pvz-online: 语言选项行（标题对不响应；三档命中即存注册表 + 石头按钮音）。
     // 生效范围：本面板的"本局词条"入口 / 查看器下一帧就换语言（ModText 每次现读），
     // 其余界面各自的文案在下次打开时才取——不必重建任何东西。
-    for (int i = 1; i < LANGUAGE_ROW_COUNT; i++)
+    for (int i = 1; i <= 3; i++)
     {
-        if (NewOptionsLanguageRowRect(i).Contains(x, y))
+        if (NewOptionsLanguageItemRect(i).Contains(x, y))
         {
             mApp->PlaySample(SOUND_GRAVEBUTTON);
             ModText::SetLanguageSetting(i - 1);
