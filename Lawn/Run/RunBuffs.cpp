@@ -45,8 +45,10 @@ const RunBuffDef& GetRunBuffDef(int theId)
 // Board::KillAllZombiesInRadius 摘除，半径乘数落 Plant::DoSpecial 土豆雷支）；批 8 的 2 条（地刺 21 /
 // 地刺王 46——地刺：命中的僵尸在 Plant::DoRowAreaDamage 里按层数上减速（+300 帧/层，CanBeChilled/
 // max 语义同寒冰）；地刺王：Plant::SpikeweedCycleFrames 攻击循环帧数 ×单株乘数，75/69/33 三个命中点
-// 同比例缩）。表内下标随插入右移：批 4
-// 档里 id 16..26、批 5 档里 15/17/18、批 6 档里 15..31、批 7 档里 24..33 的层数会错位到别的植物（批 1/批 2/批 3 档同理；开发期接受，见方案 §六）。
+// 同比例缩）；批 9 的 2 条（磁力菇 31 / 吸金磁 45——磁力菇：吸取后充能 1500 帧乘单株乘数
+// （MagnetShroomRechargeFrames，吸僵尸装备与吸地面梯子两处共用）；吸金磁：READY 期 1/50
+// 起吸门与充能 200..300 帧同步乘，吸取动画本身不动）。表内下标随插入右移：批 4
+// 档里 id 16..26、批 5 档里 15/17/18、批 6 档里 15..31、批 7 档里 24..33、批 8 档里 35 的层数会错位到别的植物（批 1/批 2/批 3 档同理；开发期接受，见方案 §六）。
 // 血量型条目（批 1 的 5 条 + 坚果墙）不用挂点——Plant.cpp:484 对任意株统一乘
 // RunPlantUpgradeMul(mSeedType)，表里加一行就生效（南瓜头护罩血已查证同走 mPlantHealth）。
 static const RunPlantUpgradeDef gRunPlantUpgradeDefs[RUN_PLANT_UPGRADE_COUNT] =
@@ -72,12 +74,14 @@ static const RunPlantUpgradeDef gRunPlantUpgradeDefs[RUN_PLANT_UPGRADE_COUNT] =
 	{ SeedType::SEED_SEASHROOM,    "Brine Spore",  "种植冷却逐层 ×0.75\n（每层）",      -0.25f, 3, true },
 	{ SeedType::SEED_STARFRUIT,    "Star Rain",    "射击间隔逐层 ×0.75\n（每层）",      -0.25f, 3, true },
 	{ SeedType::SEED_PUMPKINSHELL, "Hard Rind",    "血量 +50%\n（每层）",               0.50f, 3 },
+	{ SeedType::SEED_MAGNETSHROOM, "Magnet Pull",  "吸取间隔逐层 ×0.75\n（每层）",      -0.25f, 3, true },
 	{ SeedType::SEED_CABBAGEPULT,  "Heavy Toss",   "投掷间隔逐层 ×0.75\n（每层）",      -0.25f, 3, true },
 	{ SeedType::SEED_FLOWERPOT,    "Rich Soil",    "血量 +100%\n（每层）",              1.00f, 2 },
 	{ SeedType::SEED_UMBRELLA,     "Canopy",       "血量 +50%\n（每层）",               0.50f, 3 },
 	{ SeedType::SEED_MARIGOLD,     "Golden Bloom", "每次多产 1 枚\n（每层）",           0.00f, 3 },
 	{ SeedType::SEED_GATLINGPEA,   "Rapid Fire",   "射击间隔逐层 ×0.75\n（每层）",      -0.25f, 3, true },
 	{ SeedType::SEED_TWINSUNFLOWER, "Twin Bloom",  "每次多产 1 阳光\n（每层）",         0.00f, 3 },
+	{ SeedType::SEED_GOLD_MAGNET,  "Gilded Pull",  "吸取间隔逐层 ×0.75\n（每层）",      -0.25f, 3, true },
 	{ SeedType::SEED_SPIKEROCK,    "Royal Thorns", "攻击间隔逐层 ×0.75\n（每层）",      -0.25f, 3, true },
 };
 
@@ -164,12 +168,14 @@ static const struct { SeedType mPlant; const char* mName; } gRunPlantUpgradeZhNa
 	{ SeedType::SEED_SEASHROOM,    "海蘑菇" },
 	{ SeedType::SEED_STARFRUIT,    "杨桃" },
 	{ SeedType::SEED_PUMPKINSHELL, "南瓜头" },
+	{ SeedType::SEED_MAGNETSHROOM, "磁力菇" },
 	{ SeedType::SEED_CABBAGEPULT,  "卷心菜投手" },
 	{ SeedType::SEED_FLOWERPOT,    "花盆" },
 	{ SeedType::SEED_UMBRELLA,     "保护伞" },
 	{ SeedType::SEED_MARIGOLD,     "金盏花" },
 	{ SeedType::SEED_GATLINGPEA,   "机枪射手" },
 	{ SeedType::SEED_TWINSUNFLOWER,"双子向日葵" },
+	{ SeedType::SEED_GOLD_MAGNET,  "吸金磁" },
 	{ SeedType::SEED_SPIKEROCK,    "地刺王" },
 };
 

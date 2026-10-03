@@ -1938,11 +1938,21 @@ MagnetItem* Plant::GetFreeMagnetItem()
     return &mMagnetItems[0];
 }
 
+// @pvz-online: 磁力菇吸取后的充能帧数（原版 1500）——吸取僵尸装备（MagnetShroomAttactItem）与
+// 吸取地面梯子（UpdateMagnetShroom）两处共用；单株升级「Magnet Pull」（表行 SEED_MAGNETSHROOM）
+// 吸取间隔 ×0.75/层（乘算、至多 3 层）乘在这。倒计时在 SUCTION/CHARGING 期间照常逐帧走，
+// 所以这 1500 帧就是"这次吸完到下次能吸"的总间隔（吸取动画比它短，先走完进充能）。
+// 非闯关局取用口恒 1.0，还是 1500。
+static int MagnetShroomRechargeFrames(LawnApp* theApp)
+{
+    return (int)(1500 * theApp->RunPlantUpgradeMul(SeedType::SEED_MAGNETSHROOM) + 0.5f);
+}
+
 //0x460610
 void Plant::MagnetShroomAttactItem(Zombie* theZombie)
 {
     mState = PlantState::STATE_MAGNETSHROOM_SUCKING;
-    mStateCountdown = 1500;
+    mStateCountdown = MagnetShroomRechargeFrames(mApp);
     PlayBodyReanim("anim_shooting", ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD, 20, 12.0f);
     mApp->PlayFoley(FoleyType::FOLEY_MAGNETSHROOM);
 
@@ -2229,7 +2239,7 @@ void Plant::UpdateMagnetShroom()
         if (aClosestLadder)
         {
             mState = PlantState::STATE_MAGNETSHROOM_SUCKING;
-            mStateCountdown = 1500;
+            mStateCountdown = MagnetShroomRechargeFrames(mApp);
             PlayBodyReanim("anim_shooting", ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD, 20, 12.0f);
             mApp->PlayFoley(FoleyType::FOLEY_MAGNETSHROOM);
 
@@ -2328,6 +2338,11 @@ void Plant::UpdateGoldMagnetShroom()
 {
     Reanimation* aBodyReanim = mApp->ReanimationGet(mBodyReanimID);
 
+    // @pvz-online: 单株升级「Gilded Pull」（吸金磁，表行 SEED_GOLD_MAGNET）：吸取间隔 ×0.75/层
+    // （乘算、至多 3 层）。间隔由两段机械等待组成，同步缩——READY 期每帧 1/50 的起吸门与
+    // 吸完后的充能 200..300 帧；吸取动画本身不动。非闯关局取用口恒 1.0，原样。
+    float aIntervalMul = mApp->RunPlantUpgradeMul(SeedType::SEED_GOLD_MAGNET);
+
     bool aIsSuckingCoin = false;
     for (int i = 0; i < MAX_MAGNET_ITEMS; i++)
     {
@@ -2384,10 +2399,10 @@ void Plant::UpdateGoldMagnetShroom()
         {
             PlayIdleAnim(14.0f);
             mState = PlantState::STATE_MAGNETSHROOM_CHARGING;
-            mStateCountdown = RandRangeInt(200, 300);
+            mStateCountdown = (int)(RandRangeInt(200, 300) * aIntervalMul + 0.5f);
         }
     }
-    else if (!IsAGoldMagnetAboutToSuck() && Sexy::Rand(50) == 0 && FindGoldMagnetTarget())
+    else if (!IsAGoldMagnetAboutToSuck() && Sexy::Rand((int)(50 * aIntervalMul + 0.5f)) == 0 && FindGoldMagnetTarget())
     {
         mBoard->ShowCoinBank();
         mState = PlantState::STATE_MAGNETSHROOM_SUCKING;
