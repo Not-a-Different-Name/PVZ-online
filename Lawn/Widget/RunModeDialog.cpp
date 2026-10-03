@@ -1,4 +1,5 @@
 #include "RunModeDialog.h"
+#include "CjkStoneButton.h"
 #include "GameButton.h"
 #include "../../LawnApp.h"
 #include "../../Resources.h"
@@ -24,76 +25,10 @@ static const int kCardIcons[3] = { 19, 16, 18 };
 // SysFont(TextOutA) 助手，已并入 Lawn/ModText。文案中英各一份、构造时按
 // ModText::Tr 择一存进成员；字符串成员一律存 UTF-8 原样，绘制/量宽时现转宽字符。
 
-// 石材按钮是"左端贴图 + 中段贴图 × n + 右端贴图"平铺画的（见 CjkStoneButton::Draw），
-// 宽度必须正好是这三段的和；照抄 OnlineStartDialog 的同一支（含"至少带一个中段"的下限）。
-static int StoneButtonWidth(int theWidth, bool theRoundUp)
-{
-	int aMid = Sexy::IMAGE_BUTTON_MIDDLE->mWidth;
-	int aMin = Sexy::IMAGE_BUTTON_LEFT->mWidth + Sexy::IMAGE_BUTTON_RIGHT->mWidth;
-	int anExtra = theWidth - aMin;
-	if (anExtra < 0)
-	{
-		anExtra = 0;
-	}
-	else if (aMid > 0)
-	{
-		int aRemainder = anExtra % aMid;
-		if (aRemainder != 0)
-		{
-			if (theRoundUp) anExtra += aMid - aRemainder;
-			else anExtra -= aRemainder;
-		}
-	}
-	int aWidth = aMin + anExtra;
-	int aFloor = aMin + aMid;   // 至少带一个中段：光两块端头拼不成石头
-	return aWidth < aFloor ? aFloor : aWidth;
-}
+// 石材按钮（平铺宽度取整 CjkStoneButtonWidth + 宽字符标签画法）：与联机弹窗/联机面板
+// 共用一份，见 CjkStoneButton.h/.cpp——原先这里内联的一份已并入。
 
-// 石材按钮 + 中文标签：照抄 OnlineStartDialog 的内联类（贴图平铺、按下位移、居中）。
-class CjkStoneButton : public LawnStoneButton
-{
-public:
-	CjkStoneButton(int theId, ButtonListener* theListener) : LawnStoneButton(nullptr, theId, theListener) { }
-
-	virtual void Draw(Graphics* g)
-	{
-		if (mBtnNoDraw) return;
-
-		bool aDown = (mIsDown && mIsOver && !mDisabled) ^ mInverted;
-		Image* aLeftImage = aDown ? Sexy::IMAGE_BUTTON_DOWN_LEFT : Sexy::IMAGE_BUTTON_LEFT;
-		Image* aMiddleImage = aDown ? Sexy::IMAGE_BUTTON_DOWN_MIDDLE : Sexy::IMAGE_BUTTON_MIDDLE;
-		Image* aRightImage = aDown ? Sexy::IMAGE_BUTTON_DOWN_RIGHT : Sexy::IMAGE_BUTTON_RIGHT;
-
-		int aFontX = 0;
-		int aFontY = 0;
-		int aImageX = 0;
-		if (aDown)
-		{
-			aFontX++;
-			aFontY++;
-			aImageX++;
-		}
-
-		int aRepeat = (mWidth - aLeftImage->mWidth - aRightImage->mWidth) / aMiddleImage->mWidth;
-		g->DrawImage(aLeftImage, aImageX, 0);
-		aImageX += aLeftImage->mWidth;
-		while (aRepeat > 0)
-		{
-			g->DrawImage(aMiddleImage, aImageX, 0);
-			aImageX += aMiddleImage->mWidth;
-			--aRepeat;
-		}
-		g->DrawImage(aRightImage, aImageX, 0);
-
-		// 标签是 UTF-8 原样（SetLabel 收的也是原样字节），绘制现转宽字符（顶对齐）
-		ModText::Font* aFont = ModText::GetFont(14, false);
-		std::wstring aLabel = ModText::WideFromUtf8(mLabel.c_str());
-		aFontX += (mWidth - ModText::TextWidth(aFont, aLabel)) / 2;
-		aFontY += (mHeight - ModText::LineHeight(aFont)) / 2;
-		ModText::DrawTextWide(g, aFont, aFontX, aFontY, aLabel,
-			mIsOver ? Color(0x9B, 0xF0, 0x60) : Color(0x2F, 0x6B, 0x2B), g->mClipRect);
-	}
-};
+// （内联的 CjkStoneButton 类已提取到 CjkStoneButton.h，联机弹窗/面板/本弹窗共用一份。）
 
 RunModeDialog::RunModeDialog(LawnApp* theApp, bool theShowDiff) : LawnDialog(
 	theApp, Dialogs::DIALOG_ONLINE_START, true, _S(""), _S(""), _S(""), Dialog::BUTTONS_NONE)
@@ -130,15 +65,16 @@ RunModeDialog::RunModeDialog(LawnApp* theApp, bool theShowDiff) : LawnDialog(
 		mDiffLabels[1] = ModText::Tr("标准 ×1", "Standard ×1");
 		mDiffLabels[2] = ModText::Tr("高压 ×1.5", "High ×1.5");
 
-		// 三枚等宽（取最长标签量的），石门贴图平铺对宽度有整段要求（见 StoneButtonWidth）
-		ModText::Font* aDiffFont = ModText::GetFont(14, false);
+		// 三枚等宽（取最长标签量的），石门贴图平铺对宽度有整段要求（见 CjkStoneButtonWidth）。
+		// 量宽用按钮实际画标签的那档字号（CjkPointSize(CJK_BUTTON_LABEL_PX)），量画同一份。
+		ModText::Font* aDiffFont = ModText::GetFont(CjkPointSize(CJK_BUTTON_LABEL_PX), false);
 		int aLabelMax = 0;
 		for (int i = 0; i < 3; i++)
 		{
 			int aWidth = ModText::TextWidth(aDiffFont, ModText::WideFromUtf8(mDiffLabels[i].c_str()));
 			if (aWidth > aLabelMax) aLabelMax = aWidth;
 		}
-		int aDiffWidth = StoneButtonWidth(aLabelMax + 26, true);
+		int aDiffWidth = CjkStoneButtonWidth(aLabelMax + 26, true);
 		for (int i = 0; i < 3; i++)
 		{
 			mDiffWidths[i] = aDiffWidth;
@@ -155,7 +91,7 @@ RunModeDialog::RunModeDialog(LawnApp* theApp, bool theShowDiff) : LawnDialog(
 	mCancelButton->SetLabel(ModText::Tr("取消", "Cancel"));
 	mCancelButton->mHasAlpha = true;
 	mCancelButton->mHasTransparencies = true;
-	mCancelWidth = StoneButtonWidth(ModText::TextWidth(ModText::GetFont(14, false),
+	mCancelWidth = CjkStoneButtonWidth(ModText::TextWidth(ModText::GetFont(CjkPointSize(CJK_BUTTON_LABEL_PX), false),
 		ModText::WideFromUtf8(mCancelButton->mLabel.c_str())) + 32, true);
 
 	mTallBottom = true;

@@ -10,7 +10,8 @@ class LawnStoneButton;
 
 // @pvz-online: 组队页面（从主位那块 ADVENTURE 大墓碑、主菜单左上角的小状态条进来）
 // ——建房 / 按 IP 加入 / 关面板，外加两行状态和一个房间信息块（房间码、我坐哪一席、
-// 谁是房主、P1..P6 名册）。文案全英文：位图字体没有中文字形。
+// 谁是房主、P1..P6 名册）。文案自语言批（2026-10-03）起双语：中文档走 ModText 宽字符
+// 直绘（位图字体没有汉字字形），英文档保持原位图字体——见 .cpp 里的 Online* 助手。
 //
 // 面板只是"遥控器"：组队本身活在 LawnApp::mOnlineSession 里，关掉面板队伍照旧，
 // 这样才能先建房、再回主菜单点入口开局（主菜单左上角的小状态条随时能把面板叫回来）。
@@ -76,6 +77,9 @@ public:
 
 private:
 	int					GetStatusBaseline();
+	// 居中画一行状态/提示（语言批：中文档按宽字符量宽居中，长行还按可用宽度缩字号；
+	// 英文档走原版 WriteCenteredLine）。
+	void				DrawStatusLine(Graphics* g, int theBaseline, const std::string& theUtf8);
 	// @pvz-online: 房间信息块（标题 + 每席位一行名册）就排在两行状态和输入框之间，见 .cpp。
 	// 地盘按席位上限钉死——没连上时标题说"没房间"、名册留空，面板不因为这个跳高度。
 	int					GetRoomHeaderBaseline();

@@ -1129,8 +1129,9 @@ void LawnApp::UpdateOnlineLevelExit()
 	}
 
 	// 已经在菜单上（比如刚退完，或还没进关）：只写一句即时说明，界面不动。
+	// （即时说明显示在主菜单小状态条/联机面板上，语言批：跟着 UI 语言走。）
 	TodLog("[net] a teammate left the level (already in the menu)");
-	mOnlineSession->PostNotice("A teammate left the level.");
+	mOnlineSession->PostNotice(ModText::Tr("队友离开了关卡。", "A teammate left the level."));
 }
 
 // @pvz-online: 暂停同步。规则（已拍板）：任一方都能暂停，也任一方都能继续。
@@ -1239,8 +1240,23 @@ void LawnApp::UpdateOnlineEvents()
 			{
 				std::string aReason = mOnlineSession->GetStatusText();
 				DoBackToMain(false);
-				LawnMessageBox(Dialogs::DIALOG_MESSAGE, "Disconnected",
-					(aReason + "\nBack to the main menu.").c_str(), "OK", "", Dialog::BUTTONS_FOOTER);
+				// @pvz-online 语言批：中文档死因也是中文，位图字体的 LawnMessageBox 画不了
+				// 汉字（会成一串方块）——换成联机自家的中文框，阻塞口径与消息框一致。
+				if (ModText::IsChinese())
+				{
+					OnlineStartDialog* aDialog = new OnlineStartDialog(this,
+						ModText::Tr("连接断开", "Disconnected"),
+						(aReason + ModText::Tr("\n回到主菜单。", "\nBack to the main menu.")).c_str(),
+						ModText::Tr("知道了", "OK"), nullptr, OnlineStartDialog::NOTIFY_NONE);
+					CenterDialog(aDialog, aDialog->mWidth, aDialog->mHeight);
+					AddDialog(Dialogs::DIALOG_ONLINE_START, aDialog);
+					aDialog->WaitForResult();
+				}
+				else
+				{
+					LawnMessageBox(Dialogs::DIALOG_MESSAGE, "Disconnected",
+						(aReason + "\nBack to the main menu.").c_str(), "OK", "", Dialog::BUTTONS_FOOTER);
+				}
 			}
 			break;
 
@@ -1271,7 +1287,7 @@ void LawnApp::UpdateOnlineEvents()
 			TodLog("[net] seat %u left the room", (unsigned)anEvent.mSeat);
 			if (mBoard != nullptr)
 			{
-				mOnlineSession->PostNotice("A teammate left the room.");
+				mOnlineSession->PostNotice(ModText::Tr("队友离开了房间。", "A teammate left the room."));
 			}
 			break;
 
@@ -3370,6 +3386,10 @@ void LawnApp::UpdateFrames()
 	// 挂钟时间，不该跟着 slow/fast-mo 一起变快变慢。
 	if (mOnlineSession)
 	{
+		// @pvz-online 语言批：会话层的状态/提示文案跟着 UI 语言走，但那一层要能脱开
+		// 框架单测（nettest 直接编译它的 .cpp），不能自己引用 ModText——语言由这儿每帧
+		// 注入，注入后再 Update（状态行每帧在 Update 末尾重算，改语言下一帧就生效）。
+		mOnlineSession->SetTextChinese(ModText::IsChinese());
 		mOnlineSession->Update();
 
 		// @pvz-online: 组队成功就把联机面板收起来。面板是模态对话框，它在的时候后面

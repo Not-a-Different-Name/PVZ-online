@@ -292,6 +292,13 @@ public:
 	// 状态行和主菜单小状态条都要用。
 	int				GetConnectAttempts() const { return mLink.GetConnectAttempts(); }
 
+	// @pvz-online 语言批（2026-10-03）：状态/提示/即时说明按哪种语言生成。这一层要能
+	// 脱开框架单测（tools/nettest 直接编译本 .cpp、只链 ws2_32），不能引用 ModText——
+	// 所以语言由上层注入：LawnApp 每帧在 Update 之前把当前语言判一下塞进来。从没注入过
+	// = 英文（单测的默认，断言全按英文写的）。只影响文案生成，不动协议、不动状态机。
+	void			SetTextChinese(bool theChinese) { mTextChinese = theChinese; }
+	bool			IsTextChinese() const { return mTextChinese; }
+
 	bool			PollEvent(Event& theEvent);
 
 private:
@@ -401,6 +408,14 @@ private:
 	int					mFramesSinceRoomRequest;	// 中继：发了 CREATE/JOIN 之后等了多少帧（10 秒判死）
 	std::string			mNoticeText;			// 即时说明（几秒后自己消失）
 	int					mNoticeFrames;
+	bool				mTextChinese;			// 文案语言（上层每帧注入，见 SetTextChinese）
+
+	// 双语择串：按 mTextChinese 在两条 UTF-8（静态存储）里选一条。类似 ModText::Tr，
+	// 但本层不能引用 ModText（单测不链那半边）——这就是本层自己的那份。
+	std::string			NetText(const char* theZh, const char* theEn) const
+	{
+		return mTextChinese ? std::string(theZh) : std::string(theEn);
+	}
 
 	NetSession(const NetSession&);
 	NetSession& operator=(const NetSession&);

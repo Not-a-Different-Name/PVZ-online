@@ -64,9 +64,10 @@ NetSession::NetSession()
 	mHeartbeatTick = 0;
 	mConnectPort = NetProto::DEFAULT_PORT;
 	mFramesSinceRoomRequest = 0;
-	mStatusText = "Not connected.";
-	mHintText = "Host a game, or type the host's IP and join.";
-	mShortStatus = "Connection lost";
+	mTextChinese = false;			// 默认英文；上层每帧注入（见 SetTextChinese）
+	mStatusText = NetText("未连接。", "Not connected.");
+	mHintText = NetText("开一间房，或输入主机 IP 加入。", "Host a game, or type the host's IP and join.");
+	mShortStatus = NetText("连接断开", "Connection lost");
 	mHasPendingStart = false;
 	mHasRunGo = false;
 	mHasPendingLevelExit = false;
@@ -136,7 +137,8 @@ bool NetSession::StartHost(uint16_t thePort)
 	}
 
 	mState = State::LISTENING;
-	mHintText = "Your IP: " + NetLink::GetLocalIPv4Text() + "   Port: " + std::to_string((unsigned)thePort);
+	mHintText = NetText("本机 IP：", "Your IP: ") + NetLink::GetLocalIPv4Text()
+		+ NetText("   端口：", "   Port: ") + std::to_string((unsigned)thePort);
 	UpdateStatusText();
 	return true;
 }
@@ -161,7 +163,7 @@ bool NetSession::StartJoin(const char* theHost, uint16_t thePort)
 	}
 
 	mState = State::CONNECTING;
-	mHintText = "Port " + std::to_string((unsigned)thePort);
+	mHintText = NetText("端口 ", "Port ") + std::to_string((unsigned)thePort);
 	UpdateStatusText();
 	return true;
 }
@@ -189,7 +191,7 @@ bool NetSession::StartRoomHost(const char* theServer, uint16_t thePort)
 	}
 
 	mState = State::CONNECTING;
-	mHintText = "Server " + mConnectHost + ":" + std::to_string((unsigned)thePort);
+	mHintText = NetText("服务器 ", "Server ") + mConnectHost + ":" + std::to_string((unsigned)thePort);
 	UpdateStatusText();
 	return true;
 }
@@ -216,8 +218,8 @@ bool NetSession::StartRoomJoin(const char* theServer, const char* theRoomCode, u
 	if ((int)mRoomCode.size() != NetProto::ROOM_CODE_LEN)
 	{
 		mState = State::DEAD;
-		mStatusText = "Bad room code - it is 4 letters and digits.";
-		mShortStatus = "Bad room code";
+		mStatusText = NetText("房间码不对——应是 4 位字母或数字。", "Bad room code - it is 4 letters and digits.");
+		mShortStatus = NetText("房间码不对", "Bad room code");
 		mHintText.clear();
 		PushEvent(EventType::DISCONNECTED);
 		return false;
@@ -233,8 +235,8 @@ bool NetSession::StartRoomJoin(const char* theServer, const char* theRoomCode, u
 	}
 
 	mState = State::CONNECTING;
-	mHintText = "Server " + mConnectHost + ":" + std::to_string((unsigned)thePort)
-		+ "   Room " + mRoomCode;
+	mHintText = NetText("服务器 ", "Server ") + mConnectHost + ":" + std::to_string((unsigned)thePort)
+		+ NetText("   房间 ", "   Room ") + mRoomCode;
 	UpdateStatusText();
 	return true;
 }
@@ -408,7 +410,8 @@ void NetSession::Update()
 	{
 		if (++mFramesSinceRoomRequest > RELAY_HANDSHAKE_FRAMES)
 		{
-			SetDead("The server did not answer.", "Server timeout");
+			SetDead(NetText("服务器没有回应。", "The server did not answer.").c_str(),
+				NetText("服务器超时", "Server timeout").c_str());
 			return;
 		}
 	}
@@ -426,7 +429,7 @@ void NetSession::Update()
 		}
 		if (mFramesSincePacket > TIMEOUT_FRAMES)
 		{
-			SetDead("Connection timed out.");
+			SetDead(NetText("连接超时。", "Connection timed out.").c_str());
 			return;
 		}
 	}
@@ -754,7 +757,8 @@ void NetSession::ApplySeatSwap(uint8_t theSeatA, uint8_t theSeatB)
 	if (mHostSeat == theSeatA) mHostSeat = theSeatB;
 	else if (mHostSeat == theSeatB) mHostSeat = theSeatA;
 
-	SetNotice(("Swapped - you are now P" + std::to_string((unsigned)mLocalSeat) + ".").c_str());
+	SetNotice((NetText("已换位——你现在是 P", "Swapped - you are now P")
+		+ std::to_string((unsigned)mLocalSeat) + NetText("。", ".")).c_str());
 	TodLog("[net] positions swapped - local seat %u", (unsigned)mLocalSeat);
 }
 
@@ -920,8 +924,8 @@ void NetSession::ResetToOff()
 	mConnectHost.clear();
 	mConnectPort = NetProto::DEFAULT_PORT;
 	mFramesSinceRoomRequest = 0;
-	mStatusText = "Not connected.";
-	mHintText = "Host a game, or type the host's IP and join.";
+	mStatusText = NetText("未连接。", "Not connected.");
+	mHintText = NetText("开一间房，或输入主机 IP 加入。", "Host a game, or type the host's IP and join.");
 	mEvents.clear();
 	DiscardLevelPackets();
 	ClearSwapState();
@@ -954,7 +958,8 @@ void NetSession::SetConnected()
 	{
 		TodLog("[net] builds differ - local %u, peer %u; playing anyway",
 			(unsigned)NetProto::MOD_BUILD, (unsigned)GetPeerBuild());
-		SetNotice("Builds differ - update both machines if things break.");
+		SetNotice(NetText("两边构建版本不同——出怪行为对不上时请把两边更新到同一版本。",
+			"Builds differ - update both machines if things break.").c_str());
 	}
 	PushEvent(EventType::CONNECTED);
 }
@@ -964,8 +969,8 @@ void NetSession::SetDead(const char* theReason, const char* theShortReason)
 	if (mState == State::DEAD) return;
 
 	mState = State::DEAD;
-	mStatusText = (theReason && theReason[0]) ? theReason : "Connection lost.";
-	mShortStatus = (theShortReason && theShortReason[0]) ? theShortReason : "Connection lost";
+	mStatusText = (theReason && theReason[0]) ? theReason : NetText("连接断开。", "Connection lost.");
+	mShortStatus = (theShortReason && theShortReason[0]) ? theShortReason : NetText("连接断开", "Connection lost");
 	mHintText.clear();
 	// 挂着的换位请求跟着连接一起作废：断了就没得换了，面板上那个问句也得收掉
 	ClearSwapState();
@@ -982,28 +987,29 @@ void NetSession::UpdateStatusText()
 	switch (mState)
 	{
 	case State::OFF:
-		mStatusText = "Not connected.";
+		mStatusText = NetText("未连接。", "Not connected.");
 		break;
 	case State::LISTENING:
 		// 不写"另一个玩家"：最多六个席位，主机等的是"人"，不是那一个特定的人。
-		mStatusText = "Waiting for players to join...";
+		mStatusText = NetText("等待队友加入……", "Waiting for players to join...");
 		break;
 	case State::CONNECTING:
 		{
 			int anAttempts = GetConnectAttempts();
-			mStatusText = "Connecting to " + mConnectHost + "...";
+			mStatusText = NetText("正在连接 ", "Connecting to ") + mConnectHost + NetText("……", "...");
 			// 连不上会一直重试（没有时间上限了），所以重试次数得露出来，
 			// 不然"还在试"和"卡死了"看起来一模一样。
 			if (anAttempts > 1)
 			{
-				mStatusText += " (attempt " + std::to_string((unsigned)anAttempts) + ")";
+				mStatusText += NetText("（第 ", " (attempt ") + std::to_string((unsigned)anAttempts) + NetText(" 次重试）", ")");
 			}
 		}
 		break;
 	case State::HANDSHAKING:
 		// 中继这会儿是"TCP 通了，等服务器点名册"（WELCOME），直连是等对方的 HELLO/HELLO_ACK
 		mStatusText = (mTransport == Transport::RELAY)
-			? "Contacting the server..." : "Connected. Shaking hands...";
+			? NetText("正在联系服务器……", "Contacting the server...")
+			: NetText("已连接，握手中……", "Connected. Shaking hands...");
 		break;
 	case State::CONNECTED:
 		{
@@ -1011,26 +1017,28 @@ void NetSession::UpdateStatusText()
 			// 免得客户端点了冒险按钮却什么反馈都没有（局面板照旧不冻心跳）。
 			// 换位这件事谁先谁后不一样，所以状态行得按"谁在等谁"分开写。
 			if (HasIncomingSwapRequest())
-				mStatusText = "The teammate wants to swap positions - Accept or Reject.";
+				mStatusText = NetText("队友想和你换位——请点同意或拒绝。", "The teammate wants to swap positions - Accept or Reject.");
 			else if (IsSwapRequestPending())
-				mStatusText = "Swap asked - waiting for the teammate to answer.";
+				mStatusText = NetText("换位请求已发出——等待队友答复。", "Swap asked - waiting for the teammate to answer.");
 			else if (IsBuildDifferent())
 			{
 				// 构建代次不同：连得上、能玩（12 起不再拒绝，见握手处），这句是常驻提醒。
 				// 即时说明几秒就没了，而"这俩不是一套"得一直看得见——真撞上不配套的行为
 				// 时，这行就是"该去更新了"的凭据。小条上也有一份短的，见 OnlineStatusWidget。
-				std::string aBuilds = "Builds differ (you " + std::to_string((unsigned)NetProto::MOD_BUILD)
-					+ " / peer " + std::to_string((unsigned)GetPeerBuild()) + ").";
+				std::string aBuilds = NetText("两边构建版本不同（本机 ", "Builds differ (you ")
+					+ std::to_string((unsigned)NetProto::MOD_BUILD)
+					+ NetText(" / 对方 ", " / peer ") + std::to_string((unsigned)GetPeerBuild())
+					+ NetText("）。", ").");
 				mStatusText = (mRole == Role::HOST)
-					? aBuilds + " Pick a level."
-					: aBuilds + " Waiting for the host.";
+					? aBuilds + NetText(" 请选关卡。", " Pick a level.")
+					: aBuilds + NetText(" 等待主机选关。", " Waiting for the host.");
 			}
 			else
 				// 连上之后该点哪块牌子，按当前设计是"看情况"的：想一起打单关走 PUZZLE，
 				// 组队闯关要等 R5——所以这儿不说牌子名，只说"主机来挑"。
 				mStatusText = (mRole == Role::HOST)
-					? "Connected. Pick a level from the menu."
-					: "Connected. Waiting for the host to pick a level.";
+					? NetText("已连接。请在菜单里选一关。", "Connected. Pick a level from the menu.")
+					: NetText("已连接。等待主机选关。", "Connected. Waiting for the host to pick a level.");
 
 			// 提示行借来写清"我是几号位、漏怪往哪走"：连上之后 IP 已经没用了
 			// （输入框里还留着），而位置是开局前要拿主意的事（面板里的 Swap）。
@@ -1045,11 +1053,13 @@ void NetSession::UpdateStatusText()
 				// 接着传的，写死"你是 P2、你接队友的漏怪"就把中间席位说成了末席。
 				// 中继把房间码也带上：房主要念给朋友，其他人核对一下自己进对了房。
 				uint8_t aNext = GetRelayTargetSeat();
-				mHintText = (mTransport == Transport::RELAY) ? ("Room " + mRoomCode + " - ") : std::string();
-				mHintText += "You are P" + std::to_string((unsigned)mLocalSeat);
+				mHintText = (mTransport == Transport::RELAY)
+					? (NetText("房间 ", "Room ") + mRoomCode + NetText("——", " - ")) : std::string();
+				mHintText += NetText("你是 P", "You are P") + std::to_string((unsigned)mLocalSeat);
 				mHintText += (aNext == NetProto::SEAT_UNSET)
-					? " - the last seat: a leak here loses the game."
-					: " - your leaks pass on to P" + std::to_string((unsigned)aNext) + ".";
+					? NetText("——末位：这里漏怪会直接判全队失败。", " - the last seat: a leak here loses the game.")
+					: (NetText("——你的漏怪往后传给 P", " - your leaks pass on to P")
+						+ std::to_string((unsigned)aNext) + NetText("。", "."));
 			}
 		}
 		break;
@@ -1084,7 +1094,7 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 {
 	if (thePacket.mSize < NetProto::HEADER_SIZE)
 	{
-		SetDead("A player sent a malformed packet.");
+		SetDead(NetText("对方发来的数据包有问题。", "A player sent a malformed packet.").c_str());
 		return;
 	}
 
@@ -1092,7 +1102,7 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 	uint16_t aPayloadSize = (uint16_t)(thePacket.mData[2] | (thePacket.mData[3] << 8));
 	if (NetProto::HEADER_SIZE + aPayloadSize != thePacket.mSize)
 	{
-		SetDead("A player sent a malformed packet.");
+		SetDead(NetText("对方发来的数据包有问题。", "A player sent a malformed packet.").c_str());
 		return;
 	}
 
@@ -1122,21 +1132,21 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 			if (aPayloadSize != HELLO_PAYLOAD_SIZE)
 			{
 				SendHelloAck(false, DirectPeerSeat());
-				SetDead("Build mismatch - update every machine to the same build.", "Build mismatch");
+				SetDead(NetText("构建版本不一致——请把所有机器更新到同一版本。", "Build mismatch - update every machine to the same build.").c_str(), NetText("构建版本不一致", "Build mismatch").c_str());
 				return;
 			}
 
 			NetProto::MsgHello aMsg;
 			if (!NetProto::DecodeHello(aPayload, aPayloadSize, aMsg))
 			{
-				SetDead("A player sent a malformed packet.");
+				SetDead(NetText("对方发来的数据包有问题。", "A player sent a malformed packet.").c_str());
 				return;
 			}
 
 			if (aMsg.mVersion != NetProto::PROTOCOL_VERSION)
 			{
 				SendHelloAck(false, DirectPeerSeat());
-				SetDead("Version mismatch - all players must run the same build.", "Version mismatch");
+				SetDead(NetText("协议版本不一致——所有人必须跑同一版本。", "Version mismatch - all players must run the same build.").c_str(), NetText("协议版本不一致", "Version mismatch").c_str());
 				return;
 			}
 			// 构建代次不一样照样连（用户 2026-10-02 拍板：只提示，不拒人）。包是同一套，
@@ -1148,7 +1158,7 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 			if (aMsg.mSrcSeat < 1 || aMsg.mSrcSeat > NetProto::MAX_PLAYERS
 				|| aMsg.mSrcSeat == mLocalSeat)
 			{
-				SetDead("A player sent a bogus seat number.");
+				SetDead(NetText("对方发来的席位号不合法。", "A player sent a bogus seat number.").c_str());
 				return;
 			}
 
@@ -1167,14 +1177,14 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 
 			if (aPayloadSize != HELLO_ACK_PAYLOAD_SIZE)
 			{
-				SetDead("Build mismatch - update every machine to the same build.", "Build mismatch");
+				SetDead(NetText("构建版本不一致——请把所有机器更新到同一版本。", "Build mismatch - update every machine to the same build.").c_str(), NetText("构建版本不一致", "Build mismatch").c_str());
 				return;
 			}
 
 			NetProto::MsgHelloAck aMsg;
 			if (!NetProto::DecodeHelloAck(aPayload, aPayloadSize, aMsg))
 			{
-				SetDead("A player sent a malformed packet.");
+				SetDead(NetText("对方发来的数据包有问题。", "A player sent a malformed packet.").c_str());
 				return;
 			}
 
@@ -1183,14 +1193,14 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 				// 主机拒接的原因只剩两种：协议版本对不上，或者它读不出我们的 HELLO（旧构建）。
 				// ACK 里带着主机的版本号，正好能分辨——提示得指得出该更新哪边，别一律怪"构建"。
 				if (aMsg.mVersion != NetProto::PROTOCOL_VERSION)
-					SetDead("Version mismatch - all players must run the same build.", "Version mismatch");
+					SetDead(NetText("协议版本不一致——所有人必须跑同一版本。", "Version mismatch - all players must run the same build.").c_str(), NetText("协议版本不一致", "Version mismatch").c_str());
 				else
-					SetDead("Build mismatch - update every machine to the same build.", "Build mismatch");
+					SetDead(NetText("构建版本不一致——请把所有机器更新到同一版本。", "Build mismatch - update every machine to the same build.").c_str(), NetText("构建版本不一致", "Build mismatch").c_str());
 				return;
 			}
 			if (aMsg.mVersion != NetProto::PROTOCOL_VERSION)
 			{
-				SetDead("Version mismatch - all players must run the same build.", "Version mismatch");
+				SetDead(NetText("协议版本不一致——所有人必须跑同一版本。", "Version mismatch - all players must run the same build.").c_str(), NetText("协议版本不一致", "Version mismatch").c_str());
 				return;
 			}
 			// 构建代次不一样不再拒绝（同主机侧，见 MSG_HELLO 那段）：记下、提示、照常连。
@@ -1200,7 +1210,7 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 			if (aMsg.mSrcSeat < 1 || aMsg.mSrcSeat > NetProto::MAX_PLAYERS
 				|| aMsg.mSrcSeat == mLocalSeat)
 			{
-				SetDead("A player sent a bogus seat number.");
+				SetDead(NetText("对方发来的席位号不合法。", "A player sent a bogus seat number.").c_str());
 				return;
 			}
 
@@ -1216,7 +1226,7 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 			NetProto::MsgStartLevel aMsg;
 			if (aPayloadSize != START_LEVEL_PAYLOAD_SIZE || !NetProto::DecodeStartLevel(aPayload, aPayloadSize, aMsg))
 			{
-				SetDead("A player sent a malformed packet.");
+				SetDead(NetText("对方发来的数据包有问题。", "A player sent a malformed packet.").c_str());
 				return;
 			}
 			if (mRole != Role::CLIENT) return;		// 只有客户端听主机的
@@ -1244,7 +1254,7 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 			NetProto::MsgHeartbeat aMsg;
 			if (aPayloadSize != HEARTBEAT_PAYLOAD_SIZE || !NetProto::DecodeHeartbeat(aPayload, aPayloadSize, aMsg))
 			{
-				SetDead("A player sent a malformed packet.");
+				SetDead(NetText("对方发来的数据包有问题。", "A player sent a malformed packet.").c_str());
 				return;
 			}
 			// 收到就是活着——mFramesSincePacket 已经在调用处清零了
@@ -1260,10 +1270,10 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 			NetProto::MsgBye aMsg;
 			if (aPayloadSize != BYE_PAYLOAD_SIZE || !NetProto::DecodeBye(aPayload, aPayloadSize, aMsg))
 			{
-				SetDead("A player sent a malformed packet.");
+				SetDead(NetText("对方发来的数据包有问题。", "A player sent a malformed packet.").c_str());
 				return;
 			}
-			SetDead("A player left the game.");
+			SetDead(NetText("有玩家离开了游戏。", "A player left the game.").c_str());
 		}
 		break;
 
@@ -1272,7 +1282,7 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 			NetProto::MsgEscapedZombie aMsg;
 			if (aPayloadSize != ESCAPED_ZOMBIE_PAYLOAD_SIZE || !NetProto::DecodeEscapedZombie(aPayload, aPayloadSize, aMsg))
 			{
-				SetDead("A player sent a malformed packet.");
+				SetDead(NetText("对方发来的数据包有问题。", "A player sent a malformed packet.").c_str());
 				return;
 			}
 
@@ -1293,7 +1303,7 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 			NetProto::MsgStartAck aMsg;
 			if (aPayloadSize != START_ACK_PAYLOAD_SIZE || !NetProto::DecodeStartAck(aPayload, aPayloadSize, aMsg))
 			{
-				SetDead("A player sent a malformed packet.");
+				SetDead(NetText("对方发来的数据包有问题。", "A player sent a malformed packet.").c_str());
 				return;
 			}
 			// 席位号得是个真坐在席位上的号：越界 / 本机 / 空位都丢掉这一条——
@@ -1322,7 +1332,7 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 			NetProto::MsgSwapRequest aMsg;
 			if (aPayloadSize != SWAP_REQUEST_PAYLOAD_SIZE || !NetProto::DecodeSwapRequest(aPayload, aPayloadSize, aMsg))
 			{
-				SetDead("A player sent a malformed packet.");
+				SetDead(NetText("对方发来的数据包有问题。", "A player sent a malformed packet.").c_str());
 				return;
 			}
 			// 问话的人得是个真坐在席位上的席位号——乱报的丢掉这一条，不至于断线
@@ -1378,7 +1388,7 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 			NetProto::MsgSwapReply aMsg;
 			if (aPayloadSize != SWAP_REPLY_PAYLOAD_SIZE || !NetProto::DecodeSwapReply(aPayload, aPayloadSize, aMsg))
 			{
-				SetDead("A player sent a malformed packet.");
+				SetDead(NetText("对方发来的数据包有问题。", "A player sent a malformed packet.").c_str());
 				return;
 			}
 
@@ -1408,7 +1418,7 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 			}
 			else
 			{
-				SetNotice("The teammate declined the swap.");
+				SetNotice(NetText("队友拒绝了换位。", "The teammate declined the swap.").c_str());
 				TodLog("[net] the teammate declined the swap");
 			}
 		}
@@ -1421,7 +1431,7 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 			NetProto::MsgLevelDone aMsg;
 			if (aPayloadSize != LEVEL_DONE_PAYLOAD_SIZE || !NetProto::DecodeLevelDone(aPayload, aPayloadSize, aMsg))
 			{
-				SetDead("A player sent a malformed packet.");
+				SetDead(NetText("对方发来的数据包有问题。", "A player sent a malformed packet.").c_str());
 				return;
 			}
 
@@ -1449,7 +1459,7 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 			NetProto::MsgGameOver aMsg;
 			if (aPayloadSize != GAME_OVER_PAYLOAD_SIZE || !NetProto::DecodeGameOver(aPayload, aPayloadSize, aMsg))
 			{
-				SetDead("A player sent a malformed packet.");
+				SetDead(NetText("对方发来的数据包有问题。", "A player sent a malformed packet.").c_str());
 				return;
 			}
 
@@ -1466,7 +1476,7 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 			NetProto::MsgPause aMsg;
 			if (aPayloadSize != PAUSE_PAYLOAD_SIZE || !NetProto::DecodePause(aPayload, aPayloadSize, aMsg))
 			{
-				SetDead("A player sent a malformed packet.");
+				SetDead(NetText("对方发来的数据包有问题。", "A player sent a malformed packet.").c_str());
 				return;
 			}
 
@@ -1490,7 +1500,7 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 			NetProto::MsgLevelExit aMsg;
 			if (aPayloadSize != LEVEL_EXIT_PAYLOAD_SIZE || !NetProto::DecodeLevelExit(aPayload, aPayloadSize, aMsg))
 			{
-				SetDead("A player sent a malformed packet.");
+				SetDead(NetText("对方发来的数据包有问题。", "A player sent a malformed packet.").c_str());
 				return;
 			}
 
@@ -1508,7 +1518,7 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 			NetProto::MsgRunGo aMsg;
 			if (aPayloadSize != RUN_GO_PAYLOAD_SIZE || !NetProto::DecodeRunGo(aPayload, aPayloadSize, aMsg))
 			{
-				SetDead("A player sent a malformed packet.");
+				SetDead(NetText("对方发来的数据包有问题。", "A player sent a malformed packet.").c_str());
 				return;
 			}
 			// 单槽：放行是个状态（"可以开始选了"），连着收到两回只当一回
@@ -1523,7 +1533,7 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 			NetProto::MsgSeedsReady aMsg;
 			if (aPayloadSize != SEEDS_READY_PAYLOAD_SIZE || !NetProto::DecodeSeedsReady(aPayload, aPayloadSize, aMsg))
 			{
-				SetDead("A player sent a malformed packet.");
+				SetDead(NetText("对方发来的数据包有问题。", "A player sent a malformed packet.").c_str());
 				return;
 			}
 			// 席位号得是个真坐在席位上的号：越界 / 本机 / 空位都丢掉这一条（同 LEVEL_DONE 的理由）
@@ -1547,7 +1557,7 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 			NetProto::MsgQuickChat aMsg;
 			if (aPayloadSize != QUICK_CHAT_PAYLOAD_SIZE || !NetProto::DecodeQuickChat(aPayload, aPayloadSize, aMsg))
 			{
-				SetDead("A player sent a malformed packet.");
+				SetDead(NetText("对方发来的数据包有问题。", "A player sent a malformed packet.").c_str());
 				return;
 			}
 			// 席位号越界/空位/本机、或编号越界就丢掉这一条、不断线（防御坏包与构建混搭，
@@ -1601,12 +1611,12 @@ void NetSession::HandleControlFrame(uint16_t theType, const uint8_t* thePayload,
 			NetProto::MsgSrvWelcome aMsg = {};
 			if (!NetProto::DecodeSrvWelcome(thePayload, theSize, aMsg))
 			{
-				SetDead("The server sent a bad roster.", "Server error");
+				SetDead(NetText("服务器发来的名册有问题。", "The server sent a bad roster.").c_str(), NetText("服务器错误", "Server error").c_str());
 				return;
 			}
 			if (aMsg.mVersion != NetProto::PROTOCOL_VERSION)
 			{
-				SetDead("Version mismatch - all players must run the same build.", "Version mismatch");
+				SetDead(NetText("协议版本不一致——所有人必须跑同一版本。", "Version mismatch - all players must run the same build.").c_str(), NetText("协议版本不一致", "Version mismatch").c_str());
 				return;
 			}
 
@@ -1616,7 +1626,7 @@ void NetSession::HandleControlFrame(uint16_t theType, const uint8_t* thePayload,
 				aMsg.mHostSeat < 1 || aMsg.mHostSeat > NetProto::MAX_PLAYERS ||
 				aMsg.mSeatCount < 1 || aMsg.mSeatCount > NetProto::MAX_PLAYERS)
 			{
-				SetDead("The server sent a bad roster.", "Server error");
+				SetDead(NetText("服务器发来的名册有问题。", "The server sent a bad roster.").c_str(), NetText("服务器错误", "Server error").c_str());
 				return;
 			}
 			bool aSawSelf = false;
@@ -1626,7 +1636,7 @@ void NetSession::HandleControlFrame(uint16_t theType, const uint8_t* thePayload,
 				uint8_t aSeat = aMsg.mSeats[i].mSeat;
 				if (aSeat < 1 || aSeat > NetProto::MAX_PLAYERS || aSawSeat[aSeat])
 				{
-					SetDead("The server sent a bad roster.", "Server error");
+					SetDead(NetText("服务器发来的名册有问题。", "The server sent a bad roster.").c_str(), NetText("服务器错误", "Server error").c_str());
 					return;
 				}
 				aSawSeat[aSeat] = true;
@@ -1634,7 +1644,7 @@ void NetSession::HandleControlFrame(uint16_t theType, const uint8_t* thePayload,
 			}
 			if (!aSawSelf)
 			{
-				SetDead("The server sent a bad roster.", "Server error");
+				SetDead(NetText("服务器发来的名册有问题。", "The server sent a bad roster.").c_str(), NetText("服务器错误", "Server error").c_str());
 				return;
 			}
 
@@ -1667,7 +1677,7 @@ void NetSession::HandleControlFrame(uint16_t theType, const uint8_t* thePayload,
 			NetProto::MsgSrvReject aMsg = {};
 			if (!NetProto::DecodeSrvReject(thePayload, theSize, aMsg))
 			{
-				SetDead("The server did not like that request.", "Server error");
+				SetDead(NetText("服务器拒绝了该请求。", "The server did not like that request.").c_str(), NetText("服务器错误", "Server error").c_str());
 				return;
 			}
 
@@ -1675,22 +1685,22 @@ void NetSession::HandleControlFrame(uint16_t theType, const uint8_t* thePayload,
 			switch (aMsg.mReason)
 			{
 			case NetProto::REJECT_PROTOCOL_VERSION:
-				SetDead("Version mismatch - all players must run the same build.", "Version mismatch");
+				SetDead(NetText("协议版本不一致——所有人必须跑同一版本。", "Version mismatch - all players must run the same build.").c_str(), NetText("协议版本不一致", "Version mismatch").c_str());
 				break;
 			case NetProto::REJECT_ROOM_NOT_FOUND:
-				SetDead("No such room - check the room code.", "Room not found");
+				SetDead(NetText("没有这个房间——请核对房间码。", "No such room - check the room code.").c_str(), NetText("房间不存在", "Room not found").c_str());
 				break;
 			case NetProto::REJECT_ROOM_FULL:
-				SetDead("That room is full.", "Room full");
+				SetDead(NetText("房间满了。", "That room is full.").c_str(), NetText("房间已满", "Room full").c_str());
 				break;
 			case NetProto::REJECT_BAD_CODE:
-				SetDead("Bad room code - it is 4 letters and digits.", "Bad room code");
+				SetDead(NetText("房间码不对——应是 4 位字母或数字。", "Bad room code - it is 4 letters and digits.").c_str(), NetText("房间码不对", "Bad room code").c_str());
 				break;
 			case NetProto::REJECT_SERVER_BUSY:
-				SetDead("The server is busy - try again later.", "Server busy");
+				SetDead(NetText("服务器忙——请稍后再试。", "The server is busy - try again later.").c_str(), NetText("服务器繁忙", "Server busy").c_str());
 				break;
 			default:
-				SetDead("The server did not like that request.", "Server said no");
+				SetDead(NetText("服务器拒绝了该请求。", "The server did not like that request.").c_str(), NetText("服务器拒绝", "Server said no").c_str());
 				break;
 			}
 			TodLog("[net] the server turned us down (reason %u)", (unsigned)aMsg.mReason);
@@ -1705,7 +1715,7 @@ void NetSession::HandleControlFrame(uint16_t theType, const uint8_t* thePayload,
 			NetProto::MsgSrvPeerJoin aMsg = {};
 			if (!NetProto::DecodeSrvPeerJoin(thePayload, theSize, aMsg))
 			{
-				SetDead("The server sent a malformed packet.", "Server error");
+				SetDead(NetText("服务器发来的数据包有问题。", "The server sent a malformed packet.").c_str(), NetText("服务器错误", "Server error").c_str());
 				return;
 			}
 			if (aMsg.mSeat < 1 || aMsg.mSeat > NetProto::MAX_PLAYERS || aMsg.mSeat == mLocalSeat)
@@ -1737,7 +1747,7 @@ void NetSession::HandleControlFrame(uint16_t theType, const uint8_t* thePayload,
 			NetProto::MsgSrvPeerLeave aMsg = {};
 			if (!NetProto::DecodeSrvPeerLeave(thePayload, theSize, aMsg))
 			{
-				SetDead("The server sent a malformed packet.", "Server error");
+				SetDead(NetText("服务器发来的数据包有问题。", "The server sent a malformed packet.").c_str(), NetText("服务器错误", "Server error").c_str());
 				return;
 			}
 			if (aMsg.mSeat < 1 || aMsg.mSeat > NetProto::MAX_PLAYERS || aMsg.mSeat == mLocalSeat)
@@ -1771,14 +1781,14 @@ void NetSession::HandleControlFrame(uint16_t theType, const uint8_t* thePayload,
 			NetProto::MsgSrvRoomClosed aMsg = {};
 			if (!NetProto::DecodeSrvRoomClosed(thePayload, theSize, aMsg))
 			{
-				SetDead("The room was closed.", "Room closed");
+				SetDead(NetText("房间已关闭。", "The room was closed.").c_str(), NetText("房间已关闭", "Room closed").c_str());
 				return;
 			}
 
 			if (aMsg.mReason == NetProto::ROOM_CLOSED_HOST_LEFT)
-				SetDead("The host left - the room is closed.", "Host left");
+				SetDead(NetText("房主离开了——房间已关闭。", "The host left - the room is closed.").c_str(), NetText("房主离开", "Host left").c_str());
 			else
-				SetDead("The server closed the room.", "Room closed");
+				SetDead(NetText("服务器关闭了房间。", "The server closed the room.").c_str(), NetText("房间已关闭", "Room closed").c_str());
 		}
 		return;
 
@@ -1790,7 +1800,7 @@ void NetSession::HandleControlFrame(uint16_t theType, const uint8_t* thePayload,
 			NetProto::MsgSeatSwap aMsg = {};
 			if (!NetProto::DecodeSeatSwap(thePayload, theSize, aMsg))
 			{
-				SetDead("The server sent a malformed packet.", "Server error");
+				SetDead(NetText("服务器发来的数据包有问题。", "The server sent a malformed packet.").c_str(), NetText("服务器错误", "Server error").c_str());
 				return;
 			}
 			if (aMsg.mSeatA < 1 || aMsg.mSeatA > NetProto::MAX_PLAYERS ||
@@ -1816,7 +1826,7 @@ void NetSession::HandleControlFrame(uint16_t theType, const uint8_t* thePayload,
 			// 空载荷。收到什么别的话说明对面不是我们的服务器，别答理。
 			if (theSize != 0)
 			{
-				SetDead("The server sent a malformed packet.", "Server error");
+				SetDead(NetText("服务器发来的数据包有问题。", "The server sent a malformed packet.").c_str(), NetText("服务器错误", "Server error").c_str());
 				return;
 			}
 			// 回一句就够：服务器靠它知道我还在，本地靠它刷新"对面还活着"的计时

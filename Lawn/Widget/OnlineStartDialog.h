@@ -13,7 +13,8 @@ class LawnStoneButton;
 // 自 2026-10-03 语言批起走 ModText 的宽字符直绘（UTF-8 → UTF-16 → TextOutW，与系统码页
 // 脱钩）；此前是 SysFont + Utf8ToAnsi（转本机码页再 TextOutA），已并入 Lawn/ModText，
 // 这条路先用 tools/cjk_probe 单独验证过（仓库外，不进版本库）。
-// 按钮是石材按钮的原画法，只是标签绘制换成 ModText 宽字符（原版 DrawStoneButton 把字体写死成位图字体）。
+// 按钮是石材按钮的原画法（CjkStoneButton，见 CjkStoneButton.h）：中文档标签走 ModText
+// 宽字符直绘，英文档回落到原版位图字体的绿字内嵌样式。
 class OnlineStartDialog : public LawnDialog
 {
 public:

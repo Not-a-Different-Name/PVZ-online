@@ -1,4 +1,6 @@
 #include "OnlineStatusWidget.h"
+#include "CjkStoneButton.h"
+#include "../ModText.h"
 #include "../Online/NetSession.h"
 #include "../System/PlayerInfo.h"
 #include "../../LawnApp.h"
@@ -11,6 +13,49 @@ namespace
 	const int	CHIP_PAD_Y		= 5;
 	const int	CHIP_LINES		= NetProto::MAX_PLAYERS + 2;	// 标题 + 每席位一行 + 状态
 	const int	TITLE_GAP		= 12;		// 标题和后面那截 IP 之间的空当
+
+	// @pvz-online 语言批（2026-10-03）：中文档整条走 ModText 宽字符直绘（位图字体没有
+	// 汉字字形），英文档保持原位图字体原样。量宽/行距/首行基线三个量度都按当前语言取，
+	// Update 的排布与 Draw 的落笔共用这几个函数——两边各算各的迟早对不上。
+	// 字号取 12：与小条位图字体（DwarvenTodCraft12）的名义字号同档，行距也接近，
+	// 切语言时小条不会明显跳高跳矮。
+	#define CHIP_CJK_PX 12
+
+	ModText::Font* ChipCjkFont() { return ModText::GetFont(CjkPointSize(CHIP_CJK_PX), false); }
+
+	int ChipTextWidth(const std::string& theText)
+	{
+		if (!ModText::IsChinese()) return FONT_DWARVENTODCRAFT12->StringWidth(theText);
+		return ModText::TextWidth(ChipCjkFont(), ModText::WideFromUtf8(theText.c_str()));
+	}
+
+	int ChipLineStep()
+	{
+		if (!ModText::IsChinese()) return FONT_DWARVENTODCRAFT12->GetLineSpacing();
+		return ModText::LineHeight(ChipCjkFont());
+	}
+
+	int ChipFirstBaseline()
+	{
+		if (!ModText::IsChinese()) return CHIP_PAD_Y + FONT_DWARVENTODCRAFT12->GetAscent();
+		return CHIP_PAD_Y + ModText::Ascent(ChipCjkFont());
+	}
+
+	// theBaseline 是行基线：两种画法对到同一条线上（位图字体按自己的基线落笔，宽字符
+	// 用 顶 = 基线 - Ascent 换算，ModText 的顶对齐口径）。颜色由调用方给。
+	void ChipDrawText(Graphics* g, const std::string& theText, int theX, int theBaseline, const Color& theColor)
+	{
+		g->SetColor(theColor);
+		if (!ModText::IsChinese())
+		{
+			g->SetFont(FONT_DWARVENTODCRAFT12);
+			g->DrawString(theText, theX, theBaseline);
+			return;
+		}
+		ModText::Font* aFont = ChipCjkFont();
+		ModText::DrawTextWide(g, aFont, theX, theBaseline - ModText::Ascent(aFont),
+			ModText::WideFromUtf8(theText.c_str()), theColor, g->mClipRect);
+	}
 }
 
 OnlineStatusWidget::OnlineStatusWidget(LawnApp* theApp)
@@ -45,20 +90,21 @@ void OnlineStatusWidget::Update()
 
 	// 宽度按六行里最宽的那行量出来：状态行有长有短（"Hosting - waiting for player" 最长），
 	// 名字那行还看玩家自己叫什么，写死宽度不是勒着字就是留一大块空底。
-	int aWidth = FONT_DWARVENTODCRAFT12->StringWidth(GetTitleLine());
+	// （语言批：量宽走 ChipTextWidth，中文档按宽字符量。）
+	int aWidth = ChipTextWidth(GetTitleLine());
 	std::string aTitleTag = GetTitleTagText();
 	if (!aTitleTag.empty())
-		aWidth += TITLE_GAP + FONT_DWARVENTODCRAFT12->StringWidth(aTitleTag);
+		aWidth += TITLE_GAP + ChipTextWidth(aTitleTag);
 	for (int aSeat = 1; aSeat <= NetProto::MAX_PLAYERS; aSeat++)
 	{
-		int aSeatWidth = FONT_DWARVENTODCRAFT12->StringWidth(GetSeatLine(aSeat));
+		int aSeatWidth = ChipTextWidth(GetSeatLine(aSeat));
 		if (aSeatWidth > aWidth) aWidth = aSeatWidth;
 	}
-	int aStateWidth = FONT_DWARVENTODCRAFT12->StringWidth(GetStateLine());
+	int aStateWidth = ChipTextWidth(GetStateLine());
 	if (aStateWidth > aWidth) aWidth = aStateWidth;
 	aWidth += CHIP_PAD_X * 2;
 
-	int aHeight = CHIP_PAD_Y * 2 + FONT_DWARVENTODCRAFT12->GetLineSpacing() * CHIP_LINES;
+	int aHeight = CHIP_PAD_Y * 2 + ChipLineStep() * CHIP_LINES;
 	if (aWidth != mWidth || aHeight != mHeight)
 		Resize(mX, mY, aWidth, aHeight);
 }
@@ -74,21 +120,18 @@ void OnlineStatusWidget::Draw(Graphics* g)
 	g->SetColor(Color(255, 255, 255, 60));
 	g->DrawRect(0, 0, mWidth, mHeight);
 
-	g->SetFont(FONT_DWARVENTODCRAFT12);
-	int aLineY = CHIP_PAD_Y + FONT_DWARVENTODCRAFT12->GetAscent();
-	int aLineHeight = FONT_DWARVENTODCRAFT12->GetLineSpacing();
+	int aLineY = ChipFirstBaseline();		// 首行基线（语言批：两种字体各自的基线口径）
+	int aLineHeight = ChipLineStep();
 
 	std::string aTitle = GetTitleLine();
-	g->SetColor(Color(255, 208, 80));
-	g->DrawString(aTitle, CHIP_PAD_X, aLineY);
+	ChipDrawText(g, aTitle, CHIP_PAD_X, aLineY, Color(255, 208, 80));
 
 	// 标题后面挂一串字：中继挂房间码（念给朋友 / 核对进对了没有），直连挂主机 IP
 	std::string aTitleTag = GetTitleTagText();
 	if (!aTitleTag.empty())
 	{
-		g->SetColor(Color(160, 200, 255));
-		g->DrawString(aTitleTag,
-			CHIP_PAD_X + FONT_DWARVENTODCRAFT12->StringWidth(aTitle) + TITLE_GAP, aLineY);
+		ChipDrawText(g, aTitleTag, CHIP_PAD_X + ChipTextWidth(aTitle) + TITLE_GAP, aLineY,
+			Color(160, 200, 255));
 	}
 
 	// 名册：位子全部画满，从上到下就是顺位。自己在最亮那行，空位压暗——
@@ -96,18 +139,18 @@ void OnlineStatusWidget::Draw(Graphics* g)
 	for (int aSeat = 1; aSeat <= NetProto::MAX_PLAYERS; aSeat++)
 	{
 		aLineY += aLineHeight;
+		Color aColor;
 		if (aSession->GetLocalSeat() == aSeat)
-			g->SetColor(Color(255, 255, 255));
+			aColor = Color(255, 255, 255);
 		else if (aSession->IsSeatOccupied((uint8_t)aSeat))
-			g->SetColor(Color(205, 230, 255));
+			aColor = Color(205, 230, 255);
 		else
-			g->SetColor(Color(150, 150, 150));
-		g->DrawString(GetSeatLine(aSeat), CHIP_PAD_X, aLineY);
+			aColor = Color(150, 150, 150);
+		ChipDrawText(g, GetSeatLine(aSeat), CHIP_PAD_X, aLineY, aColor);
 	}
 
 	aLineY += aLineHeight;
-	g->SetColor(Color(255, 255, 255));
-	g->DrawString(GetStateLine(), CHIP_PAD_X, aLineY);
+	ChipDrawText(g, GetStateLine(), CHIP_PAD_X, aLineY, Color(255, 255, 255));
 }
 
 void OnlineStatusWidget::MouseUp(int x, int y, int theClickCount)
@@ -121,7 +164,8 @@ void OnlineStatusWidget::MouseUp(int x, int y, int theClickCount)
 
 std::string OnlineStatusWidget::GetTitleLine()
 {
-	return "CO-OP ONLINE";
+	// 语言批：标题跟着 UI 语言走（中文档是小条唯一的"这是什么"说明）
+	return ModText::Tr("联机合作", "CO-OP ONLINE");
 }
 
 // 标题后缀：中继挂房间码（两边都挂——房主要念得出来，队友要核对进对没进对）；
@@ -134,7 +178,7 @@ std::string OnlineStatusWidget::GetTitleTagText()
 	{
 		std::string aCode = aSession->GetRoomCode();
 		if (aCode.empty()) return "";
-		return "Room " + aCode;
+		return ModText::Tr("房间 ", "Room ") + aCode;
 	}
 	if (aSession->GetRole() != NetSession::Role::HOST) return "";
 	return mIpText;
@@ -154,12 +198,13 @@ std::string OnlineStatusWidget::GetSeatLine(int theSeat)
 	std::string aName = aSession->GetSeatName((uint8_t)theSeat);
 	// 名字一个能画的字形都没有（比如玩家建档时敲的是中文）时，自己那行还有 (you)
 	// 顶着，队友那行就得直说没名字，免得看着像个占了位子又不说话的鬼影。
+	// （语言批：名字是玩家数据原样，只有这两处标签跟着 UI 语言走。）
 	if (aName.empty() && !aMine)
-		aName = "(no name)";
+		aName = ModText::Tr("（无名）", "(no name)");
 	if (!aName.empty())
 		aText += "  " + aName;
 	if (aMine)
-		aText += " (you)";
+		aText += ModText::Tr("（你）", " (you)");
 	return aText;
 }
 
@@ -173,14 +218,14 @@ std::string OnlineStatusWidget::GetStateLine()
 	// 主机按了关卡、正等队友就位。这时候会话还是 CONNECTED，不单独说一句的话
 	// 小条还写着 "pick a level"，看着像压根没点上。六席位时等的是所有还没到的人。
 	if (mApp->IsOnlineWaitingStartAck())
-		return "Starting - waiting for players";
+		return ModText::Tr("开始中——等待队友就位", "Starting - waiting for players");
 
 	// 换位这件事有来有回，两种"等"得分开说：对面问我（面板会自动叫出来，
 	// 但玩家也能把它关掉，关了就靠这行提醒），还是我在等对面回话。
 	if (aSession->HasIncomingSwapRequest())
-		return "Swap request - open the panel";
+		return ModText::Tr("有人请求换位——打开面板", "Swap request - open the panel");
 	if (aSession->IsSwapRequestPending())
-		return "Swap asked - waiting";
+		return ModText::Tr("换位请求已发出——等待中", "Swap asked - waiting");
 
 	// 刚发生的事（换成了 / 被拒绝了）优先占几秒
 	if (!aSession->GetNoticeText().empty())
@@ -191,33 +236,38 @@ std::string OnlineStatusWidget::GetStateLine()
 	case NetSession::State::LISTENING:
 		// 队伍里只有我一个人也能开局（单人闯关），所以这行的重点不是"等人"，
 		// 而是"下一步点哪"——主位那块烤字 ADVENTURE 的大墓碑就是闯关入口。
-		return "Hosting - click Adventure to start";
+		return ModText::Tr("已建房——点大墓碑开始闯关", "Hosting - click Adventure to start");
 
 	case NetSession::State::CONNECTING:
 		{
 			// 连不上会一直重试，重试次数得露出来，不然"还在试"看着和"卡死了"一样。
 			// 中继下连的是服务器不是对面那台机器，说法得区分开（失败原因也完全是两码事）。
 			int anAttempts = aSession->GetConnectAttempts();
-			std::string aText = aSession->IsRelay() ? "Connecting to server" : "Connecting";
+			std::string aText = aSession->IsRelay()
+				? ModText::Tr("正在连接服务器", "Connecting to server")
+				: ModText::Tr("正在连接", "Connecting");
 			if (anAttempts > 1)
-				aText += " (attempt " + std::to_string((unsigned)anAttempts) + ")";
+				aText += ModText::Tr("（第 ", " (attempt ")
+					+ std::to_string((unsigned)anAttempts) + ModText::Tr(" 次重试）", ")");
 			return aText;
 		}
 
 	case NetSession::State::HANDSHAKING:
 		// 中继的握手是等服务器点名（建房 / 加入的回音），不是和对面互通姓名
 		if (aSession->IsRelay())
-			return (aSession->GetRole() == NetSession::Role::HOST) ? "Creating room" : "Joining room";
-		return "Handshaking";
+			return (aSession->GetRole() == NetSession::Role::HOST)
+				? ModText::Tr("正在创建房间", "Creating room")
+				: ModText::Tr("正在加入房间", "Joining room");
+		return ModText::Tr("握手中", "Handshaking");
 
 	case NetSession::State::CONNECTED:
 		// 构建代次不同也能玩（12 起不再拒连，见 NetSession 握手处），但得一直看得见——
 		// 等真撞上不配套的行为再想起来"该更新了"就晚了
 		if (aSession->IsBuildDifferent())
-			return "Builds differ - connected";
+			return ModText::Tr("构建版本不同——已连接", "Builds differ - connected");
 		return (aSession->GetRole() == NetSession::Role::HOST)
-			? "Host - pick a level"
-			: "Client - waiting for host";
+			? ModText::Tr("主机——请选关卡", "Host - pick a level")
+			: ModText::Tr("客户端——等待主机", "Client - waiting for host");
 
 	case NetSession::State::DEAD:
 		// 死因用会话给的短标签：版本/构建不符这类"要你动手换包"的原因，

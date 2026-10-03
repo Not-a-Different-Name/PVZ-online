@@ -1,5 +1,5 @@
 #include "OnlineStartDialog.h"
-#include "GameButton.h"
+#include "CjkStoneButton.h"
 #include "../../LawnApp.h"
 #include "../../Resources.h"
 #include "../../ConstEnums.h"
@@ -21,18 +21,9 @@
 // （-MulDiv(pt, GetDeviceCaps(LOGPIXELSY), 72)），150% 缩放（144 DPI）下写死的点值
 // 会被放大出近 2 倍——公告（9 行正文）的弹窗正是这样被撑到 800×600 之外、"知道了"
 // 按钮掉出屏幕。所以这里反着折算，让最终落地的像素高与 DPI 无关。字号只在这两档上用。
+// （CjkPointSize / 石材按钮的宽字符画法已提取到 CjkStoneButton.h，联机面板共用一份。）
 #define CJK_TITLE_PX 22
 #define CJK_BODY_PX 20
-
-static int CjkPointSize(int thePixelHeight)
-{
-	HDC aDC = ::GetDC(gSexyAppBase->mHWnd);
-	int aDpi = GetDeviceCaps(aDC, LOGPIXELSY);
-	::ReleaseDC(gSexyAppBase->mHWnd, aDC);
-	if (aDpi <= 0) aDpi = 96;
-	int aPointSize = (thePixelHeight * 72 + aDpi / 2) / aDpi;
-	return aPointSize < 1 ? 1 : aPointSize;
-}
 
 // 正文支持 '\n' 手动分行（启动公告那种多行说明；单行文本 = 一行，老面孔不受影响）。
 // '\n' 是 ASCII：UTF-8 字节流里 0x0A 不会出现在多字节序列内部，按字节数行天然安全。
@@ -70,80 +61,6 @@ static int BodyBlockHeight(ModText::Font* theFont, int theLineCount)
 	int aLineHeight = ModText::LineHeight(theFont);
 	return aLineHeight + (theLineCount - 1) * (aLineHeight + BODY_LINE_GAP);
 }
-
-// 石材按钮是"左端贴图 + 中段贴图 × n + 右端贴图"平铺画的（见 CjkStoneButton::Draw），
-// 宽度必须正好是这三段的和；随手给个宽度的话平铺铺不满，画出来的石头比控件窄一截，
-// 标签按控件宽居中就会整体偏右（字越多越显得贴边）。原版 LawnDialog::Resize 也做同款
-// 取整："不足中部贴图宽度的部分补充至中部贴图宽度"。
-static int StoneButtonWidth(int theWidth, bool theRoundUp)
-{
-	int aMid = Sexy::IMAGE_BUTTON_MIDDLE->mWidth;
-	int aMin = Sexy::IMAGE_BUTTON_LEFT->mWidth + Sexy::IMAGE_BUTTON_RIGHT->mWidth;
-	int anExtra = theWidth - aMin;
-	if (anExtra < 0)
-	{
-		anExtra = 0;
-	}
-	else if (aMid > 0)
-	{
-		int aRemainder = anExtra % aMid;
-		if (aRemainder != 0)
-		{
-			if (theRoundUp) anExtra += aMid - aRemainder;
-			else anExtra -= aRemainder;
-		}
-	}
-	int aWidth = aMin + anExtra;
-	int aFloor = aMin + aMid;   // 至少带一个中段：光两块端头拼不成石头
-	return aWidth < aFloor ? aFloor : aWidth;
-}
-
-// 石材按钮 + 中文标签：原版 DrawStoneButton 把标签字体写死成位图字体（没有汉字），
-// 这里照抄它的画法（贴图平铺、按下位移、居中），只把标签绘制换成 ModText 宽字符。
-class CjkStoneButton : public LawnStoneButton
-{
-public:
-	CjkStoneButton(int theId, ButtonListener* theListener) : LawnStoneButton(nullptr, theId, theListener) { }
-
-	virtual void Draw(Graphics* g)
-	{
-		if (mBtnNoDraw) return;
-
-		bool aDown = (mIsDown && mIsOver && !mDisabled) ^ mInverted;
-		Image* aLeftImage = aDown ? Sexy::IMAGE_BUTTON_DOWN_LEFT : Sexy::IMAGE_BUTTON_LEFT;
-		Image* aMiddleImage = aDown ? Sexy::IMAGE_BUTTON_DOWN_MIDDLE : Sexy::IMAGE_BUTTON_MIDDLE;
-		Image* aRightImage = aDown ? Sexy::IMAGE_BUTTON_DOWN_RIGHT : Sexy::IMAGE_BUTTON_RIGHT;
-
-		int aFontX = 0;
-		int aFontY = 0;
-		int aImageX = 0;
-		if (aDown)
-		{
-			aFontX++;
-			aFontY++;
-			aImageX++;
-		}
-
-		int aRepeat = (mWidth - aLeftImage->mWidth - aRightImage->mWidth) / aMiddleImage->mWidth;
-		g->DrawImage(aLeftImage, aImageX, 0);
-		aImageX += aLeftImage->mWidth;
-		while (aRepeat > 0)
-		{
-			g->DrawImage(aMiddleImage, aImageX, 0);
-			aImageX += aMiddleImage->mWidth;
-			--aRepeat;
-		}
-		g->DrawImage(aRightImage, aImageX, 0);
-
-		// 标签是 UTF-8 原样（SetLabel 收的也是原样字节），绘制现转宽字符（顶对齐）
-		ModText::Font* aFont = ModText::GetFont(CjkPointSize(CJK_BODY_PX), false);
-		std::wstring aLabel = ModText::WideFromUtf8(mLabel.c_str());
-		aFontX += (mWidth - ModText::TextWidth(aFont, aLabel)) / 2;
-		aFontY += (mHeight - ModText::LineHeight(aFont)) / 2;
-		ModText::DrawTextWide(g, aFont, aFontX, aFontY, aLabel,
-			mIsOver ? Color(0x9B, 0xF0, 0x60) : Color(0x2F, 0x6B, 0x2B), g->mClipRect);
-	}
-};
 
 OnlineStartDialog::OnlineStartDialog(LawnApp* theApp, const char* theTitleUtf8, const char* theBodyUtf8,
 	const char* theYesUtf8, const char* theNoUtf8, Notify theNotify) : LawnDialog(
@@ -193,14 +110,14 @@ OnlineStartDialog::OnlineStartDialog(LawnApp* theApp, const char* theTitleUtf8, 
 	{
 		// 版心也得放得下整行按钮：按最长的一条标签定每枚按钮的宽度（两侧各留 16），
 		// 取整到石材贴图的整段，整行（含间距）反过来把版心撑够——不够宽的话标签会
-		// 贴着按钮边、看着像溢出（见 StoneButtonWidth 与 Resize）。
+		// 贴着按钮边、看着像溢出（见 CjkStoneButtonWidth 与 Resize）。
 		int aButtonWidth = 0;
 		for (int i = 0; i < mButtonCount; i++)
 		{
 			int aLabelWidth = ModText::TextWidth(aBodyFont, ModText::WideFromUtf8(mButtons[i]->mLabel.c_str())) + 32;
 			if (aLabelWidth > aButtonWidth) aButtonWidth = aLabelWidth;
 		}
-		aButtonWidth = StoneButtonWidth(aButtonWidth, true);
+		aButtonWidth = CjkStoneButtonWidth(aButtonWidth, true);
 
 		int aButtonsWidth = aButtonWidth * mButtonCount + BUTTON_GAP * (mButtonCount - 1);
 		if (aButtonsWidth > anExtraX) anExtraX = aButtonsWidth;
@@ -247,7 +164,7 @@ void OnlineStartDialog::Resize(int theX, int theY, int theWidth, int theHeight)
 		// 宽度取整到石材贴图的整段（平铺铺满，标签按控件宽居中才等于在石头上居中）；
 		// 向下取整保证整行放得进版心（构造时保证过版心至少有这么宽）。
 		int anAvailable = (aContentWidth - BUTTON_GAP * (mButtonCount - 1)) / mButtonCount;
-		int aButtonWidth = StoneButtonWidth(anAvailable, false);
+		int aButtonWidth = CjkStoneButtonWidth(anAvailable, false);
 		int aButtonsWidth = aButtonWidth * mButtonCount + BUTTON_GAP * (mButtonCount - 1);
 
 		// 版心比整行宽时（CalcSize 会把对话框再撑大）多出来的空白左右对半分

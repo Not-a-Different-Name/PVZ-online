@@ -1,6 +1,8 @@
 #include "OnlineDialog.h"
+#include "CjkStoneButton.h"
 #include "GameButton.h"
 #include "../LawnCommon.h"
+#include "../ModText.h"
 #include "../Online/NetSession.h"
 #include "../../LawnApp.h"
 #include "../../Resources.h"
@@ -18,7 +20,9 @@ namespace
 	// 所以标签得在 mX-8 之前收尾。15 号字体实测 "Host IP"=67px、"Server"=53px、"Code"=38px，
 	// 配上 +4 的起始偏移，宽度至少 79 / 65 / 50 —— 56 和 42 会让字尾被框体切掉（"Host"/"Cod"）。
 	const int	LABEL_WIDTH		= 84;	// 输入框左边留给 "Host IP" / "Server" 标签的宽度
-	const int	CODE_LABEL_WIDTH = 54;	// 中继那行 "Code" 标签
+	// 中继那行 "Code" / 「房间码」标签。中文档三个汉字约 48px（16 号宽字符），起始偏移 +4、
+	// 框体还要从 mX-8 起画——54 只够英文，中文会把字尾切掉（"房间码"剩下半截）。
+	const int	CODE_LABEL_WIDTH = 76;
 	const int	CODE_EDIT_WIDTH	= 66;	// 房间码框：4 个字符 + 光标
 	const int	COL_GAP			= 8;
 
@@ -72,23 +76,81 @@ namespace
 		aWidget->mBlinkDelay = 14;
 		return aWidget;
 	}
+
+	// @pvz-online 语言批（2026-10-03）：面板的正文/名册/标签双语。中文档整块走 ModText
+	// 宽字符直绘（位图字体没有汉字字形），英文档保持原位图字体原样。排版骨架（行距/行位/
+	// 居中）两种语言共用位图字体的量度——中文只在落笔时把"基线"换算成"顶 = 基线 - Ascent"
+	// （ModText 的顶对齐口径），切语言面板不会跳版。
+	#define ONLINE_CJK_PX 16		// 与正文位图字体（DwarvenTodCraft15）名义字号同档
+	#define ONLINE_CJK_TITLE_PX 22	// 标题档，与联机弹窗（OnlineStartDialog）同一档
+	#define ONLINE_CJK_MIN_PX 10	// 长行缩字号的下限（再小就没法读了）
+
+	ModText::Font* OnlineTextFont() { return ModText::GetFont(CjkPointSize(ONLINE_CJK_PX), false); }
+
+	// 中文行太长时按可用宽度反比缩字号：状态行/提示行能长到三十多个汉字（"两边构建版本
+	// 不同…"、"…这里漏怪会直接判全队失败。"），不缩就会顶出对话框边框。基线仍落在同一条
+	// 线上，缩了字号也不会跳行。
+	ModText::Font* OnlineFitFont(const std::wstring& theText, int theMaxWidth)
+	{
+		ModText::Font* aFont = OnlineTextFont();
+		int aWidth = ModText::TextWidth(aFont, theText);
+		if (theMaxWidth <= 0 || aWidth <= theMaxWidth || aWidth <= 0) return aFont;
+
+		int aPx = ONLINE_CJK_PX * theMaxWidth / aWidth;
+		if (aPx < ONLINE_CJK_MIN_PX) aPx = ONLINE_CJK_MIN_PX;
+		return ModText::GetFont(CjkPointSize(aPx), false);
+	}
+
+	// 落一行正文。theBaseline 是行基线：位图字体按自己的基线落笔，宽字符用换算后的顶。
+	// theMaxWidth 只对中文档生效（英文那套版面本来就是按位图字体量出来的）。
+	void OnlineDrawText(Graphics* g, const std::string& theUtf8, int theX, int theBaseline,
+		const Color& theColor, int theMaxWidth)
+	{
+		g->SetColor(theColor);
+		if (!ModText::IsChinese())
+		{
+			g->DrawString(theUtf8, theX, theBaseline);
+			return;
+		}
+		std::wstring aWide = ModText::WideFromUtf8(theUtf8.c_str());
+		ModText::Font* aFont = OnlineFitFont(aWide, theMaxWidth);
+		ModText::DrawTextWide(g, aFont, theX, theBaseline - ModText::Ascent(aFont),
+			aWide, theColor, g->mClipRect);
+	}
+
+	// 面板的按钮：MakeButton 同款外观（按下位移/透明/33 高），换成 CjkStoneButton——
+	// 中文档标签走宽字符直绘，英文档回落到原版位图字体的绿字内嵌画法。
+	CjkStoneButton* MakeOnlineButton(int theId, ButtonListener* theListener, const char* theLabelUtf8)
+	{
+		CjkStoneButton* aButton = new CjkStoneButton(theId, theListener);
+		aButton->SetLabel(theLabelUtf8);
+		aButton->mTranslateX = 1;
+		aButton->mTranslateY = 1;
+		aButton->mHasAlpha = true;
+		aButton->mHasTransparencies = true;
+		aButton->mHeight = 33;
+		return aButton;
+	}
 }
 
 OnlineDialog::OnlineDialog(LawnApp* theApp) :
-	LawnDialog(theApp, Dialogs::DIALOG_ONLINE, true, _S("CO-OP ONLINE"), _S(""), _S(""), Dialog::BUTTONS_NONE)
+	LawnDialog(theApp, Dialogs::DIALOG_ONLINE, true,
+		ModText::IsChinese() ? _S("") : _S("CO-OP ONLINE"), _S(""), _S(""), Dialog::BUTTONS_NONE)
 {
 	mApp = theApp;
 	mVerticalCenterText = false;
 
-	mHostButton = MakeButton(OnlineDialog::OnlineDialog_Host, this, _S("Host"));
-	mJoinButton = MakeButton(OnlineDialog::OnlineDialog_Join, this, _S("Join"));
-	mCloseButton = MakeButton(OnlineDialog::OnlineDialog_Close, this, _S("Close"));
-	mDisconnectButton = MakeButton(OnlineDialog::OnlineDialog_Disconnect, this, _S("Disconnect"));
-	mSwapButton = MakeButton(OnlineDialog::OnlineDialog_Swap, this, _S("Swap"));
-	mAcceptButton = MakeButton(OnlineDialog::OnlineDialog_Accept, this, _S("Accept"));
-	mRejectButton = MakeButton(OnlineDialog::OnlineDialog_Reject, this, _S("Reject"));
-	mCreateRoomButton = MakeButton(OnlineDialog::OnlineDialog_CreateRoom, this, _S("Create Room"));
-	mJoinRoomButton = MakeButton(OnlineDialog::OnlineDialog_JoinRoom, this, _S("Join Room"));
+	// 语言批：中文档标题给 LawnDialog 传空串（位图字体画不了汉字），改由 Draw 里用
+	// ModText 宽字符自绘；英文档照旧走原版标题。
+	mHostButton = MakeOnlineButton(OnlineDialog::OnlineDialog_Host, this, ModText::Tr("开房", "Host"));
+	mJoinButton = MakeOnlineButton(OnlineDialog::OnlineDialog_Join, this, ModText::Tr("加入", "Join"));
+	mCloseButton = MakeOnlineButton(OnlineDialog::OnlineDialog_Close, this, ModText::Tr("关闭", "Close"));
+	mDisconnectButton = MakeOnlineButton(OnlineDialog::OnlineDialog_Disconnect, this, ModText::Tr("断开", "Disconnect"));
+	mSwapButton = MakeOnlineButton(OnlineDialog::OnlineDialog_Swap, this, ModText::Tr("换位", "Swap"));
+	mAcceptButton = MakeOnlineButton(OnlineDialog::OnlineDialog_Accept, this, ModText::Tr("同意", "Accept"));
+	mRejectButton = MakeOnlineButton(OnlineDialog::OnlineDialog_Reject, this, ModText::Tr("拒绝", "Reject"));
+	mCreateRoomButton = MakeOnlineButton(OnlineDialog::OnlineDialog_CreateRoom, this, ModText::Tr("创建房间", "Create Room"));
+	mJoinRoomButton = MakeOnlineButton(OnlineDialog::OnlineDialog_JoinRoom, this, ModText::Tr("加入房间", "Join Room"));
 
 	// 直连那格的过滤和 Server 同一套（原来挂的 AllowChar 是死钩子，从来没被调过）
 	mIpEditWidget = CreateOnlineEditWidget(OnlineDialog::OnlineDialog_IpEdit, this, this,
@@ -105,7 +167,7 @@ OnlineDialog::OnlineDialog(LawnApp* theApp) :
 		OnlineEditWidget::FILTER_CODE);
 	mCodeEditWidget->mMaxChars = NetProto::ROOM_CODE_LEN;
 
-	mStatusLine = "Not connected.";
+	mStatusLine = ModText::Tr("未连接。", "Not connected.");
 	mHintLine = "";
 	mLocalIpLoaded = false;
 
@@ -240,8 +302,9 @@ void OnlineDialog::Update()
 	}
 	else
 	{
-		mStatusLine = "Not connected.";
-		mHintLine = "Host or join a team, then click Adventure.";
+		mStatusLine = ModText::Tr("未连接。", "Not connected.");
+		mHintLine = ModText::Tr("先开一间房或加入队伍，再点主菜单的大墓碑开始闯关。",
+			"Host or join a team, then click Adventure.");
 	}
 
 	// 中继：房间码一回来就写进 Code 框。房主那格是自己没有的（由服务器生成），
@@ -261,7 +324,8 @@ void OnlineDialog::Update()
 	// 不然状态行还写着 "Pick a level from the menu"，看着像那一下没点上。
 	// 说法不点"那一个队友"：六席位时等的是所有人（ACK 全部到齐才进场，见 START_ACK）。
 	if (mApp->IsOnlineWaitingStartAck())
-		mStatusLine = "Starting - waiting for everyone to get ready.";
+		mStatusLine = ModText::Tr("开始中——等待所有队友就位。",
+			"Starting - waiting for everyone to get ready.");
 
 	mHostButton->SetDisabled(anActive);
 	mJoinButton->SetDisabled(anActive);
@@ -297,21 +361,55 @@ void OnlineDialog::Draw(Graphics* g)
 	g->SetFont(mLinesFont);
 	g->SetColor(mColors[Dialog::COLOR_LINES]);
 
+	// 语言批：中文档标题也不是位图字体画得了的——构造时给 LawnDialog 传的是空串，
+	// 这里自己画一条。位置照抄 LawnDialog::Draw 的标题基线（顶 = 基线 - Ascent）。
+	if (ModText::IsChinese())
+	{
+		ModText::Font* aTitleFont = ModText::GetFont(CjkPointSize(ONLINE_CJK_TITLE_PX), true);
+		std::wstring aTitle = ModText::WideFromUtf8("联机合作");
+		int aTitleY = mContentInsets.mTop + mBackgroundInsets.mTop + DIALOG_HEADER_OFFSET
+			- mHeaderFont->GetAscentPadding() + mHeaderFont->GetAscent();
+		ModText::DrawTextWide(g, aTitleFont, (mWidth - ModText::TextWidth(aTitleFont, aTitle)) / 2,
+			aTitleY - ModText::Ascent(aTitleFont), aTitle, mColors[Dialog::COLOR_HEADER], g->mClipRect);
+	}
+
 	int aLineY = GetStatusBaseline();
-	WriteCenteredLine(g, aLineY, mStatusLine);
-	WriteCenteredLine(g, aLineY + mLinesFont->GetLineSpacing(), mHintLine);
+	DrawStatusLine(g, aLineY, mStatusLine);
+	DrawStatusLine(g, aLineY + mLinesFont->GetLineSpacing(), mHintLine);
 
 	DrawRoomBlock(g);
 
 	g->SetColor(mColors[Dialog::COLOR_LINES]);		// 块里按行换过色，标签的颜色得放回来
-	g->DrawString(_S("Host IP"), mIpEditWidget->mX - LABEL_WIDTH + 4, mIpEditWidget->mY + mLinesFont->GetAscent());
+	OnlineDrawText(g, ModText::Tr("主机 IP", "Host IP"), mIpEditWidget->mX - LABEL_WIDTH + 4,
+		mIpEditWidget->mY + mLinesFont->GetAscent(), mColors[Dialog::COLOR_LINES], LABEL_WIDTH - 12);
 	DrawEditBox(g, mIpEditWidget);
 
-	g->DrawString(_S("Server"), mServerEditWidget->mX - LABEL_WIDTH + 4, mServerEditWidget->mY + mLinesFont->GetAscent());
+	OnlineDrawText(g, ModText::Tr("服务器", "Server"), mServerEditWidget->mX - LABEL_WIDTH + 4,
+		mServerEditWidget->mY + mLinesFont->GetAscent(), mColors[Dialog::COLOR_LINES], LABEL_WIDTH - 12);
 	DrawEditBox(g, mServerEditWidget);
 
-	g->DrawString(_S("Code"), mCodeEditWidget->mX - CODE_LABEL_WIDTH + 4, mCodeEditWidget->mY + mLinesFont->GetAscent());
+	OnlineDrawText(g, ModText::Tr("房间码", "Code"), mCodeEditWidget->mX - CODE_LABEL_WIDTH + 4,
+		mCodeEditWidget->mY + mLinesFont->GetAscent(), mColors[Dialog::COLOR_LINES], CODE_LABEL_WIDTH - 12);
 	DrawEditBox(g, mCodeEditWidget);
+}
+
+// 居中画一行正文（位图字体的 WriteCenteredLine 没有宽字符版；中文档自己量宽居中，
+// 长行还按可用宽度缩字号，见 OnlineFitFont）。
+void OnlineDialog::DrawStatusLine(Graphics* g, int theBaseline, const std::string& theUtf8)
+{
+	if (!ModText::IsChinese())
+	{
+		g->SetColor(mColors[Dialog::COLOR_LINES]);
+		WriteCenteredLine(g, theBaseline, theUtf8);
+		return;
+	}
+
+	int aMaxWidth = mWidth - mContentInsets.mLeft - mContentInsets.mRight
+		- mBackgroundInsets.mLeft - mBackgroundInsets.mRight;
+	std::wstring aWide = ModText::WideFromUtf8(theUtf8.c_str());
+	ModText::Font* aFont = OnlineFitFont(aWide, aMaxWidth);
+	ModText::DrawTextWide(g, aFont, (mWidth - ModText::TextWidth(aFont, aWide)) / 2,
+		theBaseline - ModText::Ascent(aFont), aWide, mColors[Dialog::COLOR_LINES], g->mClipRect);
 }
 
 // @pvz-online: 房间信息块——"我现在在哪个房间"一眼看全：房间码（中继）/ 主机地址（直连）、
@@ -325,22 +423,24 @@ void OnlineDialog::DrawRoomBlock(Graphics* g)
 	int aLeft = mContentInsets.mLeft + mBackgroundInsets.mLeft + 4;	// 和 "Host IP" 那些标签同一个起点
 	int aLineHeight = mLinesFont->GetLineSpacing();
 	int aLineY = GetRoomHeaderBaseline();
+	int aMaxWidth = mWidth - mContentInsets.mLeft - mContentInsets.mRight
+		- mBackgroundInsets.mLeft - mBackgroundInsets.mRight - 8;
 
-	g->SetColor(mColors[Dialog::COLOR_LINES]);
-	g->DrawString(GetRoomHeaderLine(), aLeft, aLineY);
+	OnlineDrawText(g, GetRoomHeaderLine(), aLeft, aLineY, mColors[Dialog::COLOR_LINES], aMaxWidth);
 	if (!anActive)
 		return;		// 没房间：名册那几行的地盘空着（位置钉死，面板不会因为连上而跳）
 
 	for (int aSeat = 1; aSeat <= NetProto::MAX_PLAYERS; aSeat++)
 	{
 		aLineY += aLineHeight;
+		Color aColor;
 		if (aSession->GetLocalSeat() == aSeat)
-			g->SetColor(Color(255, 255, 255, 255));			// 自己那行最亮
+			aColor = Color(255, 255, 255, 255);					// 自己那行最亮
 		else if (aSession->IsSeatOccupied((uint8_t)aSeat))
-			g->SetColor(mColors[Dialog::COLOR_LINES]);		// 队友：和状态行同色
+			aColor = mColors[Dialog::COLOR_LINES];				// 队友：和状态行同色
 		else
-			g->SetColor(Color(122, 112, 96, 255));			// 空位压暗
-		g->DrawString(GetRoomSeatLine(aSeat), aLeft, aLineY);
+			aColor = Color(122, 112, 96, 255);					// 空位压暗
+		OnlineDrawText(g, GetRoomSeatLine(aSeat), aLeft, aLineY, aColor, aMaxWidth);
 	}
 }
 
@@ -350,7 +450,7 @@ void OnlineDialog::DrawRoomBlock(Graphics* g)
 std::string OnlineDialog::GetRoomHeaderLine()
 {
 	NetSession* aSession = mApp->mOnlineSession;
-	std::string aText = "Room ----";	// 没会话 / 中继还没等到服务器点名，都是这一句
+	std::string aText = ModText::Tr("房间 ----", "Room ----");	// 没会话 / 中继还没等到服务器点名，都是这一句
 	if (!aSession || !aSession->IsActive())
 		return aText;
 
@@ -362,7 +462,7 @@ std::string OnlineDialog::GetRoomHeaderLine()
 	{
 		std::string aCode = aSession->GetRoomCode();
 		if (!aCode.empty())
-			aText = "Room " + aCode;
+			aText = ModText::Tr("房间 ", "Room ") + aCode;
 	}
 	else
 	{
@@ -372,14 +472,14 @@ std::string OnlineDialog::GetRoomHeaderLine()
 			mLocalIpText = NetLink::GetLocalIPv4Text();
 			mLocalIpLoaded = true;
 		}
-		aText = "Direct";
+		aText = ModText::Tr("直连", "Direct");
 		if (aSession->IsHostSeat() && !mLocalIpText.empty())
 			aText += " " + mLocalIpText;
 	}
 
-	aText += " - you are P" + std::to_string((int)aSeat);
+	aText += ModText::Tr("——你是 P", " - you are P") + std::to_string((int)aSeat);
 	if (aSession->IsHostSeat())
-		aText += " (host)";
+		aText += ModText::Tr("（房主）", " (host)");
 	return aText;
 }
 
@@ -397,17 +497,17 @@ std::string OnlineDialog::GetRoomSeatLine(int theSeat)
 
 	std::string aName = aSession->GetSeatName((uint8_t)theSeat);
 	if (aName.empty() && !aMine)
-		aName = "(no name)";
+		aName = ModText::Tr("（无名）", "(no name)");
 	if (!aName.empty())
 		aText += "  " + aName;
 
 	std::string aTag;
 	if (aSession->GetHostSeat() == theSeat && aSession->GetHostSeat() != NetProto::SEAT_UNSET)
-		aTag = "host";
+		aTag = ModText::Tr("房主", "host");
 	if (aMine)
-		aTag = aTag.empty() ? "you" : aTag + ", you";
+		aTag = aTag.empty() ? ModText::Tr("你", "you") : aTag + ModText::Tr("，你", ", you");
 	if (!aTag.empty())
-		aText += " (" + aTag + ")";
+		aText += ModText::Tr("（", " (") + aTag + ModText::Tr("）", ")");
 	return aText;
 }
 
