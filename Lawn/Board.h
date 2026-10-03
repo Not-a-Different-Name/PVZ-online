@@ -503,6 +503,36 @@ public:
 	int								CountZombieByType(ZombieType theZombieType);
 	bool							CheckForPostGameAchievements();
 	static /*inline*/ bool			IsZombieTypeSpawnedOnly(ZombieType theZombieType);
+
+	// @pvz-online: 局内快捷聊天（T 短语 / E 表情面板 + 顶部横幅）。非模态、纯棋盘自绘：
+	// 模态对话框会暂停棋盘并清焦点，所以聊天必须零焦点改动——KeyDown 钩子 + DrawUITop 手画。
+	bool							HandleQuickChatKey(KeyCode theKey);
+	void							UpdateQuickChat();
+	void							DrawQuickChat(Graphics* g);
+	void							PushQuickChatBanner(uint8_t theSeat, uint8_t theId);
+	void							CloseQuickChatPanel();
+	/*inline*/ bool					QuickChatAvailable();
+
+	// 横幅只存来源席位与编号（1..16），文字/卡图渲染时查 QuickChat.h
+	struct QuickChatBanner
+	{
+		uint8_t						mSeat;
+		uint8_t						mId;
+		int							mFrames;
+	};
+	enum
+	{
+		QUICK_CHAT_BANNER_MAX		= 8,
+		QUICK_CHAT_BANNER_FRAMES	= 300,	// 每条横幅 ≈3 秒，多条依次轮播
+		QUICK_CHAT_PANEL_TIMEOUT	= 1000,	// 面板 ≈10 秒无操作自动关（超时也是退路之一）
+		QUICK_CHAT_KEY_COOLDOWN		= 18	// 开/关/切/发送后短暂吞键，吸住 WM_KEYDOWN 的自动重复
+	};
+	QuickChatBanner					mChatBanners[QUICK_CHAT_BANNER_MAX];
+	int								mChatBannerCount;
+	bool							mChatPanelOpen;
+	bool							mChatEmotePage;		// 面板当前页：0 = 短语、1 = 表情
+	int								mChatPanelTimer;
+	int								mChatInputCooldown;
 };
 extern bool gShownMoreSunTutorial;
 

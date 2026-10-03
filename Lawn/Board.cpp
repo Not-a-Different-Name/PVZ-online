@@ -34,6 +34,7 @@
 #include "misc/PerfTimer.h"
 #include "Widget/AchievementsWidget.h"
 #include "Online/NetSession.h"
+#include "Online/QuickChat.h"
 #include "Run/RunState.h"
 #include "Run/RunBuffs.h"
 #include "Run/RunZombieRoster.h"
@@ -42,6 +43,51 @@
 //#include "../SexyAppFramework/memmgr.h"
 
 bool gShownMoreSunTutorial = false;
+
+// @pvz-online: 局内快捷聊天的中文绘制（GDI 位图字体没有汉字）。与 OnlineStartDialog.cpp
+// 里的同名工具是同款第三份拷贝——先跑通，不急着重构（那边两份一个在对话框一个在按钮，
+// 归属和生命周期都不一样）。源码字面量是 UTF-8，SysFont 走 TextOutA 按系统码页解释，
+// 所以先转 ANSI；字体进程级缓存、故意不释放（同 OnlineStartDialog 的理由）。
+static std::string QuickChatUtf8ToAnsi(const char* theText)
+{
+	int aWideLength = MultiByteToWideChar(CP_UTF8, 0, theText, -1, nullptr, 0);
+	if (aWideLength <= 0) return std::string();
+
+	std::wstring aWide((size_t)aWideLength, L'\0');
+	MultiByteToWideChar(CP_UTF8, 0, theText, -1, &aWide[0], aWideLength);
+
+	int anAnsiLength = WideCharToMultiByte(CP_ACP, 0, aWide.c_str(), -1, nullptr, 0, nullptr, nullptr);
+	if (anAnsiLength <= 0) return std::string();
+
+	std::string anAnsi((size_t)anAnsiLength, '\0');
+	WideCharToMultiByte(CP_ACP, 0, aWide.c_str(), -1, &anAnsi[0], anAnsiLength, nullptr, nullptr);
+	if (!anAnsi.empty() && anAnsi.back() == '\0') anAnsi.pop_back();
+	return anAnsi;
+}
+
+static _Font* QuickChatGetCjkFont()
+{
+	static _Font* aFont = nullptr;
+	if (aFont == nullptr)
+	{
+		int aCharset = (GetACP() == 936) ? GB2312_CHARSET : ANSI_CHARSET;
+		aFont = new SysFont(gSexyAppBase, "Microsoft YaHei", 12, aCharset, false, false, false);
+	}
+	return aFont;
+}
+
+// 把种子卡图（图集 cel / Plant::DrawSeedType，种子栏同源）缩放画在 (theX, theY) 左上角。
+// SeedPacketDrawSeed 的两条内部支路都按 g 的变换绘制，所以用"平移 + 缩放"的子图形：
+// 让 (0, 0) 映射到 (theX, theY)、1 单位映射到 theScale 像素，两条支路大小就一致了。
+static void QuickChatDrawEmote(Graphics* g, float theX, float theY, SeedType theSeed, float theScale)
+{
+	Graphics anEmoteG(*g);
+	anEmoteG.mTransX += theX * anEmoteG.mScaleX;
+	anEmoteG.mTransY += theY * anEmoteG.mScaleY;
+	anEmoteG.mScaleX *= theScale;
+	anEmoteG.mScaleY *= theScale;
+	SeedPacketDrawSeed(&anEmoteG, 0.0f, 0.0f, theSeed, SeedType::SEED_NONE, 0.0f, 0.0f, 1.0f);
+}
 
 //0x407B50
 // GOTY @Patoke: 0x40A3C0
@@ -66,6 +112,11 @@ Board::Board(LawnApp* theApp)
 		mBoardRandSeed = Rand();
 	}
 	mCoinBankFadeCount = 0;
+	mChatBannerCount = 0;
+	mChatPanelOpen = false;
+	mChatEmotePage = false;
+	mChatPanelTimer = 0;
+	mChatInputCooldown = 0;
 	mLevel = 0;
 	mCursorObject = new CursorObject();
 	mCursorPreview = new CursorPreview();
@@ -6208,6 +6259,10 @@ void Board::Update()
 		mApp->UpdateCrazyDave();
 	}
 
+	// @pvz-online: 快捷聊天（收横幅/超时/强制收起）。放在 mPaused 早退之前：
+	// 暂停中也要能收面板；收包不受暂停影响（队友的喊话不因我暂停就丢）
+	UpdateQuickChat();
+
 	if (mPaused)
 	{
 		mChallenge->Update();
@@ -7997,6 +8052,12 @@ void Board::DrawUITop(Graphics* g)
 		mAdvice->Draw(g);
 	}
 
+	// @pvz-online: 快捷聊天面板与横幅（非模态，压在 advice 之上、鼠标光标之下）
+	if (mChatPanelOpen || mChatBannerCount > 0)
+	{
+		DrawQuickChat(g);
+	}
+
 	if (mTimeStopCounter == 0 && mCursorObject->BeginDraw(g))
 	{
 		mCursorObject->Draw(g);
@@ -8205,10 +8266,264 @@ void Board::DoTypingCheck(KeyCode theKey)
 	}
 }
 
+// ====================================================================================================
+// @pvz-online: 局内快捷聊天（T 短语 / E 表情面板 + 横幅）。编号查 QuickChat.h，
+// 线路只传编号；面板非模态——模态框会暂停棋盘并清焦点，这里零焦点改动。
+// ====================================================================================================
+
+bool Board::QuickChatAvailable()
+{
+	return mApp->IsOnlineGame() && mApp->mOnlineSession != nullptr &&
+		mApp->mOnlineSession->IsConnected() &&
+		mApp->mGameScene == GameScenes::SCENE_PLAYING;
+}
+
+void Board::CloseQuickChatPanel()
+{
+	mChatPanelOpen = false;
+	mChatPanelTimer = 0;
+	// 关面板也吃一次冷却：Esc 关掉后同一下按键的自动重复不许立刻又把面板弹回去
+	mChatInputCooldown = QUICK_CHAT_KEY_COOLDOWN;
+}
+
+bool Board::HandleQuickChatKey(KeyCode theKey)
+{
+	if (mChatPanelOpen)
+	{
+		// 面板开着：所有键一律吞掉（不落到 ESC 取消光标 / SPACE 暂停那条链），冷却中不产生动作
+		if (mChatInputCooldown > 0) return true;
+		mChatPanelTimer = QUICK_CHAT_PANEL_TIMEOUT;		// 任意键都算"有人操作"，重置超时
+
+		if (theKey == KeyCode::KEYCODE_ESCAPE)
+		{
+			CloseQuickChatPanel();
+			return true;
+		}
+		if (theKey == 'T' || theKey == 't')
+		{
+			if (mChatEmotePage)
+			{
+				mChatEmotePage = false;
+				mChatInputCooldown = QUICK_CHAT_KEY_COOLDOWN;
+			}
+			else
+			{
+				CloseQuickChatPanel();		// 已在短语页，再按 T = 关
+			}
+			return true;
+		}
+		if (theKey == 'E' || theKey == 'e')
+		{
+			if (!mChatEmotePage)
+			{
+				mChatEmotePage = true;
+				mChatInputCooldown = QUICK_CHAT_KEY_COOLDOWN;
+			}
+			else
+			{
+				CloseQuickChatPanel();		// 已在表情页，再按 E = 关
+			}
+			return true;
+		}
+		if (theKey >= '1' && theKey <= '8')
+		{
+			// 按当前页选发：短语页 1-8 发 1..8，表情页 1-8 发 9..16
+			uint8_t anId = (uint8_t)((theKey - '1') + 1 + (mChatEmotePage ? QuickChat::PHRASE_COUNT : 0));
+			CloseQuickChatPanel();
+			if (mApp->mOnlineSession->SendQuickChat(anId))
+			{
+				PushQuickChatBanner(mApp->mOnlineSession->GetLocalSeat(), anId);	// 本地回显（我：…）
+			}
+			// 发送失败（掉线）就什么都不显示——掉线提示走既有路径
+			return true;
+		}
+		return true;
+	}
+
+	// 面板关着：只认 T / E，其余原样放回（RETURN/SPACE/ESC 那条链不受影响）
+	if (theKey != 'T' && theKey != 't' && theKey != 'E' && theKey != 'e') return false;
+	if (mChatInputCooldown > 0) return true;	// 冷却中吞掉，防自动重复把面板弹回去
+	if (!QuickChatAvailable()) return false;	// 单机 / 过场 / 选卡：不响应（焦点本就不在棋盘）
+	mChatPanelOpen = true;
+	mChatEmotePage = (theKey == 'E' || theKey == 'e');
+	mChatPanelTimer = QUICK_CHAT_PANEL_TIMEOUT;
+	mChatInputCooldown = QUICK_CHAT_KEY_COOLDOWN;
+	return true;
+}
+
+void Board::PushQuickChatBanner(uint8_t theSeat, uint8_t theId)
+{
+	// 横幅也最多 8 条，满了丢最旧保最新（与会话层收包队列同一条策略）
+	if (mChatBannerCount >= QUICK_CHAT_BANNER_MAX)
+	{
+		for (int i = 1; i < mChatBannerCount; i++) mChatBanners[i - 1] = mChatBanners[i];
+		mChatBannerCount--;
+	}
+	mChatBanners[mChatBannerCount].mSeat = theSeat;
+	mChatBanners[mChatBannerCount].mId = theId;
+	mChatBanners[mChatBannerCount].mFrames = QUICK_CHAT_BANNER_FRAMES;
+	mChatBannerCount++;
+}
+
+void Board::UpdateQuickChat()
+{
+	// 先收：队友的喊话不因我按了暂停就丢——横幅会冻着，继续了再轮播
+	if (mApp->mOnlineSession != nullptr)
+	{
+		NetProto::MsgQuickChat aMsg;
+		while (mApp->mOnlineSession->TakePendingQuickChat(aMsg))
+		{
+			PushQuickChatBanner(aMsg.mSrcSeat, aMsg.mId);
+		}
+	}
+
+	if (!QuickChatAvailable())
+	{
+		// 掉线/收摊/不在局里：横幅与冷却一并清掉，别让上一局的话漂进新局面
+		//（会话层收包队列由 DiscardLevelPackets/会话复位负责）
+		if (mChatPanelOpen) CloseQuickChatPanel();
+		mChatBannerCount = 0;
+		mChatInputCooldown = 0;
+		return;
+	}
+
+	if (mChatInputCooldown > 0) mChatInputCooldown--;
+
+	if (mChatPanelOpen)
+	{
+		if (mPaused)
+		{
+			CloseQuickChatPanel();		// 暂停菜单要弹出来了，面板压在底下没意义
+		}
+		else
+		{
+			mChatPanelTimer--;
+			if (mChatPanelTimer <= 0) CloseQuickChatPanel();	// ≈10 秒无操作自动关（退路之一）
+		}
+	}
+
+	// 横幅轮播：队首计时，到点让位；暂停时冻着不推进
+	if (!mPaused && mChatBannerCount > 0)
+	{
+		mChatBanners[0].mFrames--;
+		if (mChatBanners[0].mFrames <= 0)
+		{
+			for (int i = 1; i < mChatBannerCount; i++) mChatBanners[i - 1] = mChatBanners[i];
+			mChatBannerCount--;
+		}
+	}
+}
+
+void Board::DrawQuickChat(Graphics* g)
+{
+	_Font* aFont = QuickChatGetCjkFont();
+
+	if (mChatPanelOpen)
+	{
+		const int PANEL_X = 240, PANEL_Y = 130, PANEL_W = 320, PANEL_H = 224;
+		g->SetColor(Color(0, 0, 0, 180));
+		g->FillRect(PANEL_X, PANEL_Y, PANEL_W, PANEL_H);
+		g->SetColor(Color(255, 255, 255, 255));
+		g->DrawRect(PANEL_X, PANEL_Y, PANEL_W - 1, PANEL_H - 1);
+
+		std::string anAnsiTitle = QuickChatUtf8ToAnsi(mChatEmotePage ? "表情 (E)" : "快捷短语 (T)");
+		std::string anAnsiHint = QuickChatUtf8ToAnsi("按 1-8 发送 · T/E 切页 · Esc 关闭");
+
+		g->SetFont(aFont);
+		g->SetColor(Color(255, 255, 255, 255));
+		g->DrawString(anAnsiTitle, PANEL_X + 12, PANEL_Y + 6);
+		g->SetColor(Color(170, 170, 170, 255));
+		g->DrawString(anAnsiHint, PANEL_X + 12, PANEL_Y + PANEL_H - 18);
+
+		// 八行条目：短语页 = "n  文案"；表情页 = "n  卡图 + 中文名"（行高 22）
+		for (int i = 0; i < QuickChat::PHRASE_COUNT; i++)
+		{
+			int aRowY = PANEL_Y + 28 + i * 22;
+			std::string aNumStr = QuickChatUtf8ToAnsi(std::to_string(i + 1).c_str());
+			g->SetColor(Color(255, 220, 120, 255));
+			g->DrawString(aNumStr, PANEL_X + 12, aRowY + 3);
+
+			if (!mChatEmotePage)
+			{
+				std::string aText = QuickChatUtf8ToAnsi(QuickChat::PHRASES[i]);
+				g->SetColor(Color(255, 255, 255, 255));
+				g->DrawString(aText, PANEL_X + 34, aRowY + 3);
+			}
+			else
+			{
+				QuickChatDrawEmote(g, (float)(PANEL_X + 30), (float)aRowY, QuickChat::EMOTE_SEEDS[i], 0.32f);
+				std::string aText = QuickChatUtf8ToAnsi(QuickChat::EMOTE_NAMES[i]);
+				g->SetColor(Color(255, 255, 255, 255));
+				g->DrawString(aText, PANEL_X + 54, aRowY + 3);
+			}
+		}
+	}
+
+	if (mChatBannerCount > 0)
+	{
+		const QuickChatBanner& aBanner = mChatBanners[0];
+		uint8_t anId = aBanner.mId;
+		bool anIsEmote = QuickChat::IsEmoteId(anId);
+
+		// 发送者名字：本机 = "我"；名字为空退回 P+席位号
+		std::string aNameUtf8;
+		if (mApp->mOnlineSession != nullptr && aBanner.mSeat == mApp->mOnlineSession->GetLocalSeat())
+		{
+			aNameUtf8 = "我";
+		}
+		else if (mApp->mOnlineSession != nullptr && mApp->mOnlineSession->IsSeatOccupied(aBanner.mSeat))
+		{
+			aNameUtf8 = mApp->mOnlineSession->GetSeatName(aBanner.mSeat);
+		}
+		if (aNameUtf8.empty())
+		{
+			aNameUtf8 = "P" + std::to_string((unsigned)aBanner.mSeat);
+		}
+
+		std::string aTextUtf8 = aNameUtf8 + "：";
+		if (!anIsEmote)
+		{
+			aTextUtf8 += QuickChat::PHRASES[anId - 1];
+		}
+		std::string anAnsi = QuickChatUtf8ToAnsi(aTextUtf8.c_str());
+
+		// 横幅：横向居中 y=84（种子栏底下、避开进度条与 mAdvice 带）；表情多一块卡图的空间
+		int aBannerH = anIsEmote ? 44 : 26;
+		int aTextW = aFont->StringWidth(anAnsi);
+		int aBoxW = aTextW + 24 + (anIsEmote ? 30 : 0);
+		int aBoxX = (BOARD_WIDTH - aBoxW) / 2;
+		int aBoxY = 84;
+
+		g->SetColor(Color(0, 0, 0, 150));
+		g->FillRect(aBoxX, aBoxY, aBoxW, aBannerH);
+
+		g->SetFont(aFont);
+		int aTextX = aBoxX + 12;
+		int aTextY = aBoxY + (anIsEmote ? 24 : 5);
+		// 白字黑描边：四角偏移各画一遍黑、再画白——横幅底下就是草坪，不描边看不清
+		g->SetColor(Color(0, 0, 0, 255));
+		g->DrawString(anAnsi, aTextX + 1, aTextY + 1);
+		g->DrawString(anAnsi, aTextX - 1, aTextY + 1);
+		g->DrawString(anAnsi, aTextX + 1, aTextY - 1);
+		g->DrawString(anAnsi, aTextX - 1, aTextY - 1);
+		g->SetColor(Color(255, 255, 255, 255));
+		g->DrawString(anAnsi, aTextX, aTextY);
+
+		if (anIsEmote)
+		{
+			SeedType aSeed = QuickChat::EMOTE_SEEDS[anId - 1 - QuickChat::PHRASE_COUNT];
+			QuickChatDrawEmote(g, (float)(aBoxX + aTextW + 18), (float)(aBoxY + 6), aSeed, 0.5f);
+		}
+	}
+}
+
 //0x41B820
 void Board::KeyDown(KeyCode theKey)
 {
 	DoTypingCheck(theKey);
+
+	// @pvz-online: 联机局内 T/E 唤出快捷聊天；面板开着时吞掉一切键（含 ESC/SPACE）
+	if (HandleQuickChatKey(theKey)) return;
 
 	if (mApp->mGameScene == GameScenes::SCENE_LEVEL_INTRO && 
 		mApp->mGameMode != GameMode::GAMEMODE_CHALLENGE_ZEN_GARDEN && 
