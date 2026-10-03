@@ -300,11 +300,14 @@ public:
 	void							AlignRunToHost(int theRunSeed, int theTargetIndex, int theRunMode, int theRunDiff);
 	void							UpdateRunEnd();
 	// @pvz-online: 闯关的三选一屏（R2）。该选而屏不在（刚开局、刚过完一关、或者屏被谁关掉了）
-	// 就开一张；玩家点了卡由 RunPickChosen 接着办：把卡收进局里，选够了就进下一关。
+	// 就开一张；玩家点了卡由 RunPickChosen 接着办：把卡收进局里，选够了就进下一关；
+	// 点「放弃」由 RunPickSkipped 接着办（2026-10-03 用户定案）：这一屏不选也不要，
+	// 欠的屏数照减——后续走法两条完全同路。
 	// 屏和关卡不互斥（R5 起棋盘留着当换关的背景），但"进关卡"只出现在这里、不出现两次：
 	// 单机选完直接进，联机由主机点名 / 队友等点名（见 UpdateRunPick 里那三种走法）。
 	void							UpdateRunPick();
 	void							RunPickChosen(int theIndex);
+	void							RunPickSkipped();
 	// @pvz-online: R4 闯关输一关：失败计数 +1 并立刻写检查点（首版只存不用，
 	// 惩罚留平衡阶段）。由 Board::ZombiesWon 在判负的那一下调。
 	void							RunNoteFailure();

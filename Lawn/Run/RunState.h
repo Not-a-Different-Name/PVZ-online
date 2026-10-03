@@ -121,6 +121,9 @@ public:
 	// 玩家点了第 theIndex 张卡：植物进卡池、buff 叠一层，各欠的数减一。
 	void				TakePlantChoice(int theIndex);
 	void				TakeBuffChoice(int theIndex);
+	// @pvz-online: 玩家点了「放弃」（2026-10-03 用户定案）：这一屏不选也不要——欠的屏数
+	// 照减（先植物后增益，与 IsPlantPick 的先后一致），卡池 / buff 表原样不动。
+	void				SkipPendingPick();
 	// 这一局拿到某个 buff 的层数（R3 的数值层按它算加成）。
 	int					GetBuffCount(int theBuffId) const;
 	// 这株植物在不在这局的卡池里。选卡界面（卡池 > 8 格才弹）靠它决定哪些袋子

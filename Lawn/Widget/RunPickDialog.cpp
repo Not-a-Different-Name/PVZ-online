@@ -204,6 +204,9 @@ RunPickDialog::RunPickDialog(LawnApp* theApp, RunState* theRun) : LawnDialog(
 			mChoiceButtons[i]->mDisabled = true;
 		}
 	}
+	// 「放弃」（Skip，2026-10-03 用户定案）：三条都不想要时的出路。按钮文案和卡名/标题
+	// 一样走位图字体（没有汉字字形），所以是英文；位置在最下面单独一行（见 Resize）。
+	mSkipButton = MakeButton(RunPickDialog_Skip, this, _S("Skip"));
 
 	mTallBottom = true;
 	mVerticalCenterText = false;
@@ -222,7 +225,10 @@ RunPickDialog::RunPickDialog(LawnApp* theApp, RunState* theRun) : LawnDialog(
 	}
 	aTargetColumn += 12; // 两侧各留一点白
 	int aFitLineHeight = (aCjkFont != NULL ? aCjkFont->GetHeight() : mLinesFont->GetHeight()) + 3;
-	CalcSize(430, 150);
+	// 底部是两行按钮（三张卡一行、最底「放弃」单独一行）：最小高与上限高都比原来多让
+	// 出一行（按钮高 + 6，与 Resize 里三张卡那一行上移的量是同一笔账）。卡片区口径不变。
+	int aExtraHeight = IMAGE_BUTTON_LEFT->mHeight + 6;
+	CalcSize(430, 150 + aExtraHeight);
 	for (int i = 1; i <= 8; i++)
 	{
 		int aMaxLines = 1;
@@ -246,9 +252,9 @@ RunPickDialog::RunPickDialog(LawnApp* theApp, RunState* theRun) : LawnDialog(
 		}
 		int aNeededArea = (aMaxLines + 2) * aFitLineHeight + 6;
 		bool aWidthDone = mColumnWidth >= aTargetColumn || mWidth >= 740;
-		bool aHeightDone = mAreaHeight >= aNeededArea || mHeight >= 460;
+		bool aHeightDone = mAreaHeight >= aNeededArea || mHeight >= 460 + aExtraHeight;
 		if (aWidthDone && aHeightDone) break;
-		CalcSize(430 + i * 30, 150 + i * 20);
+		CalcSize(430 + i * 30, 150 + i * 20 + aExtraHeight);
 	}
 	mApp->CenterDialog(this, mWidth, mHeight);
 	mClip = false;
@@ -257,6 +263,7 @@ RunPickDialog::RunPickDialog(LawnApp* theApp, RunState* theRun) : LawnDialog(
 RunPickDialog::~RunPickDialog()
 {
 	for (int i = 0; i < 3; i++) delete mChoiceButtons[i];
+	delete mSkipButton;
 }
 
 void RunPickDialog::Resize(int theX, int theY, int theWidth, int theHeight)
@@ -273,14 +280,17 @@ void RunPickDialog::Resize(int theX, int theY, int theWidth, int theHeight)
 		mColumnX[i] = aLeft + i * (mColumnWidth + aGap);
 	}
 
-	// 卡片区 = 说明那行以下、按钮那一行以上。跟着同一个公式算，标题换行也不错位。
+	// 卡片区 = 说明那行以下、三张卡那一行以上。跟着同一个公式算，标题换行也不错位。
 	int aAreaTop = mContentInsets.mTop + mBackgroundInsets.mTop + DIALOG_HEADER_OFFSET;
 	if (mDialogHeader.size() > 0) aAreaTop += mHeaderFont->GetHeight() + mSpaceAfterHeader;
 	aAreaTop += mLinesFont->GetHeight() + 10;
 	mAreaTop = aAreaTop;
 
-	int aButtonY = mHeight - mContentInsets.mBottom - mBackgroundInsets.mBottom - aButtonHeight + 2;
-	if (mTallBottom) aButtonY += 5;
+	// 最底下单独一行放「放弃」（Skip）：三张卡那一行整体上移一行（按钮高 + 6），卡片区的
+	// 上沿不动、下沿从卡片行反推——和构造函数里多让的 aExtraHeight 是同一笔账。
+	int aSkipY = mHeight - mContentInsets.mBottom - mBackgroundInsets.mBottom - aButtonHeight + 2;
+	if (mTallBottom) aSkipY += 5;
+	int aButtonY = aSkipY - aButtonHeight - 6;
 	mAreaHeight = aButtonY - mAreaTop - 6;
 	if (mAreaHeight < 0) mAreaHeight = 0;
 
@@ -288,18 +298,22 @@ void RunPickDialog::Resize(int theX, int theY, int theWidth, int theHeight)
 	{
 		mChoiceButtons[i]->Resize(mColumnX[i], aButtonY, mColumnWidth, aButtonHeight);
 	}
+	int aSkipWidth = 150;
+	mSkipButton->Resize((mColumnX[0] + mColumnX[2] + mColumnWidth) / 2 - aSkipWidth / 2, aSkipY, aSkipWidth, aButtonHeight);
 }
 
 void RunPickDialog::AddedToManager(WidgetManager* theWidgetManager)
 {
 	LawnDialog::AddedToManager(theWidgetManager);
 	for (int i = 0; i < 3; i++) AddWidget(mChoiceButtons[i]);
+	AddWidget(mSkipButton);
 }
 
 void RunPickDialog::RemovedFromManager(WidgetManager* theWidgetManager)
 {
 	LawnDialog::RemovedFromManager(theWidgetManager);
 	for (int i = 0; i < 3; i++) RemoveWidget(mChoiceButtons[i]);
+	RemoveWidget(mSkipButton);
 }
 
 void RunPickDialog::Draw(Graphics* g)
@@ -387,11 +401,16 @@ void RunPickDialog::ButtonDepress(int theId)
 	{
 		mApp->RunPickChosen(theId - RunPickDialog_Choice0);
 	}
+	else if (theId == RunPickDialog_Skip)
+	{
+		mApp->RunPickSkipped();
+	}
 }
 
 // 键盘一律不认。按空格/回车会走 LawnDialog::KeyDown 那条"当成点了 Yes"的老路，
 // 而这一屏没有 Yes——屏被关掉的话待选的卡还在，下一帧它照样会弹回来，
-// 玩家只会觉得"按了没反应"。要么点一张卡，要么键盘在这儿什么也别做。
+// 玩家只会觉得"按了没反应"。要么点一张卡、要么点「放弃」（放弃要的是玩家明确的
+// 一次点击，不给键盘顺手带过的机会），键盘在这儿什么也别做。
 void RunPickDialog::KeyDown(KeyCode theKey)
 {
 	(void)theKey;

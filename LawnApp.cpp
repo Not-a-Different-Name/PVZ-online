@@ -1932,6 +1932,16 @@ void LawnApp::RunPickChosen(int theIndex)
 	}
 }
 
+// 玩家点了「放弃」（2026-10-03 用户定案：三条都不想要时也得能往前走）：这一屏不选
+// 也不要——只把欠的屏数消掉，屏关掉。后续与选了一张卡完全同路（UpdateRunPick 看着办）。
+void LawnApp::RunPickSkipped()
+{
+	if (mRunState == nullptr) return;
+
+	KillDialog(Dialogs::DIALOG_RUN_PICK);
+	mRunState->SkipPendingPick();
+}
+
 // R4：输一关就记账——失败次数进检查点（首版只存不用）。紧跟着写盘是刻意的：
 // 玩家接下来可能直接点 Main Menu 走人，那一笔也得在盘上。
 // "本关重开"（Retry Level）不改任何状态：关序号没动，检查点里记的就是这一关。

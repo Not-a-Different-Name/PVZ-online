@@ -268,6 +268,22 @@ void RunState::TakeBuffChoice(int theIndex)
 	mPendingBuffPicks--;
 }
 
+// @pvz-online: 「放弃」的记账（2026-10-03 用户定案）：不落货、只消账。先后与
+// IsPlantPick 一致——植物屏没清完时放弃的必是植物屏（UpdateRunPick 一屏一屏地摆）。
+void RunState::SkipPendingPick()
+{
+	if (mPendingPlantPicks > 0)
+	{
+		mPendingPlantPicks--;
+		TodLog("[run] a plant pick was skipped (%d still owed)", mPendingPlantPicks);
+	}
+	else if (mPendingBuffPicks > 0)
+	{
+		mPendingBuffPicks--;
+		TodLog("[run] a buff pick was skipped (%d still owed)", mPendingBuffPicks);
+	}
+}
+
 int RunState::GetBuffCount(int theBuffId) const
 {
 	for (size_t i = 0; i < mBuffs.size(); i++)
