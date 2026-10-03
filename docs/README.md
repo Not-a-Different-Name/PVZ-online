@@ -39,5 +39,6 @@
    systemd 常驻，runbook 见 `server/relay/README.md`）；客户端面板默认地址已指向它
    （`OnlineDialog.cpp`），中继端口常量 `DEFAULT_RELAY_PORT = 97`（`NetProtocol.h`，
    直连仍 27777）。远程协议冒烟对云服务器全绿（建房 / 加入 / 转发校验 / 换位 / 回收 /
-   散房 / 各类拒绝），`MOD_BUILD = 17`。操作与协议速查见 `05-联机-M3.md`；
+   散房 / 各类拒绝），`MOD_BUILD = 19`（18 闯关 25 关、19 局内快捷聊天：场上 T 短语 /
+   E 植物表情面板）。操作与协议速查见 `05-联机-M3.md`；
    **两机过云实机对局为收尾验收项**。
