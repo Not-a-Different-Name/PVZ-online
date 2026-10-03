@@ -653,6 +653,20 @@ void LawnApp::UpdateOnlineStart()
 			return;
 		}
 
+		// ①b 房间模式：服务器还连着、人走光了——没有谁能回这条 ACK 了，再等就是死等
+		//（闯关的换关等待不设超时，棋盘在时也不挂取消框）。闯关局不能按上面那样"作废
+		// 回菜单"（ShowGameSelector 会把这一局的内存态一并丢掉）：撤掉这次等待，下一帧
+		// 按单人的路自己进场（棋盘在 → UpdateRunPick 的点名门；不在 → 它那条收口）。
+		// 非闯关的等待不用这条：④ 的超时会作废它。
+		if (mOnlineSession->IsConnected() && IsRunMode() && !mOnlineSession->HasOtherSeats())
+		{
+			mOnlineWaitingStartAck = false;
+			KillDialog(Dialogs::DIALOG_ONLINE_START);
+			ClearOnlineStartOverride();
+			TodLog("[net] the room emptied while waiting for a start ack - going in solo");
+			return;
+		}
+
 		// @pvz-online: 菜单上的等待（起第一关）挂一块"等待其他玩家"的看板框；换关的等待
 		// 棋盘还在（上一关的草坪当背景，见下面那句 advice），不叠框。每帧自检：框不在了
 		// 就再摆一张——和 RunPickDialog 同一条纪律，被谁误关都不会卡住等待。
@@ -986,6 +1000,8 @@ bool LawnApp::TryHoldSeedChooserForTeammates()
 	if (mOnlineSeedsHeld) return true;			// 已经拦下过一次：继续等（放行走 UpdateOnlineSeeds）
 
 	mOnlineSession->SendSeedsReady(true);
+	// 房里就我一个：没有人可等，原版节奏直接开打（拦下来等的是不存在的队友）
+	if (!mOnlineSession->HasOtherSeats()) return false;
 	if (mOnlineSession->IsPeerSeedsReady())
 	{
 		TodLog("[net] the teammate picked their plants too - starting right away");
@@ -999,21 +1015,33 @@ bool LawnApp::TryHoldSeedChooserForTeammates()
 }
 
 // 门开着的时候每帧看一眼：对面也选好了就撤框、重新走一遍关屏（这一遍门会放行）。
-// 掉线（会话没了 / 断了）也放行——等的人不会来了，后面本来就是单机收场，
-// 别把选卡界面锁死在"等待队友"上。
+// 掉线（会话没了 / 断了）、或者房间里没人了（一个人开的房 / 队友都走了）也放行——
+// 等的人不会来了，后面本来就是单机收场，别把选卡界面锁死在"等待队友"上。
 void LawnApp::UpdateOnlineSeeds()
 {
 	if (!mOnlineSeedsHeld) return;
 
 	bool aConnected = IsOnlineGame();
-	if (aConnected && !mOnlineSession->IsPeerSeedsReady())
+	bool aSomebodyToWait = aConnected && mOnlineSession->HasOtherSeats()
+		&& !mOnlineSession->IsPeerSeedsReady();
+	if (aSomebodyToWait)
 	{
 		EnsureSeedsWaitDialog(this);			// 框被误关了再摆一张
 		return;
 	}
 
-	TodLog(aConnected ? "[net] the whole team is ready - here we go"
-		: "[net] the teammate is gone - the start is no longer held");
+	if (!aConnected)
+	{
+		TodLog("[net] the teammate is gone - the start is no longer held");
+	}
+	else if (!mOnlineSession->HasOtherSeats())
+	{
+		TodLog("[net] the room is empty - nobody left to wait for, the start is no longer held");
+	}
+	else
+	{
+		TodLog("[net] the whole team is ready - here we go");
+	}
 	KillDialog(Dialogs::DIALOG_ONLINE_START);
 	mOnlineSeedsHeld = false;
 	// @pvz-online: 两道门共用这一个开合（R7）。卡池>8 拦的是选卡界面的关屏（Let's Rock），
@@ -1264,8 +1292,10 @@ void LawnApp::UpdateOnlineEnd()
 			mOnlineSession->SendLevelDone(aClear);
 
 			// 单方先清完：棋盘上挂一句"等队友们"，别让人以为卡住了。这条消息自己会过期
-			// （15 秒），所以在快到期时续一次，让等待期间一直看得见。
-			bool aWaiting = aClear && !mOnlineSession->IsPeerLevelDone();
+			// （15 秒），所以在快到期时续一次，让等待期间一直看得见。房里没别人时不挂
+			//（等的是不存在的队友，紧接着就按"全队清完"收摊）。
+			bool aWaiting = aClear && mOnlineSession->HasOtherSeats()
+				&& !mOnlineSession->IsPeerLevelDone();
 			if (aWaiting && (!mBoard->mAdvice->IsBeingDisplayed() || mBoard->mAdvice->mDuration < 50))
 			{
 				mBoard->DisplayAdvice(_S("Waiting for the teammates..."),
@@ -1283,6 +1313,12 @@ void LawnApp::UpdateOnlineEnd()
 	// ② 全队清完
 	if (mOnlineSession->TakeAllLevelsDone())
 	{
+		// 等到齐了：那句"等队友们"当场撤掉——棋盘还要当换关的背景 / 三选一屏的地，
+		// 别让它挂在那儿过期。
+		if (mOnlineWaitingAdviceOn && mBoard != nullptr)
+		{
+			mBoard->ClearAdvice(AdviceType::ADVICE_NONE);
+		}
 		mOnlineWaitingAdviceOn = false;
 		if (mBoard != nullptr)
 		{
@@ -1361,6 +1397,15 @@ void LawnApp::RetryOnlineLevel()
 	{
 		int aRunLevel = mRunState->GetLevel();
 		int aRunSeed = mRunState->GetLevelSeed();
+		// 房里没别人时没有能回 ACK 的人：等下去挂死（闯关不设超时、残局在时也不挂取消框）。
+		// 撤掉"点名等 ACK"，按单人的路直接重开这一关（EnterRunLevel 自己会落单人分支）。
+		if (!WillWaitForStartAck())
+		{
+			TodLog("[net] the host retries run level %d (index %d) - nobody else in the room, restarting directly",
+				aRunLevel, mRunState->mLevelIndex);
+			EnterRunLevel();
+			return;
+		}
 		TodLog("[net] the host retries run level %d (index %d) - calling the team back in",
 			aRunLevel, mRunState->mLevelIndex);
 		SetOnlineStartOverride(aRunLevel, aRunSeed);
@@ -1377,6 +1422,15 @@ void LawnApp::RetryOnlineLevel()
 
 	DoBackToMain(false);
 	SetOnlineStartOverride(aLevel, aSeed);
+	// 同上：房里没别人时没有 ACK 可等——菜单已经回来了，直接重开这一关
+	//（和 PreNewGame 的单人分支同一条路）。
+	if (!WillWaitForStartAck())
+	{
+		KillDialog(Dialogs::DIALOG_ONLINE);
+		KillGameSelector();
+		NewGame();
+		return;
+	}
 	mOnlineWaitingStartAck = true;
 	mOnlineStartWaitFrames = 0;
 	TodLog("[net] the host retried level %d - asking the team to come back in", aLevel);
@@ -1592,6 +1646,15 @@ void LawnApp::EnterRunLevel()
 	}
 	mOnlineRunStartHeld = false;
 	mOnlineRunGo = false;
+	// @pvz-online: 走到这儿的联机主机只有"房里没别人"一种（WillWait 为假，广播那条在上面
+	// 就返回了）：没有 SendStartLevel / TakePendingStartLevel 那两步的判胜复位，得自己翻篇——
+	// 不然上一关"全队清完"的一次性闩（mAllDoneTaken）会把这一关的收摊永远挡住。
+	// 客户端不清：它的复位在收命令那步（TakePendingStartLevel），各席的选卡记账还要留给
+	// RUN_GO 用。
+	if (mOnlineSession != nullptr && mOnlineSession->GetRole() == NetSession::Role::HOST)
+	{
+		mOnlineSession->DiscardLevelPackets();
+	}
 	NewGame();
 }
 
@@ -1786,8 +1849,10 @@ void LawnApp::UpdateRunPick()
 			// 主机只在一件事上点名：全队都报了清完，进下一关。光自己清完不算——队友还在打，
 			// 点早了会把他拉进一关他还没打完的进度里。点名由 mOnlineWaitingStartAck 把关，
 			// 点不重。自己欠的三选一不在这儿做（R6）：人各进各的新草坪，那几屏在 ① 做。
+			// 房里没别人时（一个人开的房 / 队友都走了）没有要等的人：自己清完就点名——
+			// 单人房不通这条的话，这一局到这儿就没人动了（2026-10-03 实机复现）。
 			if (!mOnlineWaitingStartAck && mOnlineSession->IsLocalLevelDone()
-				&& mOnlineSession->IsPeerLevelDone())
+				&& (mOnlineSession->IsPeerLevelDone() || !mOnlineSession->HasOtherSeats()))
 			{
 				EnterRunLevel();
 			}

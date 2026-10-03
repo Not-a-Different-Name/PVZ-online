@@ -542,8 +542,10 @@ bool NetSession::SendLevelDone(bool theDone)
 	int aSize = NetProto::EncodeLevelDone(aPayload, (int)sizeof(aPayload), aMsg);
 	if (aSize <= 0) return false;
 
-	// 发出去了才记账：没发出去（socket 坏了）下一帧还要再试
-	if (!Dispatch(NetProto::MSG_LEVEL_DONE, aPayload, aSize)) return false;
+	// 发出去了才记账：没发出去（socket 坏了）下一帧还要再试。但"没有别的席位"不算
+	// 没发出去——单人房里这份记账就是判胜（TakeAllLevelsDone）的全部依据，记不上，
+	// 通关后就永远停在"等队友"上（2026-10-03 实机复现）。
+	if (!Dispatch(NetProto::MSG_LEVEL_DONE, aPayload, aSize) && HasOtherSeats()) return false;
 
 	mSeats[mLocalSeat].mLevelDone = theDone;
 	TodLog("[net] told the teammates my lawn is %s (seat %u)", theDone ? "clear" : "busy again",
@@ -605,8 +607,11 @@ bool NetSession::AreAllSeatsDone() const
 		if (!mSeats[aSeat].mLevelDone) return false;
 	}
 
-	// 一个人不算"全队"：自己跟自己判胜没有意义，也防住"会话还在但队友已经掉了"的边角
-	return aOccupied >= 2;
+	// @pvz-online: 一个席位也算"全队"。房间模式让"连着但就我一个人"成了合法状态
+	//（一个人开的房直接开局、或队友都走了）——这时候没有别人可等，自己清完就是全队清完。
+	// 旧版这里硬要 aOccupied >= 2，单人房通关后 TakeAllLevelsDone 永远不成立，
+	// 关卡就死在"Waiting for the teammates..."上（2026-10-03 实机复现）。
+	return aOccupied >= 1;
 }
 
 bool NetSession::TakeAllLevelsDone()
