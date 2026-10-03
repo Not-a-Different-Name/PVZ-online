@@ -200,7 +200,8 @@ public:
     void                    MouseDown(int x, int y, int theClickCount);
     void                    DoSpecial();
     void                    Fire(Zombie* theTargetZombie, int theRow, PlantWeapon thePlantWeapon = PlantWeapon::WEAPON_PRIMARY);
-    Zombie*                 FindTargetZombie(int theRow, PlantWeapon thePlantWeapon = PlantWeapon::WEAPON_PRIMARY);
+    // @pvz-online: 可选排除两只僵尸——单株升级「Quick Claw」（猫尾草）多目标选敌用（见 Plant.cpp）。
+    Zombie*                 FindTargetZombie(int theRow, PlantWeapon thePlantWeapon = PlantWeapon::WEAPON_PRIMARY, Zombie* theExclude1 = nullptr, Zombie* theExclude2 = nullptr);
     void                    Die();
     void                    UpdateProductionPlant();
     void                    UpdateShooter();

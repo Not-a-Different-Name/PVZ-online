@@ -53,9 +53,9 @@ const RunBuffDef& GetRunBuffDef(int theId);
 // @pvz-online: 表按 SeedType 升序维护（方案 docs/06 §2.1 / Q7）——单株 id = 8 + 表内下标，
 // 所以前 5 条（SeedType 0..4）必须永远留在原位：老检查点里的 id 直接按它解读。
 // 新增条目插在自己的 SeedType 位次上：批 1 的 5 条是追加（SeedType 都大于 4），批 2/批 3/
-// 批 4/批 5/批 6/批 7 的 16 条、批 8 的地刺 1 条、批 9 的磁系 2 条、批 10 的投手族 4 条与
-// 批 11 的计时/产出族 4 条插进中段——每插一批，更早批次档里单株 id 的层数就会错位到别的植物（开发期
-// 接受，见方案 §六）；满编 48 条后表下标 == SeedType。
+// 批 4/批 5/批 6/批 7 的 16 条、批 8 的地刺 1 条、批 9 的磁系 2 条、批 10 的投手族 4 条、
+// 批 11 的计时/产出族 4 条与批 12 的弹道/索敌族 3 条插进中段——每插一批，更早批次档里单株
+// id 的层数就会错位到别的植物（开发期接受，见方案 §六）；满编 48 条后表下标 == SeedType。
 enum RunPlantUpgradeId
 {
 	RUN_UPGRADE_PEASHOOTER,		// 豌豆射手：每次多打 1 发（每层）
@@ -80,6 +80,8 @@ enum RunPlantUpgradeId
 	RUN_UPGRADE_TORCHWOOD,		// 火炬树桩：火弹伤害 +50%/层（至多 2 层）
 	RUN_UPGRADE_TALLNUT,		// 高坚果：血量 +50%/层（至多 3 层）
 	RUN_UPGRADE_SEASHROOM,		// 海蘑菇：种植冷却 ×0.75/层（至多 3 层）
+	RUN_UPGRADE_CACTUS,			// 仙人掌：尖刺穿透 +1 只/层（至多 2 层）
+	RUN_UPGRADE_SPLITPEA,		// 分裂豌豆：背向豌豆每次 +1 颗/层（至多 2 层）
 	RUN_UPGRADE_STARFRUIT,		// 杨桃：射击间隔 ×0.75/层（至多 3 层）
 	RUN_UPGRADE_PUMPKINSHELL,	// 南瓜头：血量 +50%/层（至多 3 层）
 	RUN_UPGRADE_MAGNETSHROOM,	// 磁力菇：吸取间隔 ×0.75/层（至多 3 层）
@@ -92,6 +94,7 @@ enum RunPlantUpgradeId
 	RUN_UPGRADE_MELONPULT,		// 西瓜投手：溅射范围 +25%/层（至多 2 层）
 	RUN_UPGRADE_GATLINGPEA,		// 机枪射手：射击间隔 ×0.75/层（至多 3 层）
 	RUN_UPGRADE_TWINSUNFLOWER,	// 双子向日葵：每轮多产 1 阳光（每层，至多 3 层）
+	RUN_UPGRADE_CATTAIL,		// 猫尾草：攻击目标 +1 个/层（至多 2 层）
 	RUN_UPGRADE_WINTERMELON,	// 冰西瓜：溅射减速时长 +50%/层（至多 2 层）
 	RUN_UPGRADE_GOLDMAGNET,		// 吸金磁：吸取间隔 ×0.75/层（至多 3 层）
 	RUN_UPGRADE_SPIKEROCK,		// 地刺王：攻击间隔 ×0.75/层（至多 3 层）

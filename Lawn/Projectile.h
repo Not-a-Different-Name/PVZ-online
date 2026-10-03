@@ -51,6 +51,9 @@ public:
     int                     mCobTargetRow;          //+0x84
     ZombieID                mTargetZombieID;        //+0x88
     int                     mLastPortalX;           //+0x8C
+    // @pvz-online: 单株升级「Prickly」（仙人掌）：尖刺剩余穿透次数——Fire 里按层数预置，
+    // 只有仙人掌的弹 >0；命中扣一点继续飞（扣点在 Projectile::DoImpact 末尾）。
+    int                     mPricklyHitsLeft;
 
 public:
     Projectile();

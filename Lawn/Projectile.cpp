@@ -63,6 +63,9 @@ void Projectile::ProjectileInitialize(int theX, int theY, int theRenderOrder, in
 	mAttachmentID = AttachmentID::ATTACHMENTID_NULL;
 	mCobTargetRow = 0;
 	mTargetZombieID = ZombieID::ZOMBIEID_NULL;
+	// @pvz-online: 单株升级「Prickly」（仙人掌）的穿透点数（见 Projectile.h）；默认 0，
+	// Fire 里只有仙人掌的弹会预置。
+	mPricklyHitsLeft = 0;
 	mOnHighGround = mBoard->mGridSquareType[aGridX][theRow] == GridSquareType::GRIDSQUARE_HIGH_GROUND;
 	if (mBoard->StageHasRoof())
 	{
@@ -989,6 +992,22 @@ void Projectile::DoImpact(Zombie* theZombie)
 		{
 			mApp->AddTodParticle(aSplatPosX, aSplatPosY, mRenderOrder + 1, aEffect);
 		}
+	}
+
+	// @pvz-online: 单株升级「Prickly」（仙人掌，表行 SEED_CACTUS）：尖刺穿透 +1 只/层
+	//（计数型、至多 2 层）。mPricklyHitsLeft 在 Fire 里按层数预置（只有仙人掌的弹带）；
+	// 扣完才 Die。继续飞前把弹体推到命中僵尸身后（尖刺判定矩形左边多出 25px，留 30 边距），
+	// 免得下一帧原地又撞上同一只；直射弹的阴影 Y 本来就不跟弹体走，这里也别动。
+	if (mPricklyHitsLeft > 0 && theZombie)
+	{
+		mPricklyHitsLeft--;
+		Rect aZombieRect = theZombie->GetZombieRect();
+		float aNewPosX = aZombieRect.mX + aZombieRect.mWidth + 30.0f;
+		if (aNewPosX > mPosX)
+		{
+			mPosX = aNewPosX;
+		}
+		return;
 	}
 
 	Die();

@@ -3394,6 +3394,23 @@ void Plant::UpdateShooting()
             if (aZombie)
             {
                 Fire(aZombie, mRow, PlantWeapon::WEAPON_PRIMARY);
+
+                // @pvz-online: 单株升级「Quick Claw」（猫尾草，表行 SEED_CATTAIL）：攻击目标
+                // +1 个/层（计数型、至多 2 层）——同一瞬间依次找第 2、第 3 个目标（排除已选），
+                // 各发一颗追踪刺；找不出更多就只打现有的。
+                Zombie* aPrevZombie = aZombie;
+                Zombie* aPrevZombie2 = nullptr;
+                for (int i = 0, aExtra = mApp->RunPlantUpgradeCount(SeedType::SEED_CATTAIL); i < aExtra; i++)
+                {
+                    Zombie* aExtraZombie = FindTargetZombie(mRow, PlantWeapon::WEAPON_PRIMARY, aPrevZombie, aPrevZombie2);
+                    if (!aExtraZombie)
+                    {
+                        break;
+                    }
+                    Fire(aExtraZombie, mRow, PlantWeapon::WEAPON_PRIMARY);
+                    aPrevZombie2 = aPrevZombie;
+                    aPrevZombie = aExtraZombie;
+                }
             }
         }
     }
@@ -4877,6 +4894,14 @@ void Plant::Fire(Zombie* theTargetZombie, int theRow, PlantWeapon thePlantWeapon
     Projectile* aProjectile = mBoard->AddProjectile(aOriginX, aOriginY, mRenderOrder - 1, theRow, aProjectileType);
     aProjectile->mDamageRangeFlags = GetDamageRangeFlags(thePlantWeapon);
 
+    // @pvz-online: 单株升级「Prickly」（仙人掌，表行 SEED_CACTUS）：给仙人掌的尖刺预置穿透
+    // 点数（每层 +1 只，至多 2 层）——只有仙人掌的弹带这个数（猫尾草的同型尖刺是追踪弹，
+    // 不受影响）；0 层与原版一致。命中后的扣点在 Projectile::DoImpact 末尾。
+    if (mSeedType == SeedType::SEED_CACTUS)
+    {
+        aProjectile->mPricklyHitsLeft = mApp->RunPlantUpgradeCount(SeedType::SEED_CACTUS);
+    }
+
     // @pvz-online: 单株升级「多发」：每层多打一发（RunBuffs 单株表）。
     // 表里进得了这段的只有直射豌豆系（豌豆、三线——三线每道调一次 Fire，所以是每道各 +1 颗，
     // 不是每轮 +3）——多出来的子弹照主子弹的默认直线运动走，
@@ -4954,6 +4979,16 @@ void Plant::Fire(Zombie* theTargetZombie, int theRow, PlantWeapon thePlantWeapon
     else if (mSeedType == SeedType::SEED_SPLITPEA && thePlantWeapon == PlantWeapon::WEAPON_SECONDARY)
     {
         aProjectile->mMotionType = ProjectileMotion::MOTION_BACKWARDS;
+
+        // @pvz-online: 单株升级「Backspike」（分裂豌豆，表行 SEED_SPLITPEA）：背向豌豆每次
+        // +1 颗/层（计数型、至多 2 层）——镜像正面多发循环的写法，多出的弹向左后错开、
+        // 同样走 MOTION_BACKWARDS。正面的多发循环只认 SHOTCOUNT 标签，与本条互不影响。
+        for (int i = 0, aExtra = mApp->RunPlantUpgradeCount(SeedType::SEED_SPLITPEA); i < aExtra; i++)
+        {
+            Projectile* aExtraProjectile = mBoard->AddProjectile(aOriginX - 21 * (i + 1), aOriginY, mRenderOrder - 1, theRow, aProjectileType);
+            aExtraProjectile->mDamageRangeFlags = aProjectile->mDamageRangeFlags;
+            aExtraProjectile->mMotionType = ProjectileMotion::MOTION_BACKWARDS;
+        }
     }
     else if (mSeedType == SeedType::SEED_LEFTPEATER)
     {
@@ -4979,7 +5014,7 @@ void Plant::Fire(Zombie* theTargetZombie, int theRow, PlantWeapon thePlantWeapon
 }
 
 //0x4675C0
-Zombie* Plant::FindTargetZombie(int theRow, PlantWeapon thePlantWeapon)
+Zombie* Plant::FindTargetZombie(int theRow, PlantWeapon thePlantWeapon, Zombie* theExclude1, Zombie* theExclude2)
 {
     int aDamageRangeFlags = GetDamageRangeFlags(thePlantWeapon);
     Rect aAttackRect = GetPlantAttackRect(thePlantWeapon);
@@ -4989,6 +5024,12 @@ Zombie* Plant::FindTargetZombie(int theRow, PlantWeapon thePlantWeapon)
     Zombie* aZombie = nullptr;
     while (mBoard->IterateZombies(aZombie))
     {
+        // @pvz-online: 单株升级「Quick Claw」（猫尾草）多目标选敌时排除已选中的（默认无排除）。
+        if (aZombie == theExclude1 || aZombie == theExclude2)
+        {
+            continue;
+        }
+
         int aRowDeviation = aZombie->mRow - theRow;
         if (aZombie->mZombieType == ZombieType::ZOMBIE_BOSS)
         {

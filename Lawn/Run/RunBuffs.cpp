@@ -64,7 +64,12 @@ const RunBuffDef& GetRunBuffDef(int theId)
 // 成功时额外落 25 阳光/层（真吞到才给，落币法同咖啡豆）；火炬树桩：火弹伤害两个计算点
 // （溅射 DoSplashDamage 的基数、打抗火僵尸的单发分支）乘单株乘数（KindlingFireballDamage
 // helper）；咖啡豆：闯关里产阳光 4 枚 ×(1+层)（1 层 8 枚 = 200、2 层 12 枚 = 300，与方案一致）。
-// 表内下标随插入右移补充：批 9 档里 id 36、批 10 档里 id 14 及以后也会错位到别的植物。
+// 批 12 2026-10-03：弹道/索敌族 3 条（仙人掌 26 / 分裂豌豆 28 / 猫尾草 43）——
+// 仙人掌：尖刺穿透（弹体 mPricklyHitsLeft 由 Fire 按层数预置、只有仙人掌的弹带；命中扣
+// 一点继续飞，并把弹体推到该僵尸身后免重撞——Projectile::DoImpact 末尾）；分裂豌豆：
+// 背向弹每次 +1 颗（Fire 的 SECONDARY 分支多发循环，镜像正面 21px 错位）；猫尾草：攻击
+// 目标 +1 个/层（FindTargetZombie 加排除参数，同一轮依次找第 2/3 个目标各发一颗追踪刺）。
+// 表内下标随插入右移补充：批 9 档里 id 36、批 10 档里 id 14 及以后、批 11 档里 id 30 及以后也会错位到别的植物。
 // 血量型条目（批 1 的 5 条 + 坚果墙）不用专门挂点——Plant.cpp:484 的通用血量口按
 // RUN_UPGRADE_KIND_HEALTH 消费（修正批起，不再对任意行生效），表里加一行标上 Kind
 // 就生效（南瓜头护罩血已查证同走 mPlantHealth）。
@@ -92,6 +97,8 @@ static const RunPlantUpgradeDef gRunPlantUpgradeDefs[RUN_PLANT_UPGRADE_COUNT] =
 	{ SeedType::SEED_TORCHWOOD,    "Kindling",     "火弹伤害加成 +50%\n（每层）",        0.50f, 2 },
 	{ SeedType::SEED_TALLNUT,      "Iron Shell",   "血量 +50%\n（每层）",               0.50f, 3, false, RUN_UPGRADE_KIND_HEALTH },
 	{ SeedType::SEED_SEASHROOM,    "Brine Spore",  "种植冷却逐层 ×0.75\n（每层）",      -0.25f, 3, true, RUN_UPGRADE_KIND_COOLDOWN },
+	{ SeedType::SEED_CACTUS,       "Prickly",      "尖刺穿透 +1 只\n（每层）",          0.00f, 2 },
+	{ SeedType::SEED_SPLITPEA,     "Backspike",    "背向豌豆每次 +1 颗\n（每层）",       0.00f, 2 },
 	{ SeedType::SEED_STARFRUIT,    "Star Rain",    "射击间隔逐层 ×0.75\n（每层）",      -0.25f, 3, true, RUN_UPGRADE_KIND_RHYTHM },
 	{ SeedType::SEED_PUMPKINSHELL, "Hard Rind",    "血量 +50%\n（每层）",               0.50f, 3, false, RUN_UPGRADE_KIND_HEALTH },
 	{ SeedType::SEED_MAGNETSHROOM, "Magnet Pull",  "吸取间隔逐层 ×0.75\n（每层）",      -0.25f, 3, true },
@@ -104,6 +111,7 @@ static const RunPlantUpgradeDef gRunPlantUpgradeDefs[RUN_PLANT_UPGRADE_COUNT] =
 	{ SeedType::SEED_MELONPULT,    "Heavy Melon",  "溅射范围 +25%\n（每层）",           0.25f, 2 },
 	{ SeedType::SEED_GATLINGPEA,   "Rapid Fire",   "射击间隔逐层 ×0.75\n（每层）",      -0.25f, 3, true, RUN_UPGRADE_KIND_RHYTHM },
 	{ SeedType::SEED_TWINSUNFLOWER, "Twin Bloom",  "每次多产 1 阳光\n（每层）",         0.00f, 3 },
+	{ SeedType::SEED_CATTAIL,      "Quick Claw",   "攻击目标 +1 个\n（每层）",           0.00f, 2 },
 	{ SeedType::SEED_WINTERMELON,  "Winter Chill", "溅射减速时长 +50%\n（每层）",       0.50f, 2 },
 	{ SeedType::SEED_GOLD_MAGNET,  "Gilded Pull",  "吸取间隔逐层 ×0.75\n（每层）",      -0.25f, 3, true },
 	{ SeedType::SEED_SPIKEROCK,    "Royal Thorns", "攻击间隔逐层 ×0.75\n（每层）",      -0.25f, 3, true },
@@ -194,6 +202,8 @@ static const struct { SeedType mPlant; const char* mName; } gRunPlantUpgradeZhNa
 	{ SeedType::SEED_TORCHWOOD,    "火炬树桩" },
 	{ SeedType::SEED_TALLNUT,      "高坚果" },
 	{ SeedType::SEED_SEASHROOM,    "海蘑菇" },
+	{ SeedType::SEED_CACTUS,       "仙人掌" },
+	{ SeedType::SEED_SPLITPEA,     "分裂豌豆" },
 	{ SeedType::SEED_STARFRUIT,    "杨桃" },
 	{ SeedType::SEED_PUMPKINSHELL, "南瓜头" },
 	{ SeedType::SEED_MAGNETSHROOM, "磁力菇" },
@@ -206,6 +216,7 @@ static const struct { SeedType mPlant; const char* mName; } gRunPlantUpgradeZhNa
 	{ SeedType::SEED_MELONPULT,    "西瓜投手" },
 	{ SeedType::SEED_GATLINGPEA,   "机枪射手" },
 	{ SeedType::SEED_TWINSUNFLOWER,"双子向日葵" },
+	{ SeedType::SEED_CATTAIL,      "猫尾草" },
 	{ SeedType::SEED_WINTERMELON,  "冰西瓜" },
 	{ SeedType::SEED_GOLD_MAGNET,  "吸金磁" },
 	{ SeedType::SEED_SPIKEROCK,    "地刺王" },
