@@ -697,7 +697,10 @@ void Plant::DoRowAreaDamage(int theDamage, unsigned int theDamageFlags)
         int aDiffY = (aZombie->mZombieType == ZombieType::ZOMBIE_BOSS) ? 0 : (aZombie->mRow - mRow);
         if (mSeedType == SeedType::SEED_GLOOMSHROOM)
         {
-            if (aDiffY < -1 || aDiffY > 1)
+            // @pvz-online: 闯关「Gloom」（忧郁菇，批 14）：光环的纵向行差随层数一齐外扩
+            // （±(1+层)），与 GetPlantAttackRect 的矩形同步——不然矩形扩了、行差还卡三行。
+            int aGloomRows = mApp->RunPlantUpgradeCount(SeedType::SEED_GLOOMSHROOM);
+            if (aDiffY < -1 - aGloomRows || aDiffY > 1 + aGloomRows)
                 continue;
         }
         else if (aDiffY)
@@ -1477,6 +1480,13 @@ void Plant::UpdateScaredyShroom()
             aHasZombieNearby = true;
             break;
         }
+    }
+
+    // @pvz-online: 单株升级「Bravery」（胆小菇，批 14）：抽到后不再缩头——贴近判定直接
+    // 作废，恒 READY 照常射击（1 层成型；非闯关恒 0，加 0 保持原版缩头）。
+    if (mApp->RunPlantUpgradeCount(SeedType::SEED_SCAREDYSHROOM) > 0)
+    {
+        aHasZombieNearby = false;
     }
 
     Reanimation* aBodyReanim = mApp->ReanimationGet(mBodyReanimID);
@@ -5568,7 +5578,14 @@ Rect Plant::GetPlantAttackRect(PlantWeapon thePlantWeapon)
     case SeedType::SEED_SEASHROOM:      aRect = Rect(mX + 60,       mY,             230,                mHeight);               break;
     // @pvz-online: 闯关「浓雾」：大喷菇雾气射程每层 +1 格（80px）
     case SeedType::SEED_FUMESHROOM:     aRect = Rect(mX + 60,       mY,             340 + 80 * mApp->RunPlantUpgradeCount(SeedType::SEED_FUMESHROOM), mHeight); break;
-    case SeedType::SEED_GLOOMSHROOM:    aRect = Rect(mX - 80,       mY - 80,        240,                240);                   break;
+    // @pvz-online: 闯关「Gloom」（忧郁菇，批 14）：光环范围每层 +1 格——240×240（3 格）
+    // 逐层 +160px、中心不动（n 层 = 3+2n 格宽）；纵向行差在 DoRowAreaDamage 同步外扩。
+    case SeedType::SEED_GLOOMSHROOM:
+    {
+        int aGloomExtra = mApp->RunPlantUpgradeCount(SeedType::SEED_GLOOMSHROOM);
+        aRect = Rect(mX - 80 - 80 * aGloomExtra, mY - 80 - 80 * aGloomExtra, 240 + 160 * aGloomExtra, 240 + 160 * aGloomExtra);
+        break;
+    }
     case SeedType::SEED_TANGLEKELP:     aRect = Rect(mX,            mY,             mWidth,             mHeight);               break;
     case SeedType::SEED_CATTAIL:        aRect = Rect(-BOARD_WIDTH,  -BOARD_HEIGHT,  BOARD_WIDTH * 2,    BOARD_HEIGHT * 2);      break;
     default:                            aRect = Rect(mX + 60,       mY,             BOARD_WIDTH,        mHeight);               break;

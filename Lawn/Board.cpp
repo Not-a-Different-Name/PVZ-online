@@ -7926,13 +7926,16 @@ void Board::ClearFogAroundPlant(Plant* thePlant, int theSize)
 		{
 			int aDistX = abs(x + aFogOffsetX - thePlant->mPlantCol);
 			int aDistY = abs(y - thePlant->mRow);
-			if (theSize == 4)
+			// @pvz-online: 单株升级「Lantern Light」（路灯花，批 14）：theSize = 4 + 层数——
+			// 原版形状（横 3 格、纵 2 格、切角线 5）按 8-邻居膨胀每层一圈 = 三常量 +1/+1/+2。
+			if (theSize >= 4)
 			{
-				if (aDistX > 3 || aDistY > 2)
+				int aExtra = theSize - 4;
+				if (aDistX > 3 + aExtra || aDistY > 2 + aExtra)
 				{
 					continue;
 				}
-				if (aDistX + aDistY == 5)
+				if (aDistX + aDistY > 5 + 2 * aExtra)
 				{
 					continue;
 				}
@@ -7982,7 +7985,9 @@ void Board::UpdateFog()
 
 		if (aPlant->mSeedType == SeedType::SEED_PLANTERN)
 		{
-			ClearFogAroundPlant(aPlant, 4);
+			// @pvz-online: 单株升级「Lantern Light」（路灯花，批 14）：迷雾关照亮范围每层
+			// +1 格——半径 4 起、最大 6；形状逐层膨胀在 ClearFogAroundPlant 内。
+			ClearFogAroundPlant(aPlant, 4 + mApp->RunPlantUpgradeCount(SeedType::SEED_PLANTERN));
 		}
 		else if (aPlant->mSeedType == SeedType::SEED_TORCHWOOD)
 		{

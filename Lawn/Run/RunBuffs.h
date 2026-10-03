@@ -72,6 +72,7 @@ enum RunPlantUpgradeId
 	RUN_UPGRADE_FUMESHROOM,		// 大喷菇：雾气射程 +1 格/层（至多 2 层）
 	RUN_UPGRADE_GRAVEBUSTER,	// 墓碑吞噬者：吞掉墓碑额外产 25 阳光（每层，至多 2 层）
 	RUN_UPGRADE_HYPNOSHROOM,	// 魅惑菇：被魅惑僵尸咬到的僵尸也变友军（只可选 1 层）
+	RUN_UPGRADE_SCAREDYSHROOM,	// 胆小菇：敌人贴近时不再缩头（只可选 1 层）
 	RUN_UPGRADE_ICESHROOM,		// 寒冰菇：全场冰冻 +2 秒/层（至多 2 层）
 	RUN_UPGRADE_DOOMSHROOM,		// 毁灭菇：爆炸半径 +25%/层（至多 2 层）
 	RUN_UPGRADE_LILYPAD,		// 睡莲：血量 +100%/层（至多 2 层）
@@ -83,6 +84,7 @@ enum RunPlantUpgradeId
 	RUN_UPGRADE_TORCHWOOD,		// 火炬树桩：火弹伤害 +50%/层（至多 2 层）
 	RUN_UPGRADE_TALLNUT,		// 高坚果：血量 +50%/层（至多 3 层）
 	RUN_UPGRADE_SEASHROOM,		// 海蘑菇：种植冷却 ×0.75/层（至多 3 层）
+	RUN_UPGRADE_PLANTERN,		// 路灯花：照亮范围 +1 格/层（至多 2 层）
 	RUN_UPGRADE_CACTUS,			// 仙人掌：尖刺穿透 +1 只/层（至多 2 层）
 	RUN_UPGRADE_BLOVER,			// 三叶草：吹风后全场僵尸减速 +5 秒/层（至多 2 层）
 	RUN_UPGRADE_SPLITPEA,		// 分裂豌豆：背向豌豆每次 +1 颗/层（至多 2 层）
@@ -99,6 +101,7 @@ enum RunPlantUpgradeId
 	RUN_UPGRADE_MELONPULT,		// 西瓜投手：溅射范围 +25%/层（至多 2 层）
 	RUN_UPGRADE_GATLINGPEA,		// 机枪射手：射击间隔 ×0.75/层（至多 3 层）
 	RUN_UPGRADE_TWINSUNFLOWER,	// 双子向日葵：每轮多产 1 阳光（每层，至多 3 层）
+	RUN_UPGRADE_GLOOMSHROOM,	// 忧郁菇：光环范围 +1 格/层（至多 2 层）
 	RUN_UPGRADE_CATTAIL,		// 猫尾草：攻击目标 +1 个/层（至多 2 层）
 	RUN_UPGRADE_WINTERMELON,	// 冰西瓜：溅射减速时长 +50%/层（至多 2 层）
 	RUN_UPGRADE_GOLDMAGNET,		// 吸金磁：吸取间隔 ×0.75/层（至多 3 层）
