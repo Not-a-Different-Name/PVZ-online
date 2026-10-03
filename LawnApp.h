@@ -3,6 +3,7 @@
 
 #include "ConstEnums.h"
 #include "Lawn/Online/NetProtocol.h"	// @pvz-online: MsgStartLevel 按值存在 LawnApp 里（开局询问框）
+#include "Lawn/Run/RunBuffs.h"			// @pvz-online: RunPlantUpgradeKind（修正批的 Kind 闸门取用口签名）
 #include "SexyAppFramework/SexyApp.h"
 #include "Sexy.TodLib/TodFoley.h"
 
@@ -315,6 +316,12 @@ public:
 	// 表里没有这株 / 没拿到 / 不在闯关 = 中性值，同全局 buff。
 	float							RunPlantUpgradeMul(SeedType thePlant) const;
 	int								RunPlantUpgradeCount(SeedType thePlant) const;
+	// @pvz-online: 修正批（2026-10-03）——通用挂点的 Kind 闸门版：只有表里该株条目的
+	// mKind == theKind 才返回真实值，否则中性（乘数 1.0 / 计数 0）。血量/射速节奏/
+	// 多发/种植冷却四处通用挂点用它，语义无关的条目不进这些口（见 RunBuffs.h 的
+	// RunPlantUpgradeKind 注释）。专门挂点（磁力菇充能等）继续用上面的通用版。
+	float							RunPlantUpgradeMulKind(SeedType thePlant, RunPlantUpgradeKind theKind) const;
+	int								RunPlantUpgradeCountKind(SeedType thePlant, RunPlantUpgradeKind theKind) const;
 	void							ShowGameSelector();
 	void							KillGameSelector();
 	void							ShowAwardScreen(AwardType theAwardType, bool theShowAchievements); // @Patoke: add argument

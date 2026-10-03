@@ -480,8 +480,10 @@ void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, Se
         mPlantHealth *= 2;
     }
     // @pvz-online: 闯关 buff「扎根」：全体植物血量 ×(1+20%/层)。单株升级（坚果「厚壳」等）
-    // 在同一行一起取——两乘数相乘。非闯关局都是 1.0，对 300/4000 这类整数无损。
-    mPlantHealth = (int)(mPlantHealth * mApp->RunBuffMul(RUN_BUFF_ROOTED) * mApp->RunPlantUpgradeMul(theSeedType) + 0.5f);
+    // 在同一行一起取——两乘数相乘。修正批（2026-10-03）改走 Kind 闸门口：只有血量型
+    // 条目（Kind=HEALTH：坚果/高坚果/睡莲/南瓜头/花盆/保护伞）才乘——此前任意行都乘，
+    // 双发/寒冰这类非血量条目会把该株血量一起改了。非闯关局都是 1.0，对 300/4000 无损。
+    mPlantHealth = (int)(mPlantHealth * mApp->RunBuffMul(RUN_BUFF_ROOTED) * mApp->RunPlantUpgradeMulKind(theSeedType, RUN_UPGRADE_KIND_HEALTH) + 0.5f);
     mPlantMaxHealth = mPlantHealth;
 
     if (mSeedType != SeedType::SEED_FLOWERPOT && IsOnBoard())
@@ -972,8 +974,9 @@ void Plant::UpdateShooter()
     {
         // @pvz-online: 闯关 buff：全局「急袭」（×0.8/层）与单株射速族（双发/杨桃/卷心菜/机枪，
         // ×0.75/层）都只缩这个节奏计数器——动画里那些"倒计时到固定值放子弹"的检查点（加特林
-        // 18/35/51/68 等）不能动，否则对不上。其余射手不在单株表里，RunPlantUpgradeMul 恒 1.0。
-        mLaunchCounter = (int)((mLaunchRate - Sexy::Rand(15)) * mApp->RunBuffMul(RUN_BUFF_SWIFT) * mApp->RunPlantUpgradeMul(mSeedType) + 0.5f);
+        // 18/35/51/68 等）不能动，否则对不上。修正批（2026-10-03）改走 Kind 闸门口：只有
+        // 射速族条目（Kind=RHYTHM）进得来——此前任意行都乘，寒冰射手 +30% 行会把雪豆射速拉长。
+        mLaunchCounter = (int)((mLaunchRate - Sexy::Rand(15)) * mApp->RunBuffMul(RUN_BUFF_SWIFT) * mApp->RunPlantUpgradeMulKind(mSeedType, RUN_UPGRADE_KIND_RHYTHM) + 0.5f);
 
         if (mSeedType == SeedType::SEED_THREEPEATER)
         {
@@ -4853,7 +4856,9 @@ void Plant::Fire(Zombie* theTargetZombie, int theRow, PlantWeapon thePlantWeapon
     // 表里进得了这段的只有直射豌豆系（豌豆、三线——三线每道调一次 Fire，所以是每道各 +1 颗，
     // 不是每轮 +3）——多出来的子弹照主子弹的默认直线运动走，
     // 出发位置逐发后错一点，看得出是一排子弹而不是一发重影。
-    for (int i = 0, aExtra = mApp->RunPlantUpgradeCount(mSeedType); i < aExtra; i++)
+    // 修正批（2026-10-03）改走 Kind 闸门口（Kind=SHOTCOUNT）：只有多发型条目进得来——
+    // 此前任意带层行都会给该株多发（批 10 的黄油行差点让玉米投手多发玉米）。
+    for (int i = 0, aExtra = mApp->RunPlantUpgradeCountKind(mSeedType, RUN_UPGRADE_KIND_SHOTCOUNT); i < aExtra; i++)
     {
         Projectile* aExtraProjectile = mBoard->AddProjectile(aOriginX + 21 * (i + 1), aOriginY, mRenderOrder - 1, theRow, aProjectileType);
         aExtraProjectile->mDamageRangeFlags = aProjectile->mDamageRangeFlags;

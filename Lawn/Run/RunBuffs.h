@@ -90,6 +90,22 @@ enum RunPlantUpgradeId
 	RUN_PLANT_UPGRADE_COUNT
 };
 
+// @pvz-online: 单株条目的「语义标签」（修正批 2026-10-03）。背景：几个通用挂点
+//（血量 Plant.cpp:484、射速节奏 :976、多发循环 :4856、种植冷却 SeedPacket.cpp:885）
+// 直接拿该株的 RunPlantUpgradeMul/Count——**任何**行都会在这些口生效，于是一条语义
+// 无关的条目会静默乘进去（例：双发 ×0.75 行会把双发血量每层也缩 25%；寒冰射手 +30%
+// 行会把雪豆射速拉长）。现在挂点改走 RunPlantUpgradeMulKind/CountKind：只有 mKind
+// 对上号的条目才生效，其余自动中性。新条目按效果选 Kind；专门挂点（磁力菇充能、
+// 雪豆减速时长这类只被一处消费的）用 EFFECT + 通用 Mul/Count 即可。
+enum RunPlantUpgradeKind
+{
+	RUN_UPGRADE_KIND_EFFECT = 0,	// 专项效果：各自挂点用通用 RunPlantUpgradeMul/Count
+	RUN_UPGRADE_KIND_HEALTH,		// 血量型：Plant.cpp:484 通用血量挂点
+	RUN_UPGRADE_KIND_RHYTHM,		// 射速节奏：Plant.cpp:976 UpdateShooter
+	RUN_UPGRADE_KIND_SHOTCOUNT,		// 每次多发：Plant.cpp:4856 Fire 多发循环
+	RUN_UPGRADE_KIND_COOLDOWN,		// 种植冷却：SeedPacket.cpp:885
+};
+
 struct RunPlantUpgradeDef
 {
 	SeedType	mPlant;			// 这门升级挂在哪种植物上（一株最多一条）
@@ -101,6 +117,9 @@ struct RunPlantUpgradeDef
 	// @pvz-online: 同 RunBuffDef.mMaxStacks（0 = 无限）与 mMultiplicative。
 	int			mMaxStacks;
 	bool		mMultiplicative;
+	// @pvz-online: 语义标签（修正批）：只有 Kind 与挂点相符的条目才被该挂点消费。
+	// 省略 = RUN_UPGRADE_KIND_EFFECT。
+	RunPlantUpgradeKind	mKind;
 };
 
 const RunPlantUpgradeDef& GetRunPlantUpgradeDef(int theIndex);

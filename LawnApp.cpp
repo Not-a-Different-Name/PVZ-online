@@ -1982,6 +1982,23 @@ int LawnApp::RunPlantUpgradeCount(SeedType thePlant) const
 	return mRunState->GetBuffCount(RUN_BUFF_COUNT + aIndex);
 }
 
+// @pvz-online: 修正批（2026-10-03）：Kind 闸门版取用口——血量/射速节奏/多发/种植冷却
+// 四处通用挂点专用。该株没有条目、或条目的 mKind 对不上 → 中性值：条目只有挂点
+// 语义相符时才被消费（此前通用挂点对所有行无条件生效，语义无关的条目会静默乘进去）。
+float LawnApp::RunPlantUpgradeMulKind(SeedType thePlant, RunPlantUpgradeKind theKind) const
+{
+	int aIndex = RunPlantUpgradeIndexFor(thePlant);
+	if (aIndex < 0 || GetRunPlantUpgradeDef(aIndex).mKind != theKind) return 1.0f;
+	return RunPlantUpgradeMul(thePlant);
+}
+
+int LawnApp::RunPlantUpgradeCountKind(SeedType thePlant, RunPlantUpgradeKind theKind) const
+{
+	int aIndex = RunPlantUpgradeIndexFor(thePlant);
+	if (aIndex < 0 || GetRunPlantUpgradeDef(aIndex).mKind != theKind) return 0;
+	return RunPlantUpgradeCount(thePlant);
+}
+
 //0x44F5F0
 // GOTY @Patoke: 0x4528B0
 void LawnApp::MakeNewBoard()

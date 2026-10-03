@@ -49,37 +49,43 @@ const RunBuffDef& GetRunBuffDef(int theId)
 // （MagnetShroomRechargeFrames，吸僵尸装备与吸地面梯子两处共用）；吸金磁：READY 期 1/50
 // 起吸门与充能 200..300 帧同步乘，吸取动画本身不动）。表内下标随插入右移：批 4
 // 档里 id 16..26、批 5 档里 15/17/18、批 6 档里 15..31、批 7 档里 24..33、批 8 档里 35 的层数会错位到别的植物（批 1/批 2/批 3 档同理；开发期接受，见方案 §六）。
-// 血量型条目（批 1 的 5 条 + 坚果墙）不用挂点——Plant.cpp:484 对任意株统一乘
-// RunPlantUpgradeMul(mSeedType)，表里加一行就生效（南瓜头护罩血已查证同走 mPlantHealth）。
+// 修正批 2026-10-03（方案 §2.7）：四处通用挂点此前对所有行无条件消费 mul/count——
+// 语义无关的条目会静默生效（双发行每层缩双发血量 25%、寒冰行把雪豆射速拉长、
+// 玉米投手够到多发循环就多发玉米、睡莲行把睡莲种植冷却 ×3）。现在条目带 mKind、
+// 挂点走 RunPlantUpgradeMulKind/CountKind：只有标签相符的条目才被该挂点消费。
+// 本批 14 行打标（血量 6 / 射速节奏 4 / 多发 2 / 种植冷却 2），其余默认 EFFECT。
+// 血量型条目（批 1 的 5 条 + 坚果墙）不用专门挂点——Plant.cpp:484 的通用血量口按
+// RUN_UPGRADE_KIND_HEALTH 消费（修正批起，不再对任意行生效），表里加一行标上 Kind
+// 就生效（南瓜头护罩血已查证同走 mPlantHealth）。
 static const RunPlantUpgradeDef gRunPlantUpgradeDefs[RUN_PLANT_UPGRADE_COUNT] =
 {
-	{ SeedType::SEED_PEASHOOTER,   "Pea Volley",   "豌豆射手每次多发 1 颗\n（每层）",   0.00f },
+	{ SeedType::SEED_PEASHOOTER,   "Pea Volley",   "豌豆射手每次多发 1 颗\n（每层）",   0.00f, 0, false, RUN_UPGRADE_KIND_SHOTCOUNT },
 	{ SeedType::SEED_SUNFLOWER,    "Rich Bloom",   "向日葵每次多产 1 阳光\n（每层）",   0.00f, 3 },
 	{ SeedType::SEED_CHERRYBOMB,   "Wide Blast",   "樱桃炸弹爆炸范围 +25%\n（每层）",   0.25f },
-	{ SeedType::SEED_WALLNUT,      "Thick Shell",  "坚果墙血量 +50%\n（每层）",         0.50f },
+	{ SeedType::SEED_WALLNUT,      "Thick Shell",  "坚果墙血量 +50%\n（每层）",         0.50f, 0, false, RUN_UPGRADE_KIND_HEALTH },
 	{ SeedType::SEED_POTATOMINE,   "Wide Charge",  "土豆雷爆炸范围 +25%\n（每层）",     0.25f },
 	{ SeedType::SEED_SNOWPEA,      "Frostbite",    "命中减速时长 +30%\n（每层）",       0.30f, 3 },
-	{ SeedType::SEED_REPEATER,     "Quick Rhythm", "射击间隔逐层 ×0.75\n（每层）",      -0.25f, 3, true },
+	{ SeedType::SEED_REPEATER,     "Quick Rhythm", "射击间隔逐层 ×0.75\n（每层）",      -0.25f, 3, true, RUN_UPGRADE_KIND_RHYTHM },
 	{ SeedType::SEED_PUFFSHROOM,   "Far Spore",    "射程变为无限",                     0.00f, 1 },
 	{ SeedType::SEED_SUNSHROOM,    "Bright Cap",   "每次多产 1 阳光\n（每层）",         0.00f, 3 },
 	{ SeedType::SEED_FUMESHROOM,   "Thick Fumes",  "雾气射程 +1 格\n（每层）",          0.00f, 2 },
 	{ SeedType::SEED_ICESHROOM,    "Deep Freeze",  "全场冰冻 +2 秒\n（每层）",          0.00f, 2 },
 	{ SeedType::SEED_DOOMSHROOM,   "Annihilation", "爆炸范围 +25%\n（每层）",           0.25f, 2 },
-	{ SeedType::SEED_LILYPAD,      "Tough Pad",    "血量 +100%\n（每层）",              1.00f, 2 },
+	{ SeedType::SEED_LILYPAD,      "Tough Pad",    "血量 +100%\n（每层）",              1.00f, 2, false, RUN_UPGRADE_KIND_HEALTH },
 	{ SeedType::SEED_SQUASH,       "Heavy Squash", "压击处僵尸眩晕 +2 秒\n（每层）",    0.00f, 2 },
-	{ SeedType::SEED_THREEPEATER,  "Triple Volley", "每条道多发 1 颗\n（每层）",         0.00f, 2 },
-	{ SeedType::SEED_JALAPENO,     "Inferno",      "种植冷却逐层 ×0.75\n（每层）",      -0.25f, 3, true },
+	{ SeedType::SEED_THREEPEATER,  "Triple Volley", "每条道多发 1 颗\n（每层）",         0.00f, 2, false, RUN_UPGRADE_KIND_SHOTCOUNT },
+	{ SeedType::SEED_JALAPENO,     "Inferno",      "种植冷却逐层 ×0.75\n（每层）",      -0.25f, 3, true, RUN_UPGRADE_KIND_COOLDOWN },
 	{ SeedType::SEED_SPIKEWEED,    "Barbed Spikes", "扎过的僵尸减速 +3 秒\n（每层）",    0.00f, 2 },
-	{ SeedType::SEED_TALLNUT,      "Iron Shell",   "血量 +50%\n（每层）",               0.50f, 3 },
-	{ SeedType::SEED_SEASHROOM,    "Brine Spore",  "种植冷却逐层 ×0.75\n（每层）",      -0.25f, 3, true },
-	{ SeedType::SEED_STARFRUIT,    "Star Rain",    "射击间隔逐层 ×0.75\n（每层）",      -0.25f, 3, true },
-	{ SeedType::SEED_PUMPKINSHELL, "Hard Rind",    "血量 +50%\n（每层）",               0.50f, 3 },
+	{ SeedType::SEED_TALLNUT,      "Iron Shell",   "血量 +50%\n（每层）",               0.50f, 3, false, RUN_UPGRADE_KIND_HEALTH },
+	{ SeedType::SEED_SEASHROOM,    "Brine Spore",  "种植冷却逐层 ×0.75\n（每层）",      -0.25f, 3, true, RUN_UPGRADE_KIND_COOLDOWN },
+	{ SeedType::SEED_STARFRUIT,    "Star Rain",    "射击间隔逐层 ×0.75\n（每层）",      -0.25f, 3, true, RUN_UPGRADE_KIND_RHYTHM },
+	{ SeedType::SEED_PUMPKINSHELL, "Hard Rind",    "血量 +50%\n（每层）",               0.50f, 3, false, RUN_UPGRADE_KIND_HEALTH },
 	{ SeedType::SEED_MAGNETSHROOM, "Magnet Pull",  "吸取间隔逐层 ×0.75\n（每层）",      -0.25f, 3, true },
-	{ SeedType::SEED_CABBAGEPULT,  "Heavy Toss",   "投掷间隔逐层 ×0.75\n（每层）",      -0.25f, 3, true },
-	{ SeedType::SEED_FLOWERPOT,    "Rich Soil",    "血量 +100%\n（每层）",              1.00f, 2 },
-	{ SeedType::SEED_UMBRELLA,     "Canopy",       "血量 +50%\n（每层）",               0.50f, 3 },
+	{ SeedType::SEED_CABBAGEPULT,  "Heavy Toss",   "投掷间隔逐层 ×0.75\n（每层）",      -0.25f, 3, true, RUN_UPGRADE_KIND_RHYTHM },
+	{ SeedType::SEED_FLOWERPOT,    "Rich Soil",    "血量 +100%\n（每层）",              1.00f, 2, false, RUN_UPGRADE_KIND_HEALTH },
+	{ SeedType::SEED_UMBRELLA,     "Canopy",       "血量 +50%\n（每层）",               0.50f, 3, false, RUN_UPGRADE_KIND_HEALTH },
 	{ SeedType::SEED_MARIGOLD,     "Golden Bloom", "每次多产 1 枚\n（每层）",           0.00f, 3 },
-	{ SeedType::SEED_GATLINGPEA,   "Rapid Fire",   "射击间隔逐层 ×0.75\n（每层）",      -0.25f, 3, true },
+	{ SeedType::SEED_GATLINGPEA,   "Rapid Fire",   "射击间隔逐层 ×0.75\n（每层）",      -0.25f, 3, true, RUN_UPGRADE_KIND_RHYTHM },
 	{ SeedType::SEED_TWINSUNFLOWER, "Twin Bloom",  "每次多产 1 阳光\n（每层）",         0.00f, 3 },
 	{ SeedType::SEED_GOLD_MAGNET,  "Gilded Pull",  "吸取间隔逐层 ×0.75\n（每层）",      -0.25f, 3, true },
 	{ SeedType::SEED_SPIKEROCK,    "Royal Thorns", "攻击间隔逐层 ×0.75\n（每层）",      -0.25f, 3, true },
