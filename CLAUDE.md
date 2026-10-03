@@ -14,6 +14,10 @@ cmd /c <pvz-online 根>\build-msvc.bat reconfig  # 删除 build-x86 重新配置
 ```
 
 - 产物：`build-x86/SexyAppFramework.exe`（目标名固定，勿改）
+- **对外发布走 Release 通道**：`build-msvc-release.bat`（pvz-online 根），同工具链但构建
+  `build-rel-x86/` 并传 `-DCMAKE_BUILD_TYPE=Release`——Debug exe 链调试运行库
+  （MSVCP140D 等，只有装 VS 的机器有、不可再分发），玩家机器起不来。根 CMakeLists.txt
+  默认仍是 Debug；玩家发布包另附 x86 CRT DLL 做 app-local（见 `docs/03` §5.16）
 - 覆盖 `runtime/` 里的 exe **前必须先杀进程**（`taskkill //F //IM SexyAppFramework.exe`），
   否则报 `Device or resource busy`；**必须以 `runtime/` 为工作目录启动**
 - **`runtime/` 里我们自己构建的 exe 只保留最新版**（`SexyAppFramework.exe`）；

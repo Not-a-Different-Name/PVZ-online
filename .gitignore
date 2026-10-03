@@ -415,6 +415,8 @@ tools/read-compiled/target
 *.sublime-workspace
 # @pvz-online: build output (CMake/Ninja x86 tree, tens of MB)
 build-x86/
+# @pvz-online: Release build tree (player-facing release, see build-msvc-release.bat)
+build-rel-x86/
 
 # @pvz-online: local runtime dir with unpacked PopCap assets lives one level up,
 # outside this repo, and must never be vendored (main.pak 44M + game binaries).

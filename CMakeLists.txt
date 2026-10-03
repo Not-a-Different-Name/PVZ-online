@@ -32,7 +32,12 @@ endif()
 
 set(CMAKE_CXX_FLAGS "${universal_cxxflags} ${warn_flags}")
 set(CMAKE_C_FLAGS   "${universal_cflags} ${warn_flags}")
-set(CMAKE_BUILD_TYPE Debug)
+# @pvz-online: 默认仍是 Debug（日常开发），但允许显式覆盖——发布版走
+# build-msvc-release.bat 传 -DCMAKE_BUILD_TYPE=Release（Debug 构建链接调试运行库，
+# 没装 VS 的玩家机器起不来）。
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Debug)
+endif()
 set(CMAKE_EXPORT_COMPILE_COMMANDS 1)
 
 if(NOT MSVC)
