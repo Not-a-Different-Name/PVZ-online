@@ -81,6 +81,9 @@ public:
 	std::vector<SeedType>		mPool;			// 这一局的卡池（按加入顺序；起始 = 向日葵 + 豌豆射手）
 	std::vector<BuffStack>		mBuffs;			// 这一局拿到的 buff（同名可叠加）
 	int							mFailCounts[RUN_LEVEL_COUNT];	// 每关失败次数（首版只存不用，平衡阶段再定惩罚）
+	// @pvz-online: 末位推车的"整局一次性"记账：bit = 行号。联机闯关里末位玩家的哪几行推车
+	// 已经用了（触发或被压）；用过的行跨关不再补。随检查点持久（v5），联机两端各记各的。
+	unsigned int				mMowerUsedRows;
 	// @pvz-online: 补发追赶的目标关序号（R5）。队友没有检查点 / 检查点落后于主机时，
 	// 不是"跳到主机的关"，而是从这一局的起点一屏一屏地把欠下的三选一补齐——
 	// 补做的屏与真打过的一模一样（候选由 runSeed + 关序号推导）。开着的时候

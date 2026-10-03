@@ -319,6 +319,9 @@ public:
 	// @pvz-online: 漏怪传递。僵尸走到房子前先问这里：传成了就从本棋盘消失（不算漏），
 	// 返回 false 才走原版判负。单机、队友没了、末席（没人可传）都是 false。
 	bool							TryRelayEscapedZombie(Zombie* theZombie);
+	// @pvz-online: 末位推车的"整局一次性"记账（联机闯关）：推车被消耗（触发或被压）时
+	// 由 LawnMower 调进来，行号记进 RunState、随检查点持久——用过的行跨关不再补。
+	void							NoteMowerConsumed(int theRow);
 	// @pvz-online: 漏怪传递的接收侧。队友那儿漏过来的僵尸在本棋盘右侧按原类型重新生成，
 	// 只把"还剩多少血"照搬过来。行号/类型是网络来的，越界就不收（返回 nullptr）。
 	Zombie*							AddRelayedZombie(int theRow, ZombieType theZombieType, int theBodyHealth, int theHelmHealth, int theShieldHealth, int theFlyingHealth);

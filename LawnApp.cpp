@@ -1573,8 +1573,8 @@ void LawnApp::UpdateStartupAnnounce()
 
 	OnlineStartDialog* aDialog = new OnlineStartDialog(this, "欢迎来到 PvZ 联机合作版",
 		"· 2~4 人各守一块草坪，漏掉的僵尸传给下一位\n"
-		"  队友（保留血量）；末位漏怪 = 全队失败，\n"
-		"  联机局没有除草机。\n"
+		"  队友（保留血量）；末位漏怪 = 全队失败。\n"
+		"  末位每行有一台推车兜底，用掉不补。\n"
 		"· 出怪量按席位递减：末位 1 倍、1 号位最多。\n"
 		"· 主位大墓碑 = 组队 / 加入房间，主机可发起\n"
 		"  「组队闯关」；第三槽 PUZZLE 石板 = 打单关。\n"

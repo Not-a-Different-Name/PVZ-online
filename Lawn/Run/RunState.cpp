@@ -19,9 +19,11 @@
 //     直接按完整版续；载荷长度一个字节没变。
 // v4：加出怪难度档（2026-10-03，房主开局前选的那种）——v3 的高字节保留位恒 0，恰好
 //     就是"标准"，所以 v3 的档直接按标准续；载荷长度同样没变。
+// v5：加末位推车记账（联机末位每行一台、整局一次性）——追加在载荷末尾；v4 及更老的档
+//     读不到这两字节，按"一辆都没用"续。
 
 static const unsigned int RUN_CHECKPOINT_MAGIC = 0x314E5552;	// 'RUN1'
-static const unsigned short RUN_CHECKPOINT_VERSION = 4;
+static const unsigned short RUN_CHECKPOINT_VERSION = 5;
 
 static std::vector<unsigned char>& AppendU16(std::vector<unsigned char>& theData, unsigned int theValue)
 {
@@ -90,6 +92,7 @@ void RunState::StartNew(int theRunSeed, int theRunMode, int theRunDiff)
 	mPool.push_back(SeedType::SEED_PEASHOOTER);
 	mBuffs.clear();
 	memset(mFailCounts, 0, sizeof(mFailCounts));
+	mMowerUsedRows = 0;
 	mPendingPlantPicks = 0;
 	mPendingBuffPicks = 0;
 	mPickCounter = 0;
@@ -429,6 +432,8 @@ bool RunState::Save(int theProfileId) const
 		AppendU16(aData, mBuffs[i].mCount);
 	}
 
+	AppendU16(aData, mMowerUsedRows);	// v5：末位推车记账（bit = 行号）
+
 	MkDir(GetAppDataFolder() + "userdata");
 	if (!gSexyAppBase->WriteBytesToFile(GetCheckpointName(theProfileId), aData.data(), (unsigned long)aData.size()))
 	{
@@ -452,11 +457,12 @@ bool RunState::Load(int theProfileId)
 	{
 		return false;
 	}
-	// v3 才有时长档、v4 才有难度档。老版本占的保留位恒 0，恰好是各自默认档——
-	// v2 的档按完整版续、v3 的档按标准难度续，都不用作废。再往前的版本一律当"没有检查点"。
+	// v3 才有时长档、v4 才有难度档、v5 才有推车记账。老版本占的保留位恒 0，恰好是各自
+	// 默认档——v2 的档按完整版续、v3 的档按标准难度续，都不用作废；v4 及更老的档没有
+	// 推车字段，按"一辆都没用"续。再往前的版本一律当"没有检查点"。
 	int aMode = RUN_MODE_FULL;
 	int aDiff = RUN_DIFF_STD;
-	if (aMagic != RUN_CHECKPOINT_MAGIC || (aVersion != RUN_CHECKPOINT_VERSION && aVersion != 3 && aVersion != 2))
+	if (aMagic != RUN_CHECKPOINT_MAGIC || (aVersion != RUN_CHECKPOINT_VERSION && aVersion != 4 && aVersion != 3 && aVersion != 2))
 	{
 		TodLog("[run] checkpoint magic/version mismatch, ignored");
 		return false;
@@ -531,11 +537,19 @@ bool RunState::Load(int theProfileId)
 		aBuffs.push_back(aStack);
 	}
 
+	// v5 才有推车记账；v4 及更老的档读不到，按"一辆都没用"续。
+	unsigned int aMowerUsedRows = 0;
+	if (aVersion >= 5 && !aReader.ReadU16(aMowerUsedRows))
+	{
+		return false;
+	}
+
 	mRunSeed = aRunSeed;
 	mMode = aMode;
 	mDiff = aDiff;
 	mLevelIndex = aLevelIndex;
 	memcpy(mFailCounts, aFailCounts, sizeof(mFailCounts));
+	mMowerUsedRows = aMowerUsedRows;
 	mPool = aPool;
 	mBuffs = aBuffs;
 	// 检查点里没有"补发追赶"这回事（它只活在联机对齐的那一刻），读进来一律清掉。

@@ -244,6 +244,11 @@ public:
 	// 只看席位号、不看谁建的房：换过位置后方向跟着换。
 	uint8_t			GetRelayTargetSeat() const;
 
+	// @pvz-online: 本机是不是漏怪链的末位（漏怪不再往下传、再漏就是全队败的那一家）。
+	// 末位推车（每行一台、整局一次性）只给这一家发。单人房不算——一个席位谈不上"末位"，
+	// 漏怪直接判负，推车给不给都一样。
+	bool			IsLastRelaySeat() const;
+
 	// 把一只漏怪交出去（席位由会话层填好）。末席、没连上、编码失败都返回 false——
 	// 返回 false 就是"没传成"，调用方要按原版判负处理，绝不能悄悄让怪消失。
 	bool			SendEscapedZombie(const NetProto::MsgEscapedZombie& theMsg);

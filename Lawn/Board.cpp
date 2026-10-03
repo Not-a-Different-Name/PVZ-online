@@ -1849,18 +1849,28 @@ void Board::InitLawnMowers()
 {
 	GameMode aGameMode = mApp->mGameMode;
 	// 这里优化一下原版的代码，事先列举一些不创建小推车的关卡
-	// @pvz-online: 联机局一律没有小推车——漏怪要传到队友那边去，房前不留兜底。
-	// 闯关局同理（已拍板）：房前不留兜底，漏一只就是这一关没过。
-	if (mApp->IsOnlineGame() || mApp->IsRunMode() ||
+	// @pvz-online: 末位推车（2026-10-03 用户定案）：漏怪链的末位玩家、多人局，每行发一台车——
+	// 链到他为止，再漏就是全队败，房前给他留一重兜底。整局一次性：用过的行记在 RunState
+	// （检查点 v5），跨关不再补。非末位照旧没有车：他们的漏怪要传给队友，房前不留兜底；
+	// 单机闯关也没有（房前不留兜底，早先已拍板）。
+	bool aOnlineLastSeat = mApp->IsOnlineGame() && mApp->mOnlineSession->IsLastRelaySeat();
+	if ((!aOnlineLastSeat && (mApp->IsOnlineGame() || mApp->IsRunMode())) ||
 		aGameMode == GameMode::GAMEMODE_CHALLENGE_BEGHOULED || aGameMode == GameMode::GAMEMODE_CHALLENGE_BEGHOULED_TWIST ||
 		aGameMode == GameMode::GAMEMODE_CHALLENGE_ZEN_GARDEN || aGameMode == GameMode::GAMEMODE_TREE_OF_WISDOM ||
 		aGameMode == GameMode::GAMEMODE_CHALLENGE_LAST_STAND || aGameMode == GameMode::GAMEMODE_CHALLENGE_ZOMBIQUARIUM ||
-		mApp->IsSquirrelLevel() || mApp->IsIZombieLevel() || (StageHasRoof() && !mApp->mPlayerInfo->mPurchases[StoreItem::STORE_ITEM_ROOF_CLEANER]))
+		mApp->IsSquirrelLevel() || mApp->IsIZombieLevel() ||
+		// 末位联机不认屋顶清洁车的购买位：全队的兜底不挂在一件商店购买上（车本身照旧
+		// 按场景定型——屋顶关是屋顶清洁车型，见 LawnMowerInitialize）
+		(!aOnlineLastSeat && StageHasRoof() && !mApp->mPlayerInfo->mPurchases[StoreItem::STORE_ITEM_ROOF_CLEANER]))
 		return;
 
 	for (int aRow = 0; aRow < MAX_GRID_SIZE_Y; aRow++)
 	{
-		if ((aGameMode == GameMode::GAMEMODE_CHALLENGE_RESODDED && aRow <= 4) || 
+		// 这一局（闯关）已经用掉的行不再发车——RunState 里跨关、跨检查点记着
+		if (aOnlineLastSeat && mApp->IsRunMode() && (mApp->GetRunState()->mMowerUsedRows & (1u << aRow)) != 0)
+			continue;
+
+		if ((aGameMode == GameMode::GAMEMODE_CHALLENGE_RESODDED && aRow <= 4) ||
 			(mApp->IsAdventureMode() && mLevel == 35) ||   // 这里原版没有对于行的判断，故冒险模式 4-5 关卡有 6 行小推车
 			(!mApp->IsScaryPotterLevel() && mPlantRow[aRow] != PlantRowType::PLANTROW_DIRT))  // 除冒险模式 4-5 关卡外的破罐者模式关卡无小推车
 		{
@@ -5577,6 +5587,17 @@ bool Board::TryRelayEscapedZombie(Zombie* theZombie)
 
 	theZombie->DieNoLoot();
 	return true;
+}
+
+// @pvz-online: 末位推车的"整局一次性"记账：车被消耗（触发或被压）时 LawnMower 调进来，
+// 记进 RunState、随检查点持久，用过的行跨关不再补。只有联机闯关的末位棋盘上有车；
+// 联机原版战役的车是每关重置的（不记账），单机压根没车。
+void Board::NoteMowerConsumed(int theRow)
+{
+	if (!mApp->IsOnlineGame() || !mApp->IsRunMode()) return;
+
+	mApp->GetRunState()->mMowerUsedRows |= (1u << theRow);
+	TodLog("[run] the mower on row %d is spent - no more this run", theRow);
 }
 
 // @pvz-online: 漏怪传递的接收侧。位置、速度、外观都按本机规则重新生成（同类型的怪从右侧

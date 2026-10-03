@@ -828,6 +828,13 @@ uint8_t NetSession::GetRelayTargetSeat() const
 	return NextOccupiedSeat(mLocalSeat);
 }
 
+bool NetSession::IsLastRelaySeat() const
+{
+	// 链没有下一家 = 本机是末位。再看一眼人数：单人房（只有自己坐席）不算——
+	// 那是"没人可传"，不是"排在队尾"，推车不往那儿发。
+	return GetRelayTargetSeat() == NetProto::SEAT_UNSET && GetOccupiedSeatCount() >= 2;
+}
+
 bool NetSession::SendEscapedZombie(const NetProto::MsgEscapedZombie& theMsg)
 {
 	uint8_t aTarget = GetRelayTargetSeat();

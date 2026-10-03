@@ -386,6 +386,8 @@ void LawnMower::StartMower()
     mBoard->mWaveRowGotLawnMowered[mRow] = mBoard->mCurrentWave;
     mBoard->mTriggeredLawnMowers++;
     mMowerState = LawnMowerState::MOWER_TRIGGERED;
+    // @pvz-online: 末位推车"整局一次性"——在联机闯关里这一行记进 RunState，用完不补
+    mBoard->NoteMowerConsumed(mRow);
 }
 
 //0x458EB0
@@ -398,6 +400,8 @@ void LawnMower::SquishMower()
     mMowerState = LawnMowerState::MOWER_SQUISHED;
     mSquishedCounter = 500;
     mApp->PlayFoley(FoleyType::FOLEY_SQUISH);
+    // @pvz-online: 被压扁也是消耗（末位推车整局一次性）
+    mBoard->NoteMowerConsumed(mRow);
 }
 
 Rect LawnMower::GetLawnMowerAttackRect()
