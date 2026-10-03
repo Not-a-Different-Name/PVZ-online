@@ -1440,6 +1440,19 @@ void Plant::DoSquashDamage()
             {
                 // @pvz-online: 闯关 buff「爆破」：窝瓜压扁伤害 ×(1+30%/层)。
                 aZombie->TakeDamage((int)(1800 * mApp->RunBuffMul(RUN_BUFF_BLAST) + 0.5f), 18U);
+
+                // @pvz-online: 单株升级「重压」：压击处僵尸眩晕 +2 秒/层（RunBuffs 单株表，至多
+                // 2 层）。走 ApplyButter 拿全套眩晕手感（黄油视觉/减速动画/音效）；它有自己的
+                // 守卫（无头/飞行等直接早退），用 ==400 认出真跑过的，再把它的 400 帧（4 秒）
+                // 改成 200 帧/层（2 秒/层）；被守卫拦下的僵尸计数器不动，不硬塞。
+                int aStunFrames = 200 * mApp->RunPlantUpgradeCount(SeedType::SEED_SQUASH);
+                if (aStunFrames > 0 && !aZombie->IsDeadOrDying())
+                {
+                    int aBefore = aZombie->mButteredCounter;
+                    aZombie->ApplyButter();
+                    if (aZombie->mButteredCounter == 400)
+                        aZombie->mButteredCounter = aBefore > aStunFrames ? aBefore : aStunFrames;
+                }
             }
         }
     }
@@ -4414,7 +4427,9 @@ void Plant::DoSpecial()
     {
         mApp->PlaySample(SOUND_DOOMSHROOM);
 
-        mBoard->KillAllZombiesInRadius(mRow, aPosX, aPosY, 250, 3, true, aDamageRangeFlags);
+        // @pvz-online: 单株升级「扩爆」：半径 ×(1+25%/层)（RunBuffs 单株表；同樱桃 :4403 写法）
+        int aRadius = (int)(250 * mApp->RunPlantUpgradeMul(SeedType::SEED_DOOMSHROOM) + 0.5f);
+        mBoard->KillAllZombiesInRadius(mRow, aPosX, aPosY, aRadius, 3, true, aDamageRangeFlags);
         KillAllPlantsNearDoom();
 
         mApp->AddTodParticle(aPosX, aPosY, (int)RenderLayer::RENDER_LAYER_TOP, ParticleEffect::PARTICLE_DOOM);
@@ -4787,7 +4802,8 @@ void Plant::Fire(Zombie* theTargetZombie, int theRow, PlantWeapon thePlantWeapon
     aProjectile->mDamageRangeFlags = GetDamageRangeFlags(thePlantWeapon);
 
     // @pvz-online: 单株升级「多发」：每层多打一发（RunBuffs 单株表）。
-    // 表里进得了这段的只有直射豌豆系——多出来的子弹照主子弹的默认直线运动走，
+    // 表里进得了这段的只有直射豌豆系（豌豆、三线——三线每道调一次 Fire，所以是每道各 +1 颗，
+    // 不是每轮 +3）——多出来的子弹照主子弹的默认直线运动走，
     // 出发位置逐发后错一点，看得出是一排子弹而不是一发重影。
     for (int i = 0, aExtra = mApp->RunPlantUpgradeCount(mSeedType); i < aExtra; i++)
     {
