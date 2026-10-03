@@ -709,6 +709,25 @@ void Plant::DoRowAreaDamage(int theDamage, unsigned int theDamageFlags)
 
                 aZombie->TakeDamage(aDamage, theDamageFlags);
                 mApp->PlayFoley(FoleyType::FOLEY_SPLAT);
+
+                // @pvz-online: 单株升级「Barbed Spikes」（地刺，表行 SEED_SPIKEWEED）：扎过的
+                // 僵尸减速 +3 秒/层（计数型、至多 2 层）。语义照 Zombie::ApplyChill——CanBeChilled
+                // 挡下、不缩短更长的减速（冰道/寒冰菇的 2000 帧不动）、首次挂上出冰音、降速
+                // 刷新走 UpdateAnimSpeed。只认地刺本体（地刺王的加成是攻速、不在这）；
+                // RunPlantUpgradeCount 非闯关恒 0，加 0 不进这条。
+                if (mSeedType == SeedType::SEED_SPIKEWEED)
+                {
+                    int aSlowFrames = 300 * mApp->RunPlantUpgradeCount(SeedType::SEED_SPIKEWEED);
+                    if (aSlowFrames > 0 && aZombie->CanBeChilled() && aSlowFrames > aZombie->mChilledCounter)
+                    {
+                        if (aZombie->mChilledCounter == 0)
+                        {
+                            mApp->PlayFoley(FoleyType::FOLEY_FROZEN);
+                        }
+                        aZombie->mChilledCounter = aSlowFrames;
+                        aZombie->UpdateAnimSpeed();
+                    }
+                }
             }
         }
     }
@@ -1285,6 +1304,15 @@ void Plant::UpdateTanglekelp()
     }
 }
 
+// @pvz-online: 地刺系攻击循环 = 100 帧；单株升级「Royal Thorns」（地刺王，表行 SEED_SPIKEROCK）
+// 攻击间隔 ×0.75/层（乘算、至多 3 层）就乘在这。UpdateSpikeweed 的命中点（地刺 75、地刺王
+// 69/33）靠倒计时整数相等判定——必须按同一比例缩，写死 100 时那三个数在缩短过的循环里
+// 对不上号、不会出伤。非闯关局取用口恒 1.0，还是 100。
+int Plant::SpikeweedCycleFrames(LawnApp* theApp, SeedType theSeedType)
+{
+    return (int)(100 * theApp->RunPlantUpgradeMul(theSeedType) + 0.5f);
+}
+
 //0x460320
 void Plant::SpikeweedAttack()
 {
@@ -1294,9 +1322,9 @@ void Plant::SpikeweedAttack()
     {
         PlayBodyReanim("anim_attack", ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD, 20, 18.0f);
         mApp->PlaySample(SOUND_THROW);
-        
+
         mState = PlantState::STATE_SPIKEWEED_ATTACKING;
-        mStateCountdown = 100;
+        mStateCountdown = SpikeweedCycleFrames(mApp, mSeedType);
     }
 }
 
@@ -1306,18 +1334,21 @@ void Plant::UpdateSpikeweed()
     Reanimation* aBodyReanim = mApp->ReanimationGet(mBodyReanimID);
     if (mState == PlantState::STATE_SPIKEWEED_ATTACKING)
     {
+        // @pvz-online: 命中点按循环帧数同比例缩（地刺王的攻速加成缩短了循环）；原始比例 =
+        // 倒计时从 100 走：地刺 75、地刺王 69/33。
+        int aCycle = SpikeweedCycleFrames(mApp, mSeedType);
         if (mStateCountdown == 0)
         {
             mState = PlantState::STATE_NOTREADY;
         }
         else if (mSeedType == SeedType::SEED_SPIKEROCK)
         {
-            if (mStateCountdown == 69 || mStateCountdown == 33)
+            if (mStateCountdown == aCycle * 69 / 100 || mStateCountdown == aCycle * 33 / 100)
             {
                 DoRowAreaDamage(20, 33U);
             }
         }
-        else if (mStateCountdown == 75)
+        else if (mStateCountdown == aCycle * 75 / 100)
         {
             DoRowAreaDamage(20, 33U);
         }

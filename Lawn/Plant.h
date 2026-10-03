@@ -257,6 +257,9 @@ public:
     void                    UpdateScaredyShroom();
     int                     DistanceToClosestZombie();
     void                    UpdateSpikeweed();
+	// @pvz-online: 地刺系的攻击循环帧数（100 × 单株乘数）——地刺王「Royal Thorns」的攻击
+	// 间隔加成落在这里；UpdateSpikeweed 的命中点按同一来源缩。static 供批验证直接取值。
+	static int              SpikeweedCycleFrames(LawnApp* theApp, SeedType theSeedType);
     void                    MagnetShroomAttactItem(Zombie* theZombie);
     void                    UpdateSunShroom();
     void                    UpdateBowling();

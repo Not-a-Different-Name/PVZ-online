@@ -42,8 +42,11 @@ const RunBuffDef& GetRunBuffDef(int theId)
 // 挂点都在 Plant::GetPlantAttackRect 的攻击矩形：小喷菇带层即同 default 支一路铺到板尾（同 800px，
 // FindTargetZombie 拿这矩形当开火门，弹道本身无射程上限），大喷菇每层 +80px；同批土豆雷 4 改
 // 「Wide Charge」：效果从爆炸直伤 +40% 换成半径 +25%/层——直伤乘数从
-// Board::KillAllZombiesInRadius 摘除，半径乘数落 Plant::DoSpecial 土豆雷支）。表内下标随插入右移：批 4
-// 档里 id 16..26、批 5 档里 15/17/18、批 6 档里 15..31 的层数会错位到别的植物（批 1/批 2/批 3 档同理；开发期接受，见方案 §六）。
+// Board::KillAllZombiesInRadius 摘除，半径乘数落 Plant::DoSpecial 土豆雷支）；批 8 的 2 条（地刺 21 /
+// 地刺王 46——地刺：命中的僵尸在 Plant::DoRowAreaDamage 里按层数上减速（+300 帧/层，CanBeChilled/
+// max 语义同寒冰）；地刺王：Plant::SpikeweedCycleFrames 攻击循环帧数 ×单株乘数，75/69/33 三个命中点
+// 同比例缩）。表内下标随插入右移：批 4
+// 档里 id 16..26、批 5 档里 15/17/18、批 6 档里 15..31、批 7 档里 24..33 的层数会错位到别的植物（批 1/批 2/批 3 档同理；开发期接受，见方案 §六）。
 // 血量型条目（批 1 的 5 条 + 坚果墙）不用挂点——Plant.cpp:484 对任意株统一乘
 // RunPlantUpgradeMul(mSeedType)，表里加一行就生效（南瓜头护罩血已查证同走 mPlantHealth）。
 static const RunPlantUpgradeDef gRunPlantUpgradeDefs[RUN_PLANT_UPGRADE_COUNT] =
@@ -64,6 +67,7 @@ static const RunPlantUpgradeDef gRunPlantUpgradeDefs[RUN_PLANT_UPGRADE_COUNT] =
 	{ SeedType::SEED_SQUASH,       "Heavy Squash", "压击处僵尸眩晕 +2 秒\n（每层）",    0.00f, 2 },
 	{ SeedType::SEED_THREEPEATER,  "Triple Volley", "每条道多发 1 颗\n（每层）",         0.00f, 2 },
 	{ SeedType::SEED_JALAPENO,     "Inferno",      "种植冷却逐层 ×0.75\n（每层）",      -0.25f, 3, true },
+	{ SeedType::SEED_SPIKEWEED,    "Barbed Spikes", "扎过的僵尸减速 +3 秒\n（每层）",    0.00f, 2 },
 	{ SeedType::SEED_TALLNUT,      "Iron Shell",   "血量 +50%\n（每层）",               0.50f, 3 },
 	{ SeedType::SEED_SEASHROOM,    "Brine Spore",  "种植冷却逐层 ×0.75\n（每层）",      -0.25f, 3, true },
 	{ SeedType::SEED_STARFRUIT,    "Star Rain",    "射击间隔逐层 ×0.75\n（每层）",      -0.25f, 3, true },
@@ -74,6 +78,7 @@ static const RunPlantUpgradeDef gRunPlantUpgradeDefs[RUN_PLANT_UPGRADE_COUNT] =
 	{ SeedType::SEED_MARIGOLD,     "Golden Bloom", "每次多产 1 枚\n（每层）",           0.00f, 3 },
 	{ SeedType::SEED_GATLINGPEA,   "Rapid Fire",   "射击间隔逐层 ×0.75\n（每层）",      -0.25f, 3, true },
 	{ SeedType::SEED_TWINSUNFLOWER, "Twin Bloom",  "每次多产 1 阳光\n（每层）",         0.00f, 3 },
+	{ SeedType::SEED_SPIKEROCK,    "Royal Thorns", "攻击间隔逐层 ×0.75\n（每层）",      -0.25f, 3, true },
 };
 
 const RunPlantUpgradeDef& GetRunPlantUpgradeDef(int theIndex)
@@ -154,6 +159,7 @@ static const struct { SeedType mPlant; const char* mName; } gRunPlantUpgradeZhNa
 	{ SeedType::SEED_SQUASH,       "窝瓜" },
 	{ SeedType::SEED_THREEPEATER,  "三线射手" },
 	{ SeedType::SEED_JALAPENO,     "火爆辣椒" },
+	{ SeedType::SEED_SPIKEWEED,    "地刺" },
 	{ SeedType::SEED_TALLNUT,      "高坚果" },
 	{ SeedType::SEED_SEASHROOM,    "海蘑菇" },
 	{ SeedType::SEED_STARFRUIT,    "杨桃" },
@@ -164,6 +170,7 @@ static const struct { SeedType mPlant; const char* mName; } gRunPlantUpgradeZhNa
 	{ SeedType::SEED_MARIGOLD,     "金盏花" },
 	{ SeedType::SEED_GATLINGPEA,   "机枪射手" },
 	{ SeedType::SEED_TWINSUNFLOWER,"双子向日葵" },
+	{ SeedType::SEED_SPIKEROCK,    "地刺王" },
 };
 
 const char* GetRunChoicePlantName(int theId)
