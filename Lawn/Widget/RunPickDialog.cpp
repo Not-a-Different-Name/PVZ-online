@@ -183,44 +183,75 @@ RunPickDialog::RunPickDialog(LawnApp* theApp, RunState* theRun) : LawnDialog(
 
 	mTallBottom = true;
 	mVerticalCenterText = false;
-	// 尺寸由文案反推：列宽照最宽的一行（三列按它对齐），列高照"最多的那条说明在当前
-	// 列宽下画出来有几行"——RunPickCountLines 走的就是绘制端同一份断行，不再按显式 \n
-	// 行数估（2026-10-03 玩家截图：文案折行后比估算多两行，说明压住了【植物名】和
-	// 「已有 x/N」）。再加标题行与「已有」行。宽不够就长一轮、高不够也长一轮，两个都
-	// 够了才收手；到顶了也收手（剩下的靠绘制端断行兜住，宁可折行不再叠字）。以后改
-	// 文案不用回来调数字。
+	// 尺寸由内容反推，且两个驱动按屏分家（2026-10-04 用户反馈"NEW PLANT 屏过大"）：
+	//  植物屏 列宽只按按钮上的植物名（标签，位图字体）与种子包定，面积只要放下包；
+	//  增益屏 列宽按说明的显式行宽，面积按"最多的那条说明在当前列宽下折几行"——
+	//         RunPickCountLines 走的就是绘制端同一份断行，不再按显式 \n 行数估。
+	// 之前两屏共用一套驱动：植物屏根本不放那些说明，却被它们的折行数顶着长到
+	// CalcSize 顶档——弹窗比画布 800 还宽，两侧石头边框被画布切掉，包和按钮之间
+	// 空着百来像素的死区。以后改文案不用回来调数字。
 	ModText::Font* aCjkFont = RunPickCjkFont();
 	int aTargetColumn = 0;
-	for (int i = 0; i < RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT; i++)
+	if (mPlantPick)
 	{
-		int aWidth = RunPickDescWidth(aCjkFont, GetRunChoiceDesc(i));
-		if (aWidth > aTargetColumn) aTargetColumn = aWidth;
+		aTargetColumn = SEED_PACKET_WIDTH + 16;
+		for (int i = 0; i < 3; i++)
+		{
+			// 标签用绘制端同款字体量（GameButton.cpp 的 DrawStoneButton）——宽就是列宽
+			int aLabelWidth = Sexy::FONT_DWARVENTODCRAFT18GREENINSET->StringWidth(mChoiceButtons[i]->mLabel) + 16;
+			if (aLabelWidth > aTargetColumn) aTargetColumn = aLabelWidth;
+		}
 	}
-	aTargetColumn += 12; // 两侧各留一点白
-	// 列宽目标封顶：英文说明是长句（"Sky sun falls 20% faster, up to 4 stacks"），
-	// 按显式行宽推目标会一路把弹窗顶着长到整屏宽——封顶后交给折行处理
-	// （2026-10-04 用户反馈：英文档这个框大到快出屏）。
-	if (aTargetColumn > 220) aTargetColumn = 220;
+	else
+	{
+		for (int i = 0; i < RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT; i++)
+		{
+			int aWidth = RunPickDescWidth(aCjkFont, GetRunChoiceDesc(i));
+			if (aWidth > aTargetColumn) aTargetColumn = aWidth;
+		}
+		aTargetColumn += 12; // 两侧各留一点白
+		// 列宽目标封顶：英文说明是长句（"Sky sun falls 20% faster, up to 4 stacks"），
+		// 按显式行宽推目标会一路把弹窗顶着长到整屏宽——封顶后交给折行处理
+		// （2026-10-04 用户反馈：英文档这个框大到快出屏）。
+		if (aTargetColumn > 220) aTargetColumn = 220;
+	}
 	int aFitLineHeight = ModText::LineHeight(aCjkFont) + 3;
 	// 底部是两行按钮（三张卡一行、最底「放弃」单独一行）：最小高与上限高都比原来多让
 	// 出一行（按钮高 + 6，与 Resize 里三张卡那一行上移的量是同一笔账）。卡片区口径不变。
 	int aExtraHeight = IMAGE_BUTTON_LEFT->mHeight + 6;
-	CalcSize(430, 150 + aExtraHeight);
+	// 起手宽度：植物屏三列只为放包与名字，不必按增益屏的 430 起步（360 起，两屏的
+	// 标题与边框内缩量会把总宽再抬到比画布窄一截的位置）。
+	int aSizeX = mPlantPick ? 360 : 430;
+	int aSizeY = 150 + aExtraHeight;
+	CalcSize(aSizeX, aSizeY);
 	// 宽的上限从 740 收到 580（2026-10-04）：说明改按词折行后，不再需要为一句长文
 	// 把弹窗拉满整屏——到 580 就收手，多出来的行交给折行。
+	// 宽、高各自达标即各自停长：两个条件绑在同一个 i 上时，高不达标会把宽也一级一级
+	// 抬到顶档（植物屏被增益说明的折行数拖成整屏宽，正是这条路）。
 	for (int i = 1; i <= 6; i++)
 	{
-		int aMaxLines = 1;
-		for (int j = 0; j < RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT; j++)
+		int aNeededArea;
+		if (mPlantPick)
 		{
-			int aLines = RunPickCountLines(aCjkFont, GetRunChoiceDesc(j), mColumnWidth - 4);
-			if (aLines > aMaxLines) aMaxLines = aLines;
+			// 面积里只有种子包（名字在按钮上）——包高 + 上下留白
+			aNeededArea = SEED_PACKET_HEIGHT + 12;
 		}
-		int aNeededArea = (aMaxLines + 2) * aFitLineHeight + 6;
+		else
+		{
+			int aMaxLines = 1;
+			for (int j = 0; j < RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT; j++)
+			{
+				int aLines = RunPickCountLines(aCjkFont, GetRunChoiceDesc(j), mColumnWidth - 4);
+				if (aLines > aMaxLines) aMaxLines = aLines;
+			}
+			aNeededArea = (aMaxLines + 2) * aFitLineHeight + 6;
+		}
 		bool aWidthDone = mColumnWidth >= aTargetColumn || mWidth >= 580;
 		bool aHeightDone = mAreaHeight >= aNeededArea || mHeight >= 460 + aExtraHeight;
 		if (aWidthDone && aHeightDone) break;
-		CalcSize(430 + i * 20, 150 + i * 20 + aExtraHeight);
+		if (!aWidthDone) aSizeX += 20;
+		if (!aHeightDone) aSizeY += 20;
+		CalcSize(aSizeX, aSizeY);
 	}
 	mApp->CenterDialog(this, mWidth, mHeight);
 	mClip = false;
