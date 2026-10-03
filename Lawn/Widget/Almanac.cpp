@@ -13,8 +13,199 @@
 #include "../System/ReanimationLawn.h"
 #include "../../Sexy.TodLib/TodStringFile.h"
 #include "widget/WidgetManager.h"
+#include "../Run/RunBuffs.h"
+#include "graphics/SysFont.h"
+#include <string>
+#include <vector>
 
 bool gZombieDefeated[NUM_ZOMBIE_TYPES] = { false };
+
+// ── 词条附录的中文绘制（图鉴全解锁批，2026-10-03）────────────────────────
+// 词条文案（RunBuffs 表）是 UTF-8 中文，main.pak 那套位图字体没有汉字字形——
+// 照 OnlineStartDialog / RunPickDialog 的先例走 GDI（SysFont + TextOutA）。
+// 字体按"目标像素高"反算点值（同 OnlineStartDialog）：150% 缩放下写死的点值会被
+// 放大近 2 倍，258px 宽的卡面放不下。取 12px：13px 时块高 68px，最长简介（机枪豌豆）
+// 底下只剩 41px 塞不下，统一降一档配合「连接式单行」结构（见 DrawAlmanacRunEntry）。
+// 转码/断行这几个小工具与 RunPickDialog.cpp 的同源实现各自留一份（那边的也是文件内
+// static，属本项目现有惯例）。
+#define ALMANAC_CJK_PX 12
+
+static std::string AlmanacAnsiFromUtf8(const char* theUtf8)
+{
+	std::string aText(theUtf8 != nullptr ? theUtf8 : "");
+	if (aText.empty()) return aText;
+
+	int aWideLen = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, aText.c_str(), (int)aText.size(), nullptr, 0);
+	if (aWideLen <= 0) return aText;
+	std::vector<wchar_t> aWide(aWideLen);
+	MultiByteToWideChar(CP_UTF8, 0, aText.c_str(), (int)aText.size(), &aWide[0], aWideLen);
+
+	int anAnsiLen = WideCharToMultiByte(CP_ACP, 0, &aWide[0], aWideLen, nullptr, 0, nullptr, nullptr);
+	if (anAnsiLen <= 0) return aText;
+	std::string anAnsi(anAnsiLen, '\0');
+	WideCharToMultiByte(CP_ACP, 0, &aWide[0], aWideLen, &anAnsi[0], anAnsiLen, nullptr, nullptr);
+	return anAnsi;
+}
+
+// 词条用的一支字（粗 = 标题行，细 = 说明正文），进程级缓存、故意不释放（同前例）。
+static SysFont* AlmanacCjkFont(bool theBold)
+{
+	static SysFont* aHeadFont = nullptr;
+	static SysFont* aBodyFont = nullptr;
+	SysFont*& aSlot = theBold ? aHeadFont : aBodyFont;
+	if (aSlot == nullptr)
+	{
+		const char* aFace = "Microsoft YaHei";
+		if (GetFileAttributesA("C:\\Windows\\Fonts\\msyh.ttc") == INVALID_FILE_ATTRIBUTES)
+		{
+			aFace = (GetFileAttributesA("C:\\Windows\\Fonts\\simhei.ttf") != INVALID_FILE_ATTRIBUTES) ? "SimHei" : "SimSun";
+		}
+		HDC aDC = ::GetDC(gSexyAppBase->mHWnd);
+		int aDpi = GetDeviceCaps(aDC, LOGPIXELSY);
+		::ReleaseDC(gSexyAppBase->mHWnd, aDC);
+		if (aDpi <= 0) aDpi = 96;
+		int aPointSize = (ALMANAC_CJK_PX * 72 + aDpi / 2) / aDpi;
+		if (aPointSize < 1) aPointSize = 1;
+		int aCharset = (GetACP() == 936) ? GB2312_CHARSET : ANSI_CHARSET;
+		aSlot = new SysFont(gSexyAppBase, aFace, aPointSize, aCharset, theBold, false, false);
+	}
+	return aSlot;
+}
+
+// CP936 里一个字的字节数：ASCII 一字节，其余两字节（同 RunPickDialog）
+static int AlmanacAnsiUnit(const std::string& theText, int theIndex)
+{
+	if (((unsigned char)theText[theIndex]) < 0x80) return 1;
+	return (theIndex + 1 < (int)theText.size()) ? 2 : 1;
+}
+
+// 折行的最小单元：ASCII 连续段算一个整体——「×0.75」「20%」不在中间断开（同 RunPickDialog）
+static int AlmanacBreakUnit(const std::string& theText, int theIndex)
+{
+	if (((unsigned char)theText[theIndex]) >= 0x80) return AlmanacAnsiUnit(theText, theIndex);
+	int anEnd = theIndex;
+	while (anEnd < (int)theText.size() && ((unsigned char)theText[anEnd]) < 0x80) anEnd++;
+	return anEnd - theIndex;
+}
+
+// 显式 \n 分段 + 按列宽折行（表里说法都短，折行是保险，防以后加长文案溢出）
+static void AlmanacWrapEntry(SysFont* theFont, const std::string& theText, int theWidth, std::vector<std::string>& theLines)
+{
+	if (theWidth <= 0) theWidth = 1;
+	int aStart = 0;
+	while (true)
+	{
+		int aBreak = (int)theText.find('\n', aStart);
+		if (aBreak < 0) aBreak = (int)theText.size();
+		std::string aPara = theText.substr(aStart, aBreak - aStart);
+		int aPos = 0;
+		while (aPos < (int)aPara.size())
+		{
+			int aFit = aPos;
+			int aCursor = aPos;
+			while (aCursor < (int)aPara.size())
+			{
+				int aNext = aCursor + AlmanacBreakUnit(aPara, aCursor);
+				if (aFit > aPos && theFont->StringWidth(aPara.substr(aPos, aNext - aPos)) > theWidth) break;
+				aFit = aNext;
+				aCursor = aNext;
+			}
+			if (aFit == aPos) aFit = aPos + AlmanacBreakUnit(aPara, aPos);	// 单单元超宽：硬放，防死循环
+			theLines.push_back(aPara.substr(aPos, aFit - aPos));
+			aPos = aFit;
+		}
+		if (aBreak >= (int)theText.size()) break;
+		aStart = aBreak + 1;
+	}
+}
+
+// 词条块的排版常量：左缘/宽度跟着介绍正文栏走（与 TodDrawStringWrapped 的矩形同源），
+// 底缘 519 是死线——费用/充能两行从 y=520 起画，词条块不压上去。
+#define ALMANAC_ENTRY_X 485
+#define ALMANAC_ENTRY_W 258
+#define ALMANAC_ENTRY_BOTTOM 519
+
+// 画词条附录：标题「闯关词条 · <英文条名>」+ 中文说明（与局内三选一屏文案同源，
+// 封顶条目自带「，至多 N 层」尾注）。theDescBottom = 介绍正文画完的底高（调用方实测）。
+// 三级结构自适应（2026-10-03 实机验收两轮后定案）：死线 519（费用行从 520 起画）
+// 减去实测底高决定形态——12px 下 标题行 19、正文行距 20：
+//   1) 底高 ≤455：标题 + 表里 \n 分行的两行说明（59px，同三选一屏的形）；
+//   2) 否则   ：\n 连接成单行（最长连接式 ≈246px < 258 放得下），标题 + 1 行（39px）；
+//   3) 否则   ：连标题行也放不下（机枪豌豆实测底高 495，只剩 24px）→ 单行式：条名内联
+//      在说明前面（宽度放得下才带），整块就一行（20px）。
+// 任何一档都套「越死线整块上提」兜底；实测最长简介（13 行）在 3) 下不越线。
+static void DrawAlmanacRunEntry(Graphics* g, int theEntryIndex, int theDescBottom)
+{
+	SysFont* aHeadFont = AlmanacCjkFont(true);
+	SysFont* aBodyFont = AlmanacCjkFont(false);
+	if (aHeadFont == nullptr || aBodyFont == nullptr) return;
+
+	int aId = RUN_BUFF_COUNT + theEntryIndex;
+	std::string aDesc = AlmanacAnsiFromUtf8(GetRunChoiceDesc(aId));
+	std::string aJoined = aDesc;
+	for (size_t aPos = aJoined.find('\n'); aPos != std::string::npos; aPos = aJoined.find('\n', aPos))
+		aJoined.erase(aPos, 1);
+
+	std::vector<std::string> aSplitLines;
+	std::vector<std::string> aJoinedLines;
+	AlmanacWrapEntry(aBodyFont, aDesc, ALMANAC_ENTRY_W, aSplitLines);
+	AlmanacWrapEntry(aBodyFont, aJoined, ALMANAC_ENTRY_W, aJoinedLines);
+
+	int aLineHeight = aBodyFont->GetHeight() + 3;
+	int aHeadStep = aHeadFont->GetHeight() + 2;
+	int aSplitBlock = aHeadStep + (int)aSplitLines.size() * aLineHeight;
+	int aJoinedBlock = aHeadStep + (int)aJoinedLines.size() * aLineHeight;
+
+	bool aFitsSplit = theDescBottom + 5 + aSplitBlock <= ALMANAC_ENTRY_BOTTOM;
+	bool aFitsJoined = !aFitsSplit && theDescBottom + 3 + aJoinedBlock <= ALMANAC_ENTRY_BOTTOM;
+
+	if (aFitsSplit || aFitsJoined)		// 1)/2) 带标题行
+	{
+		int aY = theDescBottom + (aFitsSplit ? 5 : 3);
+		g->SetFont(aHeadFont);
+		g->SetColor(Color(160, 75, 15));
+		std::string aHead = AlmanacAnsiFromUtf8("闯关词条 · ");
+		aHead += GetRunChoiceName(aId);		// 英文条名与三选一屏按钮同字
+		g->DrawString(aHead, ALMANAC_ENTRY_X, aY + aHeadFont->GetAscent());
+		aY += aHeadStep;
+
+		const std::vector<std::string>& aLines = aFitsSplit ? aSplitLines : aJoinedLines;
+		g->SetFont(aBodyFont);
+		g->SetColor(Color(125, 65, 30));
+		for (int i = 0; i < (int)aLines.size(); i++)
+		{
+			g->DrawString(aLines[i], ALMANAC_ENTRY_X, aY + aBodyFont->GetAscent());
+			aY += aLineHeight;
+		}
+		return;
+	}
+
+	// 3) 单行式：条名内联 + 连接式说明；名字加冒号后仍在一行宽内才带名字
+	int aBlock = (int)aJoinedLines.size() * aLineHeight;
+	int aY = theDescBottom + 3;
+	if (aY + aBlock > ALMANAC_ENTRY_BOTTOM) aY = ALMANAC_ENTRY_BOTTOM - aBlock;
+
+	std::string aName = AlmanacAnsiFromUtf8(GetRunChoiceName(aId));
+	std::string aColon = AlmanacAnsiFromUtf8("：");
+	int aPrefixW = aHeadFont->StringWidth(aName + aColon);
+	bool aWithName = !aJoinedLines.empty() && aPrefixW + aBodyFont->StringWidth(aJoinedLines[0]) <= ALMANAC_ENTRY_W;
+
+	int aLineX = ALMANAC_ENTRY_X;
+	if (aWithName)
+	{
+		g->SetFont(aHeadFont);
+		g->SetColor(Color(160, 75, 15));
+		g->DrawString(aName + aColon, ALMANAC_ENTRY_X, aY + aHeadFont->GetAscent());
+		aLineX += aPrefixW;
+	}
+	g->SetFont(aBodyFont);
+	g->SetColor(Color(125, 65, 30));
+	for (int i = 0; i < (int)aJoinedLines.size(); i++)
+	{
+		g->DrawString(aJoinedLines[i], (i == 0 && aWithName) ? aLineX : ALMANAC_ENTRY_X, aY + aBodyFont->GetAscent());
+		aY += aLineHeight;
+	}
+}
 
 //0x401010
 AlmanacDialog::AlmanacDialog(LawnApp* theApp) : LawnDialog(theApp, DIALOG_ALMANAC, true, _S("Almanac"), _S(""), _S(""), BUTTONS_NONE)
@@ -281,20 +472,19 @@ void AlmanacDialog::DrawPlants(Graphics* g)
 	{
 		int aPosX, aPosY;
 		GetSeedPosition(aSeedType, aPosX, aPosY);
-		if (mApp->SeedTypeAvailable(aSeedType))
+		// 图鉴全解锁（2026-10-03 用户定案）：49 格全画、全可点——不再按 SeedTypeAvailable
+		// 过滤（闯关局按本局卡池、平时按档案购买记录，都会让图鉴缺格 / 交互半残）。
+		if (aSeedType == SeedType::SEED_IMITATER)
 		{
-			if (aSeedType == SeedType::SEED_IMITATER)
-			{
-				if (aSeedType == aSeedMouseOn)
-					g->DrawImage(Sexy::IMAGE_ALMANAC_IMITATER, aPosX, aPosY);
+			if (aSeedType == aSeedMouseOn)
 				g->DrawImage(Sexy::IMAGE_ALMANAC_IMITATER, aPosX, aPosY);
-			}
-			else
-			{
-				DrawSeedPacket(g, aPosX, aPosY, aSeedType, SeedType::SEED_NONE, 0, 255, true, false);
-				if (aSeedType == aSeedMouseOn)
-					g->DrawImage(Sexy::IMAGE_SEEDPACKETFLASH, aPosX, aPosY);
-			}
+			g->DrawImage(Sexy::IMAGE_ALMANAC_IMITATER, aPosX, aPosY);
+		}
+		else
+		{
+			DrawSeedPacket(g, aPosX, aPosY, aSeedType, SeedType::SEED_NONE, 0, 255, true, false);
+			if (aSeedType == aSeedMouseOn)
+				g->DrawImage(Sexy::IMAGE_SEEDPACKETFLASH, aPosX, aPosY);
 		}
 	}
 
@@ -335,6 +525,15 @@ void AlmanacDialog::DrawPlants(Graphics* g)
 	SexyString aDescriptionName = StrFormat(_S("[%s_DESCRIPTION]"), aPlantDef.mPlantName);
 	TodDrawString(g, aName, 617, 288, Sexy::FONT_DWARVENTODCRAFT18YELLOW, Color::White, DS_ALIGN_CENTER);
 	TodDrawStringWrapped(g, aDescriptionName, Rect(485, 309, 258, 230), Sexy::FONT_BRIANNETOD12, Color(40, 50, 90), DS_ALIGN_LEFT);
+
+	// 词条附录（2026-10-03 用户定案）：介绍正文下方附这株在闯关里的单株词条
+	// （名字 + 中文说明，与局内三选一屏同源）。模仿者没有单株条目 → 没有附录。
+	int aRunEntryIndex = RunPlantUpgradeIndexFor(mSelectedSeed);
+	if (aRunEntryIndex >= 0)
+	{
+		int aDescHeight = TodDrawStringWrappedHelper(g, TodStringTranslate(aDescriptionName), Rect(485, 309, 258, 230), Sexy::FONT_BRIANNETOD12, Color(40, 50, 90), DS_ALIGN_LEFT, false);
+		DrawAlmanacRunEntry(g, aRunEntryIndex, 309 + aDescHeight);
+	}
 
 	if (mSelectedSeed != SeedType::SEED_IMITATER)
 	{
@@ -479,16 +678,10 @@ void AlmanacDialog::DrawZombies(Graphics* g)
 	{
 		if (TestBit(aFormat.mFormatFlags, TodStringFormatFlag::TOD_FORMAT_HIDE_UNTIL_MAGNETSHROOM))
 		{
-			if (mApp->HasSeedType(SeedType::SEED_MAGNETSHROOM))
-			{
-				aFormat.mNewColor.mAlpha = 255;
-				aFormat.mLineSpacingOffset = 0;
-			}
-			else
-			{
-				aFormat.mNewColor.mAlpha = 0;
-				aFormat.mLineSpacingOffset = -17;
-			}
+			// 图鉴全解锁（2026-10-03 用户定案）：原先要拥有磁力菇才显形的段落
+			//（僵尸说明里的弱点行）不再等拥有——直接全亮显示。
+			aFormat.mNewColor.mAlpha = 255;
+			aFormat.mLineSpacingOffset = 0;
 		}
 	}
 	// todo @Patoke: fix stuff that have another formatter after them, ex: "{KEYWORD}Weakness:{STAT} fume-shroom{METAL} and magnet-shroom{KEYWORD}" (magnet-shroom will show with the {KEYWORD} colors)
@@ -540,13 +733,11 @@ SeedType AlmanacDialog::SeedHitTest(int x, int y)
 	{
 		for (SeedType aSeedType = SeedType::SEED_PEASHOOTER; aSeedType < NUM_ALMANAC_SEEDS; aSeedType = (SeedType)(aSeedType + 1))
 		{
-			if (mApp->SeedTypeAvailable(aSeedType))
-			{
-				int aSeedX, aSeedY;
-				GetSeedPosition(aSeedType, aSeedX, aSeedY);
-				Rect aSeedRect = aSeedType == SeedType::SEED_IMITATER ? Rect(aSeedX, aSeedY, 34, 46) : Rect(aSeedX, aSeedY, SEED_PACKET_WIDTH, SEED_PACKET_HEIGHT);
-				if (aSeedRect.Contains(x, y)) return aSeedType;
-			}
+			// 图鉴全解锁（2026-10-03）：命中不再看 SeedTypeAvailable，49 格全可点
+			int aSeedX, aSeedY;
+			GetSeedPosition(aSeedType, aSeedX, aSeedY);
+			Rect aSeedRect = aSeedType == SeedType::SEED_IMITATER ? Rect(aSeedX, aSeedY, 34, 46) : Rect(aSeedX, aSeedY, SEED_PACKET_WIDTH, SEED_PACKET_HEIGHT);
+			if (aSeedRect.Contains(x, y)) return aSeedType;
 		}
 	}
 	return SeedType::SEED_NONE;
@@ -554,68 +745,29 @@ SeedType AlmanacDialog::SeedHitTest(int x, int y)
 
 bool AlmanacDialog::ZombieHasSilhouette(ZombieType theZombieType)
 {
-	// ��ѩ�˽�ʬ�����������ʬ������ѩ�˽�ʬ�Ѿ�����ˢ�����Ѿ���������ð��ģʽ����Ŀ 4-10 �ؿ������򲻻���ʾΪ��Ӱ
-	if (theZombieType != ZombieType::ZOMBIE_YETI || mApp->CanSpawnYetis())
-		return false;
-
-	// �ų�����������������ѩ�˽�ʬ���ֵĹؿ���ð��ģʽһ��Ŀ 4-10 �ؿ�������ѩ�˽�ʬ��ʾΪ��Ӱ
-	return mApp->HasFinishedAdventure() || mApp->mPlayerInfo->GetLevel() > GetZombieDefinition(ZombieType::ZOMBIE_YETI).mStartingLevel;
+	// 图鉴全解锁（2026-10-03 用户定案）：不再画剪影——雪人僵尸也直接显示本体。
+	// （原先两条分支：没见过的雪人画剪影 / 冒险模式到 4-10 后才显示本体。）
+	(void)theZombieType;
+	return false;
 }
 
 //0x403A10
 // GOTY @Patoke: 0x404C50
 bool AlmanacDialog::ZombieIsShown(ZombieType theZombieType)
 {
-	// ����ģʽ�£���չʾǱˮ��ʬ����֮ǰ���ֵĽ�ʬ
-	if (mApp->IsTrialStageLocked() && theZombieType > ZombieType::ZOMBIE_SNORKEL)
-		return false;
-
-	// ����ѩ�˽�ʬ��Ҫ���������ˢ���г��֣��Ѿ���������ð��ģʽ����Ŀ 4-10 �ؿ�����
-	// ���ѵ�֪����ڵ�δ�����������Ѿ����ð��ģʽһ��Ŀ 4-10 �ؿ�����δ�������Ŀ 4-10 �ؿ���
-	if (theZombieType == ZombieType::ZOMBIE_YETI)
-		return mApp->CanSpawnYetis() || ZombieHasSilhouette(ZombieType::ZOMBIE_YETI);
-
-	// ����ð��ģʽ�г��ֵĽ�ʬ
-	if (theZombieType <= ZombieType::ZOMBIE_BOSS)
-	{
-		// ð��ģʽһ��Ŀ��ɺ�ͼ��չʾ���н�ʬ
-		if (mApp->HasFinishedAdventure())
-			return true;
-
-		int aLevel = mApp->mPlayerInfo->GetLevel();
-		int aStart = GetZombieDefinition(theZombieType).mStartingLevel;
-		// Ҫ���Ѿ��ﵽ��ʬ�״γ��ֵĹؿ�
-		// ���ڲ���ͨ����Ȼˢ�ֳ��ֵĽ�ʬ��С����ʬ��ѩ����ʬС�ӡ����轩ʬ��������Ҫ����ͨ�����״γ��ֵĹؿ����ѻ��ܹ��ý�ʬ
-		return aStart <= aLevel && (aStart != aLevel || !Board::IsZombieTypeSpawnedOnly(theZombieType) || gZombieDefeated[theZombieType]);
-	}
-
-	return false;
+	// 图鉴全解锁（2026-10-03 用户定案）：26 格全画、全可点——不再按试玩锁 / 档案进度 /
+	// 雪人条件（CanSpawnYetis）过滤。
+	(void)theZombieType;
+	return true;
 }
 
 //0x403B30
 // GOTY @Patoke: 0x404D50
 bool AlmanacDialog::ZombieHasDescription(ZombieType theZombieType)
 {
-	int aLevel = mApp->mPlayerInfo->GetLevel();
-	int aStart = GetZombieDefinition(theZombieType).mStartingLevel;
-
-	// ����ѩ�˽�ʬ
-	if (theZombieType == ZombieType::ZOMBIE_YETI)
-	{
-		// ��ѩ�˽�ʬ������ˢ���г���ʱ��ð��ģʽ����Ŀ 4-10 �ؿ�֮ǰ��������ʾ��ʬ����
-		if (!mApp->CanSpawnYetis())
-			return false;
-		// �ӵ�����Ŀ��ʼ��������ʾѩ�˽�ʬ������
-		if (mApp->mPlayerInfo->mFinishedAdventure >= 2)
-			return true;
-	}
-	// ����ѩ�˽�ʬ���������ʬ����ð��ģʽ�����ʱ��������ʾ��ʬ������
-	else if (mApp->HasFinishedAdventure())
-		return true;
-
-	// ѩ�˽�ʬ�ڶ���Ŀ 4-10 �ؿ�������Ŀ֮�䣬��������ʬ��ð��ģʽһ��Ŀ�е������
-	// Ҫ���Ѿ��ﵽ��ʬ�״γ��ֵĹؿ�������ͨ�����״γ��ֵĹؿ����ѻ��ܹ��ý�ʬ
-	return aStart <= aLevel && (aStart != aLevel || gZombieDefeated[theZombieType]);
+	// 图鉴全解锁（2026-10-03）：说明一律给真文案，不再有 [NOT_ENCOUNTERED_YET]。
+	(void)theZombieType;
+	return true;
 }
 
 void AlmanacDialog::GetZombiePosition(ZombieType theZombieType, int& x, int& y)
