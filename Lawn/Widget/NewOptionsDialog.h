@@ -45,6 +45,11 @@ public:
 	// 关掉按原样还原（mRunInfoWidgetVis 是藏之前的快照）。
 	bool					mRunInfoOpen;
 	bool					mRunInfoWidgetVis[8];
+	// @pvz-online: 词条查看器分页（2026-10-04 用户定案，方案 A）：全局区常驻不动，
+	// 单株区一页放不下的翻页看；页数在绘制时按可用行数现算（见 DrawRunInfo），
+	// 翻页入口只在页数 > 1 时生效并出现。
+	int						mRunInfoPage;
+	int						mRunInfoPageCount;
 
 public:
 	NewOptionsDialog(LawnApp* theApp, bool theFromGameSelector);
@@ -61,10 +66,13 @@ public:
 	void					ButtonDepress(int theId);
 	void					KeyDown(Sexy::KeyCode theKey);
 	void					MouseDown(int x, int y, int theClickCount);
+	void					MouseWheel(int theDelta);
 
 	// 词条查看器（见 .cpp 同名分节）：只在闯关局可用，覆盖层的开关与绘制都收在这几个口里。
 	bool					RunInfoAvailable();
 	Sexy::Rect				RunInfoEntryRect();
+	Sexy::Rect				RunInfoArrowRect(bool theRight);
+	void					RunInfoFlipPage(int theDelta);
 	void					OpenRunInfo();
 	void					CloseRunInfo();
 	void					DrawRunInfo(Sexy::Graphics* g);

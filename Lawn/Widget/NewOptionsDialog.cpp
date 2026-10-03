@@ -12,6 +12,7 @@
 #include "../../Sexy.TodLib/TodFoley.h"
 #include "widget/Slider.h"
 #include "widget/Checkbox.h"
+#include "widget/WidgetManager.h"
 #include "../../Sexy.TodLib/TodStringFile.h"
 #include "../Run/RunState.h"
 #include "../Run/RunBuffs.h"
@@ -134,6 +135,8 @@ NewOptionsDialog::NewOptionsDialog(LawnApp* theApp, bool theFromGameSelector) :
     mApp = theApp;
     mFromGameSelector = theFromGameSelector;
     mRunInfoOpen = false;
+    mRunInfoPage = 0;
+    mRunInfoPageCount = 1;
     for (int i = 0; i < 8; i++)
     {
         mRunInfoWidgetVis[i] = false;
@@ -466,9 +469,17 @@ void NewOptionsDialog::CheckboxChecked(int theId, bool checked)
 //0x45D290
 void NewOptionsDialog::KeyDown(Sexy::KeyCode theKey)
 {
-    // @pvz-online: 查看器开着时吞掉一切键——任意键只关它（别穿透到下一条 SPACE=继续 / ESC=关面板）
+    // @pvz-online: 查看器开着时吞掉一切键——多页时 PgUp/PgDn/←/→ 翻页，其余任意键只关它
+    //（别穿透到下一条 SPACE=继续 / ESC=关面板）
     if (mRunInfoOpen)
     {
+        if (mRunInfoPageCount > 1
+            && (theKey == KeyCode::KEYCODE_PRIOR || theKey == KeyCode::KEYCODE_LEFT
+                || theKey == KeyCode::KEYCODE_NEXT || theKey == KeyCode::KEYCODE_RIGHT))
+        {
+            RunInfoFlipPage(theKey == KeyCode::KEYCODE_NEXT || theKey == KeyCode::KEYCODE_RIGHT ? 1 : -1);
+            return;
+        }
         CloseRunInfo();
         return;
     }
@@ -612,6 +623,29 @@ Sexy::Rect NewOptionsDialog::RunInfoEntryRect()
     return Sexy::Rect(mWidth - 16 - aWidth, 258, aWidth, aHeight);
 }
 
+// @pvz-online: 分页（2026-10-04 用户定案）：全局增益封顶 8 种、两列最多 4 行，一套得下；
+// 溢出的主角是单株区（表满编 48 条都可能出现在同一局）。只在单株区装不下时才分页——
+// 装得下时页数 = 1，界面和旧版一字不差。翻页钳在首末页之间、不回绕（回绕会让人分不清
+// "到底翻没翻"）。
+void NewOptionsDialog::RunInfoFlipPage(int theDelta)
+{
+    int aPage = mRunInfoPage + theDelta;
+    if (aPage < 0) aPage = 0;
+    if (aPage > mRunInfoPageCount - 1) aPage = mRunInfoPageCount - 1;
+    mRunInfoPage = aPage;
+}
+
+// 页脚那一行两端翻页箭头的命中区：与页脚文案同一行、左右各让 10px；命中区 34 宽，
+// 比实心三角（DrawRunInfo 里 PolyFill 画的 ~16px）宽一圈，好点。
+Sexy::Rect NewOptionsDialog::RunInfoArrowRect(bool theRight)
+{
+    ModText::Font* aFont = NewOptionsCjkFont();
+    int aTop = (14 + mHeight - 28) - 8 - ModText::LineHeight(aFont);
+    int aW = 34;
+    int aX = theRight ? (14 + (mWidth - 28) - 10 - aW) : (14 + 10);
+    return Sexy::Rect(aX, aTop - 4, aW, ModText::LineHeight(aFont) + 8);
+}
+
 // 开/关时把八个控件整体藏起、按快照还原：覆盖层期间它们一个都不该被点到、被画出来。
 // 顺序数组两边共用，改动控件集合只改这一处的两处拷贝（Open/Close 各一份）。
 void NewOptionsDialog::OpenRunInfo()
@@ -627,6 +661,14 @@ void NewOptionsDialog::OpenRunInfo()
         aWidgets[i]->SetVisible(false);
     }
     mRunInfoOpen = true;
+    mRunInfoPage = 0;
+    mRunInfoPageCount = 1;
+    // @pvz-online: 滚轮按焦点派发（WidgetManager::MouseWheel 只发给焦点控件）——开面板时
+    // 把焦点收回对话框自己（正常路径 LawnApp 建面板时已 SetFocus，这是打开覆盖层时兜底）。
+    if (mWidgetManager)
+    {
+        mWidgetManager->SetFocus(this);
+    }
 }
 
 void NewOptionsDialog::CloseRunInfo()
@@ -645,9 +687,22 @@ void NewOptionsDialog::CloseRunInfo()
 
 void NewOptionsDialog::MouseDown(int x, int y, int theClickCount)
 {
-    // @pvz-online: 查看器开着时单击任意处 = 关（点开自己那一下也不再传给下面的按钮）
+    // @pvz-online: 查看器开着时——多页时两端箭头翻页，其余单击任意处 = 关
+    //（点开自己那一下也不再传给下面的按钮）
     if (mRunInfoOpen)
     {
+        if (mRunInfoPageCount > 1 && RunInfoArrowRect(true).Contains(x, y))
+        {
+            mApp->PlaySample(SOUND_GRAVEBUTTON);
+            RunInfoFlipPage(1);
+            return;
+        }
+        if (mRunInfoPageCount > 1 && RunInfoArrowRect(false).Contains(x, y))
+        {
+            mApp->PlaySample(SOUND_GRAVEBUTTON);
+            RunInfoFlipPage(-1);
+            return;
+        }
         mApp->PlaySample(SOUND_GRAVEBUTTON);
         CloseRunInfo();
         return;
@@ -671,6 +726,19 @@ void NewOptionsDialog::MouseDown(int x, int y, int theClickCount)
         }
     }
     Dialog::MouseDown(x, y, theClickCount);
+}
+
+void NewOptionsDialog::MouseWheel(int theDelta)
+{
+    // @pvz-online: 查看器开着且多页时，滚轮一格 = 翻一页（用户 2026-10-04 定案）；
+    // 其余情况滚轮不管。滚轮按焦点派发（WidgetManager::MouseWheel 只发焦点控件），
+    // 焦点由 OpenRunInfo 兜底。
+    if (mRunInfoOpen && mRunInfoPageCount > 1 && theDelta != 0)
+    {
+        RunInfoFlipPage(theDelta < 0 ? 1 : -1);
+        return;
+    }
+    Dialog::MouseWheel(theDelta);
 }
 
 void NewOptionsDialog::DrawRunInfo(Sexy::Graphics* g)
@@ -748,15 +816,30 @@ void NewOptionsDialog::DrawRunInfo(Sexy::Graphics* g)
     // 【单株强化】：植物名 + 词条名×层数，整幅宽单列——「植物名+英文词条名+×N」最长
     // 约 310px（玉米加农炮 Rapid Reload×3），两列 182px 根本装不下：截图实证会互相
     // 压字、右列冲出面板右缘被对话框边缘裁断。单列 372px 全放得下，一格一行也更易读。
+    // @pvz-online: 2026-10-04 起按页切（用户定案）：一页 = 到 aBottom 为止放得下的行数，
+    // 页数现算存 mRunInfoPageCount；翻页口 = PgUp/PgDn/←/→、滚轮、页脚两端箭头（见
+    // KeyDown/MouseWheel/MouseDown/RunInfoArrowRect）。一页装得下的局界面同旧版。
     NewOptionsDrawCjk(g, aFont, aColX[0], aY, ModText::Tr("【单株强化】", "[Plant Upgrades]"), Sexy::Color(150, 224, 150));
     aY += aLineHeight;
-    aShown = 0;
-    anOverflow = false;
     int aFullW = aColX[1] + aColW - aColX[0];
+    int aRowsFit = (aBottom - aY) / aLineHeight + 1;   // 与旧循环的「aY > aBottom 即停」等价
+    if (aRowsFit < 1) aRowsFit = 1;                    // 极端窄窗兜底，防下面除零
+    int aTotal = 0;
     for (int i = 0; i < (int)aRun->mBuffs.size(); i++)
     {
         if (aRun->mBuffs[i].mId < RUN_BUFF_COUNT || aRun->mBuffs[i].mCount == 0) continue;
-        if (aY > aBottom) { anOverflow = true; break; }
+        aTotal++;
+    }
+    mRunInfoPageCount = (aTotal + aRowsFit - 1) / aRowsFit;
+    if (mRunInfoPageCount < 1) mRunInfoPageCount = 1;
+    if (mRunInfoPage > mRunInfoPageCount - 1) mRunInfoPage = mRunInfoPageCount - 1;
+    int aFirst = mRunInfoPage * aRowsFit;
+    int aSeen = 0;
+    int aDrawn = 0;
+    for (int i = 0; i < (int)aRun->mBuffs.size() && aDrawn < aRowsFit; i++)
+    {
+        if (aRun->mBuffs[i].mId < RUN_BUFF_COUNT || aRun->mBuffs[i].mCount == 0) continue;
+        if (aSeen++ < aFirst) continue;
         const RunPlantUpgradeDef& aDef = GetRunPlantUpgradeDef(aRun->mBuffs[i].mId - RUN_BUFF_COUNT);
         const char* aPlantName = GetRunPlantName(aDef.mPlant);
         char aText[128];
@@ -766,13 +849,48 @@ void NewOptionsDialog::DrawRunInfo(Sexy::Graphics* g)
         snprintf(aSuffix, sizeof(aSuffix), "×%d", (int)aRun->mBuffs[i].mCount);
         NewOptionsDrawCjkFit(g, aFont, aColX[0], aY, aFullW, aText, aSuffix, anEntryColor);
         aY += aLineHeight;
-        aShown++;
+        aDrawn++;
     }
-    if (aShown == 0 || anOverflow)
+    if (aTotal == 0)
     {
-        NewOptionsDrawCjk(g, aFont, aColX[0], aY, ModText::Tr(anOverflow ? "……" : "（无）", anOverflow ? "..." : "(none)"), Sexy::Color(150, 150, 150));
+        NewOptionsDrawCjk(g, aFont, aColX[0], aY, ModText::Tr("（无）", "(none)"), Sexy::Color(150, 150, 150));
     }
 
-    NewOptionsDrawCjkCentered(g, aFont, aCenterX, aPanelY + aPanelH - 8 - ModText::LineHeight(aFont),
-        ModText::Tr("单击任意处或按任意键关闭", "Click anywhere or press any key to close"), Sexy::Color(160, 160, 160));
+    // 页脚：多页时两端画实心三角箭头（命中区见 RunInfoArrowRect）+ 居中页码；单页时
+    // 维持原提示文案。三角用 PolyFill 画实心——不借「◀▶」字形（宽字体不保证有）。
+    int aFootY = aPanelY + aPanelH - 8 - ModText::LineHeight(aFont);
+    if (mRunInfoPageCount > 1)
+    {
+        char aPageLine[64];
+        snprintf(aPageLine, sizeof(aPageLine), ModText::Tr("第 %d/%d 页 · 其余关闭", "Page %d/%d · others close"),
+            mRunInfoPage + 1, mRunInfoPageCount);
+        NewOptionsDrawCjkCentered(g, aFont, aCenterX, aFootY, aPageLine, Sexy::Color(160, 160, 160));
+        for (int aSide = 0; aSide < 2; aSide++)
+        {
+            bool aRight = (aSide == 1);
+            Sexy::Rect aHit = RunInfoArrowRect(aRight);
+            int aMidX = aHit.mX + aHit.mWidth / 2;
+            int aMidY = aHit.mY + aHit.mHeight / 2;
+            Sexy::Point aPts[3];
+            if (aRight)
+            {
+                aPts[0] = Sexy::Point(aMidX - 5, aMidY - 9);
+                aPts[1] = Sexy::Point(aMidX + 8, aMidY);
+                aPts[2] = Sexy::Point(aMidX - 5, aMidY + 9);
+            }
+            else
+            {
+                aPts[0] = Sexy::Point(aMidX + 5, aMidY - 9);
+                aPts[1] = Sexy::Point(aMidX - 8, aMidY);
+                aPts[2] = Sexy::Point(aMidX + 5, aMidY + 9);
+            }
+            g->SetColor(Sexy::Color(255, 220, 100, 200));
+            g->PolyFill(aPts, 3, true);
+        }
+    }
+    else
+    {
+        NewOptionsDrawCjkCentered(g, aFont, aCenterX, aFootY,
+            ModText::Tr("单击任意处或按任意键关闭", "Click anywhere or press any key to close"), Sexy::Color(160, 160, 160));
+    }
 }
