@@ -781,6 +781,30 @@ void Board::PickZombieWaves()
 			aZombiePoints = aZombiePoints * mApp->GetRunState()->GetDifficultyPermille() / 1000;
 		}
 
+		// @pvz-online: 席位顺位刷怪乘数（2026-10-03 用户定案，取代早先文档里的 8:4:2:1）：
+		// 四人 4:3:2:1、三人 3:2:1、二人 2:1——末席最轻，因为前面席位漏的怪最后都压在他头上。
+		// 顺位按"上座席位"排（第 r 位权重 n-r+1，总和 n(n+1)/2）；各客户端只缩自己的棋盘，
+		// 不涉协议。乘在旗帜波 ×2.5 之前；四舍五入并保底 1 点——早期小波别被除没。
+		if (mApp->IsOnlineGame() && mApp->mOnlineSession != nullptr)
+		{
+			int aSeatCount = mApp->mOnlineSession->GetOccupiedSeatCount();
+			if (aSeatCount >= 2)
+			{
+				uint8_t aMySeat = mApp->mOnlineSession->GetLocalSeat();
+				int aRank = 0;
+				for (uint8_t aSeat = 1; aSeat <= aMySeat; aSeat++)
+				{
+					if (mApp->mOnlineSession->IsSeatOccupied(aSeat))
+						aRank++;
+				}
+				int aWeightTotal = aSeatCount * (aSeatCount + 1) / 2;
+				int aWeight = aSeatCount - aRank + 1;
+				aZombiePoints = (aZombiePoints * aWeight + aWeightTotal / 2) / aWeightTotal;
+				if (aZombiePoints < 1)
+					aZombiePoints = 1;
+			}
+		}
+
 		// 旗帜波的特殊调整
 		if (aIsFlagWave)
 		{
