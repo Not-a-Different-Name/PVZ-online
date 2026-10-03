@@ -91,7 +91,7 @@ public:
 	static int			LevelCountForMode(int theRunMode);
 	int					GetLevelCount() const { return LevelCountForMode(mMode); }
 
-	// 该选植物 / 该选 buff 了（一局开始时先挑两株——进第 1 关前手里就有 4 株；
+	// 该选植物 / 该选 buff 了（一局开始时先挑四株 + 两个增益——进第 1 关前手里就有 6 株；
 	// 每过一关再挑两株 + 一个增益）。只负责"欠几屏"，候选由 RollChoices 现抽。
 	// 卡池拿满 48 株时植物屏没得抽，这两处会自动少发/不发植物屏（见 CanOfferPlantPick）。
 	void				BeginStartPicks();

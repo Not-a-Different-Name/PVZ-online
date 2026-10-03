@@ -1583,7 +1583,7 @@ void LawnApp::StartRun(int theRunMode)
 	mRunState = new RunState();
 	mRunState->StartNew(MakeRunSeed(mAppCounter), theRunMode);
 	TodLog("[run] a new run starts (seed %d, mode %d)", mRunState->mRunSeed, mRunState->mMode);
-	// 手里的两株不够开局：先挑两株（两次三选一），选完 RunPickChosen 才进第 1 关。
+	// 手里的两株不够开局：先挑四株 + 两个增益（共六次三选一），选完 RunPickChosen 才进第 1 关。
 	mRunState->BeginStartPicks();
 }
 
@@ -1597,6 +1597,8 @@ void LawnApp::ContinueRun()
 	if (!mRunState->Load(mPlayerInfo->mId) || mRunState->IsComplete())
 	{
 		mRunState->StartNew(MakeRunSeed(mAppCounter));
+		// 这条"从头开一局"和 StartRun 是同一种新局：开局选卡不能漏（R2 加选卡体系时这里漏了）。
+		mRunState->BeginStartPicks();
 		TodLog("[run] no usable checkpoint, a new run starts instead");
 	}
 	else

@@ -101,12 +101,14 @@ void RunState::StartNew(int theRunSeed, int theRunMode)
 	}
 }
 
-// 一局的两处选卡口：开局先挑两株（手里有 4 株才进第 1 关），每过一关再挑两株 + 一个增益。
+// 一局的两处选卡口：开局先挑四株 + 两个增益（手里有 6 株才进第 1 关；2026-10-03 多人
+// 实测反馈"开局难度略高"后用户定案加厚，原来只挑两株），每过一关再挑两株 + 一个增益。
+// 屏的先后由 IsPlantPick 决定：先四屏植物、再两屏增益。
 // 卡池拿满 48 株后植物屏没得抽——那之后只发增益屏。
 void RunState::BeginStartPicks()
 {
-	mPendingPlantPicks = CanOfferPlantPick() ? 2 : 0;
-	mPendingBuffPicks = 0;
+	mPendingPlantPicks = CanOfferPlantPick() ? 4 : 0;
+	mPendingBuffPicks = 2;
 }
 
 void RunState::BeginLevelEndPicks()
