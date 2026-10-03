@@ -61,7 +61,10 @@ const uint16_t	PROTOCOL_VERSION	= 1;
 // 17 → 18：闯关扩完整版第一步——一局从 5 关（白天）变 25 关（白天→夜→泳池→迷雾→屋顶），
 //        僵尸血量/数量按场景阶梯缩放、种类梯度重排。START_LEVEL 里的关序号口径变了：
 //        旧构建的关卡表只有 5 格，收到 5 以上的序号会越界建错关，必须两边同版本。
-const uint16_t	MOD_BUILD			= 18;
+// 18 → 19：局内快捷聊天（MSG_QUICK_CHAT）：快捷短语 + 植物表情（T/E 键面板）。编号查表在
+//        QuickChat.h。旧构建把这帧当没见过的消息静默丢——发的人以为喊了、队友没看见，
+//        所以两端要一起更新。
+const uint16_t	MOD_BUILD			= 19;
 
 const uint16_t	DEFAULT_PORT		= 27777;
 
@@ -102,11 +105,12 @@ enum MessageType : uint16_t
 	MSG_PAUSE			= 12,	// 双向：我暂停了 / 我继续了
 	MSG_LEVEL_EXIT		= 13,	// 双向：我离开这一局、回主菜单了
 	MSG_RUN_GO			= 14,	// H→C：全员都已进场，各席位开始做自己的三选一
-	MSG_SEEDS_READY		= 15	// 双向：我这一轮的选卡状态（1 = 选好了，等其他人）
+	MSG_SEEDS_READY		= 15,	// 双向：我这一轮的选卡状态（1 = 选好了，等其他人）
+	MSG_QUICK_CHAT		= 16	// 双向：局内快捷聊天，只传编号（1-8 短语、9-16 植物表情，查表在 QuickChat.h）
 };
 
 // ------------------------------------------------------------------------------------------------
-// ★ 中继控制帧（服务器 ↔ 客户端；只在 Go 中继模式下出现，游戏帧 1..15 一个字节没改）
+// ★ 中继控制帧（服务器 ↔ 客户端；只在 Go 中继模式下出现，游戏帧 1..16 一个字节没改）
 // ------------------------------------------------------------------------------------------------
 
 // 控制帧的 type 下限：≥ 这个值的都是控制帧，服务器自己处理、不转发。
@@ -419,6 +423,17 @@ struct MsgSeedsReady
 	uint8_t			mSrcSeat;
 	uint8_t			mDstSeat;
 	uint8_t			mReady;
+};
+
+// QUICK_CHAT：{ srcSeat, dstSeat, u8 id }
+// 局内快捷聊天：id 1..8 = 快捷短语、9..16 = 植物表情，线路上只传编号，文字与图片各机
+// 本地查表（QuickChat.h）。收发都是事件不是状态，一次一发、不去重、按到达顺序显示。
+// 前两个字节由 Dispatch 盖戳，发送方只填 id。
+struct MsgQuickChat
+{
+	uint8_t			mSrcSeat;
+	uint8_t			mDstSeat;
+	uint8_t			mId;
 };
 
 // ====================================================================================================
@@ -804,6 +819,24 @@ inline bool DecodeSeedsReady(const uint8_t* theData, int theSize, MsgSeedsReady&
 	theMsg.mSrcSeat = aReader.U8();
 	theMsg.mDstSeat = aReader.U8();
 	theMsg.mReady = aReader.U8();
+	return !aReader.Overflowed();
+}
+
+inline int EncodeQuickChat(uint8_t* theBuffer, int theCapacity, const MsgQuickChat& theMsg)
+{
+	Writer aWriter(theBuffer, theCapacity);
+	aWriter.U8(theMsg.mSrcSeat);
+	aWriter.U8(theMsg.mDstSeat);
+	aWriter.U8(theMsg.mId);
+	return aWriter.Overflowed() ? -1 : aWriter.Size();
+}
+
+inline bool DecodeQuickChat(const uint8_t* theData, int theSize, MsgQuickChat& theMsg)
+{
+	Reader aReader(theData, theSize);
+	theMsg.mSrcSeat = aReader.U8();
+	theMsg.mDstSeat = aReader.U8();
+	theMsg.mId = aReader.U8();
 	return !aReader.Overflowed();
 }
 

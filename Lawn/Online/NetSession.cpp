@@ -4,12 +4,13 @@
 #include <utility>
 
 #include "../../Sexy.TodLib/TodDebug.h"
+#include "QuickChat.h"
 
 namespace
 {
 
 // 控制帧的起始编号（见 NetProtocol.h 的 ControlType）：≥ 这个数的是"服务器→客户端"的
-// 控制帧，由会话层自己处理，绝不转发、也绝不落进游戏消息的 switch。游戏帧是 1..15。
+// 控制帧，由会话层自己处理，绝不转发、也绝不落进游戏消息的 switch。游戏帧是 1..16。
 const uint16_t	CONTROL_TYPE_BASE		= 0xF000;
 
 const int	HELLO_PAYLOAD_SIZE		= 6 + NetProto::NAME_SIZE;		// src, dst, u16 version, u16 build, 名字
@@ -27,6 +28,11 @@ const int	LEVEL_EXIT_PAYLOAD_SIZE	= 3;	// src, dst, u8 reason
 const int	PAUSE_PAYLOAD_SIZE		= 3;	// src, dst, u8 paused
 const int	LEVEL_DONE_PAYLOAD_SIZE	= 3;	// src, dst, u8 done
 const int	GAME_OVER_PAYLOAD_SIZE	= 3;	// src, dst, u8 reason
+const int	QUICK_CHAT_PAYLOAD_SIZE	= 3;	// src, dst, u8 id
+
+// 收到的快捷聊天最多攒几条：喊话是时间敏感信息，攒一堆旧的全堆给棋盘没意义；
+// 满了丢最旧、保最新（TakePendingQuickChat 处同款注释）。棋盘每帧都会来取，常态下攒不满。
+const size_t	MAX_PENDING_QUICK_CHATS	= 8;
 
 // 名字只留可打印 ASCII：位图字体没有别的字形，画出来只能是空白或乱码；何况这是对面
 // 发来的东西，控制字符更不能原样进绘制。剔掉而不是截断——"Alice玩家" 至少还认得出 Alice。
@@ -766,6 +772,7 @@ void NetSession::DiscardLevelPackets()
 	mHasRunGo = false;
 	mHasPendingLevelExit = false;
 	mPendingEscapedZombies.clear();
+	mPendingQuickChats.clear();
 	// 选卡状态和开局应答也是"这一局"的（含自己那格"上次发出去的值"）：回主菜单、
 	// 掉线、收摊都得清，否则下一局会被上一局的记账挡住。
 	for (int aSeat = 0; aSeat <= NetProto::MAX_PLAYERS; aSeat++)
@@ -843,6 +850,36 @@ bool NetSession::TakePendingEscapedZombie(NetProto::MsgEscapedZombie& theMsg)
 	// 先进先出：漏怪是"又来了几只"的事件，顺序不能乱（队列里一只都不许丢）
 	theMsg = mPendingEscapedZombies.front();
 	mPendingEscapedZombies.erase(mPendingEscapedZombies.begin());
+	return true;
+}
+
+bool NetSession::SendQuickChat(uint8_t theId)
+{
+	// 编号是线路身份，越界一律不发——坏编号在接收端是"丢弃"待遇，发出去只会骗队友
+	if (mRole == Role::NONE || !IsConnected()) return false;
+	if (!QuickChat::IsValidId(theId)) return false;
+
+	NetProto::MsgQuickChat aMsg;
+	aMsg.mSrcSeat = mLocalSeat;
+	aMsg.mDstSeat = NetProto::SEAT_UNSET;		// 由 Dispatch 按目标填
+	aMsg.mId = theId;
+
+	uint8_t aPayload[NetProto::MAX_PAYLOAD];
+	int aSize = NetProto::EncodeQuickChat(aPayload, (int)sizeof(aPayload), aMsg);
+	if (aSize <= 0) return false;
+
+	TodLog("[net] seat %u sends a quick chat (id %u)", (unsigned)mLocalSeat, (unsigned)theId);
+	// 默认扇出：所有其他上座席位各一份；单人房没人可发时 Dispatch 返回 false
+	return Dispatch(NetProto::MSG_QUICK_CHAT, aPayload, aSize);
+}
+
+bool NetSession::TakePendingQuickChat(NetProto::MsgQuickChat& theMsg)
+{
+	if (mPendingQuickChats.empty()) return false;
+
+	// 先进先出：聊天按到达顺序显示；满员挤掉的旧条在入队时就丢了，这里只管往外递
+	theMsg = mPendingQuickChats.front();
+	mPendingQuickChats.erase(mPendingQuickChats.begin());
 	return true;
 }
 
@@ -1485,6 +1522,37 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 			mSeats[aMsg.mSrcSeat].mSeedsReady = aMsg.mReady != 0;
 			TodLog("[net] seat %u %s", (unsigned)aMsg.mSrcSeat,
 				(aMsg.mReady != 0) ? "picked their plants" : "is picking plants");
+		}
+		break;
+
+	case NetProto::MSG_QUICK_CHAT:
+		{
+			// 双向：局内快捷聊天（编号查 QuickChat.h）。事件不是状态，不去重、按到达顺序入队
+			NetProto::MsgQuickChat aMsg;
+			if (aPayloadSize != QUICK_CHAT_PAYLOAD_SIZE || !NetProto::DecodeQuickChat(aPayload, aPayloadSize, aMsg))
+			{
+				SetDead("A player sent a malformed packet.");
+				return;
+			}
+			// 席位号或编号越界就丢掉这一条、不断线（防御坏包与构建混搭，同 SEEDS_READY 的理由）
+			if (aMsg.mSrcSeat < 1 || aMsg.mSrcSeat > NetProto::MAX_PLAYERS)
+			{
+				TodLog("[net] threw away a QUICK_CHAT with a bogus seat (%u)", (unsigned)aMsg.mSrcSeat);
+				break;
+			}
+			if (!QuickChat::IsValidId(aMsg.mId))
+			{
+				TodLog("[net] threw away a QUICK_CHAT with a bogus id (%u)", (unsigned)aMsg.mId);
+				break;
+			}
+			// 满了丢最旧、保最新：喊话是时间敏感信息，背压时最新一条最有用
+			if (mPendingQuickChats.size() >= MAX_PENDING_QUICK_CHATS)
+			{
+				mPendingQuickChats.erase(mPendingQuickChats.begin());
+				TodLog("[net] quick chat queue full, dropped the oldest one");
+			}
+			mPendingQuickChats.push_back(aMsg);
+			TodLog("[net] seat %u says something (id %u)", (unsigned)aMsg.mSrcSeat, (unsigned)aMsg.mId);
 		}
 		break;
 

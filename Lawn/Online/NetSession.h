@@ -246,6 +246,15 @@ public:
 	// 收下的漏怪（先进先出，一只都不许丢）。没有就返回 false。
 	bool			TakePendingEscapedZombie(NetProto::MsgEscapedZombie& theMsg);
 
+	// 双向：发一条局内快捷聊天（编号查 QuickChat.h：1-8 短语、9-16 植物表情）。
+	// 沿用 Dispatch 默认扇出——所有其他上座席位各收一份，天然按最多四人泛化。
+	// 没连上、编号非法、单人房无人可发都返回 false（调用方当"没发出去"处理）。
+	bool			SendQuickChat(uint8_t theId);
+
+	// 收到的快捷聊天（先进先出）。队列满时丢最旧、保最新——喊话是时间敏感信息，
+	// 背压时最新一条最有用。没有就返回 false。
+	bool			TakePendingQuickChat(NetProto::MsgQuickChat& theMsg);
+
 	State			GetState() const { return mState; }
 	Role			GetRole() const { return mRole; }
 	Transport		GetTransport() const { return mTransport; }
@@ -373,6 +382,8 @@ private:
 	bool				mHasPendingPause;
 	bool				mPendingPauseValue;
 	std::vector<NetProto::MsgEscapedZombie>	mPendingEscapedZombies;
+	// 收到的局内快捷聊天（收包在会话层、显示在棋盘，跨层不建 UI，理由同漏怪队列）。
+	std::vector<NetProto::MsgQuickChat>	mPendingQuickChats;
 	uint8_t				mSwapRequestSeat;	// 我发出的换位请求发给了谁（SEAT_UNSET = 没在等）
 	uint8_t				mSwapAskSeat;		// 哪个席位正问我换不换（SEAT_UNSET = 没有）
 	bool				mSwapCommitHandled;	// 中继：COMMIT 已经有人接手（我发的，或对面会发），等广播
