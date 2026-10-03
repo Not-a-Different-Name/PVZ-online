@@ -131,3 +131,48 @@ int GetRunChoiceMaxStacks(int theId)
 	if (theId >= RUN_BUFF_COUNT) return GetRunPlantUpgradeDef(theId - RUN_BUFF_COUNT).mMaxStacks;
 	return GetRunBuffDef(theId).mMaxStacks;
 }
+
+// 单株升级列顶那行【植物名】（2026-10-03 玩家反馈）：按钮名字是英文位图字体塞不下中文，
+// 说明文案批 2 起多数也不含植物名（「射击间隔逐层 ×0.75」这种）——不单独标出来，
+// 屏上分不清这条 buff 是哪株的。按 SeedType 查（表里一株最多一条）；新批次往表里
+// 插行时这里同步加名字。全局增益（或漏了名字）→ NULL，屏上不画标题行。
+static const struct { SeedType mPlant; const char* mName; } gRunPlantUpgradeZhNames[] =
+{
+	{ SeedType::SEED_PEASHOOTER,   "豌豆射手" },
+	{ SeedType::SEED_SUNFLOWER,    "向日葵" },
+	{ SeedType::SEED_CHERRYBOMB,   "樱桃炸弹" },
+	{ SeedType::SEED_WALLNUT,      "坚果墙" },
+	{ SeedType::SEED_POTATOMINE,   "土豆雷" },
+	{ SeedType::SEED_SNOWPEA,      "寒冰射手" },
+	{ SeedType::SEED_REPEATER,     "双发射手" },
+	{ SeedType::SEED_PUFFSHROOM,   "小喷菇" },
+	{ SeedType::SEED_SUNSHROOM,    "阳光菇" },
+	{ SeedType::SEED_FUMESHROOM,   "大喷菇" },
+	{ SeedType::SEED_ICESHROOM,    "寒冰菇" },
+	{ SeedType::SEED_DOOMSHROOM,   "毁灭菇" },
+	{ SeedType::SEED_LILYPAD,      "睡莲" },
+	{ SeedType::SEED_SQUASH,       "窝瓜" },
+	{ SeedType::SEED_THREEPEATER,  "三线射手" },
+	{ SeedType::SEED_JALAPENO,     "火爆辣椒" },
+	{ SeedType::SEED_TALLNUT,      "高坚果" },
+	{ SeedType::SEED_SEASHROOM,    "海蘑菇" },
+	{ SeedType::SEED_STARFRUIT,    "杨桃" },
+	{ SeedType::SEED_PUMPKINSHELL, "南瓜头" },
+	{ SeedType::SEED_CABBAGEPULT,  "卷心菜投手" },
+	{ SeedType::SEED_FLOWERPOT,    "花盆" },
+	{ SeedType::SEED_UMBRELLA,     "保护伞" },
+	{ SeedType::SEED_MARIGOLD,     "金盏花" },
+	{ SeedType::SEED_GATLINGPEA,   "机枪射手" },
+	{ SeedType::SEED_TWINSUNFLOWER,"双子向日葵" },
+};
+
+const char* GetRunChoicePlantName(int theId)
+{
+	if (theId < RUN_BUFF_COUNT) return NULL;
+	SeedType aPlant = GetRunPlantUpgradeDef(theId - RUN_BUFF_COUNT).mPlant;
+	for (int i = 0; i < (int)(sizeof(gRunPlantUpgradeZhNames) / sizeof(gRunPlantUpgradeZhNames[0])); i++)
+	{
+		if (gRunPlantUpgradeZhNames[i].mPlant == aPlant) return gRunPlantUpgradeZhNames[i].mName;
+	}
+	return NULL;
+}

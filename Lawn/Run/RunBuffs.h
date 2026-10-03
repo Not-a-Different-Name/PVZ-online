@@ -111,4 +111,7 @@ const char* GetRunChoiceDesc(int theId);
 // 这条条目封顶几层（0 = 无限）；抽取过滤（RunState::RollChoices）与屏上「已有 x/N」用它。
 int GetRunChoiceMaxStacks(int theId);
 
+// 单株升级「这是哪株的」中文名（三选一屏列顶标题行用）；全局增益 / 表里漏了名字 → NULL。
+const char* GetRunChoicePlantName(int theId);
+
 #endif

@@ -181,19 +181,31 @@ RunPickDialog::RunPickDialog(LawnApp* theApp, RunState* theRun) : LawnDialog(
 
 	mTallBottom = true;
 	mVerticalCenterText = false;
-	// 尺寸由文案反推：量出全部 13 条描述里最宽的一行，三列按它对齐——植物屏和增益屏
-	// 于是同一个尺寸，以后改文案也不用回来调数字。CalcSize 只吃"额外宽高"、标题宽度
-	// 它自己会加，所以算完从 Resize 拿回真实布局，还不够就再要一点（不依赖任何贴图尺寸）。
+	// 尺寸由文案反推：量出全部条目里最宽的一行（三列按它对齐）和最多行数（列高按
+	// 描述行数 + 标题行 + 「已有」行推）——植物屏和增益屏于是同一个尺寸，以后改文案
+	// 也不用回来调数字。CalcSize 只吃"额外宽高"、标题宽度它自己会加，所以算完从
+	// Resize 拿回真实布局，还不够就再要一点（不依赖任何贴图尺寸）。
 	SysFont* aCjkFont = RunPickCjkFont();
 	int aTargetColumn = 0;
+	int aMaxDescLines = 1;
 	for (int i = 0; i < RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT; i++)
 	{
-		int aWidth = RunPickDescWidth(aCjkFont, GetRunChoiceDesc(i));
+		const char* aDesc = GetRunChoiceDesc(i);
+		int aWidth = RunPickDescWidth(aCjkFont, aDesc);
 		if (aWidth > aTargetColumn) aTargetColumn = aWidth;
+		int aLines = 1;
+		for (const char* aCursor = aDesc; *aCursor != '\0'; aCursor++)
+		{
+			if (*aCursor == '\n') aLines++;
+		}
+		if (aLines > aMaxDescLines) aMaxDescLines = aLines;
 	}
 	aTargetColumn += 12; // 两侧各留一点白
+	int aFitLineHeight = (aCjkFont != NULL ? aCjkFont->GetHeight() : mLinesFont->GetHeight()) + 3;
+	// 列高：描述行数 + 标题行（单株的【植物名】）+「已有 x/N」行 + 一点余量
+	int aTargetArea = (aMaxDescLines + 2) * aFitLineHeight + 4;
 	CalcSize(430, 150);
-	for (int i = 1; i <= 6 && (mColumnWidth < aTargetColumn || mAreaHeight < 96) && mWidth < 740 && mHeight < 460; i++)
+	for (int i = 1; i <= 6 && (mColumnWidth < aTargetColumn || mAreaHeight < aTargetArea) && mWidth < 740 && mHeight < 460; i++)
 	{
 		CalcSize(430 + i * 30, 150 + i * 20);
 	}
@@ -282,13 +294,25 @@ void RunPickDialog::Draw(Graphics* g)
 			// 中文走 SysFont（位图字体没有中文字形），按列宽断行、逐行居中。
 			SysFont* aFont = RunPickCjkFont();
 			int aLineHeight = (aFont != NULL ? aFont->GetHeight() : mLinesFont->GetHeight()) + 3;
+			// 单株升级在列顶加一行【植物名】（2026-10-03 玩家反馈）：按钮名字是英文位图
+			// 字体、说明文案多数也不含植物名——不标出来分不清这条 buff 是哪株的。
+			const char* aPlantName = GetRunChoicePlantName(aBuffId);
+			bool aHasHead = (aFont != NULL && aPlantName != NULL);
 			// 说明区从底边让出一行给「已有 x/N」（方案 §2.5 定案 Q6：说明带「至多 N 层」+
-			// 这里报已有层数），免得长说明和它叠在一起。
-			Rect aRect(mColumnX[i] + 2, mAreaTop, mColumnWidth - 4, mAreaHeight - aLineHeight - 4);
+			// 这里报已有层数），顶边也让一行给标题行，免得它们和说明叠在一起。
+			Rect aRect(mColumnX[i] + 2, mAreaTop, mColumnWidth - 4,
+				mAreaHeight - aLineHeight - 4 - (aHasHead ? aLineHeight : 0));
 			if (aFont != NULL)
 			{
 				g->SetFont(aFont);
 				g->SetColor(mColors[Dialog::COLOR_LINES]);
+				if (aHasHead)
+				{
+					std::string aHead = RunPickAnsiFromUtf8((std::string("【") + aPlantName + "】").c_str());
+					int aHeadX = mColumnX[i] + (mColumnWidth - aFont->StringWidth(aHead)) / 2;
+					if (aHeadX < mColumnX[i]) aHeadX = mColumnX[i];
+					g->DrawString(aHead, aHeadX, mAreaTop + aFont->GetAscent());
+				}
 				RunPickDrawCjkLines(g, aFont, aRect, GetRunChoiceDesc(aBuffId));
 
 				// 「已有 x/N」：封顶条目带 /N；无限条目只报已有层数。画在卡片区底边、逐列居中。
