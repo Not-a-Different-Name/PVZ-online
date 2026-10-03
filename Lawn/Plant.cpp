@@ -86,6 +86,16 @@ Plant::Plant()
 
 //0x45DB60
 // GOTY @Patoke: 0x461483
+
+// @pvz-online: 单株升级「Rapid Reload」（玉米加农炮，表行 SEED_COBCANNON）：装填时间
+// 逐层 ×0.75（乘算、至多 3 层）。两处 ARMING 倒计时（种下 500 帧、每发完 3000 帧）
+// 同源取整；充能/开火动画本身不动（同批 9「吸取动画不动」的先例）。定义在
+// PlantInitialize 之前：种下那一处的调用点在文件前部。
+static int CobCannonArmFrames(LawnApp* theApp, int theBaseFrames)
+{
+    return (int)(theBaseFrames * theApp->RunPlantUpgradeMul(SeedType::SEED_COBCANNON) + 0.5f);
+}
+
 void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, SeedType theImitaterType)
 {
     mPlantCol = theGridX;
@@ -433,7 +443,7 @@ void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, Se
         if (IsInPlay())
         {
             mState = PlantState::STATE_COBCANNON_ARMING;
-            mStateCountdown = 500;
+            mStateCountdown = CobCannonArmFrames(mApp, 500);
 
             TOD_ASSERT(aBodyReanim);
             aBodyReanim->SetFramesForLayer("anim_unarmed_idle");
@@ -817,7 +827,10 @@ bool Plant::FindTargetAndFire(int theRow, PlantWeapon thePlantWeapon)
         case SeedType::SEED_WINTERMELON:    mShootingCounter = 36;  break;
         case SeedType::SEED_KERNELPULT:
         {
-            if (Sexy::Rand(4) == 0)
+            // @pvz-online: 单株升级「Buttery」（玉米投手，表行 SEED_KERNELPULT）：黄油触发
+            // 概率 +25%/层（计数型、至多 3 层）。基础 = Rand(4)==0（1/4）；带 n 层后门变成
+            // < 1+n——3 层必出（4/4），与表文案「+25%/层」口径一致。
+            if (Sexy::Rand(4) < 1 + mApp->RunPlantUpgradeCount(SeedType::SEED_KERNELPULT))
             {
                 aBodyReanim = mApp->ReanimationGet(mBodyReanimID);
                 aBodyReanim->AssignRenderGroupToPrefix("Cornpult_butter", RENDER_GROUP_NORMAL);
@@ -3533,7 +3546,7 @@ void Plant::UpdateShooting()
         if (aBodyReanim->mLoopCount > 0)
         {
             mState = PlantState::STATE_COBCANNON_ARMING;
-            mStateCountdown = 3000;
+            mStateCountdown = CobCannonArmFrames(mApp, 3000);
             PlayBodyReanim("anim_unarmed_idle", ReanimLoopType::REANIM_LOOP, 20, aBodyReanim->mDefinition->mFPS);
             return;
         }

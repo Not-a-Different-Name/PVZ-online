@@ -54,6 +54,12 @@ const RunBuffDef& GetRunBuffDef(int theId)
 // 玉米投手够到多发循环就多发玉米、睡莲行把睡莲种植冷却 ×3）。现在条目带 mKind、
 // 挂点走 RunPlantUpgradeMulKind/CountKind：只有标签相符的条目才被该挂点消费。
 // 本批 14 行打标（血量 6 / 射速节奏 4 / 多发 2 / 种植冷却 2），其余默认 EFFECT。
+// 批 10 2026-10-03：投手族 4 条（玉米投手 34 / 西瓜 39 / 冰西瓜 44 / 加农炮 47）——
+// 玉米投手：黄油掷点 Sexy::Rand(4)==0 改 < 1+层数（3 层必出）；西瓜：IsZombieHitBySplash
+// 的判定矩形宽 ×单株乘数（不动主命中矩形）；冰西瓜：命中后 1000 帧减速按单株乘数放宽
+// （溅射 DoSplashDamage 与打抗火僵尸的单发分支两条路同挂）；加农炮：两处 ARMING 倒计时
+//（种下 500 / 每发完 3000）走 CobCannonArmFrames 同源取整，充能/开火动画不动。
+// 表内下标随插入右移补充：批 9 档里 id 36 也会错位到别的植物。
 // 血量型条目（批 1 的 5 条 + 坚果墙）不用专门挂点——Plant.cpp:484 的通用血量口按
 // RUN_UPGRADE_KIND_HEALTH 消费（修正批起，不再对任意行生效），表里加一行标上 Kind
 // 就生效（南瓜头护罩血已查证同走 mPlantHealth）。
@@ -83,12 +89,16 @@ static const RunPlantUpgradeDef gRunPlantUpgradeDefs[RUN_PLANT_UPGRADE_COUNT] =
 	{ SeedType::SEED_MAGNETSHROOM, "Magnet Pull",  "吸取间隔逐层 ×0.75\n（每层）",      -0.25f, 3, true },
 	{ SeedType::SEED_CABBAGEPULT,  "Heavy Toss",   "投掷间隔逐层 ×0.75\n（每层）",      -0.25f, 3, true, RUN_UPGRADE_KIND_RHYTHM },
 	{ SeedType::SEED_FLOWERPOT,    "Rich Soil",    "血量 +100%\n（每层）",              1.00f, 2, false, RUN_UPGRADE_KIND_HEALTH },
+	{ SeedType::SEED_KERNELPULT,   "Buttery",      "黄油触发概率 +25%\n（每层）",       0.25f, 3 },
 	{ SeedType::SEED_UMBRELLA,     "Canopy",       "血量 +50%\n（每层）",               0.50f, 3, false, RUN_UPGRADE_KIND_HEALTH },
 	{ SeedType::SEED_MARIGOLD,     "Golden Bloom", "每次多产 1 枚\n（每层）",           0.00f, 3 },
+	{ SeedType::SEED_MELONPULT,    "Heavy Melon",  "溅射范围 +25%\n（每层）",           0.25f, 2 },
 	{ SeedType::SEED_GATLINGPEA,   "Rapid Fire",   "射击间隔逐层 ×0.75\n（每层）",      -0.25f, 3, true, RUN_UPGRADE_KIND_RHYTHM },
 	{ SeedType::SEED_TWINSUNFLOWER, "Twin Bloom",  "每次多产 1 阳光\n（每层）",         0.00f, 3 },
+	{ SeedType::SEED_WINTERMELON,  "Winter Chill", "溅射减速时长 +50%\n（每层）",       0.50f, 2 },
 	{ SeedType::SEED_GOLD_MAGNET,  "Gilded Pull",  "吸取间隔逐层 ×0.75\n（每层）",      -0.25f, 3, true },
 	{ SeedType::SEED_SPIKEROCK,    "Royal Thorns", "攻击间隔逐层 ×0.75\n（每层）",      -0.25f, 3, true },
+	{ SeedType::SEED_COBCANNON,    "Rapid Reload", "装填时间逐层 ×0.75\n（每层）",      -0.25f, 3, true },
 };
 
 const RunPlantUpgradeDef& GetRunPlantUpgradeDef(int theIndex)
@@ -177,12 +187,16 @@ static const struct { SeedType mPlant; const char* mName; } gRunPlantUpgradeZhNa
 	{ SeedType::SEED_MAGNETSHROOM, "磁力菇" },
 	{ SeedType::SEED_CABBAGEPULT,  "卷心菜投手" },
 	{ SeedType::SEED_FLOWERPOT,    "花盆" },
+	{ SeedType::SEED_KERNELPULT,   "玉米投手" },
 	{ SeedType::SEED_UMBRELLA,     "保护伞" },
 	{ SeedType::SEED_MARIGOLD,     "金盏花" },
+	{ SeedType::SEED_MELONPULT,    "西瓜投手" },
 	{ SeedType::SEED_GATLINGPEA,   "机枪射手" },
 	{ SeedType::SEED_TWINSUNFLOWER,"双子向日葵" },
+	{ SeedType::SEED_WINTERMELON,  "冰西瓜" },
 	{ SeedType::SEED_GOLD_MAGNET,  "吸金磁" },
 	{ SeedType::SEED_SPIKEROCK,    "地刺王" },
+	{ SeedType::SEED_COBCANNON,    "玉米加农炮" },
 };
 
 const char* GetRunChoicePlantName(int theId)

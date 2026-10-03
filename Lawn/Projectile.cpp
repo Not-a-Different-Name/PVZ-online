@@ -414,6 +414,14 @@ bool Projectile::IsZombieHitBySplash(Zombie* theZombie)
 	{
 		aProjectileRect.mWidth = 100;
 	}
+	// @pvz-online: 单株升级「Heavy Melon」（西瓜投手，表行 SEED_MELONPULT）：溅射判定
+	// 矩形宽 +25%/层（乘数型、至多 2 层）。只放宽这块溅射判定用的矩形——主命中的投射物
+	// 碰撞（GetProjectileRect 本体）不动，免得改到西瓜直击的手感；冰西瓜不加宽
+	// （它的行是减速时长）。
+	else if (mProjectileType == ProjectileType::PROJECTILE_MELON)
+	{
+		aProjectileRect.mWidth = (int)(aProjectileRect.mWidth * mApp->RunPlantUpgradeMul(SeedType::SEED_MELONPULT) + 0.5f);
+	}
 
 	int aRowDeviation = theZombie->mRow - mRow;
 	Rect aZombieRect = theZombie->GetZombieRect();
@@ -442,6 +450,19 @@ bool Projectile::IsZombieHitBySplash(Zombie* theZombie)
 }
 
 //0x46D390
+// @pvz-online: 单株升级「Winter Chill」（冰西瓜，表行 SEED_WINTERMELON）：溅射减速时长
+// +50%/层（乘数型、至多 2 层）。减速本体同寒冰射手先例：GetDamageFlags 给 WINTERMELON
+// 的 DAMAGE_FREEZE 经 ApplyChill 把 mChilledCounter 抬到 1000 帧，命中后这里按单株
+// 乘数放宽。==1000 认出「这一击刚挂上标准减速」：更长的（冰道/寒冰菇 2000）不动，
+// 保持 max 语义不变短。两条命中路径（溅射 DoSplashDamage / 打抗火僵尸的单发分支）都调它。
+static void WidenWinterMelonChill(LawnApp* theApp, Zombie* theZombie)
+{
+	if (theZombie->mChilledCounter == 1000)
+	{
+		theZombie->mChilledCounter = (int)(1000 * theApp->RunPlantUpgradeMul(SeedType::SEED_WINTERMELON) + 0.5f);
+	}
+}
+
 void Projectile::DoSplashDamage(Zombie* theZombie)
 {
 	const ProjectileDefinition& aProjectileDef = GetProjectileDef();
@@ -486,6 +507,11 @@ void Projectile::DoSplashDamage(Zombie* theZombie)
 			else
 			{
 				aZombie->TakeDamage(aSplashDamage, aDamageFlags);
+			}
+			// @pvz-online: 冰西瓜的溅射减速放宽（表行 SEED_WINTERMELON，见 helper 注释）。
+			if (mProjectileType == ProjectileType::PROJECTILE_WINTERMELON)
+			{
+				WidenWinterMelonChill(mApp, aZombie);
 			}
 		}
 	}
@@ -842,6 +868,14 @@ void Projectile::DoImpact(Zombie* theZombie)
 		if (mProjectileType == ProjectileType::PROJECTILE_SNOWPEA && theZombie->mChilledCounter == 1000)
 		{
 			theZombie->mChilledCounter = (int)(1000 * mApp->RunPlantUpgradeMul(SeedType::SEED_SNOWPEA) + 0.5f);
+		}
+
+		// @pvz-online: 单株升级「Winter Chill」（冰西瓜）：同款放宽——冰西瓜打抗火僵尸
+		// （投石车/冰车/铁门/梯子，IsSplashDamage 为假）走这条单发路径；减速本体仍是
+		// Freeze 分支的标准 1000 帧，==1000 守卫保 max 语义（见 helper 注释）。
+		if (mProjectileType == ProjectileType::PROJECTILE_WINTERMELON)
+		{
+			WidenWinterMelonChill(mApp, theZombie);
 		}
 	}
 
