@@ -2,6 +2,7 @@
 #include <time.h>
 #include "LawnApp.h"
 #include "Lawn/Board.h"
+#include "Lawn/SeedPacket.h"
 #include "Lawn/MessageWidget.h"
 #include "Lawn/Plant.h"
 #include "Lawn/Zombie.h"
@@ -1702,7 +1703,24 @@ void LawnApp::UpdateRunPick()
 		TodLog("[run] the picks are done - the chooser and the intro can start");
 		// 卡槽在 InitLevel 建场时按"当时"的卡池填过，刚刚这几屏的新植物要重填一次
 		// （卡池 ≤8 的关卡全程不开选卡界面，不重填这一关新选的植物就赶不上）。
-		if (!mBoard->ChooseSeedsOnCurrentLevel()) mBoard->FillSeedBankFromRunPool();
+		if (!mBoard->ChooseSeedsOnCurrentLevel())
+		{
+			mBoard->FillSeedBankFromRunPool();
+		}
+		else
+		{
+			// @pvz-online: 卡池是刚做完这几屏才越过 8 的（建场时还 ≤8，卡槽已按当时的池子
+			// 填过并定好了格数）：这一关要开选卡界面，而界面的出槽数、开始按钮、Let's Rock
+			// 的回填循环全按 mSeedBank->mNumPackets 走——先把它按"本关选 8 株"的口径重定、
+			// 包袋清空，回到原版选卡关开局的状态；不然界面只有建场时那几格，选完的植物也
+			// 回填不进去（快速版第 2 关"植物栏不刷新、旧卡卡在上面"的根因）。
+			mBoard->mSeedBank->mNumPackets = mBoard->GetNumSeedsInBank();
+			for (int i = 0; i < SEEDBANK_MAX; i++)
+			{
+				mBoard->mSeedBank->mSeedPackets[i].mPacketType = SeedType::SEED_NONE;
+			}
+			mBoard->mSeedBank->UpdateWidth();
+		}
 		// @pvz-online: 检查点写在这一刻（不是进关前）：盘上的"正在打的这一关"= 这一关的
 		// 选卡全进了池、能直接开打的状态。进关前写的那一版留不住这几株——续关读回来
 		// 池子缺选卡、选择屏又不再出现，这就是"从主界面继续丢掉初始两株"的根因。
