@@ -90,6 +90,13 @@ void CjkStoneButton::Draw(Graphics* g)
 	std::wstring aLabel = ModText::WideFromUtf8(mLabel.c_str());
 	aFontX += (mWidth - ModText::TextWidth(aFont, aLabel)) / 2;
 	aFontY += (mHeight - ModText::LineHeight(aFont)) / 2;
+	// 亮绿 (0,196,0) = 位图按钮字的标准绿（1:1 截图对 OK/CANCEL 取色）；旧色
+	// (47,107,43) 太暗、小字在石头上对比不够（2026-10-04 用户反馈）。位图字自带
+	// 一圈暗烧边、宽字符直绘没有——四邻先垫 1px 暗底再压亮字。
+	static const int anOutline[4][2] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+	for (int i = 0; i < 4; i++)
+		ModText::DrawTextWide(g, aFont, aFontX + anOutline[i][0], aFontY + anOutline[i][1], aLabel,
+			Color(16, 44, 16), g->mClipRect);
 	ModText::DrawTextWide(g, aFont, aFontX, aFontY, aLabel,
-		mIsOver ? Color(0x9B, 0xF0, 0x60) : Color(0x2F, 0x6B, 0x2B), g->mClipRect);
+		mIsOver ? Color(0x9B, 0xF0, 0x60) : Color(0x00, 0xC4, 0x00), g->mClipRect);
 }
