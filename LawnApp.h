@@ -325,6 +325,10 @@ public:
 	// RunPlantUpgradeKind 注释）。专门挂点（磁力菇充能等）继续用上面的通用版。
 	float							RunPlantUpgradeMulKind(SeedType thePlant, RunPlantUpgradeKind theKind) const;
 	int								RunPlantUpgradeCountKind(SeedType thePlant, RunPlantUpgradeKind theKind) const;
+	// @pvz-online: 闯关咖啡豆种植冷却系数（2026-10-03 用户定案：7.5 秒 → 12 秒），乘在
+	// SeedPacket::WasPlanted 的时长链上。非闯关 / 别的植物 = 1.0；模仿者解析同
+	// Plant::GetRefreshTime（SEED_IMITATER + 非空 mImitaterType 用后者）。
+	float							RunCoffeeBeanRefreshMul(SeedType thePlant, SeedType theImitaterType) const;
 	void							ShowGameSelector();
 	void							KillGameSelector();
 	void							ShowAwardScreen(AwardType theAwardType, bool theShowAchievements); // @Patoke: add argument

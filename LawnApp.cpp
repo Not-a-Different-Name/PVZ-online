@@ -2032,6 +2032,13 @@ int LawnApp::RunPlantUpgradeCountKind(SeedType thePlant, RunPlantUpgradeKind the
 	return RunPlantUpgradeCount(thePlant);
 }
 
+float LawnApp::RunCoffeeBeanRefreshMul(SeedType thePlant, SeedType theImitaterType) const
+{
+	if (mRunState == nullptr) return 1.0f;
+	if (thePlant == SeedType::SEED_IMITATER && theImitaterType != SeedType::SEED_NONE) thePlant = theImitaterType;
+	return thePlant == SeedType::SEED_INSTANT_COFFEE ? 1.6f : 1.0f;
+}
+
 //0x44F5F0
 // GOTY @Patoke: 0x4528B0
 void LawnApp::MakeNewBoard()

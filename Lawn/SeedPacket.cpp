@@ -880,11 +880,13 @@ void SeedPacket::WasPlanted()
 		mTimesUsed++;
 		mRefreshing = true;
 		// @pvz-online: 闯关：种植后冷却时长 ×全局「速种」（×0.8^层）× 单株升级因子（×0.75^层，
-		// 火爆辣椒/海蘑菇等冷却型；无该株条目/非闯关自动 1.0）。修正批（2026-10-03）改走
+		// 火爆辣椒/海蘑菇等冷却型；无该株条目/非闯关自动 1.0）× 闯关咖啡豆系数（×1.6，
+		// 2026-10-03 用户定案：7.5 秒 → 12 秒；改产阳光后原速太频繁。非闯关/别的植物 1.0，
+		// 模仿者解析到 mImitaterType，同 GetRefreshTime 规则）。修正批（2026-10-03）改走
 		// Kind 闸门口（Kind=COOLDOWN）——只有冷却型条目进得来，此前睡莲这类 +100% 行
 		// 会把睡莲自己的种植冷却 ×3。只乘这里的时长，
 		// SetPacketType 里那些拿 GetRefreshTime 原值做的档位判断（==5000/==3000）不动。
-		mRefreshTime = (int)(Plant::GetRefreshTime(mPacketType, mImitaterType) * mApp->RunBuffMul(RUN_BUFF_FASTSEED) * mApp->RunPlantUpgradeMulKind(mPacketType, RUN_UPGRADE_KIND_COOLDOWN) + 0.5f);
+		mRefreshTime = (int)(Plant::GetRefreshTime(mPacketType, mImitaterType) * mApp->RunBuffMul(RUN_BUFF_FASTSEED) * mApp->RunPlantUpgradeMulKind(mPacketType, RUN_UPGRADE_KIND_COOLDOWN) * mApp->RunCoffeeBeanRefreshMul(mPacketType, mImitaterType) + 0.5f);
 	}
 }
 

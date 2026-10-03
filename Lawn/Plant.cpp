@@ -4680,14 +4680,17 @@ void Plant::DoSpecial()
         if (mApp->IsRunMode())
         {
             // @pvz-online: 闯关里蘑菇不会再睡，"唤醒"永远没有对象——咖啡豆改产阳光：
-            // 四枚 25（用户定案），和向日葵同一套落币方式
+            // 四枚 25 = 100（2026-10-03 平调二版：先试过三枚=75，用户定"未增强的不能太废"，
+            // 基座回 100；同批种植冷却加长到 12 秒），和向日葵同一套落币方式
             // @pvz-online: 单株升级「Rich Roast」（咖啡豆，表行 SEED_INSTANT_COFFEE）：
             // 产阳光每层 +100（+4 枚）——4 枚基数 ×(1+层)：1 层 8 枚 = 200、2 层 12 枚 = 300。
+            // 升级每层强度用户说再议；冷却侧 ×1.6（SeedPacket::WasPlanted × LawnApp::RunCoffeeBeanRefreshMul）。
             int aSunCoinCount = 4 * (1 + mApp->RunPlantUpgradeCount(SeedType::SEED_INSTANT_COFFEE));
             for (int i = 0; i < aSunCoinCount; i++)
             {
                 mBoard->AddCoin(mX, mY, CoinType::COIN_SUN, CoinMotion::COIN_MOTION_FROM_PLANT);
             }
+            TodLog("[run] coffee bean: %d sun coins (%d stacks)", aSunCoinCount, mApp->RunPlantUpgradeCount(SeedType::SEED_INSTANT_COFFEE));
             mApp->PlayFoley(FoleyType::FOLEY_SPAWN_SUN);
         }
         else
