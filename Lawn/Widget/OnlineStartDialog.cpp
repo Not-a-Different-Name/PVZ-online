@@ -33,12 +33,19 @@ static std::string Utf8ToAnsi(const char* theText)
 	return anAnsi;
 }
 
-// 中文用的两支字体（16pt 粗 = 标题，14pt = 正文/按钮），进程级缓存、故意不释放：
-// 对话框的生命周期比它短，框架里也没有统一的字体属主，谁先析构都拿不准——进程退出时
-// 系统回收就完了。charset 跟着系统码页走：简中（CP936）配 GB2312_CHARSET，
-// 其他码页退回 ANSI_CHARSET（那时候上面转出来的字节也是那个码页的，仍能对上）。
-// 字号只在这两档上用，别的字号直接返回对应的那支（够用就行，不扩）。
-static _Font* GetCjkFont(int thePointSize, bool theBold)
+// 中文用的两支字体（粗 = 标题，细 = 正文/按钮），进程级缓存、故意不释放：对话框的
+// 生命周期比它短，框架里也没有统一的字体属主，谁先析构都拿不准——进程退出时系统
+// 回收就完了。charset 跟着系统码页走：简中（CP936）配 GB2312_CHARSET，其他码页退回
+// ANSI_CHARSET（那时候上面转出来的字节也是那个码页的，仍能对上）。
+// 参数是"目标像素高"而不是点值：SysFont 会把点值按屏幕 DPI 折算成像素
+// （SysFont::Init 里 -MulDiv(pt, GetDeviceCaps(LOGPIXELSY), 72)），150% 缩放（144 DPI）
+// 下写死的点值会被放大出近 2 倍——公告（9 行正文）的弹窗正是这样被撑到 800×600 之外、
+// "知道了"按钮掉出屏幕。所以这里反着折算：由目标像素高推点值，让最终落地的像素高
+// 与 DPI 无关。字号只在这两档上用。
+#define CJK_TITLE_PX 22
+#define CJK_BODY_PX 20
+
+static _Font* GetCjkFont(int thePixelHeight, bool theBold)
 {
 	static _Font* aTitleFont = nullptr;
 	static _Font* aBodyFont = nullptr;
@@ -46,8 +53,17 @@ static _Font* GetCjkFont(int thePointSize, bool theBold)
 
 	if (aSlot == nullptr)
 	{
+		// 与 SysFont::Init 探的是同一支 DC（同一个窗口），这里的反算严格对上它的正算
+		HDC aDC = ::GetDC(gSexyAppBase->mHWnd);
+		int aDpi = GetDeviceCaps(aDC, LOGPIXELSY);
+		::ReleaseDC(gSexyAppBase->mHWnd, aDC);
+		if (aDpi <= 0) aDpi = 96;
+
+		int aPointSize = (thePixelHeight * 72 + aDpi / 2) / aDpi;
+		if (aPointSize < 1) aPointSize = 1;
+
 		int aCharset = (GetACP() == 936) ? GB2312_CHARSET : ANSI_CHARSET;
-		aSlot = new SysFont(gSexyAppBase, "Microsoft YaHei", thePointSize, aCharset, theBold, false, false);
+		aSlot = new SysFont(gSexyAppBase, "Microsoft YaHei", aPointSize, aCharset, theBold, false, false);
 	}
 	return aSlot;
 }
@@ -150,7 +166,7 @@ public:
 		}
 		g->DrawImage(aRightImage, aImageX, 0);
 
-		_Font* aFont = GetCjkFont(14, false);
+		_Font* aFont = GetCjkFont(CJK_BODY_PX, false);
 		g->SetFont(aFont);
 		g->SetColor(mIsOver ? Color(0x9B, 0xF0, 0x60) : Color(0x2F, 0x6B, 0x2B));
 		aFontX += (mWidth - aFont->StringWidth(mLabel)) / 2;
@@ -195,8 +211,8 @@ OnlineStartDialog::OnlineStartDialog(LawnApp* theApp, const char* theTitleUtf8, 
 	// 版心比最长的一行两侧各宽 40；高度 = 标题 + 间距 + 正文（+ 按钮行），上下都留白——
 	// "弹窗不能挤"就落在这些数字上。CalcSize 会按对话框贴图再取整/加高，多出来的空隙
 	// 由 Resize 里的居中吸收。
-	_Font* aTitleFont = GetCjkFont(16, true);
-	_Font* aBodyFont = GetCjkFont(14, false);
+	_Font* aTitleFont = GetCjkFont(CJK_TITLE_PX, true);
+	_Font* aBodyFont = GetCjkFont(CJK_BODY_PX, false);
 	int aTextWidth = aTitleFont->StringWidth(mTitle);
 	int aBodyWidth = MeasureBodyWidth(aBodyFont, mBody);
 	if (aBodyWidth > aTextWidth) aTextWidth = aBodyWidth;
@@ -235,8 +251,8 @@ void OnlineStartDialog::Resize(int theX, int theY, int theWidth, int theHeight)
 {
 	LawnDialog::Resize(theX, theY, theWidth, theHeight);
 
-	_Font* aTitleFont = GetCjkFont(16, true);
-	_Font* aBodyFont = GetCjkFont(14, false);
+	_Font* aTitleFont = GetCjkFont(CJK_TITLE_PX, true);
+	_Font* aBodyFont = GetCjkFont(CJK_BODY_PX, false);
 
 	int aButtonHeight = IMAGE_BUTTON_LEFT->mHeight;
 	int aButtonY = mHeight - mContentInsets.mBottom - mBackgroundInsets.mBottom - aButtonHeight + 2;
@@ -291,13 +307,13 @@ void OnlineStartDialog::Draw(Graphics* g)
 
 	if (!mTitle.empty())
 	{
-		g->SetFont(GetCjkFont(16, true));
+		g->SetFont(GetCjkFont(CJK_TITLE_PX, true));
 		g->SetColor(mColors[Dialog::COLOR_HEADER]);
 		WriteCenteredLine(g, mTitleY, mTitle);
 	}
 	if (!mBody.empty())
 	{
-		_Font* aBodyFont = GetCjkFont(14, false);
+		_Font* aBodyFont = GetCjkFont(CJK_BODY_PX, false);
 		g->SetFont(aBodyFont);
 		g->SetColor(mColors[Dialog::COLOR_LINES]);
 		int aY = mBodyY;

@@ -1508,17 +1508,17 @@ void LawnApp::UpdateStartupAnnounce()
 	mShowedStartupAnnounce = true;
 
 	OnlineStartDialog* aDialog = new OnlineStartDialog(this, "欢迎来到 PvZ 联机合作版",
-		"· 2~4 人合作各守一块草坪，漏掉的僵尸\n"
-		"  传给下一位队友（保留血量）。\n"
-		"· 最后一位漏怪 = 全队失败；联机局没有除草机。\n"
-		"· 出怪量按席位顺位递减（末位 1 倍、1 号位最多）。\n"
-		"· 主位大墓碑 = 组队 / 加入房间；队友连着时\n"
-		"  主机可发起「组队闯关」（25 关跨场景连打）。\n"
-		"· 第三槽 PUZZLE 石板 = 一起打单关 / 原版战役。\n"
-		"· 局内：ESC 暂停；T / E 短语与表情（数字键选）。\n"
-		"· 左上小条 = 名册与换位；回主菜单 = 一起退关。",
+		"· 2~4 人各守一块草坪，漏掉的僵尸传给下一位\n"
+		"  队友（保留血量）；末位漏怪 = 全队失败，\n"
+		"  联机局没有除草机。\n"
+		"· 出怪量按席位递减：末位 1 倍、1 号位最多。\n"
+		"· 主位大墓碑 = 组队 / 加入房间，主机可发起\n"
+		"  「组队闯关」；第三槽 PUZZLE 石板 = 打单关。\n"
+		"· 局内：ESC 暂停；T / E 短语与表情（数字键选）；\n"
+		"  左上小条 = 名册与换位。",
 		"知道了", nullptr, OnlineStartDialog::NOTIFY_NONE);
 	CenterDialog(aDialog, aDialog->mWidth, aDialog->mHeight);
+	TodLog("[announce] dialog %dx%d (screen %dx%d)", aDialog->mWidth, aDialog->mHeight, mWidth, mHeight);
 	AddDialog(Dialogs::DIALOG_ONLINE_START, aDialog);
 	aDialog->WaitForResult();
 }
