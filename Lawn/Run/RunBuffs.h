@@ -52,9 +52,9 @@ const RunBuffDef& GetRunBuffDef(int theId);
 // 一样，非闯关局自动是中性值，落点不需要判 mRunState。
 // @pvz-online: 表按 SeedType 升序维护（方案 docs/06 §2.1 / Q7）——单株 id = 8 + 表内下标，
 // 所以前 5 条（SeedType 0..4）必须永远留在原位：老检查点里的 id 直接按它解读。
-// 新增条目插在自己的 SeedType 位次上：批 1 的 5 条是追加（SeedType 都大于 4），批 2/批 3
-// 的 7 条插进中段——每插一批，更早批次档里单株 id 的层数就会错位到别的植物（开发期接受，
-// 见方案 §六）；满编 48 条后表下标 == SeedType。
+// 新增条目插在自己的 SeedType 位次上：批 1 的 5 条是追加（SeedType 都大于 4），批 2/批 3/
+// 批 4 的 9 条插进中段——每插一批，更早批次档里单株 id 的层数就会错位到别的植物（开发期
+// 接受，见方案 §六）；满编 48 条后表下标 == SeedType。
 enum RunPlantUpgradeId
 {
 	RUN_UPGRADE_PEASHOOTER,		// 豌豆射手：每次多打 1 发（每层）
@@ -65,7 +65,9 @@ enum RunPlantUpgradeId
 	RUN_UPGRADE_REPEATER,		// 双发：射击间隔 ×0.75/层（至多 3 层）
 	RUN_UPGRADE_SUNSHROOM,		// 阳光菇：每次多产 1 阳光（每层，至多 3 层）
 	RUN_UPGRADE_LILYPAD,		// 睡莲：血量 +100%/层（至多 2 层）
+	RUN_UPGRADE_JALAPENO,		// 火爆辣椒：种植冷却 ×0.75/层（至多 3 层）
 	RUN_UPGRADE_TALLNUT,		// 高坚果：血量 +50%/层（至多 3 层）
+	RUN_UPGRADE_SEASHROOM,		// 海蘑菇：种植冷却 ×0.75/层（至多 3 层）
 	RUN_UPGRADE_STARFRUIT,		// 杨桃：射击间隔 ×0.75/层（至多 3 层）
 	RUN_UPGRADE_PUMPKINSHELL,	// 南瓜头：血量 +50%/层（至多 3 层）
 	RUN_UPGRADE_CABBAGEPULT,	// 卷心菜投手：投掷间隔 ×0.75/层（至多 3 层）
