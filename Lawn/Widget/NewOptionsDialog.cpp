@@ -41,8 +41,10 @@ static ModText::Font* NewOptionsCjkFontSmall() { return ModText::GetFont(11, fal
 // 步进只有 21px，行行相贴；且「语言/Language」横排 147px 冲出左侧空带，压到 Sound FX
 // 标签上。现字号改像素口径（CjkPointSize，与 DPI 脱钩），英文部分改走游戏自带位图字体
 // DwarvenTodcraft12（与联机状态条英文同字体），不再借 GDI 渲染。
-// 落点按实测空带限宽：此段右界在 x≈107（联机局里按钮列从 107 起），故每行控在 ~65px 内。
-static const int LANGUAGE_X = 38;
+// 落点（2026-10-04 二次复验，1:1 截图逐行取色）：原 x=38 落在对话框左边框的石条与
+// 室外背景上（「语」字一半压着亮房子），字色 (107,109,145) 在亮底上发糊——右移进
+// 深色面板内（面板内缘在本地 x≈74），并给这排字换亮字 + 1px 暗投影。
+static const int LANGUAGE_X = 84;
 static const int LANGUAGE_TITLE_TOP = 252;      // 标题对第一行（中文）行顶
 static const int LANGUAGE_TITLE_EN_TOP = 270;   // 标题对第二行（英文）行顶
 static const int LANGUAGE_OPT_TOP = 291;        // 第一个选项行（自动 Auto）行顶
@@ -316,31 +318,43 @@ void NewOptionsDialog::Draw(Sexy::Graphics* g)
     // SetLanguageSetting）并即时生效。这一排文案故意**两语并排固定**、不随语言变——
     // 选择器本身得让两种语言的人都认得出。英文部分走游戏自带位图字体（基线 = 行顶 +
     // 中文升部），和旁边 Music/Sound FX 一个质感；落点与命中同一份几何（ItemRect）。
+    // 2026-10-04 二次复验：整块右移进深色面板内（见 LANGUAGE_X），字色由面板灰蓝
+    // (107,109,145) 改亮字 + 1px 暗投影——原色在左边框亮底上对比度不够。
     {
         ModText::Font* aLangFont = ModText::GetFont(CjkPointSize(13), false);
         int aLangSel = ModText::GetLanguageSetting() + 1;   // 0 自动 / 1 中文 / 2 英文 → 行 1..3
         int aLangBase = ModText::Ascent(aLangFont);         // 位图英文的基线偏移
+        Sexy::Color aRowColor(233, 236, 247);
+        Sexy::Color aSelColor(255, 228, 115);
+        Sexy::Color aShadowColor(20, 22, 34);
         // 标题对分两行画（横排放不下这段空带）
-        NewOptionsDrawCjk(g, aLangFont, LANGUAGE_X, LANGUAGE_TITLE_TOP,
-            NewOptionsLanguageZh(0), aTextColor);
+        NewOptionsDrawCjk(g, aLangFont, LANGUAGE_X + 1, LANGUAGE_TITLE_TOP + 1, NewOptionsLanguageZh(0), aShadowColor);
+        NewOptionsDrawCjk(g, aLangFont, LANGUAGE_X, LANGUAGE_TITLE_TOP, NewOptionsLanguageZh(0), aRowColor);
+        TodDrawString(g, NewOptionsLanguageEn(0), LANGUAGE_X + 1, LANGUAGE_TITLE_EN_TOP + aLangBase + 1,
+            FONT_DWARVENTODCRAFT12, aShadowColor, DrawStringJustification::DS_ALIGN_LEFT);
         TodDrawString(g, NewOptionsLanguageEn(0), LANGUAGE_X, LANGUAGE_TITLE_EN_TOP + aLangBase,
-            FONT_DWARVENTODCRAFT12, aTextColor, DrawStringJustification::DS_ALIGN_LEFT);
+            FONT_DWARVENTODCRAFT12, aRowColor, DrawStringJustification::DS_ALIGN_LEFT);
         // 三档
         for (int i = 1; i <= 3; i++)
         {
             int aTop = LANGUAGE_OPT_TOP + (i - 1) * LANGUAGE_OPT_STEP;
-            Sexy::Color aColor = (i == aLangSel) ? Sexy::Color(255, 230, 120) : aTextColor;
+            Sexy::Color aColor = (i == aLangSel) ? aSelColor : aRowColor;
             const char* aZh = NewOptionsLanguageZh(i);
             const char* aEn = NewOptionsLanguageEn(i);
             int aEnX = LANGUAGE_X;
             if (aZh[0])
             {
+                NewOptionsDrawCjk(g, aLangFont, LANGUAGE_X + 1, aTop + 1, aZh, aShadowColor);
                 NewOptionsDrawCjk(g, aLangFont, LANGUAGE_X, aTop, aZh, aColor);
                 aEnX = LANGUAGE_X + ModText::TextWidth(aLangFont, ModText::WideFromUtf8(aZh)) + LANGUAGE_GAP;
             }
             if (aEn[0])
+            {
+                TodDrawString(g, aEn, aEnX + 1, aTop + aLangBase + 1,
+                    FONT_DWARVENTODCRAFT12, aShadowColor, DrawStringJustification::DS_ALIGN_LEFT);
                 TodDrawString(g, aEn, aEnX, aTop + aLangBase,
                     FONT_DWARVENTODCRAFT12, aColor, DrawStringJustification::DS_ALIGN_LEFT);
+            }
         }
     }
 
