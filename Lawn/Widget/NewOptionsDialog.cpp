@@ -32,6 +32,27 @@ using namespace Sexy;
 static ModText::Font* NewOptionsCjkFont() { return ModText::GetFont(13, false); }
 static ModText::Font* NewOptionsCjkFontSmall() { return ModText::GetFont(11, false); }
 
+// ── 语言选项行（2026-10-03 语言批）──────────────────────────────────────
+// 左空带竖排四行：标题 + 三档（自动/中文/English，行 1..3 与 MODLANG_* 同序）。
+// 等步进 21px；命中区按行铺满整步、比字形略宽一点，点着不费劲。绘制与命中同一份几何。
+static const int LANGUAGE_ROW_COUNT = 4;
+static const int LANGUAGE_X = 38;
+static const int LANGUAGE_TOP = 142;
+static const int LANGUAGE_STEP = 21;
+
+// 这一排文案两语并排固定、不随语言变——选择器本身得让两种语言的人都认得出，
+// 所以不走 ModText::Tr（它按当前语言择一）。
+static const char* NewOptionsLanguageRowText(int theRow)
+{
+	static const char* aRows[LANGUAGE_ROW_COUNT] = { "语言/Language", "自动/Auto", "中文", "English" };
+	return (theRow >= 0 && theRow < LANGUAGE_ROW_COUNT) ? aRows[theRow] : "";
+}
+
+static Sexy::Rect NewOptionsLanguageRowRect(int theIndex)
+{
+	return Sexy::Rect(LANGUAGE_X - 4, LANGUAGE_TOP + theIndex * LANGUAGE_STEP - 2, 78, LANGUAGE_STEP);
+}
+
 // 一"行"文字的落点：调用方给的是行顶；ModText::DrawTextWide 也收顶对齐
 //（原 DrawString 是基线口径、要补 +GetAscent()，这份换算已并入 ModText 的口径）。
 static void NewOptionsDrawCjk(Sexy::Graphics* g, ModText::Font* theFont, int theX, int theTopY,
@@ -265,6 +286,22 @@ void NewOptionsDialog::Draw(Sexy::Graphics* g)
     TodDrawString(g, _S("Sound FX"), 186, 167 + aSfxOffset, FONT_DWARVENTODCRAFT18, aTextColor, DrawStringJustification::DS_ALIGN_RIGHT);
     TodDrawString(g, _S("3D Acceleration"), 274, 197 + a3DAccelOffset, FONT_DWARVENTODCRAFT18, aTextColor, DrawStringJustification::DS_ALIGN_RIGHT);
     TodDrawString(g, _S("Full Screen"), 274, 229 + aFullScreenOffset, FONT_DWARVENTODCRAFT18, aTextColor, DrawStringJustification::DS_ALIGN_RIGHT);
+
+    // @pvz-online: 语言选项行（2026-10-03 语言批）。左空带竖排四行：标题 + 三档（自动/中文/
+    // English），当前档高亮；点击存注册表（ModText::SetLanguageSetting）并即时生效。
+    // 这一排文案故意**两语并排固定**、不随语言变——选择器本身得让两种语言的人都认得出。
+    // 落点与命中同用 LanguageRowRect（1:1 截图实测 x≈30..115 为空带，四行原版选项的
+    // 标签右对齐到 186/274、最长文字也从 ~120 起；滑块从 199 起）。
+    {
+        ModText::Font* aLangFont = NewOptionsCjkFontSmall();
+        int aLangSel = ModText::GetLanguageSetting() + 1;   // 0 自动 / 1 中文 / 2 英文 → 行 1..3
+        for (int i = 0; i < LANGUAGE_ROW_COUNT; i++)
+        {
+            NewOptionsDrawCjk(g, aLangFont, LANGUAGE_X, LANGUAGE_TOP + i * LANGUAGE_STEP,
+                NewOptionsLanguageRowText(i),
+                i == aLangSel ? Sexy::Color(255, 230, 120) : aTextColor);
+        }
+    }
 
     // @pvz-online: 这次暂停是队友按的，得说清楚——不然玩家会以为自己误触了。
     // 标题是烤进背景图里的，面板上半（y≈105 起）空着，就在这画一行。
@@ -565,6 +602,18 @@ void NewOptionsDialog::MouseDown(int x, int y, int theClickCount)
         mApp->PlaySample(SOUND_GRAVEBUTTON);
         OpenRunInfo();
         return;
+    }
+    // @pvz-online: 语言选项行（行 0 是标题不响应；三档命中即存注册表 + 石头按钮音）。
+    // 生效范围：本面板的"本局词条"入口 / 查看器下一帧就换语言（ModText 每次现读），
+    // 其余界面各自的文案在下次打开时才取——不必重建任何东西。
+    for (int i = 1; i < LANGUAGE_ROW_COUNT; i++)
+    {
+        if (NewOptionsLanguageRowRect(i).Contains(x, y))
+        {
+            mApp->PlaySample(SOUND_GRAVEBUTTON);
+            ModText::SetLanguageSetting(i - 1);
+            return;
+        }
     }
     Dialog::MouseDown(x, y, theClickCount);
 }
