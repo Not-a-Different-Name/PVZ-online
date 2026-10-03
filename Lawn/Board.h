@@ -17,7 +17,9 @@ using namespace Sexy;
 
 #define MAX_GRID_SIZE_X 9
 #define MAX_GRID_SIZE_Y 6
-#define MAX_ZOMBIES_IN_WAVE 50
+// 每波基准上限（原版 50）；联机席位顺位乘数最大 4 倍（四人局 1 号位），数组按 4 倍留量
+#define WAVE_ZOMBIE_CAP_BASE 50
+#define MAX_ZOMBIES_IN_WAVE (WAVE_ZOMBIE_CAP_BASE * 4)
 #define MAX_ZOMBIE_WAVES 100
 #define MAX_GRAVE_STONES MAX_GRID_SIZE_X * MAX_GRID_SIZE_Y
 #define MAX_POOL_GRID_SIZE 10

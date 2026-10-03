@@ -782,9 +782,11 @@ void Board::PickZombieWaves()
 		}
 
 		// @pvz-online: 席位顺位刷怪乘数（2026-10-03 用户定案，取代早先文档里的 8:4:2:1）：
-		// 四人 4:3:2:1、三人 3:2:1、二人 2:1——末席最轻，因为前面席位漏的怪最后都压在他头上。
-		// 顺位按"上座席位"排（第 r 位权重 n-r+1，总和 n(n+1)/2）；各客户端只缩自己的棋盘，
-		// 不涉协议。乘在旗帜波 ×2.5 之前；四舍五入并保底 1 点——早期小波别被除没。
+		// 直接倍乘——末席（最后上座的席位）原量 ×1 不变，往前每升一位 +1 倍：
+		// 四人 4:3:2:1、三人 3:2:1、二人 2:1。顺位按"上座席位"排（第 r 位权重 n-r+1）；
+		// 各客户端只为自己的棋盘缩放，不涉协议。乘在旗帜波 ×2.5 之前。
+		// 同一倍率也放大每波数量封顶（下面 aWaveZombieCap）：1 号位 4 倍时 20 → 80 只。
+		int aSeatMult = 1;
 		if (mApp->IsOnlineGame() && mApp->mOnlineSession != nullptr)
 		{
 			int aSeatCount = mApp->mOnlineSession->GetOccupiedSeatCount();
@@ -797,11 +799,8 @@ void Board::PickZombieWaves()
 					if (mApp->mOnlineSession->IsSeatOccupied(aSeat))
 						aRank++;
 				}
-				int aWeightTotal = aSeatCount * (aSeatCount + 1) / 2;
-				int aWeight = aSeatCount - aRank + 1;
-				aZombiePoints = (aZombiePoints * aWeight + aWeightTotal / 2) / aWeightTotal;
-				if (aZombiePoints < 1)
-					aZombiePoints = 1;
+				aSeatMult = aSeatCount - aRank + 1;
+				aZombiePoints *= aSeatMult;
 			}
 		}
 
@@ -934,7 +933,9 @@ void Board::PickZombieWaves()
 		// ------------------------------------------------------------------------------------------------
 		// @pvz-online: 闯关"数量封顶"（M4-a 定案）：点数不封顶，但一波最多 RUN_WAVE_ZOMBIE_CAP 只；
 		// 预算花不完的零头直接作废——富余的点数靠 PickZombieType 的强僵尸优先花在质量上。
-		int aWaveZombieCap = mApp->IsRunMode() ? RunState::RUN_WAVE_ZOMBIE_CAP : MAX_ZOMBIES_IN_WAVE;
+		// 联机再按席位顺位乘数同倍放大（2026-10-03 用户定案：1 号位 4 倍 → 上限 80 只）；
+		// 非闯关基准 = 原版 50，数组上限 MAX_ZOMBIES_IN_WAVE 按基准×4 留量。
+		int aWaveZombieCap = (mApp->IsRunMode() ? RunState::RUN_WAVE_ZOMBIE_CAP : WAVE_ZOMBIE_CAP_BASE) * aSeatMult;
 		while (aZombiePoints > 0 && aZombiePicker.mZombieCount < aWaveZombieCap)
 		{
 			ZombieType aZombieType = PickZombieType(aZombiePoints, aWave, &aZombiePicker);

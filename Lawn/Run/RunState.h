@@ -39,7 +39,7 @@ public:
 
 	// @pvz-online: 出怪编排旋钮（M4-a，用户定案）：点数不封顶、数量封顶；点数多就出强僵尸。
 	// 用在 Board::PickZombieWaves / Board::PickZombieType 的闯关分支，调平衡只动这组数。
-	static const int	RUN_WAVE_ZOMBIE_CAP	= 20;	// 每波僵尸数量上限（含旗帜波预放的普通+旗帜）
+	static const int	RUN_WAVE_ZOMBIE_CAP	= 20;	// 每波僵尸数量上限基准（含旗帜波预放的普通+旗帜）；联机按席位顺位乘数放大，见 Board::PickZombieWaves
 	static const int	RUN_HEAVY_POINTS	= 16;	// 单波剩余点数到此为止：接下来只抽"强僵尸"
 	static const int	RUN_HEAVY_VALUE		= 4;	// "强僵尸"的价值门槛（铁桶/铁门/橄榄球/巨人等）
 	static const int	RUN_GARGANTUAR_VALUE	= 4;	// 巨人系（普通/红眼）点数值 10→4：点数一到 4 就可能抽中
