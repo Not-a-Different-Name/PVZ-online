@@ -54,8 +54,9 @@ const RunBuffDef& GetRunBuffDef(int theId);
 // 所以前 5 条（SeedType 0..4）必须永远留在原位：老检查点里的 id 直接按它解读。
 // 新增条目插在自己的 SeedType 位次上：批 1 的 5 条是追加（SeedType 都大于 4），批 2/批 3/
 // 批 4/批 5/批 6/批 7 的 16 条、批 8 的地刺 1 条、批 9 的磁系 2 条、批 10 的投手族 4 条、
-// 批 11 的计时/产出族 4 条与批 12 的弹道/索敌族 3 条插进中段——每插一批，更早批次档里单株
-// id 的层数就会错位到别的植物（开发期接受，见方案 §六）；满编 48 条后表下标 == SeedType。
+// 批 11 的计时/产出族 4 条、批 12 的弹道/索敌族 3 条与批 13 的控制/减速族 4 条插进中段——
+// 每插一批，更早批次档里单株 id 的层数就会错位到别的植物（开发期接受，见方案 §六）；
+// 满编 48 条后表下标 == SeedType。
 enum RunPlantUpgradeId
 {
 	RUN_UPGRADE_PEASHOOTER,		// 豌豆射手：每次多打 1 发（每层）
@@ -70,17 +71,20 @@ enum RunPlantUpgradeId
 	RUN_UPGRADE_SUNSHROOM,		// 阳光菇：每次多产 1 阳光（每层，至多 3 层）
 	RUN_UPGRADE_FUMESHROOM,		// 大喷菇：雾气射程 +1 格/层（至多 2 层）
 	RUN_UPGRADE_GRAVEBUSTER,	// 墓碑吞噬者：吞掉墓碑额外产 25 阳光（每层，至多 2 层）
+	RUN_UPGRADE_HYPNOSHROOM,	// 魅惑菇：被魅惑僵尸咬到的僵尸也变友军（只可选 1 层）
 	RUN_UPGRADE_ICESHROOM,		// 寒冰菇：全场冰冻 +2 秒/层（至多 2 层）
 	RUN_UPGRADE_DOOMSHROOM,		// 毁灭菇：爆炸半径 +25%/层（至多 2 层）
 	RUN_UPGRADE_LILYPAD,		// 睡莲：血量 +100%/层（至多 2 层）
 	RUN_UPGRADE_SQUASH,			// 窝瓜：压击处僵尸眩晕 +2 秒/层（至多 2 层）
 	RUN_UPGRADE_THREEPEATER,	// 三线射手：每条道多发 1 颗/层（至多 2 层）
+	RUN_UPGRADE_TANGLEKELP,		// 缠绕海草：每层多缠 1 只僵尸（至多 2 层）
 	RUN_UPGRADE_JALAPENO,		// 火爆辣椒：种植冷却 ×0.75/层（至多 3 层）
 	RUN_UPGRADE_SPIKEWEED,		// 地刺：扎过的僵尸减速 +3 秒/层（至多 2 层）
 	RUN_UPGRADE_TORCHWOOD,		// 火炬树桩：火弹伤害 +50%/层（至多 2 层）
 	RUN_UPGRADE_TALLNUT,		// 高坚果：血量 +50%/层（至多 3 层）
 	RUN_UPGRADE_SEASHROOM,		// 海蘑菇：种植冷却 ×0.75/层（至多 3 层）
 	RUN_UPGRADE_CACTUS,			// 仙人掌：尖刺穿透 +1 只/层（至多 2 层）
+	RUN_UPGRADE_BLOVER,			// 三叶草：吹风后全场僵尸减速 +5 秒/层（至多 2 层）
 	RUN_UPGRADE_SPLITPEA,		// 分裂豌豆：背向豌豆每次 +1 颗/层（至多 2 层）
 	RUN_UPGRADE_STARFRUIT,		// 杨桃：射击间隔 ×0.75/层（至多 3 层）
 	RUN_UPGRADE_PUMPKINSHELL,	// 南瓜头：血量 +50%/层（至多 3 层）
@@ -89,6 +93,7 @@ enum RunPlantUpgradeId
 	RUN_UPGRADE_FLOWERPOT,		// 花盆：血量 +100%/层（至多 2 层）
 	RUN_UPGRADE_KERNELPULT,		// 玉米投手：黄油触发概率 +25%/层（至多 3 层）
 	RUN_UPGRADE_INSTANT_COFFEE,	// 咖啡豆：唤醒产阳光 +100/层（至多 2 层）
+	RUN_UPGRADE_GARLIC,			// 大蒜：被驱赶的僵尸减速 +5 秒/层（至多 2 层）
 	RUN_UPGRADE_UMBRELLA,		// 保护伞：血量 +50%/层（至多 3 层）
 	RUN_UPGRADE_MARIGOLD,		// 金盏花：每次多产 1 枚（每层，至多 3 层）
 	RUN_UPGRADE_MELONPULT,		// 西瓜投手：溅射范围 +25%/层（至多 2 层）

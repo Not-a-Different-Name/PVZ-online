@@ -69,7 +69,14 @@ const RunBuffDef& GetRunBuffDef(int theId)
 // 一点继续飞，并把弹体推到该僵尸身后免重撞——Projectile::DoImpact 末尾）；分裂豌豆：
 // 背向弹每次 +1 颗（Fire 的 SECONDARY 分支多发循环，镜像正面 21px 错位）；猫尾草：攻击
 // 目标 +1 个/层（FindTargetZombie 加排除参数，同一轮依次找第 2/3 个目标各发一颗追踪刺）。
-// 表内下标随插入右移补充：批 9 档里 id 36、批 10 档里 id 14 及以后、批 11 档里 id 30 及以后也会错位到别的植物。
+// 表内下标随插入右移补充：批 9 档里 id 36、批 10 档里 id 14 及以后、批 11 档里 id 30 及以后、
+// 批 12 档里 id 30 及以后、批 13 档里 id 20 及以后也会错位到别的植物。
+// 批 13 2026-10-03：控制/减速族 4 条（魅惑菇 12 / 缠绕海草 18 / 三叶草 25 / 大蒜 34）——
+// 魅惑菇：被魅惑僵尸咬到的僵尸也倒戈（Zombie::EatZombie 命中点走 StartMindControlled，
+// 1 层成型）；缠绕海草：抓取时每层多找 1 只（至多 2 层、1→3 只），额外目标存
+// Plant::mExtraTanglekelpIDs，抓取/沉底/清场与主目标同一时点；三叶草：吹风中
+// （BlowAwayFliers）全场僵尸减速 500 帧/层；大蒜：被驱赶换道那一刻（UpdateYuckyFace
+// 的 170 帧点）减速 500 帧/层。后两者语义照地刺（CanBeChilled / max / 冰音）。
 // 血量型条目（批 1 的 5 条 + 坚果墙）不用专门挂点——Plant.cpp:484 的通用血量口按
 // RUN_UPGRADE_KIND_HEALTH 消费（修正批起，不再对任意行生效），表里加一行标上 Kind
 // 就生效（南瓜头护罩血已查证同走 mPlantHealth）。
@@ -87,17 +94,20 @@ static const RunPlantUpgradeDef gRunPlantUpgradeDefs[RUN_PLANT_UPGRADE_COUNT] =
 	{ SeedType::SEED_SUNSHROOM,    "Bright Cap",   "每次多产 1 阳光\n（每层）",         0.00f, 3 },
 	{ SeedType::SEED_FUMESHROOM,   "Thick Fumes",  "雾气射程 +1 格\n（每层）",          0.00f, 2 },
 	{ SeedType::SEED_GRAVEBUSTER,  "Quick Dig",    "吞掉墓碑额外产 25 阳光\n（每层）",   0.00f, 2 },
+	{ SeedType::SEED_HYPNOSHROOM,  "Devotion",     "被魅惑僵尸咬到的僵尸也变友军",       0.00f, 1 },
 	{ SeedType::SEED_ICESHROOM,    "Deep Freeze",  "全场冰冻 +2 秒\n（每层）",          0.00f, 2 },
 	{ SeedType::SEED_DOOMSHROOM,   "Annihilation", "爆炸范围 +25%\n（每层）",           0.25f, 2 },
 	{ SeedType::SEED_LILYPAD,      "Tough Pad",    "血量 +100%\n（每层）",              1.00f, 2, false, RUN_UPGRADE_KIND_HEALTH },
 	{ SeedType::SEED_SQUASH,       "Heavy Squash", "压击处僵尸眩晕 +2 秒\n（每层）",    0.00f, 2 },
 	{ SeedType::SEED_THREEPEATER,  "Triple Volley", "每条道多发 1 颗\n（每层）",         0.00f, 2, false, RUN_UPGRADE_KIND_SHOTCOUNT },
+	{ SeedType::SEED_TANGLEKELP,   "Entangle",     "多缠 1 只僵尸\n（每层）",           0.00f, 2 },
 	{ SeedType::SEED_JALAPENO,     "Inferno",      "种植冷却逐层 ×0.75\n（每层）",      -0.25f, 3, true, RUN_UPGRADE_KIND_COOLDOWN },
 	{ SeedType::SEED_SPIKEWEED,    "Barbed Spikes", "扎过的僵尸减速 +3 秒\n（每层）",    0.00f, 2 },
 	{ SeedType::SEED_TORCHWOOD,    "Kindling",     "火弹伤害加成 +50%\n（每层）",        0.50f, 2 },
 	{ SeedType::SEED_TALLNUT,      "Iron Shell",   "血量 +50%\n（每层）",               0.50f, 3, false, RUN_UPGRADE_KIND_HEALTH },
 	{ SeedType::SEED_SEASHROOM,    "Brine Spore",  "种植冷却逐层 ×0.75\n（每层）",      -0.25f, 3, true, RUN_UPGRADE_KIND_COOLDOWN },
 	{ SeedType::SEED_CACTUS,       "Prickly",      "尖刺穿透 +1 只\n（每层）",          0.00f, 2 },
+	{ SeedType::SEED_BLOVER,       "Gale",         "吹风后全场僵尸减速 5 秒\n（每层）", 0.00f, 2 },
 	{ SeedType::SEED_SPLITPEA,     "Backspike",    "背向豌豆每次 +1 颗\n（每层）",       0.00f, 2 },
 	{ SeedType::SEED_STARFRUIT,    "Star Rain",    "射击间隔逐层 ×0.75\n（每层）",      -0.25f, 3, true, RUN_UPGRADE_KIND_RHYTHM },
 	{ SeedType::SEED_PUMPKINSHELL, "Hard Rind",    "血量 +50%\n（每层）",               0.50f, 3, false, RUN_UPGRADE_KIND_HEALTH },
@@ -106,6 +116,7 @@ static const RunPlantUpgradeDef gRunPlantUpgradeDefs[RUN_PLANT_UPGRADE_COUNT] =
 	{ SeedType::SEED_FLOWERPOT,    "Rich Soil",    "血量 +100%\n（每层）",              1.00f, 2, false, RUN_UPGRADE_KIND_HEALTH },
 	{ SeedType::SEED_KERNELPULT,   "Buttery",      "黄油触发概率 +25%\n（每层）",       0.25f, 3 },
 	{ SeedType::SEED_INSTANT_COFFEE,"Rich Roast",  "唤醒产阳光 +100\n（每层）",         0.00f, 2 },
+	{ SeedType::SEED_GARLIC,       "Pungent",      "被驱赶僵尸减速 5 秒\n（每层）",     0.00f, 2 },
 	{ SeedType::SEED_UMBRELLA,     "Canopy",       "血量 +50%\n（每层）",               0.50f, 3, false, RUN_UPGRADE_KIND_HEALTH },
 	{ SeedType::SEED_MARIGOLD,     "Golden Bloom", "每次多产 1 枚\n（每层）",           0.00f, 3 },
 	{ SeedType::SEED_MELONPULT,    "Heavy Melon",  "溅射范围 +25%\n（每层）",           0.25f, 2 },
@@ -192,17 +203,20 @@ static const struct { SeedType mPlant; const char* mName; } gRunPlantUpgradeZhNa
 	{ SeedType::SEED_SUNSHROOM,    "阳光菇" },
 	{ SeedType::SEED_FUMESHROOM,   "大喷菇" },
 	{ SeedType::SEED_GRAVEBUSTER,  "墓碑吞噬者" },
+	{ SeedType::SEED_HYPNOSHROOM,  "魅惑菇" },
 	{ SeedType::SEED_ICESHROOM,    "寒冰菇" },
 	{ SeedType::SEED_DOOMSHROOM,   "毁灭菇" },
 	{ SeedType::SEED_LILYPAD,      "睡莲" },
 	{ SeedType::SEED_SQUASH,       "窝瓜" },
 	{ SeedType::SEED_THREEPEATER,  "三线射手" },
+	{ SeedType::SEED_TANGLEKELP,   "缠绕海草" },
 	{ SeedType::SEED_JALAPENO,     "火爆辣椒" },
 	{ SeedType::SEED_SPIKEWEED,    "地刺" },
 	{ SeedType::SEED_TORCHWOOD,    "火炬树桩" },
 	{ SeedType::SEED_TALLNUT,      "高坚果" },
 	{ SeedType::SEED_SEASHROOM,    "海蘑菇" },
 	{ SeedType::SEED_CACTUS,       "仙人掌" },
+	{ SeedType::SEED_BLOVER,       "三叶草" },
 	{ SeedType::SEED_SPLITPEA,     "分裂豌豆" },
 	{ SeedType::SEED_STARFRUIT,    "杨桃" },
 	{ SeedType::SEED_PUMPKINSHELL, "南瓜头" },
@@ -211,6 +225,7 @@ static const struct { SeedType mPlant; const char* mName; } gRunPlantUpgradeZhNa
 	{ SeedType::SEED_FLOWERPOT,    "花盆" },
 	{ SeedType::SEED_KERNELPULT,   "玉米投手" },
 	{ SeedType::SEED_INSTANT_COFFEE,"咖啡豆" },
+	{ SeedType::SEED_GARLIC,       "大蒜" },
 	{ SeedType::SEED_UMBRELLA,     "保护伞" },
 	{ SeedType::SEED_MARIGOLD,     "金盏花" },
 	{ SeedType::SEED_MELONPULT,    "西瓜投手" },

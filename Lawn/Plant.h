@@ -189,6 +189,10 @@ public:
     bool                    mIsAsleep;                      //+0x143
     bool                    mIsOnBoard;                     //+0x144
     bool                    mHighlighted;                   //+0x145
+    // @pvz-online: 缠绕海草「Entangle」多缠（批 13）：抓取开始时记下的额外目标（每层 +1、
+    // 至多 2 只），与 mTargetZombieID 的主目标一起抓取/沉底/清场；抓取外恒 0 空槽。
+    ZombieID                mExtraTanglekelpIDs[2];
+    int                     mExtraTanglekelpCount;
 
 public:
     Plant();
@@ -269,6 +273,10 @@ public:
     void                    UpdateCactus();
     void                    StarFruitFire();
     void                    UpdateTanglekelp();
+    // @pvz-online: 多缠（批 13）两块拼图：缠住一只（溅水花 + 按体型挂藤，主/额外目标共用）；
+    // 这只僵尸是否正被这株海草抓着（主目标或额外目标——Zombie::IsTangleKelp*Target 改走这里）。
+    void                    AttachTanglekelpGrab(Zombie* theZombie);
+    bool                    IsTangleKelpTargeting(ZombieID theZombieID);
     Reanimation*            AttachBlinkAnim(Reanimation* theReanimBody);
     void                    UpdateReanimColor();
     bool                    IsUpgradableTo(SeedType theUpgradedType);

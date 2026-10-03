@@ -1832,7 +1832,8 @@ bool Zombie::IsTanglekelpTarget()
     Plant* aPlant = nullptr;
     while (mBoard->IteratePlants(aPlant))
     {
-        if (aPlant->mSeedType == SeedType::SEED_TANGLEKELP && aPlant->mTargetZombieID == mBoard->ZombieGetID(this))
+        // @pvz-online: 判定走 Plant::IsTangleKelpTargeting（批 13 多缠：主目标 + 额外目标都算）。
+        if (aPlant->mSeedType == SeedType::SEED_TANGLEKELP && aPlant->IsTangleKelpTargeting(mBoard->ZombieGetID(this)))
         {
             return true;
         }
@@ -4800,6 +4801,21 @@ void Zombie::UpdateYuckyFace()
     {
         StartWalkAnim(20);
 
+        // @pvz-online: 单株升级「Pungent」（大蒜，批 13）：被驱赶（换道那一刻）减速 5 秒/层、
+        // 至多 2 层。语义照地刺（Plant::DoRowAreaDamage）：CanBeChilled 挡下、不缩短更长的
+        // 减速、首次挂上出冰音。mYuckyFace 唯一来源就是大蒜（AnimateChewSound 的 garlic 支），
+        // 这里天然只对大蒜触发；换不换得成道都算"被驱赶"，非闯关恒 0。
+        int aSlowFrames = 500 * mApp->RunPlantUpgradeCount(SeedType::SEED_GARLIC);
+        if (aSlowFrames > 0 && CanBeChilled() && aSlowFrames > mChilledCounter)
+        {
+            if (mChilledCounter == 0)
+            {
+                mApp->PlayFoley(FoleyType::FOLEY_FROZEN);
+            }
+            mChilledCounter = aSlowFrames;
+            UpdateAnimSpeed();
+        }
+
         bool aCanGoUp = true;
         bool aCanGoDown = true;
         bool aIsPool = mBoard->mPlantRow[mRow] == PlantRowType::PLANTROW_POOL;
@@ -7205,6 +7221,18 @@ void Zombie::EatPlant(Plant* thePlant)
 //0x52FE10
 void Zombie::EatZombie(Zombie* theZombie)
 {
+    // @pvz-online: 单株升级「Devotion」（魅惑菇，批 13）：被魅惑僵尸咬到的僵尸也倒戈——
+    // 1 层成型（上限 1）。EatZombie 只被魅惑僵尸的吃循环调到（FindZombieTarget 要求两边
+    // mMindControlled 不同），倒戈照魅惑菇本体走 StartMindControlled + 同款粒子 + 过关
+    // 检查（同 AnimateChewSound 的魅惑菇支：倒戈可能干掉最后一只敌人）。
+    if (mMindControlled && !theZombie->mMindControlled && !theZombie->IsDeadOrDying() &&
+        mApp->RunPlantUpgradeCount(SeedType::SEED_HYPNOSHROOM) > 0)
+    {
+        theZombie->StartMindControlled();
+        mApp->AddTodParticle(theZombie->mPosX + 60.0f, theZombie->mPosY + 40.0f, theZombie->mRenderOrder + 1, ParticleEffect::PARTICLE_MIND_CONTROL);
+        theZombie->TrySpawnLevelAward();
+    }
+
     theZombie->TakeDamage(DAMAGE_PER_EAT, 9U);
     StartEating();
     if (theZombie->mBodyHealth <= 0)
@@ -8554,7 +8582,8 @@ bool Zombie::IsTangleKelpTarget()
     Plant* aPlant = nullptr;
     while (mBoard->IteratePlants(aPlant))
     {
-        if (aPlant->mSeedType == SeedType::SEED_TANGLEKELP && aPlant->mTargetZombieID == mBoard->ZombieGetID(this))
+        // @pvz-online: 判定走 Plant::IsTangleKelpTargeting（批 13 多缠：主目标 + 额外目标都算）。
+        if (aPlant->mSeedType == SeedType::SEED_TANGLEKELP && aPlant->IsTangleKelpTargeting(mBoard->ZombieGetID(this)))
         {
             return true;
         }

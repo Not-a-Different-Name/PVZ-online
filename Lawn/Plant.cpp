@@ -125,6 +125,11 @@ void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, Se
     mDoSpecialCountdown = 0;
     mDisappearCountdown = 200;
     mStateCountdown = 0;
+    // @pvz-online: 缠绕海草「Entangle」多缠（批 13）：额外目标槽清零——抓取外
+    // IsTangleKelpTargeting 会遍历它判"这只正被这株缠着"，不清会读到脏值。
+    mExtraTanglekelpCount = 0;
+    mExtraTanglekelpIDs[0] = ZombieID::ZOMBIEID_NULL;
+    mExtraTanglekelpIDs[1] = ZombieID::ZOMBIEID_NULL;
     mParticleID = ParticleSystemID::PARTICLESYSTEMID_NULL;
     mBodyReanimID = ReanimationID::REANIMATIONID_NULL;
     mHeadReanimID = ReanimationID::REANIMATIONID_NULL;
@@ -1256,6 +1261,55 @@ void Plant::UpdatePotato()
     }
 }
 
+// @pvz-online: 单株升级「Entangle」（缠绕海草，批 13）拆出的抓取段：溅水花 + 按体型挂藤
+//（snorkel/dolphin 的位置修正照原版）。主目标与每层多缠的额外目标共用。
+void Plant::AttachTanglekelpGrab(Zombie* theZombie)
+{
+    theZombie->PoolSplash(false);
+
+    float aVinesPosX = -13.0f;
+    float aVinesPosY = 15.0f;
+    if (theZombie->mZombieType == ZombieType::ZOMBIE_SNORKEL)
+    {
+        aVinesPosX = -43.0f;
+        aVinesPosY = 55.0f;
+    }
+    if (theZombie->mZombiePhase == ZombiePhase::PHASE_DOLPHIN_RIDING)
+    {
+        aVinesPosX = -20.0f;
+        aVinesPosY = 37.0f;
+    }
+    Reanimation* aGrabReanim = theZombie->AddAttachedReanim(aVinesPosX, aVinesPosY, ReanimationType::REANIM_TANGLEKELP);
+    if (aGrabReanim)
+    {
+        aGrabReanim->SetFramesForLayer("anim_grab");
+        aGrabReanim->mAnimRate = 24.0f;
+        aGrabReanim->mLoopType = ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD;
+    }
+}
+
+// @pvz-online: 这只僵尸是否正被这株海草抓着（主目标或额外目标，批 13 多缠）。
+// Zombie::IsTanglekelpTarget / IsTangleKelpTarget 与 FindTargetZombie 的重复抓取过滤都走这里。
+bool Plant::IsTangleKelpTargeting(ZombieID theZombieID)
+{
+    if (theZombieID == ZombieID::ZOMBIEID_NULL)
+    {
+        return false;
+    }
+    if (mTargetZombieID == theZombieID)
+    {
+        return true;
+    }
+    for (int i = 0; i < mExtraTanglekelpCount; i++)
+    {
+        if (mExtraTanglekelpIDs[i] == theZombieID)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 //0x460060
 void Plant::UpdateTanglekelp()
 {
@@ -1267,29 +1321,28 @@ void Plant::UpdateTanglekelp()
             mApp->PlayFoley(FoleyType::FOLEY_FLOOP);
             mState = PlantState::STATE_TANGLEKELP_GRABBING;
             mStateCountdown = 100;
-            aZombie->PoolSplash(false);
-
-            float aVinesPosX = -13.0f;
-            float aVinesPosY = 15.0f;
-            if (aZombie->mZombieType == ZombieType::ZOMBIE_SNORKEL)
-            {
-                aVinesPosX = -43.0f;
-                aVinesPosY = 55.0f;
-            }
-            if (aZombie->mZombiePhase == ZombiePhase::PHASE_DOLPHIN_RIDING)
-            {
-                aVinesPosX = -20.0f;
-                aVinesPosY = 37.0f;
-            }
-            Reanimation* aGrabReanim = aZombie->AddAttachedReanim(aVinesPosX, aVinesPosY, ReanimationType::REANIM_TANGLEKELP);
-            if (aGrabReanim)
-            {
-                aGrabReanim->SetFramesForLayer("anim_grab");
-                aGrabReanim->mAnimRate = 24.0f;
-                aGrabReanim->mLoopType = ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD;
-            }
-
+            AttachTanglekelpGrab(aZombie);
             mTargetZombieID = mBoard->ZombieGetID(aZombie);
+
+            // @pvz-online: 单株升级「Entangle」（缠绕海草，批 13）：每层多缠 1 只、至多 2 层
+            //（1→3 只）。逐只再调 FindTargetZombie——对海草它会跳过已被任何海草抓着的僵尸
+            //（IsTangleKelpTarget 走 IsTangleKelpTargeting，含刚记下的主目标），不会重抓同一只。
+            int aExtraCount = mApp->RunPlantUpgradeCount(SeedType::SEED_TANGLEKELP);
+            if (aExtraCount > 2)
+            {
+                aExtraCount = 2;
+            }
+            for (int i = 0; i < aExtraCount; i++)
+            {
+                Zombie* aExtraZombie = FindTargetZombie(mRow, PlantWeapon::WEAPON_PRIMARY);
+                if (!aExtraZombie)
+                {
+                    break;
+                }
+                AttachTanglekelpGrab(aExtraZombie);
+                mExtraTanglekelpIDs[mExtraTanglekelpCount] = mBoard->ZombieGetID(aExtraZombie);
+                mExtraTanglekelpCount++;
+            }
         }
     }
     else
@@ -1301,6 +1354,16 @@ void Plant::UpdateTanglekelp()
             {
                 aZombie->DragUnder();
                 aZombie->PoolSplash(false);
+            }
+            // @pvz-online: 多缠的额外目标与主目标同时点沉底（批 13）。
+            for (int i = 0; i < mExtraTanglekelpCount; i++)
+            {
+                Zombie* aExtraZombie = mBoard->ZombieTryToGet(mExtraTanglekelpIDs[i]);
+                if (aExtraZombie)
+                {
+                    aExtraZombie->DragUnder();
+                    aExtraZombie->PoolSplash(false);
+                }
             }
         }
 
@@ -1322,6 +1385,15 @@ void Plant::UpdateTanglekelp()
             if (aZombie)
             {
                 aZombie->DieWithLoot();
+            }
+            // @pvz-online: 多缠的额外目标与主目标同时点清场（批 13）。
+            for (int i = 0; i < mExtraTanglekelpCount; i++)
+            {
+                Zombie* aExtraZombie = mBoard->ZombieTryToGet(mExtraTanglekelpIDs[i]);
+                if (aExtraZombie)
+                {
+                    aExtraZombie->DieWithLoot();
+                }
             }
         }
     }
@@ -4445,6 +4517,10 @@ void Plant::BurnRow(int theRow)
 //0x4665B0
 void Plant::BlowAwayFliers()
 {
+    // @pvz-online: 单株升级「Gale」（三叶草，批 13）：吹风后全场僵尸减速 5 秒/层（至多 2 层）。
+    // 语义照地刺（DoRowAreaDamage）：CanBeChilled 挡下、不缩短更长的减速（冰道/寒冰菇的
+    // 2000 帧不动）、首次挂上出冰音、降速刷新走 UpdateAnimSpeed；计数型、非闯关恒 0。
+    int aSlowFrames = 500 * mApp->RunPlantUpgradeCount(SeedType::SEED_BLOVER);
     Zombie* aZombie = nullptr;
     while (mBoard->IterateZombies(aZombie))
     {
@@ -4455,6 +4531,15 @@ void Plant::BlowAwayFliers()
             if (aZombie->IsFlying())
             {
                 aZombie->mBlowingAway = true;
+            }
+            if (aSlowFrames > 0 && aZombie->CanBeChilled() && aSlowFrames > aZombie->mChilledCounter)
+            {
+                if (aZombie->mChilledCounter == 0)
+                {
+                    mApp->PlayFoley(FoleyType::FOLEY_FROZEN);
+                }
+                aZombie->mChilledCounter = aSlowFrames;
+                aZombie->UpdateAnimSpeed();
             }
         }
     }
