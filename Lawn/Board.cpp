@@ -763,7 +763,9 @@ void Board::PickZombieWaves()
 		{
 			// 闯关（M4-a）：固定走"通关后"的出怪曲线。绝不挂在 HasFinishedAdventure 上——
 			// 两个玩家的档案进度不同会让同一关的波表都不一样（R5 遗留的确定性漏洞）。
-			aZombiePoints = aWave * 2 / 5 + 1;
+			// 2026-10-03（用户定案"丰富僵尸种类、不要减少僵尸数量"）：起步 +2 点/波——
+			// 权重平铺后强怪占比上升，这点增幅把总只数抬回并略超原量，前期也能买得起多样怪。
+			aZombiePoints = aWave * 2 / 5 + 3;
 		}
 		else if (mApp->IsAdventureMode() && mApp->HasFinishedAdventure() && mLevel != 5)
 		{
@@ -2815,11 +2817,12 @@ ZombieType Board::PickZombieType(int theZombiePoints, int theWaveIndex, ZombiePi
 				aPickWeight = TodAnimateCurve(10, 50, aFlags, aPickWeight, aPickWeight / 4, TodCurves::CURVE_LINEAR);
 			}
 		}
-		// @pvz-online: 闯关里红眼与普通巨人同级（M4-a 用户定案）：价值同为 4 之后红眼不再
-		// 按"稀有怪"抽，权重直接沿用普通巨人那一档。
-		else if (mApp->IsRunMode() && aZombieType == ZombieType::ZOMBIE_REDEYE_GARGANTUAR)
+		// @pvz-online: 闯关的权重走平铺表（RunZombieRoster.cpp，2026-10-03 用户定案"丰富僵尸种类"）：
+		// 原版权重里普僵/路障各 4000，抽出来半个战场就这两样；平铺后红眼与普通巨人同档
+		// 也自动成立（旧的特判一并撤掉）。
+		else if (mApp->IsRunMode())
 		{
-			aPickWeight = GetZombieDefinition(ZombieType::ZOMBIE_GARGANTUAR).mPickWeight;
+			aPickWeight = RunZombieWeight((ZombieType)aZombieType);
 		}
 		aZombieWeightArray[aPickCount].mItem = aZombieType;
 		aZombieWeightArray[aPickCount].mWeight = aPickWeight;
