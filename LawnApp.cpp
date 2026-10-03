@@ -31,6 +31,7 @@
 #include "Lawn/Widget/CheatDialog.h"
 #include "Lawn/Widget/OnlineDialog.h"
 #include "Lawn/Widget/OnlineStartDialog.h"
+#include "Lawn/ModText.h"
 #include "Lawn/Widget/RunModeDialog.h"
 #include "Lawn/Online/NetSession.h"
 #include "Lawn/Run/RunState.h"
@@ -673,7 +674,9 @@ void LawnApp::UpdateOnlineStart()
 		if (mBoard == nullptr && GetDialog(Dialogs::DIALOG_ONLINE_START) == nullptr)
 		{
 			OnlineStartDialog* aWaitDialog = new OnlineStartDialog(this,
-				"等待其他玩家", "邀请已发出，等待确认…", "取消", nullptr,
+				ModText::Tr("等待其他玩家", "Waiting for players"),
+				ModText::Tr("邀请已发出，等待确认…", "Invites sent, waiting for confirmation..."),
+				ModText::Tr("取消", "Cancel"), nullptr,
 				OnlineStartDialog::NOTIFY_WAIT_CANCEL);
 			CenterDialog(aWaitDialog, aWaitDialog->mWidth, aWaitDialog->mHeight);
 			AddDialog(Dialogs::DIALOG_ONLINE_START, aWaitDialog);
@@ -705,7 +708,9 @@ void LawnApp::UpdateOnlineStart()
 			ShowGameSelector();
 			TodLog("online start: a teammate turned it down");
 			OnlineStartDialog* aDialog = new OnlineStartDialog(this,
-				"队友暂不加入", "他可能还在别的关卡里，可以稍后再试。", "知道了", nullptr,
+				ModText::Tr("队友暂不加入", "Teammate declined"),
+				ModText::Tr("他可能还在别的关卡里，可以稍后再试。", "They may still be in another level. Try again later."),
+				ModText::Tr("知道了", "OK"), nullptr,
 				OnlineStartDialog::NOTIFY_NONE);
 			CenterDialog(aDialog, aDialog->mWidth, aDialog->mHeight);
 			AddDialog(Dialogs::DIALOG_ONLINE_START, aDialog);
@@ -741,7 +746,9 @@ void LawnApp::UpdateOnlineStart()
 			ShowGameSelector();
 			TodLog("online start: no answer from the teammate in time, start dropped");
 			OnlineStartDialog* aDialog = new OnlineStartDialog(this,
-				"没有等到回应", "队友没有及时确认，可以再试一次。", "知道了", nullptr,
+				ModText::Tr("没有等到回应", "No answer"),
+				ModText::Tr("队友没有及时确认，可以再试一次。", "The teammate didn't confirm in time. You can try again."),
+				ModText::Tr("知道了", "OK"), nullptr,
 				OnlineStartDialog::NOTIFY_NONE);
 			CenterDialog(aDialog, aDialog->mWidth, aDialog->mHeight);
 			AddDialog(Dialogs::DIALOG_ONLINE_START, aDialog);
@@ -918,7 +925,10 @@ void LawnApp::ShowOnlineStartPrompt(const NetProto::MsgStartLevel& theMsg)
 	TodLog("[net] the host starts a level - the invite is on screen");
 	if (mGameSelector) mGameSelector->SetMenuButtonsDisabled(true);
 
-	OnlineStartDialog* aDialog = new OnlineStartDialog(this, "房主开始了游戏", "是否加入？", "加入", "暂不",
+	OnlineStartDialog* aDialog = new OnlineStartDialog(this,
+		ModText::Tr("房主开始了游戏", "The host started a game"),
+		ModText::Tr("是否加入？", "Join?"),
+		ModText::Tr("加入", "Join"), ModText::Tr("暂不", "Not now"),
 		OnlineStartDialog::NOTIFY_INVITE_ANSWER);
 	CenterDialog(aDialog, aDialog->mWidth, aDialog->mHeight);
 	AddDialog(Dialogs::DIALOG_ONLINE_START, aDialog);
@@ -987,7 +997,9 @@ static void EnsureSeedsWaitDialog(LawnApp* theApp)
 	if (theApp->GetDialog(Dialogs::DIALOG_ONLINE_START) != nullptr) return;
 
 	OnlineStartDialog* aDialog = new OnlineStartDialog(theApp,
-		"等待队友选卡", "你已经选好植物了，队友选完就开打。", nullptr, nullptr,
+		ModText::Tr("等待队友选卡", "Waiting for teammates"),
+		ModText::Tr("你已经选好植物了，队友选完就开打。", "You picked your plants. The battle starts when everyone is ready."),
+		nullptr, nullptr,
 		OnlineStartDialog::NOTIFY_NONE);
 	theApp->CenterDialog(aDialog, aDialog->mWidth, aDialog->mHeight);
 	theApp->AddDialog(Dialogs::DIALOG_ONLINE_START, aDialog);
@@ -1531,7 +1543,10 @@ void LawnApp::UpdateAdventureRequest()
 	if (RunState::HasCheckpoint(mPlayerInfo->mId))
 	{
 		OnlineStartDialog* aDialog = new OnlineStartDialog(this,
-			"继续闯关？", "有一局没有打完。", "继续", "新开一局", OnlineStartDialog::NOTIFY_NONE);
+			ModText::Tr("继续闯关？", "Continue the run?"),
+			ModText::Tr("有一局没有打完。", "You have an unfinished run."),
+			ModText::Tr("继续", "Continue"), ModText::Tr("新开一局", "New Run"),
+			OnlineStartDialog::NOTIFY_NONE);
 		CenterDialog(aDialog, aDialog->mWidth, aDialog->mHeight);
 		AddDialog(Dialogs::DIALOG_ONLINE_START, aDialog);
 		if (aDialog->WaitForResult() == Dialog::ID_YES)
@@ -1571,17 +1586,31 @@ void LawnApp::UpdateStartupAnnounce()
 
 	mShowedStartupAnnounce = true;
 
-	OnlineStartDialog* aDialog = new OnlineStartDialog(this, "欢迎来到 PvZ 联机合作版",
-		"· 2~6 人各守一块草坪，漏掉的僵尸传给下一位\n"
-		"  队友（保留血量）；末位漏怪 = 全队失败。\n"
-		"  末位每行有一台推车兜底，用掉不补。\n"
-		"· 出怪量按席位翻倍：末位 1 倍、往前每位\n"
-		"  翻一倍，最多 ×32。\n"
-		"· 主位大墓碑 = 组队 / 加入房间，主机可发起\n"
-		"  「组队闯关」；第三槽 PUZZLE 石板 = 打单关。\n"
-		"· 局内：ESC 暂停；T / E 短语与表情（数字键选）；\n"
-		"  左上小条 = 名册与换位。",
-		"知道了", nullptr, OnlineStartDialog::NOTIFY_NONE);
+	OnlineStartDialog* aDialog = new OnlineStartDialog(this,
+		ModText::Tr("欢迎来到 PvZ 联机合作版", "Welcome to PvZ Online Co-op"),
+		ModText::Tr(
+			"· 2~6 人各守一块草坪，漏掉的僵尸传给下一位\n"
+			"  队友（保留血量）；末位漏怪 = 全队失败。\n"
+			"  末位每行有一台推车兜底，用掉不补。\n"
+			"· 出怪量按席位翻倍：末位 1 倍、往前每位\n"
+			"  翻一倍，最多 ×32。\n"
+			"· 主位大墓碑 = 组队 / 加入房间，主机可发起\n"
+			"  「组队闯关」；第三槽 PUZZLE 石板 = 打单关。\n"
+			"· 局内：ESC 暂停；T / E 短语与表情（数字键选）；\n"
+			"  左上小条 = 名册与换位。",
+			"· 2-6 players each hold one lawn; zombies that\n"
+			"  leak pass to the next seat, keeping their HP;\n"
+			"  a leak on the last seat = team defeat.\n"
+			"  The last seat has one mower per row, single use.\n"
+			"· Spawns scale with seat order: last seat 1x,\n"
+			"  each seat before it doubles, up to x32.\n"
+			"· Top tombstone = team up / join a room; the host\n"
+			"  can start a Team Run. The PUZZLE slab in the\n"
+			"  third slot = single levels.\n"
+			"· In game: ESC pauses; T / E for phrases and\n"
+			"  emotes (number keys to pick); the top-left\n"
+			"  chip = roster and seat swap."),
+		ModText::Tr("知道了", "OK"), nullptr, OnlineStartDialog::NOTIFY_NONE);
 	CenterDialog(aDialog, aDialog->mWidth, aDialog->mHeight);
 	TodLog("[announce] dialog %dx%d (screen %dx%d)", aDialog->mWidth, aDialog->mHeight, mWidth, mHeight);
 	AddDialog(Dialogs::DIALOG_ONLINE_START, aDialog);

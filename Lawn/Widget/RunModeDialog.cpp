@@ -19,10 +19,10 @@ static const int CARD_PITCH_X = 155;
 // 完整版 = 决胜魔音（终局感）、普通版 = 火爆辣椒帽子（中间档）、快速版 = 僵尸快跑（快）
 static const int kCardIcons[3] = { 19, 16, 18 };
 
-// 中文字面量（UTF-8）的绘制自 2026-10-03 语言批起改走 ModText 的宽字符直绘
+// 中文/英文字面量（UTF-8）的绘制自 2026-10-03 语言批起改走 ModText 的宽字符直绘
 // （UTF-8 → UTF-16 → TextOutW，与系统码页脱钩）；原先这里各有一份 Utf8ToAnsi +
-// SysFont(TextOutA) 助手，已并入 Lawn/ModText。字符串成员一律存 UTF-8 原样，
-// 绘制/量宽时现转宽字符。
+// SysFont(TextOutA) 助手，已并入 Lawn/ModText。文案中英各一份、构造时按
+// ModText::Tr 择一存进成员；字符串成员一律存 UTF-8 原样，绘制/量宽时现转宽字符。
 
 // 石材按钮是"左端贴图 + 中段贴图 × n + 右端贴图"平铺画的（见 CjkStoneButton::Draw），
 // 宽度必须正好是这三段的和；照抄 OnlineStartDialog 的同一支（含"至少带一个中段"的下限）。
@@ -101,13 +101,13 @@ RunModeDialog::RunModeDialog(LawnApp* theApp, bool theShowDiff) : LawnDialog(
 	// 卡片边框和缩略图标在 ChallengeScreen 的延迟资源组里，不加载就是空指针
 	TodLoadResources("DelayLoad_ChallengeScreen");
 
-	mTitle = "选择闯关模式";
-	mCardNames[0] = "完整版";
-	mCardNames[1] = "普通版";
-	mCardNames[2] = "快速版";
-	mCardDescs[0] = "25 关 · 标准奖励";
-	mCardDescs[1] = "15 关 · 奖励×2";
-	mCardDescs[2] = "10 关 · 奖励×3";
+	mTitle = ModText::Tr("选择闯关模式", "Choose a Run Mode");
+	mCardNames[0] = ModText::Tr("完整版", "Full");
+	mCardNames[1] = ModText::Tr("普通版", "Normal");
+	mCardNames[2] = ModText::Tr("快速版", "Quick");
+	mCardDescs[0] = ModText::Tr("25 关 · 标准奖励", "25 levels · normal rewards");
+	mCardDescs[1] = ModText::Tr("15 关 · 奖励×2", "15 levels · rewards ×2");
+	mCardDescs[2] = ModText::Tr("10 关 · 奖励×3", "10 levels · rewards ×3");
 	mTitleY = 0;
 
 	for (int i = 0; i < 3; i++)
@@ -125,10 +125,10 @@ RunModeDialog::RunModeDialog(LawnApp* theApp, bool theShowDiff) : LawnDialog(
 	for (int i = 0; i < 3; i++) mDiffButtons[i] = nullptr;
 	if (mShowDiff)
 	{
-		mDiffCaption = "出怪难度（全队倍率）";
-		mDiffLabels[0] = "轻松 ×0.5";
-		mDiffLabels[1] = "标准 ×1";
-		mDiffLabels[2] = "高压 ×1.5";
+		mDiffCaption = ModText::Tr("出怪难度（全队倍率）", "Zombie difficulty (team multiplier)");
+		mDiffLabels[0] = ModText::Tr("轻松 ×0.5", "Easy ×0.5");
+		mDiffLabels[1] = ModText::Tr("标准 ×1", "Standard ×1");
+		mDiffLabels[2] = ModText::Tr("高压 ×1.5", "High ×1.5");
 
 		// 三枚等宽（取最长标签量的），石门贴图平铺对宽度有整段要求（见 StoneButtonWidth）
 		ModText::Font* aDiffFont = ModText::GetFont(14, false);
@@ -152,7 +152,7 @@ RunModeDialog::RunModeDialog(LawnApp* theApp, bool theShowDiff) : LawnDialog(
 	}
 
 	mCancelButton = new CjkStoneButton(Dialog::ID_NO, this);
-	mCancelButton->SetLabel("取消");
+	mCancelButton->SetLabel(ModText::Tr("取消", "Cancel"));
 	mCancelButton->mHasAlpha = true;
 	mCancelButton->mHasTransparencies = true;
 	mCancelWidth = StoneButtonWidth(ModText::TextWidth(ModText::GetFont(14, false),

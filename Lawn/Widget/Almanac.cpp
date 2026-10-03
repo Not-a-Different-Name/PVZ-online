@@ -126,7 +126,7 @@ static void DrawAlmanacRunEntry(Graphics* g, int theEntryIndex, int theDescBotto
 	if (aFitsSplit || aFitsJoined)		// 1)/2) 带标题行
 	{
 		int aY = theDescBottom + (aFitsSplit ? 5 : 3);
-		std::wstring aHead = ModText::WideFromUtf8("闯关词条 · ");
+		std::wstring aHead = ModText::WideFromUtf8(ModText::Tr("闯关词条 · ", "Run Modifier · "));
 		aHead += ModText::WideFromUtf8(GetRunChoiceName(aId));		// 英文条名与三选一屏按钮同字
 		ModText::DrawTextWide(g, aHeadFont, ALMANAC_ENTRY_X, aY, aHead, Color(160, 75, 15), g->mClipRect);
 		aY += aHeadStep;
@@ -146,7 +146,7 @@ static void DrawAlmanacRunEntry(Graphics* g, int theEntryIndex, int theDescBotto
 	if (aY + aBlock > ALMANAC_ENTRY_BOTTOM) aY = ALMANAC_ENTRY_BOTTOM - aBlock;
 
 	std::wstring aName = ModText::WideFromUtf8(GetRunChoiceName(aId));
-	std::wstring aColon = ModText::WideFromUtf8("：");
+	std::wstring aColon = ModText::WideFromUtf8(ModText::Tr("：", ": "));
 	int aPrefixW = ModText::TextWidth(aHeadFont, aName + aColon);
 	bool aWithName = !aJoinedLines.empty() && aPrefixW + ModText::TextWidth(aBodyFont, aJoinedLines[0]) <= ALMANAC_ENTRY_W;
 

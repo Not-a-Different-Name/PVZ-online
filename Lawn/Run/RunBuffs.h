@@ -30,7 +30,8 @@ enum RunBuffId
 struct RunBuffDef
 {
 	const char*	mName;
-	const char*	mDesc;
+	const char*	mDesc;		// 中文说明（UTF-8，宽字符路径绘制）
+	const char*	mDescEn;	// 英文说明（同上；语言批 2026-10-03 起按 ModText::IsChinese 择一）
 	// 每层的乘数修正：线性条目 = 1 + mPerStackMul × 层数（+0.10 = ×1.10，−0.20 = ×0.80）；
 	// 叠乘条目（mMultiplicative）= (1 + mPerStackMul)^层数。0 = 这条不是乘数型。
 	// 取用走 LawnApp::RunBuffMul，非闯关局自动是 1.0。
@@ -130,7 +131,8 @@ struct RunPlantUpgradeDef
 {
 	SeedType	mPlant;			// 这门升级挂在哪种植物上（一株最多一条）
 	const char*	mName;
-	const char*	mDesc;
+	const char*	mDesc;			// 中文说明（UTF-8）
+	const char*	mDescEn;		// 英文说明（UTF-8；同上按当前语言择一）
 	// 同 RunBuffDef.mPerStackMul；纯计数型（+1 发 / +1 阳光）填 0，
 	// 那种效果按层数直接取整，走 RunPlantUpgradeCount。
 	float		mPerStackMul;
@@ -146,17 +148,20 @@ const RunPlantUpgradeDef& GetRunPlantUpgradeDef(int theIndex);
 // 这株植物在单株表里的下标；表里没有这株 → −1。
 int RunPlantUpgradeIndexFor(SeedType thePlant);
 
-// 三选一屏统一取文案：两类 id 都能查，屏上不用分支。
+// 三选一屏统一取文案：两类 id 都能查，屏上不用分支。mName 各语言同字（英文名，
+// 位图字体按钮用），说明按当前语言择一。
 const char* GetRunChoiceName(int theId);
-// 封顶条目（mMaxStacks > 0）的返回值尾部带「，至多 N 层」（机械追加，见实现处）。
+// 封顶条目（mMaxStacks > 0）的返回值尾部带语言相称的上限后缀（中文「，至多 N 层」/
+// 英文 ", up to N stacks"，机械追加，见实现处）。
 // 返回进程内静态缓冲——取到就画，别存指针。
 const char* GetRunChoiceDesc(int theId);
 // 这条条目封顶几层（0 = 无限）；抽取过滤（RunState::RollChoices）与屏上「已有 x/N」用它。
 int GetRunChoiceMaxStacks(int theId);
 
-// 单株升级「这是哪株的」中文名（三选一屏列顶标题行用）；全局增益 / 表里漏了名字 → NULL。
+// 单株升级「这是哪株的」显示名（三选一屏列顶标题行 / 词条查看器用；按当前语言：
+// 中文名 / 英文官方名）；全局增益 / 表里漏了名字 → NULL。
 const char* GetRunChoicePlantName(int theId);
 // 同一张名字表按 SeedType 直查（局内词条查看器手里只有 SeedType + 层数）；表里没有 → NULL。
-const char* GetRunPlantZhName(SeedType thePlant);
+const char* GetRunPlantName(SeedType thePlant);
 
 #endif

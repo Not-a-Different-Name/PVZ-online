@@ -52,6 +52,11 @@ bool ModText::IsChinese()
 	return GetLanguage() == MODLANG_CHINESE;
 }
 
+const char* ModText::Tr(const char* theZhUtf8, const char* theEnUtf8)
+{
+	return IsChinese() ? theZhUtf8 : theEnUtf8;
+}
+
 std::wstring ModText::WideFromUtf8(const char* theUtf8)
 {
 	std::wstring aWide;

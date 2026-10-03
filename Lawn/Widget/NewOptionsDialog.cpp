@@ -515,7 +515,7 @@ Sexy::Rect NewOptionsDialog::RunInfoEntryRect()
     // 盖掉、只剩右缘一截，所以改成 11pt 四字、尺寸按实际文本量出来。往左别越过 495：
     // 按钮列右缘约在 shot 490。
     ModText::Font* aFont = NewOptionsCjkFontSmall();
-    int aWidth = ModText::TextWidth(aFont, ModText::WideFromUtf8("本局词条")) + 14;
+    int aWidth = ModText::TextWidth(aFont, ModText::WideFromUtf8(ModText::Tr("本局词条", "This Run"))) + 14;
     int aHeight = ModText::LineHeight(aFont) + 10;
     return Sexy::Rect(mWidth - 16 - aWidth, 258, aWidth, aHeight);
 }
@@ -595,15 +595,15 @@ void NewOptionsDialog::DrawRunInfo(Sexy::Graphics* g)
     int aCenterX = mWidth / 2;
     int aY = aPanelY + 12;
 
-    NewOptionsDrawCjkCentered(g, aFont, aCenterX, aY, "本局词条", Sexy::Color(255, 220, 100));
+    NewOptionsDrawCjkCentered(g, aFont, aCenterX, aY, ModText::Tr("本局词条", "This Run"), Sexy::Color(255, 220, 100));
     aY += aLineHeight;
 
-    const char* aModeName = (aRun->mMode == RunState::RUN_MODE_NORMAL) ? "普通版"
-        : (aRun->mMode == RunState::RUN_MODE_QUICK) ? "快速版" : "完整版";
-    const char* aDiffName = (aRun->mDiff == RunState::RUN_DIFF_EASY) ? "轻松"
-        : (aRun->mDiff == RunState::RUN_DIFF_HIGH) ? "高压" : "标准";
+    const char* aModeName = (aRun->mMode == RunState::RUN_MODE_NORMAL) ? ModText::Tr("普通版", "Normal")
+        : (aRun->mMode == RunState::RUN_MODE_QUICK) ? ModText::Tr("快速版", "Quick") : ModText::Tr("完整版", "Full");
+    const char* aDiffName = (aRun->mDiff == RunState::RUN_DIFF_EASY) ? ModText::Tr("轻松", "Easy")
+        : (aRun->mDiff == RunState::RUN_DIFF_HIGH) ? ModText::Tr("高压", "High") : ModText::Tr("标准", "Standard");
     char aSubLine[160];
-    snprintf(aSubLine, sizeof(aSubLine), "%s · 第 %d/%d 关 · 出怪：%s",
+    snprintf(aSubLine, sizeof(aSubLine), ModText::Tr("%s · 第 %d/%d 关 · 出怪：%s", "%s · Level %d/%d · Spawns: %s"),
         aModeName, aRun->GetPlayingLevelIndex() + 1, aRun->GetLevelCount(), aDiffName);
     NewOptionsDrawCjkCentered(g, aFont, aCenterX, aY, aSubLine, Sexy::Color(200, 200, 200));
     aY += aLineHeight + 8;
@@ -617,7 +617,7 @@ void NewOptionsDialog::DrawRunInfo(Sexy::Graphics* g)
     Sexy::Color anEntryColor(232, 232, 232);
 
     // 【全局增益】：名称×层数，两列流
-    NewOptionsDrawCjk(g, aFont, aColX[0], aY, "【全局增益】", Sexy::Color(150, 224, 150));
+    NewOptionsDrawCjk(g, aFont, aColX[0], aY, ModText::Tr("【全局增益】", "[Global Boosts]"), Sexy::Color(150, 224, 150));
     aY += aLineHeight;
     int aShown = 0;
     bool anOverflow = false;
@@ -636,7 +636,7 @@ void NewOptionsDialog::DrawRunInfo(Sexy::Graphics* g)
     if (aShown % 2 == 1) aY += aLineHeight;
     if (aShown == 0 || anOverflow)
     {
-        NewOptionsDrawCjk(g, aFont, aColX[0], aY, anOverflow ? "……" : "（无）", Sexy::Color(150, 150, 150));
+        NewOptionsDrawCjk(g, aFont, aColX[0], aY, ModText::Tr(anOverflow ? "……" : "（无）", anOverflow ? "..." : "(none)"), Sexy::Color(150, 150, 150));
         aY += aLineHeight;
     }
     aY += 8;
@@ -644,7 +644,7 @@ void NewOptionsDialog::DrawRunInfo(Sexy::Graphics* g)
     // 【单株强化】：植物名 + 词条名×层数，整幅宽单列——「植物名+英文词条名+×N」最长
     // 约 310px（玉米加农炮 Rapid Reload×3），两列 182px 根本装不下：截图实证会互相
     // 压字、右列冲出面板右缘被对话框边缘裁断。单列 372px 全放得下，一格一行也更易读。
-    NewOptionsDrawCjk(g, aFont, aColX[0], aY, "【单株强化】", Sexy::Color(150, 224, 150));
+    NewOptionsDrawCjk(g, aFont, aColX[0], aY, ModText::Tr("【单株强化】", "[Plant Upgrades]"), Sexy::Color(150, 224, 150));
     aY += aLineHeight;
     aShown = 0;
     anOverflow = false;
@@ -654,7 +654,7 @@ void NewOptionsDialog::DrawRunInfo(Sexy::Graphics* g)
         if (aRun->mBuffs[i].mId < RUN_BUFF_COUNT || aRun->mBuffs[i].mCount == 0) continue;
         if (aY > aBottom) { anOverflow = true; break; }
         const RunPlantUpgradeDef& aDef = GetRunPlantUpgradeDef(aRun->mBuffs[i].mId - RUN_BUFF_COUNT);
-        const char* aPlantName = GetRunPlantZhName(aDef.mPlant);
+        const char* aPlantName = GetRunPlantName(aDef.mPlant);
         char aText[128];
         char aSuffix[16];
         snprintf(aText, sizeof(aText), "%s %s", aPlantName != NULL ? aPlantName : "?",
@@ -666,9 +666,9 @@ void NewOptionsDialog::DrawRunInfo(Sexy::Graphics* g)
     }
     if (aShown == 0 || anOverflow)
     {
-        NewOptionsDrawCjk(g, aFont, aColX[0], aY, anOverflow ? "……" : "（无）", Sexy::Color(150, 150, 150));
+        NewOptionsDrawCjk(g, aFont, aColX[0], aY, ModText::Tr(anOverflow ? "……" : "（无）", anOverflow ? "..." : "(none)"), Sexy::Color(150, 150, 150));
     }
 
     NewOptionsDrawCjkCentered(g, aFont, aCenterX, aPanelY + aPanelH - 8 - ModText::LineHeight(aFont),
-        "单击任意处或按任意键关闭", Sexy::Color(160, 160, 160));
+        ModText::Tr("单击任意处或按任意键关闭", "Click anywhere or press any key to close"), Sexy::Color(160, 160, 160));
 }

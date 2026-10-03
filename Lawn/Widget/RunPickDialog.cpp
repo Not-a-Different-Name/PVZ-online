@@ -309,7 +309,10 @@ void RunPickDialog::Draw(Graphics* g)
 				mAreaHeight - aLineHeight - 4 - (aHasHead ? aLineHeight : 0));
 			if (aHasHead)
 			{
-				std::string aHeadUtf8 = std::string("【") + aPlantName + "】";
+				// 括号也随语言：【植物名】 / [Plant Name]
+				std::string aHeadUtf8 = ModText::IsChinese()
+					? std::string("【") + aPlantName + "】"
+					: std::string("[") + aPlantName + "]";
 				std::wstring aHead = ModText::WideFromUtf8(aHeadUtf8.c_str());
 				int aHeadX = mColumnX[i] + (mColumnWidth - ModText::TextWidth(aFont, aHead)) / 2;
 				if (aHeadX < mColumnX[i]) aHeadX = mColumnX[i];
@@ -322,8 +325,8 @@ void RunPickDialog::Draw(Graphics* g)
 			int aOwned = mRun->GetBuffCount(aBuffId);
 			int aCap = GetRunChoiceMaxStacks(aBuffId);
 			char aCountUtf8[64];
-			if (aCap > 0) snprintf(aCountUtf8, sizeof(aCountUtf8), "已有 %d/%d", aOwned, aCap);
-			else snprintf(aCountUtf8, sizeof(aCountUtf8), "已有 %d", aOwned);
+			if (aCap > 0) snprintf(aCountUtf8, sizeof(aCountUtf8), ModText::Tr("已有 %d/%d", "Owned %d/%d"), aOwned, aCap);
+			else snprintf(aCountUtf8, sizeof(aCountUtf8), ModText::Tr("已有 %d", "Owned %d"), aOwned);
 			std::wstring aCountText = ModText::WideFromUtf8(aCountUtf8);
 			int aCountY = mAreaTop + mAreaHeight - aLineHeight;
 			if (aCountY < mAreaTop) aCountY = mAreaTop;

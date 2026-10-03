@@ -8506,8 +8506,10 @@ void Board::DrawQuickChat(Graphics* g)
 		g->SetColor(Color(255, 255, 255, 255));
 		g->DrawRect(PANEL_X, PANEL_Y, PANEL_W - 1, PANEL_H - 1);
 
-		std::wstring aTitle = ModText::WideFromUtf8(mChatEmotePage ? "表情 (E)" : "快捷短语 (T)");
-		std::wstring aHint = ModText::WideFromUtf8("按 1-8 发送 · T/E 切页 · Esc 关闭");
+		std::wstring aTitle = ModText::WideFromUtf8(mChatEmotePage
+			? ModText::Tr("表情 (E)", "Emotes (E)") : ModText::Tr("快捷短语 (T)", "Phrases (T)"));
+		std::wstring aHint = ModText::WideFromUtf8(ModText::Tr(
+			"按 1-8 发送 · T/E 切页 · Esc 关闭", "1-8 to send · T/E to switch · Esc to close"));
 
 		ModText::DrawTextWide(g, aFont, PANEL_X + 12, PANEL_Y + 6 - anAscent,
 			aTitle, Color(255, 255, 255, 255), g->mClipRect);
@@ -8524,14 +8526,14 @@ void Board::DrawQuickChat(Graphics* g)
 
 			if (!mChatEmotePage)
 			{
-				std::wstring aText = ModText::WideFromUtf8(QuickChat::PHRASES[i]);
+				std::wstring aText = ModText::WideFromUtf8(ModText::Tr(QuickChat::PHRASES[i], QuickChat::PHRASES_EN[i]));
 				ModText::DrawTextWide(g, aFont, PANEL_X + 34, aRowY + 3 - anAscent,
 					aText, Color(255, 255, 255, 255), g->mClipRect);
 			}
 			else
 			{
 				QuickChatDrawEmote(g, (float)(PANEL_X + 30), (float)aRowY, QuickChat::EMOTE_SEEDS[i], 0.32f);
-				std::wstring aText = ModText::WideFromUtf8(QuickChat::EMOTE_NAMES[i]);
+				std::wstring aText = ModText::WideFromUtf8(ModText::Tr(QuickChat::EMOTE_NAMES[i], QuickChat::EMOTE_NAMES_EN[i]));
 				ModText::DrawTextWide(g, aFont, PANEL_X + 54, aRowY + 3 - anAscent,
 					aText, Color(255, 255, 255, 255), g->mClipRect);
 			}
@@ -8548,7 +8550,7 @@ void Board::DrawQuickChat(Graphics* g)
 		std::string aNameUtf8;
 		if (mApp->mOnlineSession != nullptr && aBanner.mSeat == mApp->mOnlineSession->GetLocalSeat())
 		{
-			aNameUtf8 = "我";
+			aNameUtf8 = ModText::Tr("我", "Me");
 		}
 		else if (mApp->mOnlineSession != nullptr && mApp->mOnlineSession->IsSeatOccupied(aBanner.mSeat))
 		{
@@ -8559,10 +8561,10 @@ void Board::DrawQuickChat(Graphics* g)
 			aNameUtf8 = "P" + std::to_string((unsigned)aBanner.mSeat);
 		}
 
-		std::string aTextUtf8 = aNameUtf8 + "：";
+		std::string aTextUtf8 = aNameUtf8 + ModText::Tr("：", ": ");
 		if (!anIsEmote)
 		{
-			aTextUtf8 += QuickChat::PHRASES[anId - 1];
+			aTextUtf8 += ModText::Tr(QuickChat::PHRASES[anId - 1], QuickChat::PHRASES_EN[anId - 1]);
 		}
 		std::wstring aText = ModText::WideFromUtf8(aTextUtf8.c_str());
 

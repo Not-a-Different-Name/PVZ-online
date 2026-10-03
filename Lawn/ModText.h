@@ -34,6 +34,10 @@ namespace ModText
 	int			GetLanguage();				// 解析 AUTO 后的实际语言
 	bool		IsChinese();
 
+	// 双语择串：按当前语言在两条 UTF-8 里选一条返回（不做拷贝，两条都得是静态存储——
+	// 字面量或静态表，别传栈上的缓冲）。不画字的场景（标题、提示、按钮标签）也能用。
+	const char*	Tr(const char* theZhUtf8, const char* theEnUtf8);
+
 	// DDImage::DeleteAllNonSurfaceData 只 friend 了 SysFont 又要照调（surface 像素被
 	// GDI 改过、缓存的派生位作废），这里留一座桥；friend 声明在 DDImage.h 里。
 	void		DeleteNonSurfaceDataForDraw(Sexy::DDImage* theImage);
