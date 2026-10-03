@@ -802,6 +802,17 @@ void Board::PickZombieWaves()
 						aRank++;
 				}
 				aSeatMult = aSeatCount - aRank + 1;
+
+				// @pvz-online: 出怪难度档（2026-10-03 用户定案）：房主开局前选的全局旋钮，
+				// 直接乘在顺位乘数上——轻松 ×0.5 / 高压 ×1.5，乘后向下取整、保底 1 倍
+				// （末位 1×1.5 取整仍 1、1×0.5 保底 1；顺位形状 4:3:2:1 在高压下变 6:4:3:1）。
+				// 只在闯关局生效；非闯关 / 单机局档位恒为标准（也是恒等 ×1）。
+				if (mApp->IsRunMode() && mApp->GetRunState() != nullptr)
+				{
+					aSeatMult = aSeatMult * RunState::DiffPermilleFor(mApp->GetRunState()->mDiff) / 1000;
+					if (aSeatMult < 1) aSeatMult = 1;
+				}
+
 				aZombiePoints *= aSeatMult;
 			}
 		}
@@ -935,7 +946,8 @@ void Board::PickZombieWaves()
 		// ------------------------------------------------------------------------------------------------
 		// @pvz-online: 闯关"数量封顶"（M4-a 定案）：点数不封顶，但一波最多 RUN_WAVE_ZOMBIE_CAP 只；
 		// 预算花不完的零头直接作废——富余的点数靠 PickZombieType 的强僵尸优先花在质量上。
-		// 联机再按席位顺位乘数同倍放大（2026-10-03 用户定案：1 号位 4 倍 → 上限 80 只）；
+		// 联机再按席位顺位乘数同倍放大（2026-10-03 用户定案：1 号位 4 倍 → 上限 80 只；
+		// 难度档高压在乘数里再 ×1.5 → 上限 120 只，数组留量 200 装得下）；
 		// 非闯关基准 = 原版 50，数组上限 MAX_ZOMBIES_IN_WAVE 按基准×4 留量。
 		int aWaveZombieCap = (mApp->IsRunMode() ? RunState::RUN_WAVE_ZOMBIE_CAP : WAVE_ZOMBIE_CAP_BASE) * aSeatMult;
 		while (aZombiePoints > 0 && aZombiePicker.mZombieCount < aWaveZombieCap)

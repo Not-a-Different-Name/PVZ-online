@@ -15,7 +15,7 @@ const uint16_t	CONTROL_TYPE_BASE		= 0xF000;
 
 const int	HELLO_PAYLOAD_SIZE		= 6 + NetProto::NAME_SIZE;		// src, dst, u16 version, u16 build, 名字
 const int	HELLO_ACK_PAYLOAD_SIZE	= 7 + NetProto::NAME_SIZE;		// src, dst, u16 version, u16 build, u8 accepted, 名字
-const int	START_LEVEL_PAYLOAD_SIZE = 18;	// src, dst, u8 mode, u32 level, i32 seed, u8 isRun, i32 runSeed, u8 runLevelIndex, u8 runMode
+const int	START_LEVEL_PAYLOAD_SIZE = 19;	// src, dst, u8 mode, u32 level, i32 seed, u8 isRun, i32 runSeed, u8 runLevelIndex, u8 runMode, u8 runDiff
 const int	START_ACK_PAYLOAD_SIZE	= 3;	// src, dst, u8 accepted
 const int	RUN_GO_PAYLOAD_SIZE		= 2;	// src, dst
 const int	SEEDS_READY_PAYLOAD_SIZE = 3;	// src, dst, u8 ready
@@ -1966,7 +1966,8 @@ void NetSession::SendHelloAck(bool theAccepted, uint8_t theTarget)
 }
 
 bool NetSession::SendStartLevel(uint8_t theGameMode, uint32_t theLevel, int32_t theLevelSeed,
-	bool theIsRun, int32_t theRunSeed, uint8_t theRunLevelIndex, uint8_t theTargetSeat, uint8_t theRunMode)
+	bool theIsRun, int32_t theRunSeed, uint8_t theRunLevelIndex, uint8_t theTargetSeat, uint8_t theRunMode,
+	uint8_t theRunDiff)
 {
 	if (mRole != Role::HOST || !IsConnected()) return false;
 
@@ -1980,6 +1981,7 @@ bool NetSession::SendStartLevel(uint8_t theGameMode, uint32_t theLevel, int32_t 
 	aMsg.mRunSeed = theRunSeed;
 	aMsg.mRunLevelIndex = theRunLevelIndex;
 	aMsg.mRunMode = theRunMode;
+	aMsg.mRunDiff = theRunDiff;
 
 	uint8_t aPayload[NetProto::MAX_PAYLOAD];
 	int aSize = NetProto::EncodeStartLevel(aPayload, (int)sizeof(aPayload), aMsg);
@@ -1987,8 +1989,8 @@ bool NetSession::SendStartLevel(uint8_t theGameMode, uint32_t theLevel, int32_t 
 
 	if (theIsRun)
 	{
-		TodLog("[net] telling the client to enter run level %u (run seed %d, level index %u, mode %u)",
-			(unsigned)theLevel, (int)theRunSeed, (unsigned)theRunLevelIndex, (unsigned)theRunMode);
+		TodLog("[net] telling the client to enter run level %u (run seed %d, level index %u, mode %u, diff %u)",
+			(unsigned)theLevel, (int)theRunSeed, (unsigned)theRunLevelIndex, (unsigned)theRunMode, (unsigned)theRunDiff);
 	}
 	else
 	{

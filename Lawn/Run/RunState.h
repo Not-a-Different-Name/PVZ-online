@@ -27,6 +27,12 @@ public:
 	// 抽第 1/5 关——短一局用更密的奖励屏补内容量（倍乘见 BeginLevelEndPicks）。
 	enum	{ RUN_MODE_FULL = 0, RUN_MODE_NORMAL = 1, RUN_MODE_QUICK = 2 };
 
+	// @pvz-online: 出怪难度档（2026-10-03 用户定案）：房主开局前在选模式页选的全局出怪
+	// 旋钮。轻松 ×0.5 / 标准 ×1.0 / 高压 ×1.5——直接乘在全队的顺位乘数上（乘后向下取整、
+	// 保底 1 倍；每波数量上限随同一乘数放大），落点见 Board::PickZombieWaves。
+	// 房间级设置：一局定一次，随 START_LEVEL 走、进检查点；单机局同样可选。
+	enum	{ RUN_DIFF_EASY = 0, RUN_DIFF_STD = 1, RUN_DIFF_HIGH = 2 };
+
 	static const int	RUN_LEVEL_COUNT		= 25;	// 完整版总关数 = 5 场景 × 5 关（数组/静态表的尺寸上限）
 	static const int	RUN_SCENE_COUNT		= 5;	// 白天 → 夜 → 泳池 → 迷雾 → 屋顶
 	static const int	RUN_LEVELS_PER_SCENE = RUN_LEVEL_COUNT / RUN_SCENE_COUNT;
@@ -70,6 +76,7 @@ public:
 	// 回主菜单 = LawnApp 把这个对象删掉；检查点留在盘上，续关时重新读出来。
 	int							mRunSeed;		// 这一局的种子：每关波表的种子由它推导，重开同一关不变
 	int							mMode;			// 时长档（RUN_MODE_*）：决定关卡表抽行与每关后的奖励屏数
+	int							mDiff;			// 出怪难度档（RUN_DIFF_*）：全队出怪总旋钮，乘在顺位乘数上
 	int							mLevelIndex;	// 0..(关数-1) = 当前（或待打的）关序号；>= 关数 = 已通关（关数见 GetLevelCount）
 	std::vector<SeedType>		mPool;			// 这一局的卡池（按加入顺序；起始 = 向日葵 + 豌豆射手）
 	std::vector<BuffStack>		mBuffs;			// 这一局拿到的 buff（同名可叠加）
@@ -84,12 +91,16 @@ public:
 	RunState();
 
 	// 全新一局：卡池回到两株、失败计数清零、从第 1 关开打。
-	void				StartNew(int theRunSeed, int theRunMode = RUN_MODE_FULL);
+	void				StartNew(int theRunSeed, int theRunMode = RUN_MODE_FULL, int theRunDiff = RUN_DIFF_STD);
 
 	// 时长档的关数口径：每场景关数（5/3/2）与总关数（25/15/10）。模式非法按完整版。
 	static int			LevelsPerScene(int theRunMode);
 	static int			LevelCountForMode(int theRunMode);
 	int					GetLevelCount() const { return LevelCountForMode(mMode); }
+
+	// 出怪难度档的千分比（500/1000/1500）。档位非法按标准 1000——盘上的档、线传的字节
+	// 都从这儿过一道，读数的地方不用再操心合法性。
+	static int			DiffPermilleFor(int theRunDiff);
 
 	// 该选植物 / 该选 buff 了（一局开始时先挑四株 + 两个增益——进第 1 关前手里就有 6 株；
 	// 每过一关再挑两株 + 一个增益）。只负责"欠几屏"，候选由 RollChoices 现抽。

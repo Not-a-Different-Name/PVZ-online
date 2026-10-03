@@ -3,6 +3,7 @@
 #include "../../LawnApp.h"
 #include "../../Resources.h"
 #include "../../ConstEnums.h"
+#include "../Run/RunState.h"
 #include "../../Sexy.TodLib/TodCommon.h"
 #include "graphics/Font.h"
 #include "graphics/SysFont.h"
@@ -135,7 +136,7 @@ public:
 	}
 };
 
-RunModeDialog::RunModeDialog(LawnApp* theApp) : LawnDialog(
+RunModeDialog::RunModeDialog(LawnApp* theApp, bool theShowDiff) : LawnDialog(
 	theApp, Dialogs::DIALOG_ONLINE_START, true, _S(""), _S(""), _S(""), Dialog::BUTTONS_NONE)
 {
 	// 卡片边框和缩略图标在 ChallengeScreen 的延迟资源组里，不加载就是空指针
@@ -157,6 +158,40 @@ RunModeDialog::RunModeDialog(LawnApp* theApp) : LawnDialog(
 		mCardButtons[i]->mFrameNoDraw = true;	// 画在 Dialog::Draw 里（照 ChallengeScreen）
 	}
 
+	// 出怪难度行（MOD_BUILD 27）：联机主机才摆（单机档位恒为标准，摆了也是死控件）。
+	// 选中 = mInverted（CjkStoneButton::Draw 里 XOR 成按下态贴图）；点了只换选中、不关弹窗。
+	mShowDiff = theShowDiff;
+	mDiffSel = RunState::RUN_DIFF_STD;
+	mDiffCaptionY = 0;
+	for (int i = 0; i < 3; i++) mDiffButtons[i] = nullptr;
+	if (mShowDiff)
+	{
+		mDiffCaption = Utf8ToAnsi("出怪难度（全队倍率）");
+		mDiffLabels[0] = Utf8ToAnsi("轻松 ×0.5");
+		mDiffLabels[1] = Utf8ToAnsi("标准 ×1");
+		mDiffLabels[2] = Utf8ToAnsi("高压 ×1.5");
+
+		// 三枚等宽（取最长标签量的），石门贴图平铺对宽度有整段要求（见 StoneButtonWidth）
+		_Font* aDiffFont = GetCjkFont(14, false);
+		int aLabelMax = 0;
+		for (int i = 0; i < 3; i++)
+		{
+			int aWidth = aDiffFont->StringWidth(mDiffLabels[i]);
+			if (aWidth > aLabelMax) aLabelMax = aWidth;
+		}
+		int aDiffWidth = StoneButtonWidth(aLabelMax + 26, true);
+		for (int i = 0; i < 3; i++)
+		{
+			mDiffWidths[i] = aDiffWidth;
+			CjkStoneButton* aButton = new CjkStoneButton(RunModeDialog_Diff0 + i, this);
+			aButton->SetLabel(mDiffLabels[i]);
+			aButton->mHasAlpha = true;
+			aButton->mHasTransparencies = true;
+			aButton->mInverted = (i == mDiffSel);	// 默认选中"标准"
+			mDiffButtons[i] = aButton;
+		}
+	}
+
 	mCancelButton = new CjkStoneButton(Dialog::ID_NO, this);
 	mCancelButton->SetLabel(Utf8ToAnsi("取消"));
 	mCancelButton->mHasAlpha = true;
@@ -167,8 +202,8 @@ RunModeDialog::RunModeDialog(LawnApp* theApp) : LawnDialog(
 	mVerticalCenterText = false;
 
 	// 版心：宽 = 三张一行的宽度（边框两侧各探出几像素，留 16 兜住）；高 = 标题 + 间隔
-	// + 卡片（连边框）+ 按钮。CalcSize 会按对话框贴图再取整/加高，多出来的空隙由
-	// Resize 里"卡片贴顶、按钮贴底"吸收。
+	// + 卡片（连边框）+ （难度行）+ 按钮。CalcSize 会按对话框贴图再取整/加高，多出来的
+	// 空隙由 Resize 里"卡片贴顶、按钮贴底"吸收。
 	_Font* aTitleFont = GetCjkFont(16, true);
 	int anExtraX = aTitleFont->StringWidth(mTitle) + 80;
 	int aRowWidth = CARD_PITCH_X * 2 + CARD_W + 16;
@@ -176,6 +211,11 @@ RunModeDialog::RunModeDialog(LawnApp* theApp) : LawnDialog(
 	int anExtraY = aTitleFont->GetHeight() + 18		// 标题 + 与卡片的间隔
 		+ CARD_H + 14								// 卡片 + 边框上下探出
 		+ IMAGE_BUTTON_LEFT->mHeight + 18;			// 按钮行 + 与卡片的间隔
+	if (mShowDiff)
+	{
+		// 难度行：卡下说明（12 细，基线在卡底 +19）之下再塞一行——小标题 + 间隔 + 按钮
+		anExtraY += GetCjkFont(12, false)->GetHeight() + 6 + IMAGE_BUTTON_LEFT->mHeight + 8;
+	}
 
 	CalcSize(anExtraX, anExtraY);
 	mApp->CenterDialog(this, mWidth, mHeight);
@@ -185,6 +225,7 @@ RunModeDialog::RunModeDialog(LawnApp* theApp) : LawnDialog(
 RunModeDialog::~RunModeDialog()
 {
 	for (int i = 0; i < 3; i++) delete mCardButtons[i];
+	for (int i = 0; i < 3; i++) delete mDiffButtons[i];
 	delete mCancelButton;
 }
 
@@ -205,8 +246,26 @@ void RunModeDialog::Resize(int theX, int theY, int theWidth, int theHeight)
 		mCardButtons[i]->Resize(aStartX + i * CARD_PITCH_X, aCardsY, CARD_W, CARD_H);
 	}
 
-	// 取消按钮贴底（ OnlineStartDialog 同一条算式）
 	int aButtonHeight = IMAGE_BUTTON_LEFT->mHeight;
+
+	// 出怪难度行：卡下说明（12 细，基线在卡底 +19）之下、取消之上，三枚等宽横排居中
+	if (mShowDiff)
+	{
+		_Font* aCaptionFont = GetCjkFont(12, false);
+		int aCaptionTop = aCardsY + CARD_H + 34;
+		mDiffCaptionY = aCaptionTop + aCaptionFont->GetAscent();
+		int aDiffY = aCaptionTop + aCaptionFont->GetHeight() + 6;
+		static const int aGapX = 20;
+		int aTotalW = mDiffWidths[0] + mDiffWidths[1] + mDiffWidths[2] + aGapX * 2;
+		int aDiffX = (mWidth - aTotalW) / 2;
+		for (int i = 0; i < 3; i++)
+		{
+			mDiffButtons[i]->Resize(aDiffX, aDiffY, mDiffWidths[i], aButtonHeight);
+			aDiffX += mDiffWidths[i] + aGapX;
+		}
+	}
+
+	// 取消按钮贴底（ OnlineStartDialog 同一条算式）
 	int aButtonY = mHeight - mContentInsets.mBottom - mBackgroundInsets.mBottom - aButtonHeight + 2;
 	if (mTallBottom) aButtonY += 5;
 	mCancelButton->Resize((mWidth - mCancelWidth) / 2, aButtonY, mCancelWidth, aButtonHeight);
@@ -216,6 +275,7 @@ void RunModeDialog::AddedToManager(WidgetManager* theWidgetManager)
 {
 	LawnDialog::AddedToManager(theWidgetManager);
 	for (int i = 0; i < 3; i++) AddWidget(mCardButtons[i]);
+	for (int i = 0; i < 3; i++) if (mDiffButtons[i]) AddWidget(mDiffButtons[i]);
 	AddWidget(mCancelButton);
 }
 
@@ -223,6 +283,7 @@ void RunModeDialog::RemovedFromManager(WidgetManager* theWidgetManager)
 {
 	LawnDialog::RemovedFromManager(theWidgetManager);
 	for (int i = 0; i < 3; i++) RemoveWidget(mCardButtons[i]);
+	for (int i = 0; i < 3; i++) if (mDiffButtons[i]) RemoveWidget(mDiffButtons[i]);
 	RemoveWidget(mCancelButton);
 }
 
@@ -270,6 +331,16 @@ void RunModeDialog::Draw(Graphics* g)
 		g->DrawString(mCardDescs[i],
 			aPosX + (CARD_W - aDescFont->StringWidth(mCardDescs[i])) / 2, aPosY + 134);
 	}
+
+	// 难度行的小标题（三枚按钮自己画自己，走控件那套）：
+	// 卡下说明之下、居中，"多出来的是全队倍率"这层意思写在标题里。
+	if (mShowDiff)
+	{
+		_Font* aCaptionFont = GetCjkFont(12, false);
+		g->SetFont(aCaptionFont);
+		g->SetColor(Color(96, 72, 40));
+		g->DrawString(mDiffCaption, (mWidth - aCaptionFont->StringWidth(mDiffCaption)) / 2, mDiffCaptionY);
+	}
 }
 
 // 键盘一律不认（同 OnlineStartDialog / RunPickDialog 的纪律）：LawnDialog::KeyDown 会把
@@ -294,6 +365,14 @@ void RunModeDialog::ButtonDepress(int theId)
 	if (theId >= RunModeDialog_Mode0 && theId <= RunModeDialog_Mode2)
 	{
 		mResult = theId;
+		return;
+	}
+	// 出怪难度三枚：只换选中（按下态贴图），不关弹窗、不出结果——难度由 LawnApp 在
+	// WaitForResult 之后读 mDiffSel 带走。
+	if (theId >= RunModeDialog_Diff0 && theId <= RunModeDialog_Diff2)
+	{
+		mDiffSel = theId - RunModeDialog_Diff0;
+		for (int i = 0; i < 3; i++) mDiffButtons[i]->mInverted = (i == mDiffSel);
 		return;
 	}
 	if (theId == Dialog::ID_NO)

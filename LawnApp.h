@@ -291,13 +291,13 @@ public:
 	bool							RequestAdventure();
 	void							UpdateAdventureRequest();
 	void							UpdateStartupAnnounce();
-	void							StartRun(int theRunMode);	// theRunMode = RunState::RUN_MODE_*（时长档）
+	void							StartRun(int theRunMode, int theRunDiff);	// theRunMode = RunState::RUN_MODE_*（时长档）、theRunDiff = RunState::RUN_DIFF_*（出怪难度档）
 	void							ContinueRun();
 	void							EnterRunLevel();
 	// @pvz-online: 联机闯关（R5）：把本机进度对齐到主机点名的这一关。同一局种子就接着走
-	// （落后 = 从本地检查点续，欠的关靠补发追赶补回来）；对不上 / 没检查点 / 时长档不同
-	// = 从这一局的起点摆一局，同样把欠下的三选一补上——补做的屏与真打过的一模一样。
-	void							AlignRunToHost(int theRunSeed, int theTargetIndex, int theRunMode);
+	// （落后 = 从本地检查点续，欠的关靠补发追赶补回来）；对不上 / 没检查点 / 时长档或
+	// 出怪难度档不同 = 从这一局的起点摆一局，同样把欠下的三选一补上——补做的屏与真打过的一模一样。
+	void							AlignRunToHost(int theRunSeed, int theTargetIndex, int theRunMode, int theRunDiff);
 	void							UpdateRunEnd();
 	// @pvz-online: 闯关的三选一屏（R2）。该选而屏不在（刚开局、刚过完一关、或者屏被谁关掉了）
 	// 就开一张；玩家点了卡由 RunPickChosen 接着办：把卡收进局里，选够了就进下一关。

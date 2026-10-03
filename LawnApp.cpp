@@ -833,7 +833,7 @@ void LawnApp::UpdateOnlineStart()
 
 		TodLog("[run] the host calls us into level index %u (run seed %d)",
 			(unsigned)aStart.mRunLevelIndex, (int)aStart.mRunSeed);
-		AlignRunToHost((int)aStart.mRunSeed, (int)aStart.mRunLevelIndex, (int)aStart.mRunMode);
+		AlignRunToHost((int)aStart.mRunSeed, (int)aStart.mRunLevelIndex, (int)aStart.mRunMode, (int)aStart.mRunDiff);
 		mOnlineRunStartHeld = true;
 		mOnlineRunGo = false;		// 这条是新命令：上一次的放行作废
 		mOnlineSession->SendStartAck();
@@ -948,7 +948,7 @@ void LawnApp::OnlineStartPromptAnswer(bool theAccepted)
 		// 主机的 RUN_GO 放行（见 UpdateOnlineStart / UpdateRunPick）
 		TodLog("[run] the host calls us into level index %u (run seed %d, answered)",
 			(unsigned)aMsg.mRunLevelIndex, (int)aMsg.mRunSeed);
-		AlignRunToHost((int)aMsg.mRunSeed, (int)aMsg.mRunLevelIndex, (int)aMsg.mRunMode);
+		AlignRunToHost((int)aMsg.mRunSeed, (int)aMsg.mRunLevelIndex, (int)aMsg.mRunMode, (int)aMsg.mRunDiff);
 		mOnlineRunStartHeld = true;
 		mOnlineRunGo = false;
 		mOnlineSession->SendStartAck();
@@ -1197,9 +1197,12 @@ void LawnApp::UpdateOnlineEvents()
 			{
 				TodLog("[run] a teammate joined mid-level - pulling them into level %d (index %d)",
 					mRunState->GetLevel(), mRunState->mLevelIndex);
+				// 拉人 = 广播：第 7 参显式 SEAT_UNSET（别再让 mMode 挤上 theTargetSeat——
+				// 那是 M4-b 加 mode 字节时留下的传参错位，普通/快速档会把命令发给错误席位）。
 				mOnlineSession->SendStartLevel((uint8_t)GameMode::GAMEMODE_ADVENTURE,
 					(uint32_t)mRunState->GetLevel(), mRunState->GetLevelSeed(),
-					true, mRunState->mRunSeed, (uint8_t)mRunState->mLevelIndex, (uint8_t)mRunState->mMode);
+					true, mRunState->mRunSeed, (uint8_t)mRunState->mLevelIndex,
+					NetProto::SEAT_UNSET, (uint8_t)mRunState->mMode, (uint8_t)mRunState->mDiff);
 			}
 			break;
 
@@ -1244,7 +1247,7 @@ void LawnApp::UpdateOnlineEvents()
 				mOnlineSession->SendStartLevel((uint8_t)GameMode::GAMEMODE_ADVENTURE,
 					(uint32_t)mRunState->GetLevel(), mRunState->GetLevelSeed(),
 					true, mRunState->mRunSeed, (uint8_t)mRunState->mLevelIndex,
-					anEvent.mSeat, (uint8_t)mRunState->mMode);
+					anEvent.mSeat, (uint8_t)mRunState->mMode, (uint8_t)mRunState->mDiff);
 			}
 			break;
 
@@ -1411,8 +1414,10 @@ void LawnApp::RetryOnlineLevel()
 		SetOnlineStartOverride(aRunLevel, aRunSeed);
 		mOnlineWaitingStartAck = true;
 		mOnlineStartWaitFrames = 0;
+		// 同 UPDATE 拉人：广播要显式 SEAT_UNSET（见 UpdateOnlineEvents 的拉人注释）。
 		mOnlineSession->SendStartLevel((uint8_t)GameMode::GAMEMODE_ADVENTURE, (uint32_t)aRunLevel, aRunSeed,
-			true, mRunState->mRunSeed, (uint8_t)mRunState->mLevelIndex, (uint8_t)mRunState->mMode);
+			true, mRunState->mRunSeed, (uint8_t)mRunState->mLevelIndex,
+			NetProto::SEAT_UNSET, (uint8_t)mRunState->mMode, (uint8_t)mRunState->mDiff);
 		return;
 	}
 
@@ -1538,8 +1543,13 @@ void LawnApp::UpdateAdventureRequest()
 
 	// 新局（无检查点，或上面选了"新开一局"）：先选时长档再开局。同样阻塞式；返回值是
 	// 卡片按钮编号（Mode0 = 完整版，依序普通/快速），取消 = 关弹窗不开局。
-	// 联机不另问：只有主机走到这儿，选完由 START_LEVEL 的模式字节带动队友对齐。
-	RunModeDialog* aModeDialog = new RunModeDialog(this);
+	// 联机不另问：只有主机走到这儿，选完由 START_LEVEL 的模式字节 + 难度字节带动队友对齐。
+	// 出怪难度（MOD_BUILD 27）那一行只在"队伍"里摆（判据同 RequestAdventure：会话活着、
+	// 不是掉线）——单机局档位恒为标准，摆了也是死控件。读 mDiffSel 在 WaitForResult
+	// 之后做：它的自动收摊进 SafeDeleteList 是延迟删，对象还活着（框架自己就这么读 mResult）。
+	bool aShowDiff = mOnlineSession != nullptr && mOnlineSession->IsActive()
+		&& mOnlineSession->GetState() != NetSession::State::DEAD;
+	RunModeDialog* aModeDialog = new RunModeDialog(this, aShowDiff);
 	CenterDialog(aModeDialog, aModeDialog->mWidth, aModeDialog->mHeight);
 	AddDialog(Dialogs::DIALOG_ONLINE_START, aModeDialog);
 	int aModeResult = aModeDialog->WaitForResult();
@@ -1548,7 +1558,7 @@ void LawnApp::UpdateAdventureRequest()
 		TodTrace("adventure: the mode picker was cancelled, no run starts");
 		return;
 	}
-	StartRun(aModeResult - RunModeDialog::RunModeDialog_Mode0);
+	StartRun(aModeResult - RunModeDialog::RunModeDialog_Mode0, aModeDialog->mDiffSel);
 }
 
 // @pvz-online: 进入游戏后的玩法公告（2026-10-03 用户要的）：启动后第一次落到主菜单时弹一次，
@@ -1577,12 +1587,12 @@ void LawnApp::UpdateStartupAnnounce()
 	aDialog->WaitForResult();
 }
 
-void LawnApp::StartRun(int theRunMode)
+void LawnApp::StartRun(int theRunMode, int theRunDiff)
 {
 	delete mRunState;
 	mRunState = new RunState();
-	mRunState->StartNew(MakeRunSeed(mAppCounter), theRunMode);
-	TodLog("[run] a new run starts (seed %d, mode %d)", mRunState->mRunSeed, mRunState->mMode);
+	mRunState->StartNew(MakeRunSeed(mAppCounter), theRunMode, theRunDiff);
+	TodLog("[run] a new run starts (seed %d, mode %d, diff %d)", mRunState->mRunSeed, mRunState->mMode, mRunState->mDiff);
 	// 手里的两株不够开局：先挑四株 + 两个增益（共六次三选一），选完 RunPickChosen 才进第 1 关。
 	mRunState->BeginStartPicks();
 }
@@ -1632,7 +1642,8 @@ void LawnApp::EnterRunLevel()
 		mOnlineStartWaitFrames = 0;
 		if (mGameSelector) mGameSelector->SetMenuButtonsDisabled(true);
 		mOnlineSession->SendStartLevel((uint8_t)mGameMode, (uint32_t)aLevel, aSeed,
-			true, mRunState->mRunSeed, (uint8_t)mRunState->mLevelIndex, (uint8_t)mRunState->mMode);
+			true, mRunState->mRunSeed, (uint8_t)mRunState->mLevelIndex,
+			NetProto::SEAT_UNSET, (uint8_t)mRunState->mMode, (uint8_t)mRunState->mDiff);
 		return;
 	}
 
@@ -1666,7 +1677,7 @@ void LawnApp::EnterRunLevel()
 // 的起点摆一局、把欠下的三选一补上。补做的屏和真打过的一模一样：候选由 runSeed + 关序号
 // 推导，各抽各的。时长档（theRunMode，M4-b）必须和主机同一个档：档决定关卡表与奖励屏数，
 // 档不对的检查点续了也是错的关表。
-void LawnApp::AlignRunToHost(int theRunSeed, int theTargetIndex, int theRunMode)
+void LawnApp::AlignRunToHost(int theRunSeed, int theTargetIndex, int theRunMode, int theRunDiff)
 {
 	// 时长档来自对端（构建代次不同只提示、不拒连）：非法值按完整版处理，别让它把
 	// 越界模式一路带进关卡表。
@@ -1674,6 +1685,13 @@ void LawnApp::AlignRunToHost(int theRunSeed, int theTargetIndex, int theRunMode)
 	{
 		TodLog("[run] the host named an unknown run mode %d - treating it as the full run", theRunMode);
 		theRunMode = RunState::RUN_MODE_FULL;
+	}
+
+	// 出怪难度档同理（MOD_BUILD 27）：非法值按标准，别让它一路带进出怪算式。
+	if (theRunDiff < RunState::RUN_DIFF_EASY || theRunDiff > RunState::RUN_DIFF_HIGH)
+	{
+		TodLog("[run] the host named an unknown run difficulty %d - treating it as standard", theRunDiff);
+		theRunDiff = RunState::RUN_DIFF_STD;
 	}
 
 	// 关序号来自对端（构建代次不同只提示、不拒连）：越界就按第 1 关处理——
@@ -1687,10 +1705,12 @@ void LawnApp::AlignRunToHost(int theRunSeed, int theTargetIndex, int theRunMode)
 
 	if (mRunState != nullptr
 		&& (mRunState->mRunSeed != theRunSeed || mRunState->mMode != theRunMode
+			|| mRunState->mDiff != theRunDiff
 			|| mRunState->mLevelIndex > theTargetIndex))
 	{
-		TodLog("[run] the local run does not match the host (seed %d vs %d, mode %d vs %d, index %d vs %d) - rebuilding",
-			mRunState->mRunSeed, theRunSeed, mRunState->mMode, theRunMode, mRunState->mLevelIndex, theTargetIndex);
+		TodLog("[run] the local run does not match the host (seed %d vs %d, mode %d vs %d, diff %d vs %d, index %d vs %d) - rebuilding",
+			mRunState->mRunSeed, theRunSeed, mRunState->mMode, theRunMode, mRunState->mDiff, theRunDiff,
+			mRunState->mLevelIndex, theTargetIndex);
 		delete mRunState;
 		mRunState = nullptr;
 	}
@@ -1701,12 +1721,13 @@ void LawnApp::AlignRunToHost(int theRunSeed, int theTargetIndex, int theRunMode)
 		if (!mRunState->Load(mPlayerInfo->mId)
 			|| mRunState->mRunSeed != theRunSeed
 			|| mRunState->mMode != theRunMode
+			|| mRunState->mDiff != theRunDiff
 			|| mRunState->mLevelIndex > theTargetIndex)
 		{
-			mRunState->StartNew(theRunSeed, theRunMode);
+			mRunState->StartNew(theRunSeed, theRunMode, theRunDiff);
 			mRunState->BeginStartPicks();
-			TodLog("[run] aligning to the host: a fresh run at seed %d (mode %d), catching up to index %d",
-				theRunSeed, theRunMode, theTargetIndex);
+			TodLog("[run] aligning to the host: a fresh run at seed %d (mode %d, diff %d), catching up to index %d",
+				theRunSeed, theRunMode, theRunDiff, theTargetIndex);
 		}
 		else
 		{

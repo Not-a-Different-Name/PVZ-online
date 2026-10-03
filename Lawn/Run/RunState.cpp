@@ -9,7 +9,7 @@
 #include "../../SexyAppFramework/SexyAppBase.h"
 
 // @pvz-online: 闯关状态的实体。检查点格式（小端，x86 直写）：
-//   u32 magic 'RUN1' + u16 版本 + u16（低字节 = 时长档，高字节保留）
+//   u32 magic 'RUN1' + u16 版本 + u16（低字节 = 时长档，高字节 = 出怪难度档）
 //   i32 runSeed + i32 levelIndex + u16 failCounts[25]
 //   u16 卡池数 + 每株 u16 SeedType
 //   u16 buff 数 + 每条 (u16 id, u16 层数)
@@ -17,9 +17,11 @@
 // v2：一局从 5 关扩到 25 关，failCounts 数组跟着变长——v1 的档一律按"没有"处理。
 // v3：加时长档（M4-b 三档时长）——旧版的保留位恒 0，恰好就是"完整版"，所以 v2 的档
 //     直接按完整版续；载荷长度一个字节没变。
+// v4：加出怪难度档（2026-10-03，房主开局前选的那种）——v3 的高字节保留位恒 0，恰好
+//     就是"标准"，所以 v3 的档直接按标准续；载荷长度同样没变。
 
 static const unsigned int RUN_CHECKPOINT_MAGIC = 0x314E5552;	// 'RUN1'
-static const unsigned short RUN_CHECKPOINT_VERSION = 3;
+static const unsigned short RUN_CHECKPOINT_VERSION = 4;
 
 static std::vector<unsigned char>& AppendU16(std::vector<unsigned char>& theData, unsigned int theValue)
 {
@@ -77,10 +79,11 @@ RunState::RunState()
 	StartNew(0);
 }
 
-void RunState::StartNew(int theRunSeed, int theRunMode)
+void RunState::StartNew(int theRunSeed, int theRunMode, int theRunDiff)
 {
 	mRunSeed = theRunSeed;
 	mMode = theRunMode;
+	mDiff = theRunDiff;
 	mLevelIndex = 0;
 	mPool.clear();
 	mPool.push_back(SeedType::SEED_SUNFLOWER);
@@ -311,6 +314,14 @@ int RunState::LevelCountForMode(int theRunMode)
 	return RUN_SCENE_COUNT * LevelsPerScene(theRunMode);
 }
 
+// 出怪难度档的千分比表（2026-10-03 用户定案：轻松 ×0.5 / 标准 ×1.0 / 高压 ×1.5）。
+int RunState::DiffPermilleFor(int theRunDiff)
+{
+	static const int aPermille[] = { 500, 1000, 1500 };
+	if (theRunDiff < RUN_DIFF_EASY || theRunDiff > RUN_DIFF_HIGH) return aPermille[RUN_DIFF_STD];
+	return aPermille[theRunDiff];
+}
+
 // 按时长档从同一张 25 关表里抽行：普通版每场景取第 1/3/5 关、快速版取第 1/5 关
 // （M4-b 定案）。抽出来的还是这张表里的引擎关号——波数、出怪、种类名单都按引擎关走，
 // 所以 RunLevelIndexForEngineLevel 的完整版反查在三档里都命中。
@@ -397,7 +408,7 @@ bool RunState::Save(int theProfileId) const
 	std::vector<unsigned char> aData;
 	AppendI32(aData, (int)RUN_CHECKPOINT_MAGIC);
 	AppendU16(aData, RUN_CHECKPOINT_VERSION);
-	AppendU16(aData, (unsigned int)(mMode & 0xFF));		// 低字节 = 时长档，高字节保留
+	AppendU16(aData, (unsigned int)((mMode & 0xFF) | ((mDiff & 0xFF) << 8)));	// 低字节 = 时长档，高字节 = 出怪难度档
 	AppendI32(aData, mRunSeed);
 	AppendI32(aData, mLevelIndex);
 	for (int i = 0; i < RUN_LEVEL_COUNT; i++)
@@ -441,18 +452,27 @@ bool RunState::Load(int theProfileId)
 	{
 		return false;
 	}
-	// v3 才有时长档。v2 的保留位恒 0，恰好就是"完整版"——v2 的档直接按完整版续，
-	// 不用作废。再往前的版本一律当"没有检查点"。
+	// v3 才有时长档、v4 才有难度档。老版本占的保留位恒 0，恰好是各自默认档——
+	// v2 的档按完整版续、v3 的档按标准难度续，都不用作废。再往前的版本一律当"没有检查点"。
 	int aMode = RUN_MODE_FULL;
-	if (aMagic != RUN_CHECKPOINT_MAGIC || (aVersion != RUN_CHECKPOINT_VERSION && aVersion != 2))
+	int aDiff = RUN_DIFF_STD;
+	if (aMagic != RUN_CHECKPOINT_MAGIC || (aVersion != RUN_CHECKPOINT_VERSION && aVersion != 3 && aVersion != 2))
 	{
 		TodLog("[run] checkpoint magic/version mismatch, ignored");
 		return false;
 	}
-	if (aVersion == RUN_CHECKPOINT_VERSION)
+	if (aVersion >= 3)
 	{
 		aMode = (int)(aReserved & 0xFF);
 		if (aMode < RUN_MODE_FULL || aMode > RUN_MODE_QUICK)
+		{
+			return false;
+		}
+	}
+	if (aVersion >= 4)
+	{
+		aDiff = (int)((aReserved >> 8) & 0xFF);
+		if (aDiff < RUN_DIFF_EASY || aDiff > RUN_DIFF_HIGH)
 		{
 			return false;
 		}
@@ -513,6 +533,7 @@ bool RunState::Load(int theProfileId)
 
 	mRunSeed = aRunSeed;
 	mMode = aMode;
+	mDiff = aDiff;
 	mLevelIndex = aLevelIndex;
 	memcpy(mFailCounts, aFailCounts, sizeof(mFailCounts));
 	mPool = aPool;

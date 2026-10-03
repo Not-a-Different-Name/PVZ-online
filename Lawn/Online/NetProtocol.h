@@ -87,7 +87,11 @@ const uint16_t	PROTOCOL_VERSION	= 1;
 //        "先挑两株"改为"先挑四株 + 两个增益"（进第 1 关前手里 6 株 + 2 个增益）。协议没动、
 //        各玩家选各自的，但混搭时一方开局 2 株一方 6 株 + 2 增益，合作难度口径对不上，
 //        必须两边同版本。
-const uint16_t	MOD_BUILD			= 26;
+// 26 → 27：出怪难度档（2026-10-03 用户定案）：房主开局前在选模式页选全局出怪旋钮
+//        轻松 ×0.5 / 标准 ×1.0 / 高压 ×1.5。START_LEVEL 的闯关变体再加一个难度字节
+//        （载荷 18→19 字节）：它乘在全队出怪上，混搭时一边半量一边满量，合作难度
+//        直接对不上，必须同版本。旧长度的 START_LEVEL 会被当串包拒掉。
+const uint16_t	MOD_BUILD			= 27;
 
 const uint16_t	DEFAULT_PORT		= 27777;
 
@@ -303,13 +307,15 @@ struct MsgHelloAck
 };
 
 // START_LEVEL：{ srcSeat, dstSeat, u8 gameMode, u32 level, i32 levelSeed,
-//                u8 isRun, i32 runSeed, u8 runLevelIndex, u8 runMode }
+//                u8 isRun, i32 runSeed, u8 runLevelIndex, u8 runMode, u8 runDiff }
 // levelSeed 是主机 GetLevelRandSeed() 的完整返回值（它含主机存档 ID，客户端必须整体覆盖）。
 // 闯关局（isRun=1）多带"这一局是谁的局、打到第几关"：队友拿它对上自己的检查点，
 // 没检查点 / 对不上就从这一局的起点摆起、把欠下的三选一补回来（补做的屏和真打过的一模一样，
 // 候选由 runSeed + 关序号推导）。runMode 是闯关的时长档（RunState::RUN_MODE_*，M4-b）：
-// 它决定关卡表抽行与每关后的奖励屏数，队友必须按同一个档建局。单关局 isRun=0，
-// runSeed/runLevelIndex/runMode 全是 0，老语义一字不变。
+// 它决定关卡表抽行与每关后的奖励屏数，队友必须按同一个档建局。runDiff 是房主选的出怪
+// 难度档（RunState::RUN_DIFF_*，轻松/标准/高压）：乘在全队出怪上，队友按同一个档建局；
+// 对不上同样按"检查点不匹配"重建。单关局 isRun=0：runSeed/runLevelIndex/runMode 全是 0，
+// runDiff 记标准档（1，单关局不参与难度缩放），其余语义一字不变。
 struct MsgStartLevel
 {
 	uint8_t			mSrcSeat;
@@ -321,6 +327,7 @@ struct MsgStartLevel
 	int32_t			mRunSeed;
 	uint8_t			mRunLevelIndex;
 	uint8_t			mRunMode;
+	uint8_t			mRunDiff;
 };
 
 // LEVEL_DONE：{ srcSeat, dstSeat, u8 done }（1 = 我这块草坪清完了，0 = 又不清净了）
@@ -559,6 +566,7 @@ inline int EncodeStartLevel(uint8_t* theBuffer, int theCapacity, const MsgStartL
 	aWriter.I32(theMsg.mRunSeed);
 	aWriter.U8(theMsg.mRunLevelIndex);
 	aWriter.U8(theMsg.mRunMode);
+	aWriter.U8(theMsg.mRunDiff);
 	return aWriter.Overflowed() ? -1 : aWriter.Size();
 }
 
@@ -574,6 +582,7 @@ inline bool DecodeStartLevel(const uint8_t* theData, int theSize, MsgStartLevel&
 	theMsg.mRunSeed = aReader.I32();
 	theMsg.mRunLevelIndex = aReader.U8();
 	theMsg.mRunMode = aReader.U8();
+	theMsg.mRunDiff = aReader.U8();
 	return !aReader.Overflowed();
 }
 
