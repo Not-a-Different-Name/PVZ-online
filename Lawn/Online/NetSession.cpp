@@ -459,7 +459,7 @@ bool NetSession::TakePendingStartLevel(NetProto::MsgStartLevel& theMsg)
 }
 
 // 按席位记账、取一条清一条（先进先出）。M2 只有一个队友，看上去和"那一条"没差别；
-// 四席位时才知道是谁答的、谁还没答——P3 的放行判定就靠这张表。
+// 六席位时才知道是谁答的、谁还没答——P3 的放行判定就靠这张表。
 bool NetSession::TakeStartAck(bool& theAccepted)
 {
 	for (uint8_t aSeat = 1; aSeat <= NetProto::MAX_PLAYERS; aSeat++)
@@ -688,7 +688,7 @@ bool NetSession::SwapSeats()
 	// 一次只谈一件事：要么我在等回话，要么有人正问我——都不许再发一条
 	if (!IsConnected() || IsSwapRequestPending() || HasIncomingSwapRequest()) return false;
 
-	// 跟"环上的后一位"换：四席位时 2 号位换的是 3 号位，不是"永远跟主机换"。
+	// 跟"环上的后一位"换：六席位时 2 号位换的是 3 号位，不是"永远跟主机换"。
 	uint8_t aTarget = NextOccupiedSeatInRing(mLocalSeat);
 	if (aTarget == NetProto::SEAT_UNSET) return false;		// 没别人可换
 
@@ -985,7 +985,7 @@ void NetSession::UpdateStatusText()
 		mStatusText = "Not connected.";
 		break;
 	case State::LISTENING:
-		// 不写"另一个玩家"：最多四个席位，主机等的是"人"，不是那一个特定的人。
+		// 不写"另一个玩家"：最多六个席位，主机等的是"人"，不是那一个特定的人。
 		mStatusText = "Waiting for players to join...";
 		break;
 	case State::CONNECTING:
@@ -1041,7 +1041,7 @@ void NetSession::UpdateStatusText()
 			}
 			else
 			{
-				// 席位号与"漏怪往哪走"都按当下的席位算：四席位时 2、3 号位的怪是要往后
+				// 席位号与"漏怪往哪走"都按当下的席位算：六席位时 2、3 号位的怪是要往后
 				// 接着传的，写死"你是 P2、你接队友的漏怪"就把中间席位说成了末席。
 				// 中继把房间码也带上：房主要念给朋友，其他人核对一下自己进对了房。
 				uint8_t aNext = GetRelayTargetSeat();
@@ -1296,9 +1296,10 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 				SetDead("A player sent a malformed packet.");
 				return;
 			}
-			// 席位号越界就丢掉这一条（同 LEVEL_DONE）：它是包里的一个字节，
-			// 直接拿去索引席位表就是写穿。
-			if (aMsg.mSrcSeat < 1 || aMsg.mSrcSeat > NetProto::MAX_PLAYERS || aMsg.mSrcSeat == mLocalSeat)
+			// 席位号得是个真坐在席位上的号：越界 / 本机 / 空位都丢掉这一条——
+			// 它是包里的一个字节，直接拿去索引席位表就是写穿。
+			if (aMsg.mSrcSeat < 1 || aMsg.mSrcSeat > NetProto::MAX_PLAYERS
+				|| aMsg.mSrcSeat == mLocalSeat || !IsSeatOccupied(aMsg.mSrcSeat))
 			{
 				TodLog("[net] threw away a START_ACK with a bogus seat (%u)", (unsigned)aMsg.mSrcSeat);
 				break;
@@ -1424,8 +1425,10 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 				return;
 			}
 
-			// 席位号越界就丢掉这一条：它是包里的一个字节，直接拿去当数组下标会写穿。
-			if (aMsg.mSrcSeat < 1 || aMsg.mSrcSeat > NetProto::MAX_PLAYERS)
+			// 席位号得是个真坐在席位上的号：越界 / 本机 / 空位都丢掉这一条——
+			// 它是包里的一个字节，直接拿去当数组下标会写穿。
+			if (aMsg.mSrcSeat < 1 || aMsg.mSrcSeat > NetProto::MAX_PLAYERS
+				|| aMsg.mSrcSeat == mLocalSeat || !IsSeatOccupied(aMsg.mSrcSeat))
 			{
 				TodLog("[net] threw away a LEVEL_DONE with a bogus seat (%u)", (unsigned)aMsg.mSrcSeat);
 				break;
@@ -1523,8 +1526,9 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 				SetDead("A player sent a malformed packet.");
 				return;
 			}
-			// 席位号越界就丢掉这一条（同 LEVEL_DONE 的理由）
-			if (aMsg.mSrcSeat < 1 || aMsg.mSrcSeat > NetProto::MAX_PLAYERS)
+			// 席位号得是个真坐在席位上的号：越界 / 本机 / 空位都丢掉这一条（同 LEVEL_DONE 的理由）
+			if (aMsg.mSrcSeat < 1 || aMsg.mSrcSeat > NetProto::MAX_PLAYERS
+				|| aMsg.mSrcSeat == mLocalSeat || !IsSeatOccupied(aMsg.mSrcSeat))
 			{
 				TodLog("[net] threw away a SEEDS_READY with a bogus seat (%u)", (unsigned)aMsg.mSrcSeat);
 				break;
@@ -1546,8 +1550,10 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 				SetDead("A player sent a malformed packet.");
 				return;
 			}
-			// 席位号或编号越界就丢掉这一条、不断线（防御坏包与构建混搭，同 SEEDS_READY 的理由）
-			if (aMsg.mSrcSeat < 1 || aMsg.mSrcSeat > NetProto::MAX_PLAYERS)
+			// 席位号越界/空位/本机、或编号越界就丢掉这一条、不断线（防御坏包与构建混搭，
+			// 同 SEEDS_READY 的理由）
+			if (aMsg.mSrcSeat < 1 || aMsg.mSrcSeat > NetProto::MAX_PLAYERS
+				|| aMsg.mSrcSeat == mLocalSeat || !IsSeatOccupied(aMsg.mSrcSeat))
 			{
 				TodLog("[net] threw away a QUICK_CHAT with a bogus seat (%u)", (unsigned)aMsg.mSrcSeat);
 				break;
@@ -1833,7 +1839,7 @@ void NetSession::HandleControlFrame(uint16_t theType, const uint8_t* thePayload,
 
 
 // 把一帧交给该收的人。直连只有一个对端——行为与 M2 逐字节一致：目标就是那一个，
-// 载荷里的 dst 也还是写它。（四席位的扇出/点名单发在中继那边，见 NetSession.h。）
+// 载荷里的 dst 也还是写它。（多席位的扇出/点名单发在中继那边，见 NetSession.h。）
 bool NetSession::Dispatch(uint16_t theType, uint8_t* thePayload, int theSize, uint8_t theTarget)
 {
 	// 直连只有一个对端——行为与 M2 逐字节一致：目标就是那一个，载荷里的 dst 也还是写它。
@@ -2013,7 +2019,7 @@ bool NetSession::SendStartLevel(uint8_t theGameMode, uint32_t theLevel, int32_t 
 	mAnyAckRejected = false;
 
 	// 发出去了才记"在等谁回答"：收齐应答的判定（P3 的放行）得按席位看，
-	// 单槽记账看不出四个人里是谁还没答。
+	// 单槽记账看不出六个人里是谁还没答。
 	for (uint8_t aSeat = 1; aSeat <= NetProto::MAX_PLAYERS; aSeat++)
 	{
 		if (aSeat == mLocalSeat || !IsSeatOccupied(aSeat)) continue;
@@ -2038,7 +2044,7 @@ void NetSession::SendStartAck(bool theAccepted)
 	{
 		TodLog(theAccepted ? "[net] telling the host I am entering the level"
 			: "[net] telling the host I cannot enter the level right now");
-		// 中继下这条只能落到主机那一席（四席位时 Dispatch 默认是扇出，会把"我进场了"
+		// 中继下这条只能落到主机那一席（多席位时 Dispatch 默认是扇出，会把"我进场了"
 		// 播给不相干的人）；直连的对端本来就是主机，目标保持原样的默认值。
 		Dispatch(NetProto::MSG_START_ACK, aPayload, aSize,
 			(mTransport == Transport::RELAY) ? mHostSeat : NetProto::SEAT_UNSET);

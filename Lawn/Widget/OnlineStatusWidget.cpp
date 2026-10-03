@@ -9,7 +9,7 @@ namespace
 {
 	const int	CHIP_PAD_X		= 8;		// 文字到小条边缘
 	const int	CHIP_PAD_Y		= 5;
-	const int	CHIP_LINES		= 6;		// 标题 / P1..P4 / 状态
+	const int	CHIP_LINES		= NetProto::MAX_PLAYERS + 2;	// 标题 + 每席位一行 + 状态
 	const int	TITLE_GAP		= 12;		// 标题和后面那截 IP 之间的空当
 }
 
@@ -91,7 +91,7 @@ void OnlineStatusWidget::Draw(Graphics* g)
 			CHIP_PAD_X + FONT_DWARVENTODCRAFT12->StringWidth(aTitle) + TITLE_GAP, aLineY);
 	}
 
-	// 名册：四个位子画满，从上到下就是顺位。自己在最亮那行，空位压暗——
+	// 名册：位子全部画满，从上到下就是顺位。自己在最亮那行，空位压暗——
 	// 一眼看得出"我在几号位、后面还有没有人"。
 	for (int aSeat = 1; aSeat <= NetProto::MAX_PLAYERS; aSeat++)
 	{
@@ -171,7 +171,7 @@ std::string OnlineStatusWidget::GetStateLine()
 	if (!aSession || !aSession->IsActive()) return "";
 
 	// 主机按了关卡、正等队友就位。这时候会话还是 CONNECTED，不单独说一句的话
-	// 小条还写着 "pick a level"，看着像压根没点上。四席位时等的是所有还没到的人。
+	// 小条还写着 "pick a level"，看着像压根没点上。六席位时等的是所有还没到的人。
 	if (mApp->IsOnlineWaitingStartAck())
 		return "Starting - waiting for players";
 

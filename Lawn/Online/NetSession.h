@@ -12,7 +12,7 @@
 // 只有主线程用这个类（Update / Start* / Send* / PollEvent 全在主循环里调）；
 // 收包线程只往 NetLink 的队列里塞字节。
 //
-// 席位：直连是固定的两个（主机 = 1，客户端 = 2）；M3 中继由服务器点名册，最多四个。
+// 席位：直连是固定的两个（主机 = 1，客户端 = 2）；M3 中继由服务器点名册，最多六个。
 // 所以"谁是队友"记在一张**席位表**里（mSeats），不再由一个对端字段代表——判胜、
 // 漏怪接力、换位环、开局应答全按表走，写死"就是那两个人"的地方一处不剩。
 
@@ -257,7 +257,7 @@ public:
 	bool			TakePendingEscapedZombie(NetProto::MsgEscapedZombie& theMsg);
 
 	// 双向：发一条局内快捷聊天（编号查 QuickChat.h：1-8 短语、9-16 植物表情）。
-	// 沿用 Dispatch 默认扇出——所有其他上座席位各收一份，天然按最多四人泛化。
+	// 沿用 Dispatch 默认扇出——所有其他上座席位各收一份，天然按最多六人泛化。
 	// 没连上、编号非法、单人房无人可发都返回 false（调用方当"没发出去"处理）。
 	bool			SendQuickChat(uint8_t theId);
 
@@ -272,7 +272,7 @@ public:
 	bool			IsActive() const { return mState != State::OFF; }
 	uint8_t			GetLocalSeat() const { return mLocalSeat; }
 	// 直连兼容 getter：直连就是固定的另一个席位（还没连上也算——HELLO 得先发出去）。
-	// 四席位名册请用 IsSeatOccupied/GetSeatName 逐格问，别用这个。
+	// 多席位名册请用 IsSeatOccupied/GetSeatName 逐格问，别用这个。
 	uint8_t			GetPeerSeat() const { return DirectPeerSeat(); }
 
 	// 对端的构建代次（握手时报的，连上才有效）。

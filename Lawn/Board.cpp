@@ -787,7 +787,7 @@ void Board::PickZombieWaves()
 		// 末席（最后上座的席位）原量 ×1 不变，往前每升一位翻一倍：四人 8:4:2:1、三人 4:2:1、
 		// 二人 2:1；五六人续 16、32，顶到 32 封顶（用户定）。顺位按"上座席位"排
 		// （第 r 位权重 2^(n-r)）；各客户端只为自己的棋盘缩放，不涉协议。乘在旗帜波 ×2.5 之前。
-		// 同一倍率也放大每波数量封顶（下面 aWaveZombieCap）：1 号位 8 倍时 20 → 160 只。
+		// 同一倍率也放大每波数量封顶（下面 aWaveZombieCap）：1 号位 32 倍时 20 → 640 只。
 		int aSeatMult = 1;
 		if (mApp->IsOnlineGame() && mApp->mOnlineSession != nullptr)
 		{
@@ -806,7 +806,7 @@ void Board::PickZombieWaves()
 
 				// @pvz-online: 出怪难度档（2026-10-03 用户定案）：房主开局前选的全局旋钮，
 				// 直接乘在顺位乘数上——轻松 ×0.5 / 高压 ×1.5，乘后向下取整、保底 1 倍
-				// （末位 1×1.5 取整仍 1、1×0.5 保底 1；顺位形状 8:4:2:1 在高压下变 12:6:3:1）。
+				// （末位 1×1.5 取整仍 1、1×0.5 保底 1；顺位形状 32:16:8:4:2:1 在高压下变 48:24:12:6:3:1）。
 				// 只在闯关局生效；非闯关 / 单机局档位恒为标准（也是恒等 ×1）。
 				if (mApp->IsRunMode() && mApp->GetRunState() != nullptr)
 				{
@@ -947,9 +947,9 @@ void Board::PickZombieWaves()
 		// ------------------------------------------------------------------------------------------------
 		// @pvz-online: 闯关"数量封顶"（M4-a 定案）：点数不封顶，但一波最多 RUN_WAVE_ZOMBIE_CAP 只；
 		// 预算花不完的零头直接作废——富余的点数靠 PickZombieType 的强僵尸优先花在质量上。
-		// 联机再按席位顺位乘数同倍放大（2026-10-03 幂次口径：1 号位 8 倍 → 上限 160 只；
-		// 难度档高压在乘数里再 ×1.5 → 上限 240 只，数组留量 400 装得下）；
-		// 非闯关基准 = 原版 50，数组上限 MAX_ZOMBIES_IN_WAVE 按基准×8 留量。
+		// 联机再按席位顺位乘数同倍放大（2026-10-03 幂次口径：六人局 1 号位 32 倍 → 闯关上限
+		// 20×32 = 640 只、高压再 ×1.5 → 960 只；非闯关 50×32 = 1600 = 数组上限，正好兜住）；
+		// 非闯关基准 = 原版 50，数组上限 MAX_ZOMBIES_IN_WAVE 按基准×32 留量。
 		int aWaveZombieCap = (mApp->IsRunMode() ? RunState::RUN_WAVE_ZOMBIE_CAP : WAVE_ZOMBIE_CAP_BASE) * aSeatMult;
 		while (aZombiePoints > 0 && aZombiePicker.mZombieCount < aWaveZombieCap)
 		{
@@ -5799,7 +5799,7 @@ bool Board::HasLevelAwardDropped()
 // Plant::UpdateProductionPlant、Zombie 三处（掉头即死/呻吟/掉币）。
 // mLevelAwardSpawned 本身照旧置位——它是"我清完了"的上报口径（SendLevelDone 取它），
 // 别动；刷怪门（UpdateZombieSpawning）也刻意不叠：等队友的窗口里波次逻辑不许复活。
-// 三人/四人局不用特判：IsPeerLevelDone() 本身就是"其他上座席位全报清完"。
+// 多席位局不用特判：IsPeerLevelDone() 本身就是"其他上座席位全报清完"。
 bool Board::OnlineWaitingForTeam()
 {
 	return mApp->IsOnlineGame() && mLevelAwardSpawned

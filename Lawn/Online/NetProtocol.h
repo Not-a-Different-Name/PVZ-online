@@ -91,7 +91,12 @@ const uint16_t	PROTOCOL_VERSION	= 1;
 //        轻松 ×0.5 / 标准 ×1.0 / 高压 ×1.5。START_LEVEL 的闯关变体再加一个难度字节
 //        （载荷 18→19 字节）：它乘在全队出怪上，混搭时一边半量一边满量，合作难度
 //        直接对不上，必须同版本。旧长度的 START_LEVEL 会被当串包拒掉。
-const uint16_t	MOD_BUILD			= 27;
+// 27 → 28：席位上限 4→6 + 顺位乘数改 2 的幂（2026-10-03 用户定案）：同一份波表按
+//        上座顺位直接倍乘（末席 ×1、往前每位翻倍，五六人 16/32 封顶），每波数量上限
+//        同倍放大。帧格式没动（宽松过渡：≤4 人房混版照连——两边乘数规则不同、手感
+//        不一致；5+ 人房旧包收 WELCOME 会因席位超上限被解析拒绝；MOD_BUILD 不符只
+//        提示不拒连，两边最好同版本）。
+const uint16_t	MOD_BUILD			= 28;
 
 const uint16_t	DEFAULT_PORT		= 27777;
 
@@ -103,10 +108,10 @@ const uint8_t	SEAT_UNSET			= 0;
 const uint8_t	SEAT_HOST			= 1;	// 建房方
 const uint8_t	SEAT_CLIENT			= 2;	// 加入方
 
-// @pvz-online: 一局的席位上限。直连只用两个（主机 = 1、客户端 = 2），中继最多开四个
+// @pvz-online: 一局的席位上限。直连只用两个（主机 = 1、客户端 = 2），中继最多开六个
 // （谁坐几号位由服务器点名册），但名册 UI 按这个数把位子全画出来——上下顺序就是顺位，
 // 空着的位子也得看得见。
-const uint8_t	MAX_PLAYERS			= 4;
+const uint8_t	MAX_PLAYERS			= 6;
 
 // 名字字段定长：这样"长度对不上 = 对面是别的构建版"那条检测还是准的（见 NetSession 收包），
 // 改名长短不会把包长带得忽长忽短。位图字体只有 ASCII 字形，名字也够用。
@@ -168,7 +173,7 @@ enum RejectReason : uint8_t
 {
 	REJECT_PROTOCOL_VERSION	= 0,	// 客户端协议版本和服务器对不上
 	REJECT_ROOM_NOT_FOUND	= 1,	// 没这个房间码
-	REJECT_ROOM_FULL		= 2,	// 四个席位都有人了
+	REJECT_ROOM_FULL		= 2,	// 席位都有人了
 	REJECT_BAD_CODE			= 3,	// 房间码格式不对
 	REJECT_SERVER_BUSY		= 4,	// 服务器到上限了（常规负载碰不到，留给以后）
 	REJECT_BAD_REQUEST		= 5		// 包本身不像话（长度/字段越界）
@@ -374,7 +379,7 @@ struct MsgSwapReply
 // PAUSE：{ srcSeat, dstSeat, u8 paused }（1 = 我暂停了，0 = 我继续了）
 // 共识模型：任一方都能暂停、也能继续，不搞"请求/同意"。载荷只有两个状态，没带序号——
 // 两个席位、TCP 保序，加上发送侧"状态没变就不发"这一条，就足以让两边收敛到同一个值。
-// M3 扩到四个席位若真出现乱序需要，再补序号。
+// M3 扩到六个席位若真出现乱序需要，再补序号。
 struct MsgPause
 {
 	uint8_t			mSrcSeat;

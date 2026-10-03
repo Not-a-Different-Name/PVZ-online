@@ -259,7 +259,7 @@ void OnlineDialog::Update()
 
 	// 主机按了关卡、正等队友就位：会话状态还是 CONNECTED，得单独说一句在等什么，
 	// 不然状态行还写着 "Pick a level from the menu"，看着像那一下没点上。
-	// 说法不点"那一个队友"：四席位时等的是所有人（ACK 全部到齐才进场，见 START_ACK）。
+	// 说法不点"那一个队友"：六席位时等的是所有人（ACK 全部到齐才进场，见 START_ACK）。
 	if (mApp->IsOnlineWaitingStartAck())
 		mStatusLine = "Starting - waiting for everyone to get ready.";
 
@@ -315,7 +315,7 @@ void OnlineDialog::Draw(Graphics* g)
 }
 
 // @pvz-online: 房间信息块——"我现在在哪个房间"一眼看全：房间码（中继）/ 主机地址（直连）、
-// 我坐第几席、谁是房主，下面是 P1..P4 名册。名册和小状态条那份是同一套说法
+// 我坐第几席、谁是房主，下面是 P1..P6 名册。名册和小状态条那份是同一套说法
 // （自己那行 (you)、空位 --）：面板是模态的、盖着小条看不见，所以这里再写一份。
 void OnlineDialog::DrawRoomBlock(Graphics* g)
 {
@@ -329,7 +329,7 @@ void OnlineDialog::DrawRoomBlock(Graphics* g)
 	g->SetColor(mColors[Dialog::COLOR_LINES]);
 	g->DrawString(GetRoomHeaderLine(), aLeft, aLineY);
 	if (!anActive)
-		return;		// 没房间：名册那四行的地盘空着（位置钉死，面板不会因为连上而跳）
+		return;		// 没房间：名册那几行的地盘空着（位置钉死，面板不会因为连上而跳）
 
 	for (int aSeat = 1; aSeat <= NetProto::MAX_PLAYERS; aSeat++)
 	{
@@ -420,7 +420,7 @@ int OnlineDialog::GetStatusBaseline()
 		- mHeaderFont->GetAscentPadding() + mHeaderFont->GetHeight() + mSpaceAfterHeader;
 }
 
-// 两行状态的正下方：先让开 ROW_GAP，再排房间信息块（标题一行 + 四个席位四行）。
+// 两行状态的正下方：先让开 ROW_GAP，再排房间信息块（标题一行 + 每席位一行）。
 // 块的下面是输入框，同样让开 ROW_GAP。
 // Draw / Resize / 构造里的面板高度全走这两个式子，免得三处各算各的又算岔。
 int OnlineDialog::GetRoomHeaderBaseline()
@@ -430,7 +430,7 @@ int OnlineDialog::GetRoomHeaderBaseline()
 
 int OnlineDialog::GetEditY()
 {
-	const int aRoomBlockLines = 5;		// 标题 + P1..P4
+	const int aRoomBlockLines = 1 + NetProto::MAX_PLAYERS;	// 标题 + 每席位一行
 
 	return GetRoomHeaderBaseline() + mLinesFont->GetLineSpacing() * (aRoomBlockLines - 1)
 		- mLinesFont->GetAscent() + ROW_GAP;
