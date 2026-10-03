@@ -156,5 +156,7 @@ int GetRunChoiceMaxStacks(int theId);
 
 // 单株升级「这是哪株的」中文名（三选一屏列顶标题行用）；全局增益 / 表里漏了名字 → NULL。
 const char* GetRunChoicePlantName(int theId);
+// 同一张名字表按 SeedType 直查（局内词条查看器手里只有 SeedType + 层数）；表里没有 → NULL。
+const char* GetRunPlantZhName(SeedType thePlant);
 
 #endif

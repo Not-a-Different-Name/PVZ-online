@@ -253,13 +253,18 @@ static const struct { SeedType mPlant; const char* mName; } gRunPlantUpgradeZhNa
 	{ SeedType::SEED_COBCANNON,    "玉米加农炮" },
 };
 
+// 按 SeedType 直查植物中文名（局内词条查看器用：那边手里是表行 + 层数，没有 id）。
+const char* GetRunPlantZhName(SeedType thePlant)
+{
+	for (int i = 0; i < (int)(sizeof(gRunPlantUpgradeZhNames) / sizeof(gRunPlantUpgradeZhNames[0])); i++)
+	{
+		if (gRunPlantUpgradeZhNames[i].mPlant == thePlant) return gRunPlantUpgradeZhNames[i].mName;
+	}
+	return NULL;
+}
+
 const char* GetRunChoicePlantName(int theId)
 {
 	if (theId < RUN_BUFF_COUNT) return NULL;
-	SeedType aPlant = GetRunPlantUpgradeDef(theId - RUN_BUFF_COUNT).mPlant;
-	for (int i = 0; i < (int)(sizeof(gRunPlantUpgradeZhNames) / sizeof(gRunPlantUpgradeZhNames[0])); i++)
-	{
-		if (gRunPlantUpgradeZhNames[i].mPlant == aPlant) return gRunPlantUpgradeZhNames[i].mName;
-	}
-	return NULL;
+	return GetRunPlantZhName(GetRunPlantUpgradeDef(theId - RUN_BUFF_COUNT).mPlant);
 }

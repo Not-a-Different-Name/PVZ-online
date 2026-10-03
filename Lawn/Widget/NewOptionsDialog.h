@@ -40,6 +40,11 @@ public:
 	LawnStoneButton*		mRestartButton;						//+0x174
 	NewLawnButton*			mBackToGameButton;					//+0x178
 	bool					mFromGameSelector;					//+0x17C
+	// @pvz-online: 局内词条查看器（2026-10-03 用户定案）：不另起对话框类，就在这个暂停面板上
+	// 盖一层整屏覆盖——避开嵌套消息循环/焦点/析构三件麻烦。开着时八个控件整体藏起，
+	// 关掉按原样还原（mRunInfoWidgetVis 是藏之前的快照）。
+	bool					mRunInfoOpen;
+	bool					mRunInfoWidgetVis[8];
 
 public:
 	NewOptionsDialog(LawnApp* theApp, bool theFromGameSelector);
@@ -55,6 +60,14 @@ public:
 	void					ButtonPress(int theId);
 	void					ButtonDepress(int theId);
 	void					KeyDown(Sexy::KeyCode theKey);
+	void					MouseDown(int x, int y, int theClickCount);
+
+	// 词条查看器（见 .cpp 同名分节）：只在闯关局可用，覆盖层的开关与绘制都收在这几个口里。
+	bool					RunInfoAvailable();
+	Sexy::Rect				RunInfoEntryRect();
+	void					OpenRunInfo();
+	void					CloseRunInfo();
+	void					DrawRunInfo(Sexy::Graphics* g);
 };
 
 #endif

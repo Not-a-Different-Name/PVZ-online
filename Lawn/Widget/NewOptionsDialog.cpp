@@ -13,8 +13,124 @@
 #include "widget/Slider.h"
 #include "widget/Checkbox.h"
 #include "../../Sexy.TodLib/TodStringFile.h"
+#include "../Run/RunState.h"
+#include "../Run/RunBuffs.h"
+#include "graphics/SysFont.h"
+#include <cstdio>
+#include <string>
+#include <vector>
 
 using namespace Sexy;
+
+// ── 中文绘制这一档（词条查看器用）──────────────────────────────────────
+// 引擎自带的字体全是位图字体，没有中文字形，中文说明改走 GDI（SysFont）。
+// 套路与 RunPickDialog.cpp 顶部同一份（第三份拷贝，原因见那里的说明）；
+// 源文件按 UTF-8 编译（根 CMakeLists 的 /utf-8），TextOutA 认系统 ANSI：画前转码。
+// UTF-8 → 宽字符。钳制要按"字"回退（一个汉字=一个 wchar_t），所以留这个中间层。
+static std::wstring NewOptionsWideFromUtf8(const char* theUtf8)
+{
+	std::wstring aWide;
+	if (theUtf8 == NULL || theUtf8[0] == '\0') return aWide;
+	int aWideLen = MultiByteToWideChar(CP_UTF8, 0, theUtf8, -1, NULL, 0);
+	if (aWideLen <= 1) return aWide;
+	aWide.resize(aWideLen - 1);		// 去掉 -1 口径带上的结尾 NUL
+	MultiByteToWideChar(CP_UTF8, 0, theUtf8, -1, &aWide[0], aWideLen);
+	return aWide;
+}
+
+// 宽字符 → 系统 ANSI（TextOutA 认的形式）。空串安全。
+static std::string NewOptionsAnsiFromWide(const std::wstring& theWide)
+{
+	if (theWide.empty()) return std::string();
+	int anAnsiLen = WideCharToMultiByte(CP_ACP, 0, theWide.c_str(), (int)theWide.size(), NULL, 0, NULL, NULL);
+	if (anAnsiLen <= 0) return std::string();
+	std::string anAnsi(anAnsiLen, '\0');
+	WideCharToMultiByte(CP_ACP, 0, theWide.c_str(), (int)theWide.size(), &anAnsi[0], anAnsiLen, NULL, NULL);
+	return anAnsi;
+}
+
+static std::string NewOptionsAnsiFromUtf8(const char* theUtf8)
+{
+	std::string aText(theUtf8 != NULL ? theUtf8 : "");
+	if (aText.empty()) return aText;
+	std::string anAnsi = NewOptionsAnsiFromWide(NewOptionsWideFromUtf8(theUtf8));
+	return anAnsi.empty() ? aText : anAnsi;
+}
+
+// 进程共用的中文字体：雅黑 → 黑体 → 宋体；都找不到也照样建（GDI 会替一支能画的）。
+// 正文 13pt（与三选一屏同档）；入口按钮 11pt——按钮列右侧那条竖带只有 ~100px 宽
+//（1:1 截图实测），13pt 无论四字还是六字都放不下，见 RunInfoEntryRect。
+// charset 跟着系统码页走。按字号分槽缓存。
+static SysFont* NewOptionsCjkFontAt(int thePoint)
+{
+	static SysFont* sFonts[2] = { NULL, NULL };
+	int aSlot = (thePoint >= 13) ? 0 : 1;
+	if (sFonts[aSlot] == NULL)
+	{
+		const char* aFace = "Microsoft YaHei";
+		if (GetFileAttributesA("C:\\Windows\\Fonts\\msyh.ttc") == INVALID_FILE_ATTRIBUTES)
+		{
+			aFace = (GetFileAttributesA("C:\\Windows\\Fonts\\simhei.ttf") != INVALID_FILE_ATTRIBUTES) ? "SimHei" : "SimSun";
+		}
+		int aCharset = (GetACP() == 936) ? GB2312_CHARSET : ANSI_CHARSET;
+		sFonts[aSlot] = new SysFont(gSexyAppBase, aFace, thePoint, aCharset);
+	}
+	return sFonts[aSlot];
+}
+
+static SysFont* NewOptionsCjkFont() { return NewOptionsCjkFontAt(13); }
+static SysFont* NewOptionsCjkFontSmall() { return NewOptionsCjkFontAt(11); }
+
+// 一"行"文字的落点：调用方给的是行顶（与布局推进同一个坐标系）；
+// DrawString 的 y 是基线（SysFont.cpp 里 theY - mAscent 才是顶），这里补齐。
+static void NewOptionsDrawCjk(Sexy::Graphics* g, SysFont* theFont, int theX, int theTopY,
+	const char* theUtf8, const Sexy::Color& theColor)
+{
+	std::string aText = NewOptionsAnsiFromUtf8(theUtf8);
+	g->SetColor(theColor);
+	g->DrawString(aText, theX, theTopY + theFont->GetAscent());
+}
+
+static void NewOptionsDrawCjkCentered(Sexy::Graphics* g, SysFont* theFont, int theCenterX, int theTopY,
+	const char* theUtf8, const Sexy::Color& theColor)
+{
+	std::string aText = NewOptionsAnsiFromUtf8(theUtf8);
+	g->SetColor(theColor);
+	g->DrawString(aText, theCenterX - theFont->StringWidth(aText) / 2, theTopY + theFont->GetAscent());
+}
+
+// 列宽装不下的条目：按宽字符逐字回退、接省略号——「Swift Strikes×2」宁可截名字也
+// 不丢「×N」（层数是玩家最要看的一格），连「…×N」都放不下就整条不画。这里的每一行
+// 都保证不越过给它的宽度（2026-10-03 1:1 截图实证：无钳制的两列流会互相压字、右列
+// 冲出面板右缘被对话框边缘裁断）。
+static void NewOptionsDrawCjkFit(Sexy::Graphics* g, SysFont* theFont, int theX, int theTopY,
+	int theMaxW, const char* theMainUtf8, const char* theSuffixUtf8, const Sexy::Color& theColor)
+{
+	std::string aSuffix = NewOptionsAnsiFromUtf8(theSuffixUtf8);
+	std::string aDraw = NewOptionsAnsiFromUtf8(theMainUtf8) + aSuffix;
+	if (theFont->StringWidth(aDraw) > theMaxW)
+	{
+		std::string aEll = NewOptionsAnsiFromUtf8("…");
+		std::wstring aWide = NewOptionsWideFromUtf8(theMainUtf8);
+		aDraw.clear();
+		for (;;)
+		{
+			std::string aProbe = NewOptionsAnsiFromWide(aWide) + aEll + aSuffix;
+			if (theFont->StringWidth(aProbe) <= theMaxW)
+			{
+				aDraw = aProbe;
+				break;
+			}
+			if (aWide.empty()) break;
+			aWide.pop_back();
+		}
+	}
+	if (!aDraw.empty())
+	{
+		g->SetColor(theColor);
+		g->DrawString(aDraw, theX, theTopY + theFont->GetAscent());
+	}
+}
 
 //0x45C050
 NewOptionsDialog::NewOptionsDialog(LawnApp* theApp, bool theFromGameSelector) : 
@@ -22,6 +138,11 @@ NewOptionsDialog::NewOptionsDialog(LawnApp* theApp, bool theFromGameSelector) :
 {
     mApp = theApp;
     mFromGameSelector = theFromGameSelector;
+    mRunInfoOpen = false;
+    for (int i = 0; i < 8; i++)
+    {
+        mRunInfoWidgetVis[i] = false;
+    }
     SetColor(Dialog::COLOR_BUTTON_TEXT, Color(255, 255, 100));
     mAlmanacButton = MakeButton(NewOptionsDialog::NewOptionsDialog_Almanac, this, _S("[VIEW_ALMANAC_BUTTON]"));
     mRestartButton = MakeButton(NewOptionsDialog::NewOptionsDialog_Restart, this, _S("[RESTART_LEVEL_BUTTON]")); // @Patoke: wrong local name
@@ -204,6 +325,27 @@ void NewOptionsDialog::Draw(Sexy::Graphics* g)
         TodDrawString(g, _S("Teammate paused the game"), mWidth / 2, 112,
             FONT_DWARVENTODCRAFT18, Sexy::Color(255, 220, 100), DrawStringJustification::DS_ALIGN_CENTER);
     }
+
+    // @pvz-online: 词条查看器入口（2026-10-03）：只在闯关局出现——主菜单上的暂停面板没有"本局"。
+    if (RunInfoAvailable() && !mRunInfoOpen)
+    {
+        Sexy::Rect aEntry = RunInfoEntryRect();
+        SysFont* aFont = NewOptionsCjkFontSmall();
+        g->SetColor(Sexy::Color(0, 0, 0, 150));
+        g->FillRect(aEntry.mX, aEntry.mY, aEntry.mWidth, aEntry.mHeight);
+        g->SetColor(Sexy::Color(255, 220, 100, 170));
+        g->DrawRect(aEntry);
+        if (aFont != NULL)
+        {
+            g->SetFont(aFont);
+            NewOptionsDrawCjkCentered(g, aFont, aEntry.mX + aEntry.mWidth / 2, aEntry.mY + 4,
+                "本局词条", Sexy::Color(255, 220, 100));
+        }
+    }
+    if (mRunInfoOpen)
+    {
+        DrawRunInfo(g);
+    }
 }
 
 //0x45CF50
@@ -288,6 +430,13 @@ void NewOptionsDialog::CheckboxChecked(int theId, bool checked)
 //0x45D290
 void NewOptionsDialog::KeyDown(Sexy::KeyCode theKey)
 {
+    // @pvz-online: 查看器开着时吞掉一切键——任意键只关它（别穿透到下一条 SPACE=继续 / ESC=关面板）
+    if (mRunInfoOpen)
+    {
+        CloseRunInfo();
+        return;
+    }
+
     if (mApp->mBoard)
     {
         mApp->mBoard->DoTypingCheck(theKey);
@@ -402,4 +551,186 @@ void NewOptionsDialog::ButtonDepress(int theId)
         mApp->CheckForUpdates();
         break;
     }
+}
+
+// ── 局内词条查看器（2026-10-03 用户定案）──────────────────────────────
+// 入口画在按钮列右侧的空白竖带，点开是整屏覆盖层：模式/关卡/出怪档 + 全局增益 + 单株强化，
+// 单击任意处或按任意键关闭。数据全来自 mApp->mRunState；全局增益 id < RUN_BUFF_COUNT，
+// 单株升级 id − RUN_BUFF_COUNT 是单株表下标（表满编后 == SeedType，仍按表查，别写死）。
+
+bool NewOptionsDialog::RunInfoAvailable()
+{
+    // 主菜单上的暂停面板没有"本局"这个概念；闯关局（单机/联机都算）才有 mRunState
+    return !mFromGameSelector && mApp->IsRunMode() && mApp->mRunState != NULL;
+}
+
+Sexy::Rect NewOptionsDialog::RunInfoEntryRect()
+{
+    // 按钮列（子控件画在最上层）右边到墓碑右缘之间这条竖带：1:1 截图实测约 100px 宽
+    //（shot 495..595）。原来 13pt 六字「查看本局词条」有 185px 宽，左半段被按钮板子
+    // 盖掉、只剩右缘一截，所以改成 11pt 四字、尺寸按实际文本量出来。往左别越过 495：
+    // 按钮列右缘约在 shot 490。
+    SysFont* aFont = NewOptionsCjkFontSmall();
+    int aWidth = 96;
+    int aHeight = 30;
+    if (aFont != NULL)
+    {
+        aWidth = aFont->StringWidth(NewOptionsAnsiFromUtf8("本局词条")) + 14;
+        aHeight = aFont->GetHeight() + 10;
+    }
+    return Sexy::Rect(mWidth - 16 - aWidth, 258, aWidth, aHeight);
+}
+
+// 开/关时把八个控件整体藏起、按快照还原：覆盖层期间它们一个都不该被点到、被画出来。
+// 顺序数组两边共用，改动控件集合只改这一处的两处拷贝（Open/Close 各一份）。
+void NewOptionsDialog::OpenRunInfo()
+{
+    Sexy::Widget* aWidgets[8] =
+    {
+        mMusicVolumeSlider, mSfxVolumeSlider, mFullscreenCheckbox, mHardwareAccelerationCheckbox,
+        mAlmanacButton, mRestartButton, mBackToMainButton, mBackToGameButton,
+    };
+    for (int i = 0; i < 8; i++)
+    {
+        mRunInfoWidgetVis[i] = aWidgets[i]->mVisible;
+        aWidgets[i]->SetVisible(false);
+    }
+    mRunInfoOpen = true;
+}
+
+void NewOptionsDialog::CloseRunInfo()
+{
+    Sexy::Widget* aWidgets[8] =
+    {
+        mMusicVolumeSlider, mSfxVolumeSlider, mFullscreenCheckbox, mHardwareAccelerationCheckbox,
+        mAlmanacButton, mRestartButton, mBackToMainButton, mBackToGameButton,
+    };
+    for (int i = 0; i < 8; i++)
+    {
+        aWidgets[i]->SetVisible(mRunInfoWidgetVis[i]);
+    }
+    mRunInfoOpen = false;
+}
+
+void NewOptionsDialog::MouseDown(int x, int y, int theClickCount)
+{
+    // @pvz-online: 查看器开着时单击任意处 = 关（点开自己那一下也不再传给下面的按钮）
+    if (mRunInfoOpen)
+    {
+        mApp->PlaySample(SOUND_GRAVEBUTTON);
+        CloseRunInfo();
+        return;
+    }
+    if (RunInfoAvailable() && RunInfoEntryRect().Contains(x, y))
+    {
+        mApp->PlaySample(SOUND_GRAVEBUTTON);
+        OpenRunInfo();
+        return;
+    }
+    Dialog::MouseDown(x, y, theClickCount);
+}
+
+void NewOptionsDialog::DrawRunInfo(Sexy::Graphics* g)
+{
+    // 整屏压暗：控件已全藏，这一层把"屏幕只剩词条"说清楚；底下的背景照旧透个轮廓
+    g->SetColor(Sexy::Color(0, 0, 0, 200));
+    g->FillRect(0, 0, mWidth, mHeight);
+
+    RunState* aRun = mApp->mRunState;
+    SysFont* aFont = NewOptionsCjkFont();
+    if (aRun == NULL || aFont == NULL)
+    {
+        return;
+    }
+
+    int aPanelX = 14;
+    int aPanelY = 14;
+    int aPanelW = mWidth - 28;
+    int aPanelH = mHeight - 28;
+    g->SetColor(Sexy::Color(24, 44, 28));
+    g->FillRect(aPanelX, aPanelY, aPanelW, aPanelH);
+    g->SetColor(Sexy::Color(255, 220, 100, 160));
+    g->DrawRect(Sexy::Rect(aPanelX, aPanelY, aPanelW, aPanelH));
+
+    g->SetFont(aFont);
+    int aLineHeight = aFont->GetHeight() + 4;
+    int aCenterX = mWidth / 2;
+    int aY = aPanelY + 12;
+
+    NewOptionsDrawCjkCentered(g, aFont, aCenterX, aY, "本局词条", Sexy::Color(255, 220, 100));
+    aY += aLineHeight;
+
+    const char* aModeName = (aRun->mMode == RunState::RUN_MODE_NORMAL) ? "普通版"
+        : (aRun->mMode == RunState::RUN_MODE_QUICK) ? "快速版" : "完整版";
+    const char* aDiffName = (aRun->mDiff == RunState::RUN_DIFF_EASY) ? "轻松"
+        : (aRun->mDiff == RunState::RUN_DIFF_HIGH) ? "高压" : "标准";
+    char aSubLine[160];
+    snprintf(aSubLine, sizeof(aSubLine), "%s · 第 %d/%d 关 · 出怪：%s",
+        aModeName, aRun->GetPlayingLevelIndex() + 1, aRun->GetLevelCount(), aDiffName);
+    NewOptionsDrawCjkCentered(g, aFont, aCenterX, aY, aSubLine, Sexy::Color(200, 200, 200));
+    aY += aLineHeight + 8;
+
+    // 列几何按 1:1 截图实测定（2026-10-03）：13pt 下 CJK ≈26px、拉丁 ≈11-13px/字符，
+    // 最长全局条目「Swift Strikes×2」≈180px。列步进 190、每列可写 182——两列间 8px
+    // 空隙、右列距面板右缘 ≥10px；仍装不下的由 NewOptionsDrawCjkFit 截名保计数。
+    int aColX[2] = { aPanelX + 12, aPanelX + 12 + 190 };
+    int aColW = 182;
+    int aBottom = aPanelY + aPanelH - 14 - aLineHeight;   // 给底部提示留一行
+    Sexy::Color anEntryColor(232, 232, 232);
+
+    // 【全局增益】：名称×层数，两列流
+    NewOptionsDrawCjk(g, aFont, aColX[0], aY, "【全局增益】", Sexy::Color(150, 224, 150));
+    aY += aLineHeight;
+    int aShown = 0;
+    bool anOverflow = false;
+    for (int i = 0; i < RUN_BUFF_COUNT; i++)
+    {
+        int aStacks = aRun->GetBuffCount(i);
+        if (aStacks <= 0) continue;
+        if (aShown % 2 == 0 && aY > aBottom) { anOverflow = true; break; }
+        char aSuffix[16];
+        snprintf(aSuffix, sizeof(aSuffix), "×%d", aStacks);
+        NewOptionsDrawCjkFit(g, aFont, aColX[aShown % 2], aY, aColW,
+            GetRunBuffDef(i).mName, aSuffix, anEntryColor);
+        if (aShown % 2 == 1) aY += aLineHeight;
+        aShown++;
+    }
+    if (aShown % 2 == 1) aY += aLineHeight;
+    if (aShown == 0 || anOverflow)
+    {
+        NewOptionsDrawCjk(g, aFont, aColX[0], aY, anOverflow ? "……" : "（无）", Sexy::Color(150, 150, 150));
+        aY += aLineHeight;
+    }
+    aY += 8;
+
+    // 【单株强化】：植物名 + 词条名×层数，整幅宽单列——「植物名+英文词条名+×N」最长
+    // 约 310px（玉米加农炮 Rapid Reload×3），两列 182px 根本装不下：截图实证会互相
+    // 压字、右列冲出面板右缘被对话框边缘裁断。单列 372px 全放得下，一格一行也更易读。
+    NewOptionsDrawCjk(g, aFont, aColX[0], aY, "【单株强化】", Sexy::Color(150, 224, 150));
+    aY += aLineHeight;
+    aShown = 0;
+    anOverflow = false;
+    int aFullW = aColX[1] + aColW - aColX[0];
+    for (int i = 0; i < (int)aRun->mBuffs.size(); i++)
+    {
+        if (aRun->mBuffs[i].mId < RUN_BUFF_COUNT || aRun->mBuffs[i].mCount == 0) continue;
+        if (aY > aBottom) { anOverflow = true; break; }
+        const RunPlantUpgradeDef& aDef = GetRunPlantUpgradeDef(aRun->mBuffs[i].mId - RUN_BUFF_COUNT);
+        const char* aPlantName = GetRunPlantZhName(aDef.mPlant);
+        char aText[128];
+        char aSuffix[16];
+        snprintf(aText, sizeof(aText), "%s %s", aPlantName != NULL ? aPlantName : "?",
+            GetRunChoiceName(aRun->mBuffs[i].mId));
+        snprintf(aSuffix, sizeof(aSuffix), "×%d", (int)aRun->mBuffs[i].mCount);
+        NewOptionsDrawCjkFit(g, aFont, aColX[0], aY, aFullW, aText, aSuffix, anEntryColor);
+        aY += aLineHeight;
+        aShown++;
+    }
+    if (aShown == 0 || anOverflow)
+    {
+        NewOptionsDrawCjk(g, aFont, aColX[0], aY, anOverflow ? "……" : "（无）", Sexy::Color(150, 150, 150));
+    }
+
+    NewOptionsDrawCjkCentered(g, aFont, aCenterX, aPanelY + aPanelH - 8 - aFont->GetHeight(),
+        "单击任意处或按任意键关闭", Sexy::Color(160, 160, 160));
 }
