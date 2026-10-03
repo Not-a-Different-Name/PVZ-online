@@ -41,7 +41,6 @@ public:
 	int					mDiffCaptionY;		// "出怪难度"一行的顶部（ModText 顶对齐口径）
 	std::string			mTitle;				// UTF-8 原样（绘制走 ModText::WideFromUtf8）
 	std::string			mCardNames[3];		// 卡上名字（UTF-8 原样）
-	std::string			mCardDescs[3];		// 卡下说明（UTF-8 原样）
 	std::string			mDiffLabels[3];		// 难度按钮标签（UTF-8 原样）
 	std::string			mDiffCaption;		// 难度行的小标题（UTF-8 原样）
 	int					mTitleY;			// 标题顶部（ModText 顶对齐口径）

@@ -40,9 +40,8 @@ RunModeDialog::RunModeDialog(LawnApp* theApp, bool theShowDiff) : LawnDialog(
 	mCardNames[0] = ModText::Tr("完整版", "Full");
 	mCardNames[1] = ModText::Tr("普通版", "Normal");
 	mCardNames[2] = ModText::Tr("快速版", "Quick");
-	mCardDescs[0] = ModText::Tr("25 关 · 标准奖励", "25 levels · normal rewards");
-	mCardDescs[1] = ModText::Tr("15 关 · 奖励×2", "15 levels · rewards ×2");
-	mCardDescs[2] = ModText::Tr("10 关 · 奖励×3", "10 levels · rewards ×3");
+	// 卡下说明（几关/奖励倍率）2026-10-04 按用户要求整行删去：英文档那几句本来就
+	// 横着相撞，删干净反而清爽（档位含义靠卡名 + 文档）。
 	mTitleY = 0;
 
 	for (int i = 0; i < 3; i++)
@@ -109,7 +108,7 @@ RunModeDialog::RunModeDialog(LawnApp* theApp, bool theShowDiff) : LawnDialog(
 		+ IMAGE_BUTTON_LEFT->mHeight + 18;			// 按钮行 + 与卡片的间隔
 	if (mShowDiff)
 	{
-		// 难度行：卡下说明（12 细，基线在卡底 +19）之下再塞一行——小标题 + 间隔 + 按钮
+		// 难度行：卡片之下一行——小标题 + 间隔 + 按钮
 		anExtraY += ModText::LineHeight(ModText::GetFont(12, false)) + 6 + IMAGE_BUTTON_LEFT->mHeight + 8;
 	}
 
@@ -144,7 +143,7 @@ void RunModeDialog::Resize(int theX, int theY, int theWidth, int theHeight)
 
 	int aButtonHeight = IMAGE_BUTTON_LEFT->mHeight;
 
-	// 出怪难度行：卡下说明（12 细，基线在卡底 +19）之下、取消之上，三枚等宽横排居中
+	// 出怪难度行：卡片之下、取消之上，三枚等宽横排居中
 	if (mShowDiff)
 	{
 		ModText::Font* aCaptionFont = ModText::GetFont(12, false);
@@ -197,7 +196,7 @@ void RunModeDialog::Draw(Graphics* g)
 	}
 
 	// 三张卡片，画法照 ChallengeScreen::DrawButton：按下 +1/+1 位移，缩略图标，
-	// 边框（悬停换高亮），卡上名字 14 粗、卡下说明 12 细（GDI 中文）。
+	// 边框（悬停换高亮），卡上名字 14 粗（GDI 中文）。卡下说明 2026-10-04 已删。
 	for (int i = 0; i < 3; i++)
 	{
 		ButtonWidget* aButton = mCardButtons[i];
@@ -222,17 +221,10 @@ void RunModeDialog::Draw(Graphics* g)
 			aPosX + (CARD_W - ModText::TextWidth(aNameFont, aName)) / 2,
 			aPosY + 100 - ModText::Ascent(aNameFont),	// 原来是 DrawString 基线，换算成顶
 			aName, aTextColor, g->mClipRect);
-
-		ModText::Font* aDescFont = ModText::GetFont(12, false);
-		std::wstring aDesc = ModText::WideFromUtf8(mCardDescs[i].c_str());
-		ModText::DrawTextWide(g, aDescFont,
-			aPosX + (CARD_W - ModText::TextWidth(aDescFont, aDesc)) / 2,
-			aPosY + 134 - ModText::Ascent(aDescFont),
-			aDesc, Color(96, 72, 40), g->mClipRect);
 	}
 
 	// 难度行的小标题（三枚按钮自己画自己，走控件那套）：
-	// 卡下说明之下、居中，"多出来的是全队倍率"这层意思写在标题里。
+	// 卡片区之下、居中，"多出来的是全队倍率"这层意思写在标题里。
 	if (mShowDiff)
 	{
 		ModText::Font* aCaptionFont = ModText::GetFont(12, false);
