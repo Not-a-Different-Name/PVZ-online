@@ -94,7 +94,7 @@ enum RunPlantUpgradeId
 	RUN_UPGRADE_CABBAGEPULT,	// 卷心菜投手：投掷间隔 ×0.75/层（至多 3 层）
 	RUN_UPGRADE_FLOWERPOT,		// 花盆：血量 +100%/层（至多 2 层）
 	RUN_UPGRADE_KERNELPULT,		// 玉米投手：黄油触发概率 +25%/层（至多 3 层）
-	RUN_UPGRADE_INSTANT_COFFEE,	// 咖啡豆：唤醒产阳光 +100/层（至多 2 层）
+	RUN_UPGRADE_INSTANT_COFFEE,	// 咖啡豆：唤醒产阳光 +25/层（至多 2 层）
 	RUN_UPGRADE_GARLIC,			// 大蒜：被驱赶的僵尸减速 +5 秒/层（至多 2 层）
 	RUN_UPGRADE_UMBRELLA,		// 保护伞：血量 +50%/层（至多 3 层）
 	RUN_UPGRADE_MARIGOLD,		// 金盏花：每次多产 1 枚（每层，至多 3 层）

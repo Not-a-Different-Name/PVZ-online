@@ -63,8 +63,9 @@ const RunBuffDef& GetRunBuffDef(int theId)
 // 大嘴花：咬到后的消化倒计时 4000 帧 ×单株乘数（咬/吞动画不动）；墓碑吞噬者：吞掉墓碑
 // 成功时额外落 25 阳光/层（真吞到才给，落币法同咖啡豆）；火炬树桩：火弹伤害两个计算点
 // （溅射 DoSplashDamage 的基数、打抗火僵尸的单发分支）乘单株乘数（KindlingFireballDamage
-// helper）；咖啡豆：闯关里产阳光 4 枚 ×(1+层)（1 层 8 枚 = 200、2 层 12 枚 = 300；
-// 2026-10-03 平调：产阳光维持原值、种植冷却加长到 12 秒，升级强度再议）。
+// helper）；咖啡豆：闯关里产阳光 4+层（1 层 5 枚 = 125、2 层 6 枚 = 150；
+// 2026-10-03 平调三版：基座维持 100、每层 +25——用户定的 100/125/150；
+// 种植冷却加长到 12 秒）。
 // 批 12 2026-10-03：弹道/索敌族 3 条（仙人掌 26 / 分裂豌豆 28 / 猫尾草 43）——
 // 仙人掌：尖刺穿透（弹体 mPricklyHitsLeft 由 Fire 按层数预置、只有仙人掌的弹带；命中扣
 // 一点继续飞，并把弹体推到该僵尸身后免重撞——Projectile::DoImpact 末尾）；分裂豌豆：
@@ -125,7 +126,7 @@ static const RunPlantUpgradeDef gRunPlantUpgradeDefs[RUN_PLANT_UPGRADE_COUNT] =
 	{ SeedType::SEED_CABBAGEPULT,  "Heavy Toss",   "投掷间隔逐层 ×0.75\n（每层）",      -0.25f, 3, true, RUN_UPGRADE_KIND_RHYTHM },
 	{ SeedType::SEED_FLOWERPOT,    "Rich Soil",    "血量 +100%\n（每层）",              1.00f, 2, false, RUN_UPGRADE_KIND_HEALTH },
 	{ SeedType::SEED_KERNELPULT,   "Buttery",      "黄油触发概率 +25%\n（每层）",       0.25f, 3 },
-	{ SeedType::SEED_INSTANT_COFFEE,"Rich Roast",  "唤醒产阳光 +100\n（每层）",         0.00f, 2 },
+	{ SeedType::SEED_INSTANT_COFFEE,"Rich Roast",  "唤醒产阳光 +25\n（每层）",          0.00f, 2 },
 	{ SeedType::SEED_GARLIC,       "Pungent",      "被驱赶僵尸减速 5 秒\n（每层）",     0.00f, 2 },
 	{ SeedType::SEED_UMBRELLA,     "Canopy",       "血量 +50%\n（每层）",               0.50f, 3, false, RUN_UPGRADE_KIND_HEALTH },
 	{ SeedType::SEED_MARIGOLD,     "Golden Bloom", "每次多产 1 枚\n（每层）",           0.00f, 3 },

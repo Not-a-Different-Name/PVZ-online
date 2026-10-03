@@ -4683,9 +4683,10 @@ void Plant::DoSpecial()
             // 四枚 25 = 100（2026-10-03 平调二版：先试过三枚=75，用户定"未增强的不能太废"，
             // 基座回 100；同批种植冷却加长到 12 秒），和向日葵同一套落币方式
             // @pvz-online: 单株升级「Rich Roast」（咖啡豆，表行 SEED_INSTANT_COFFEE）：
-            // 产阳光每层 +100（+4 枚）——4 枚基数 ×(1+层)：1 层 8 枚 = 200、2 层 12 枚 = 300。
-            // 升级每层强度用户说再议；冷却侧 ×1.6（SeedPacket::WasPlanted × LawnApp::RunCoffeeBeanRefreshMul）。
-            int aSunCoinCount = 4 * (1 + mApp->RunPlantUpgradeCount(SeedType::SEED_INSTANT_COFFEE));
+            // 产阳光每层 +25（+1 枚）——4+层：1 层 5 枚 = 125、2 层 6 枚 = 150
+            //（2026-10-03 三版终值：用户定 100/125/150；二版曾按 ×(1+层) = 200/300 过陡）。
+            // 冷却侧 ×1.6（SeedPacket::WasPlanted × LawnApp::RunCoffeeBeanRefreshMul）。
+            int aSunCoinCount = 4 + mApp->RunPlantUpgradeCount(SeedType::SEED_INSTANT_COFFEE);
             for (int i = 0; i < aSunCoinCount; i++)
             {
                 mBoard->AddCoin(mX, mY, CoinType::COIN_SUN, CoinMotion::COIN_MOTION_FROM_PLANT);
