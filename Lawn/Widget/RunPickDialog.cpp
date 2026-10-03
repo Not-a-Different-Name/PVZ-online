@@ -22,13 +22,25 @@
 
 static ModText::Font* RunPickCjkFont() { return ModText::GetFont(13, false); }
 
-// 折行时的最小单元：ASCII 连续段算一个整体——「×0.75」「20%」这种不许在中间断开
-// （2026-10-03 玩家截图里「0.75」被拆成两行），中文照旧一字一个（宽字符天然 1 个）。
+// 折行时的最小单元：中文一字一个；空格独立成单元（英文在空格处断行）；英文单词
+// 不打散——「0.75/stack」「20%」整着走，「×0.75」的 × 归到后一个词里一起走
+// （2026-10-03 玩家截图里「0.75」被拆成两行是旧口径的毛病）。
+// 2026-10-04：旧口径把"连续 ASCII"当一个单元——纯英文句子整句都是 ASCII，成了一句
+// 放不下的巨型单元、被硬放进位（wrap 里"一个单元比整列还宽：硬放"），英文档的说明
+// 就是这么横穿邻列叠在一起的。
 static int RunPickBreakUnit(const std::wstring& theText, int theIndex)
 {
-	if (theText[theIndex] >= 0x80) return 1;
+	wchar_t aChar = theText[theIndex];
+	if (aChar == L' ') return 1;
+	if (aChar >= 0x80 && aChar != 0x00D7) return 1;	// ×（0xD7）例外：随后面的词走
 	int anEnd = theIndex;
-	while (anEnd < (int)theText.size() && theText[anEnd] < 0x80) anEnd++;
+	while (anEnd < (int)theText.size())
+	{
+		wchar_t aCh = theText[anEnd];
+		if (aCh == L' ') break;
+		if (aCh >= 0x80 && aCh != 0x00D7) break;
+		anEnd++;
+	}
 	return anEnd - theIndex;
 }
 
@@ -185,12 +197,18 @@ RunPickDialog::RunPickDialog(LawnApp* theApp, RunState* theRun) : LawnDialog(
 		if (aWidth > aTargetColumn) aTargetColumn = aWidth;
 	}
 	aTargetColumn += 12; // 两侧各留一点白
+	// 列宽目标封顶：英文说明是长句（"Sky sun falls 20% faster, up to 4 stacks"），
+	// 按显式行宽推目标会一路把弹窗顶着长到整屏宽——封顶后交给折行处理
+	// （2026-10-04 用户反馈：英文档这个框大到快出屏）。
+	if (aTargetColumn > 220) aTargetColumn = 220;
 	int aFitLineHeight = ModText::LineHeight(aCjkFont) + 3;
 	// 底部是两行按钮（三张卡一行、最底「放弃」单独一行）：最小高与上限高都比原来多让
 	// 出一行（按钮高 + 6，与 Resize 里三张卡那一行上移的量是同一笔账）。卡片区口径不变。
 	int aExtraHeight = IMAGE_BUTTON_LEFT->mHeight + 6;
 	CalcSize(430, 150 + aExtraHeight);
-	for (int i = 1; i <= 8; i++)
+	// 宽的上限从 740 收到 580（2026-10-04）：说明改按词折行后，不再需要为一句长文
+	// 把弹窗拉满整屏——到 580 就收手，多出来的行交给折行。
+	for (int i = 1; i <= 6; i++)
 	{
 		int aMaxLines = 1;
 		for (int j = 0; j < RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT; j++)
@@ -199,10 +217,10 @@ RunPickDialog::RunPickDialog(LawnApp* theApp, RunState* theRun) : LawnDialog(
 			if (aLines > aMaxLines) aMaxLines = aLines;
 		}
 		int aNeededArea = (aMaxLines + 2) * aFitLineHeight + 6;
-		bool aWidthDone = mColumnWidth >= aTargetColumn || mWidth >= 740;
+		bool aWidthDone = mColumnWidth >= aTargetColumn || mWidth >= 580;
 		bool aHeightDone = mAreaHeight >= aNeededArea || mHeight >= 460 + aExtraHeight;
 		if (aWidthDone && aHeightDone) break;
-		CalcSize(430 + i * 30, 150 + i * 20 + aExtraHeight);
+		CalcSize(430 + i * 20, 150 + i * 20 + aExtraHeight);
 	}
 	mApp->CenterDialog(this, mWidth, mHeight);
 	mClip = false;
