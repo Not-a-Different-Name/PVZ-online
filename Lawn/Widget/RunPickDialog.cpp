@@ -93,21 +93,27 @@ static int RunPickDescWidth(SysFont* theFont, const char* theUtf8)
 	return aMax;
 }
 
-// 中文没有空格，WriteWordWrapped 那套按词断行的排版用不了：自己量着宽度断
-// （行内的显式 \n 先拆段）。断点不会超列宽，所以文字不会再压到按钮上；
-// 整块垂直居中、逐行水平居中。
-static void RunPickDrawCjkLines(Graphics* g, SysFont* theFont, const Rect& theRect, const char* theUtf8)
+// 折行时的最小单元：ASCII 连续段算一个整体——「×0.75」「20%」这种不许在中间断开
+// （2026-10-03 玩家截图里「0.75」被拆成两行），中文照旧一字一个。
+static int RunPickBreakUnit(const std::string& theText, int theIndex)
 {
-	if (theFont == NULL || theRect.mWidth <= 0) return;
-	std::string aText = RunPickAnsiFromUtf8(theUtf8);
+	if (((unsigned char)theText[theIndex]) >= 0x80) return RunPickAnsiUnit(theText, theIndex);
+	int anEnd = theIndex;
+	while (anEnd < (int)theText.size() && ((unsigned char)theText[anEnd]) < 0x80) anEnd++;
+	return anEnd - theIndex;
+}
 
-	std::vector<std::string> aLines;
+// 断行的唯一实现（显式 \n 分段 + 按列宽折行）：绘制与面积测算共用同一份——
+// 2026-10-03 的文本重叠就是两边各算各的、算的比画的少两行算出来的。
+static void RunPickWrapLines(SysFont* theFont, const std::string& theText, int theWidth, std::vector<std::string>& theLines)
+{
+	if (theWidth <= 0) theWidth = 1;
 	int aStart = 0;
 	while (true)
 	{
-		int aBreak = (int)aText.find('\n', aStart);
-		if (aBreak < 0) aBreak = (int)aText.size();
-		std::string aPara = aText.substr(aStart, aBreak - aStart);
+		int aBreak = (int)theText.find('\n', aStart);
+		if (aBreak < 0) aBreak = (int)theText.size();
+		std::string aPara = theText.substr(aStart, aBreak - aStart);
 		int aPos = 0;
 		while (aPos < (int)aPara.size())
 		{
@@ -115,22 +121,42 @@ static void RunPickDrawCjkLines(Graphics* g, SysFont* theFont, const Rect& theRe
 			int aCursor = aPos;
 			while (aCursor < (int)aPara.size())
 			{
-				int aNext = aCursor + RunPickAnsiUnit(aPara, aCursor);
-				if (aFit > aPos && theFont->StringWidth(aPara.substr(aPos, aNext - aPos)) > theRect.mWidth) break;
+				int aNext = aCursor + RunPickBreakUnit(aPara, aCursor);
+				if (aFit > aPos && theFont->StringWidth(aPara.substr(aPos, aNext - aPos)) > theWidth) break;
 				aFit = aNext;
 				aCursor = aNext;
 			}
-			if (aFit == aPos) aFit = aPos + RunPickAnsiUnit(aPara, aPos); // 一个字比整列还宽：硬放
+			if (aFit == aPos) aFit = aPos + RunPickBreakUnit(aPara, aPos); // 一个单元比整列还宽：硬放
 			while (aFit < (int)aPara.size() && RunPickNoLineStart(aPara, aFit))
 			{
-				aFit += RunPickAnsiUnit(aPara, aFit);
+				aFit += RunPickBreakUnit(aPara, aFit);
 			}
-			aLines.push_back(aPara.substr(aPos, aFit - aPos));
+			theLines.push_back(aPara.substr(aPos, aFit - aPos));
 			aPos = aFit;
 		}
-		if (aBreak >= (int)aText.size()) break;
+		if (aBreak >= (int)theText.size()) break;
 		aStart = aBreak + 1;
 	}
+}
+
+// 这条说明在给定列宽下画出来是几行——对话框的面积按它算（显式 \n 与折行一格不落）。
+static int RunPickCountLines(SysFont* theFont, const char* theUtf8, int theWidth)
+{
+	if (theFont == NULL) return 1;
+	std::vector<std::string> aLines;
+	RunPickWrapLines(theFont, RunPickAnsiFromUtf8(theUtf8), theWidth, aLines);
+	return (int)aLines.size() > 0 ? (int)aLines.size() : 1;
+}
+
+// 中文没有空格，WriteWordWrapped 那套按词断行的排版用不了：自己量着宽度断
+// （行内的显式 \n 先拆段）。断点不会超列宽，所以文字不会再压到按钮上；
+// 整块垂直居中、逐行水平居中。
+static void RunPickDrawCjkLines(Graphics* g, SysFont* theFont, const Rect& theRect, const char* theUtf8)
+{
+	if (theFont == NULL || theRect.mWidth <= 0) return;
+
+	std::vector<std::string> aLines;
+	RunPickWrapLines(theFont, RunPickAnsiFromUtf8(theUtf8), theRect.mWidth, aLines);
 
 	int aLineHeight = theFont->GetHeight() + 3;
 	int aY = theRect.mY + (theRect.mHeight - (int)aLines.size() * aLineHeight) / 2;
@@ -181,32 +207,47 @@ RunPickDialog::RunPickDialog(LawnApp* theApp, RunState* theRun) : LawnDialog(
 
 	mTallBottom = true;
 	mVerticalCenterText = false;
-	// 尺寸由文案反推：量出全部条目里最宽的一行（三列按它对齐）和最多行数（列高按
-	// 描述行数 + 标题行 + 「已有」行推）——植物屏和增益屏于是同一个尺寸，以后改文案
-	// 也不用回来调数字。CalcSize 只吃"额外宽高"、标题宽度它自己会加，所以算完从
-	// Resize 拿回真实布局，还不够就再要一点（不依赖任何贴图尺寸）。
+	// 尺寸由文案反推：列宽照最宽的一行（三列按它对齐），列高照"最多的那条说明在当前
+	// 列宽下画出来有几行"——RunPickCountLines 走的就是绘制端同一份断行，不再按显式 \n
+	// 行数估（2026-10-03 玩家截图：文案折行后比估算多两行，说明压住了【植物名】和
+	// 「已有 x/N」）。再加标题行与「已有」行。宽不够就长一轮、高不够也长一轮，两个都
+	// 够了才收手；到顶了也收手（剩下的靠绘制端断行兜住，宁可折行不再叠字）。以后改
+	// 文案不用回来调数字。
 	SysFont* aCjkFont = RunPickCjkFont();
 	int aTargetColumn = 0;
-	int aMaxDescLines = 1;
 	for (int i = 0; i < RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT; i++)
 	{
-		const char* aDesc = GetRunChoiceDesc(i);
-		int aWidth = RunPickDescWidth(aCjkFont, aDesc);
+		int aWidth = RunPickDescWidth(aCjkFont, GetRunChoiceDesc(i));
 		if (aWidth > aTargetColumn) aTargetColumn = aWidth;
-		int aLines = 1;
-		for (const char* aCursor = aDesc; *aCursor != '\0'; aCursor++)
-		{
-			if (*aCursor == '\n') aLines++;
-		}
-		if (aLines > aMaxDescLines) aMaxDescLines = aLines;
 	}
 	aTargetColumn += 12; // 两侧各留一点白
 	int aFitLineHeight = (aCjkFont != NULL ? aCjkFont->GetHeight() : mLinesFont->GetHeight()) + 3;
-	// 列高：描述行数 + 标题行（单株的【植物名】）+「已有 x/N」行 + 一点余量
-	int aTargetArea = (aMaxDescLines + 2) * aFitLineHeight + 4;
 	CalcSize(430, 150);
-	for (int i = 1; i <= 6 && (mColumnWidth < aTargetColumn || mAreaHeight < aTargetArea) && mWidth < 740 && mHeight < 460; i++)
+	for (int i = 1; i <= 8; i++)
 	{
+		int aMaxLines = 1;
+		for (int j = 0; j < RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT; j++)
+		{
+			const char* aDesc = GetRunChoiceDesc(j);
+			int aLines;
+			if (aCjkFont != NULL)
+			{
+				aLines = RunPickCountLines(aCjkFont, aDesc, mColumnWidth - 4);
+			}
+			else
+			{
+				aLines = 1;
+				for (const char* aCursor = aDesc; *aCursor != '\0'; aCursor++)
+				{
+					if (*aCursor == '\n') aLines++;
+				}
+			}
+			if (aLines > aMaxLines) aMaxLines = aLines;
+		}
+		int aNeededArea = (aMaxLines + 2) * aFitLineHeight + 6;
+		bool aWidthDone = mColumnWidth >= aTargetColumn || mWidth >= 740;
+		bool aHeightDone = mAreaHeight >= aNeededArea || mHeight >= 460;
+		if (aWidthDone && aHeightDone) break;
 		CalcSize(430 + i * 30, 150 + i * 20);
 	}
 	mApp->CenterDialog(this, mWidth, mHeight);
@@ -298,9 +339,11 @@ void RunPickDialog::Draw(Graphics* g)
 			// 字体、说明文案多数也不含植物名——不标出来分不清这条 buff 是哪株的。
 			const char* aPlantName = GetRunChoicePlantName(aBuffId);
 			bool aHasHead = (aFont != NULL && aPlantName != NULL);
-			// 说明区从底边让出一行给「已有 x/N」（方案 §2.5 定案 Q6：说明带「至多 N 层」+
-			// 这里报已有层数），顶边也让一行给标题行，免得它们和说明叠在一起。
-			Rect aRect(mColumnX[i] + 2, mAreaTop, mColumnWidth - 4,
+			// 说明区：顶边整行让给【植物名】（aRect 往下挪一行再居中——让出的行不参与
+			// 居中，说明就不会往上顶到标题上）、底边整行让给「已有 x/N」。列高在构造时
+			// 按真实折行数算过，正常放得下；真到尺寸上限也只会往下压「已有」一行，
+			// 2026-10-03 那种标题/说明/已有三头叠字不会再出现。
+			Rect aRect(mColumnX[i] + 2, mAreaTop + (aHasHead ? aLineHeight : 0), mColumnWidth - 4,
 				mAreaHeight - aLineHeight - 4 - (aHasHead ? aLineHeight : 0));
 			if (aFont != NULL)
 			{
