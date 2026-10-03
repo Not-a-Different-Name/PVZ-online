@@ -31,8 +31,9 @@ const RunBuffDef& GetRunBuffDef(int theId)
 // 顺序纪律（方案 §2.1/Q7）：按 SeedType 升序排，前 5 条（SeedType 0..4）永远留在原位；
 // 新增条目插在自己的 SeedType 位次上。批 1 的 5 条是追加（SeedType 都大于 4）；批 2 的
 // 4 条插进中段（双发 7 / 杨桃 29 / 卷心菜 32 / 机枪 40——射速族共用 Plant.cpp:956 的节奏
-// 计数器，全局「急袭」同挂点），表内下标随之右移：批 1 档里 id 13..17 的层数会错位到
-// 别的植物（开发期接受，见方案 §六 批 2）。
+// 计数器，全局「急袭」同挂点）；批 3 的 3 条也插中段（阳光菇 9 / 金盏花 38 / 双子向日葵
+// 41——产出族，UpdateProductionPlant 各分支加「每层多落一枚」循环）。表内下标随插入右移：
+// 批 2 档里 id 14..21 的层数会错位到别的植物（批 1 档 13..17 同理；开发期接受，见方案 §六）。
 // 血量型条目（批 1 的 5 条 + 坚果墙）不用挂点——Plant.cpp:484 对任意株统一乘
 // RunPlantUpgradeMul(mSeedType)，表里加一行就生效（南瓜头护罩血已查证同走 mPlantHealth）。
 static const RunPlantUpgradeDef gRunPlantUpgradeDefs[RUN_PLANT_UPGRADE_COUNT] =
@@ -43,6 +44,7 @@ static const RunPlantUpgradeDef gRunPlantUpgradeDefs[RUN_PLANT_UPGRADE_COUNT] =
 	{ SeedType::SEED_WALLNUT,      "Thick Shell",  "坚果墙血量 +50%\n（每层）",         0.50f },
 	{ SeedType::SEED_POTATOMINE,   "Deep Charge",  "土豆雷伤害 +40%\n（每层）",         0.40f },
 	{ SeedType::SEED_REPEATER,     "Quick Rhythm", "射击间隔逐层 ×0.75\n（每层）",      -0.25f, 3, true },
+	{ SeedType::SEED_SUNSHROOM,    "Bright Cap",   "每次多产 1 阳光\n（每层）",         0.00f, 3 },
 	{ SeedType::SEED_LILYPAD,      "Tough Pad",    "血量 +100%\n（每层）",              1.00f, 2 },
 	{ SeedType::SEED_TALLNUT,      "Iron Shell",   "血量 +50%\n（每层）",               0.50f, 3 },
 	{ SeedType::SEED_STARFRUIT,    "Star Rain",    "射击间隔逐层 ×0.75\n（每层）",      -0.25f, 3, true },
@@ -50,7 +52,9 @@ static const RunPlantUpgradeDef gRunPlantUpgradeDefs[RUN_PLANT_UPGRADE_COUNT] =
 	{ SeedType::SEED_CABBAGEPULT,  "Heavy Toss",   "投掷间隔逐层 ×0.75\n（每层）",      -0.25f, 3, true },
 	{ SeedType::SEED_FLOWERPOT,    "Rich Soil",    "血量 +100%\n（每层）",              1.00f, 2 },
 	{ SeedType::SEED_UMBRELLA,     "Canopy",       "血量 +50%\n（每层）",               0.50f, 3 },
+	{ SeedType::SEED_MARIGOLD,     "Golden Bloom", "每次多产 1 枚\n（每层）",           0.00f, 3 },
 	{ SeedType::SEED_GATLINGPEA,   "Rapid Fire",   "射击间隔逐层 ×0.75\n（每层）",      -0.25f, 3, true },
+	{ SeedType::SEED_TWINSUNFLOWER, "Twin Bloom",  "每次多产 1 阳光\n（每层）",         0.00f, 3 },
 };
 
 const RunPlantUpgradeDef& GetRunPlantUpgradeDef(int theIndex)

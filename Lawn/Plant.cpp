@@ -1045,14 +1045,11 @@ void Plant::UpdateProductionPlant()
 
         if (mSeedType == SeedType::SEED_SUNSHROOM)
         {
-            if (mState == PlantState::STATE_SUNSHROOM_SMALL)
-            {
-                mBoard->AddCoin(mX, mY, CoinType::COIN_SMALLSUN, CoinMotion::COIN_MOTION_FROM_PLANT);
-            }
-            else
-            {
-                mBoard->AddCoin(mX, mY, CoinType::COIN_SUN, CoinMotion::COIN_MOTION_FROM_PLANT);
-            }
+            // @pvz-online: 单株升级「多产」：每层多落一枚（小阳光阶段多落的还是小阳光）
+            CoinType aSunType = (mState == PlantState::STATE_SUNSHROOM_SMALL) ? CoinType::COIN_SMALLSUN : CoinType::COIN_SUN;
+            mBoard->AddCoin(mX, mY, aSunType, CoinMotion::COIN_MOTION_FROM_PLANT);
+            for (int i = 0, aExtra = mApp->RunPlantUpgradeCount(SeedType::SEED_SUNSHROOM); i < aExtra; i++)
+                mBoard->AddCoin(mX, mY, aSunType, CoinMotion::COIN_MOTION_FROM_PLANT);
         }
         else if (mSeedType == SeedType::SEED_SUNFLOWER)
         {
@@ -1065,10 +1062,16 @@ void Plant::UpdateProductionPlant()
         {
             mBoard->AddCoin(mX, mY, CoinType::COIN_SUN, CoinMotion::COIN_MOTION_FROM_PLANT);
             mBoard->AddCoin(mX, mY, CoinType::COIN_SUN, CoinMotion::COIN_MOTION_FROM_PLANT);
+            // @pvz-online: 单株升级「多产」：每轮多落一枚（口径 = 每轮 +1，不是两枚各 +1）
+            for (int i = 0, aExtra = mApp->RunPlantUpgradeCount(SeedType::SEED_TWINSUNFLOWER); i < aExtra; i++)
+                mBoard->AddCoin(mX, mY, CoinType::COIN_SUN, CoinMotion::COIN_MOTION_FROM_PLANT);
         }
         else if (mSeedType == SeedType::SEED_MARIGOLD)
         {
             mBoard->AddCoin(mX, mY, (Sexy::Rand(100) < 10) ? CoinType::COIN_GOLD : CoinType::COIN_SILVER, CoinMotion::COIN_MOTION_COIN);
+            // @pvz-online: 单株升级「多产」：每层多落一枚（金/银按各自 10% 独立摇）
+            for (int i = 0, aExtra = mApp->RunPlantUpgradeCount(SeedType::SEED_MARIGOLD); i < aExtra; i++)
+                mBoard->AddCoin(mX, mY, (Sexy::Rand(100) < 10) ? CoinType::COIN_GOLD : CoinType::COIN_SILVER, CoinMotion::COIN_MOTION_COIN);
         }
 
         if (mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_BIG_TIME)
