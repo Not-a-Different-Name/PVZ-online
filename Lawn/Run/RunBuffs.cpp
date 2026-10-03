@@ -35,8 +35,11 @@ const RunBuffDef& GetRunBuffDef(int theId)
 // 产出族，UpdateProductionPlant 各分支加「每层多落一枚」循环）；批 4 的 2 条（火爆辣椒
 // 20 / 海蘑菇 24——种植冷却，SeedPacket.cpp:884 同挂点）；批 5 的 3 条（毁灭菇 15 / 窝瓜
 // 17 / 三线 18——毁灭菇照樱桃的半径乘法，窝瓜走 DoSquashDamage 里 ApplyButter 眩晕，三线
-// 纯表：每道一次 Fire，Plant.cpp:4790 的多发循环按株取数）。表内下标随插入右移：批 4
-// 档里 id 16..26 的层数会错位到别的植物（批 1/批 2/批 3 档同理；开发期接受，见方案 §六）。
+// 纯表：每道一次 Fire，Plant.cpp:4790 的多发循环按株取数）；批 6 的 2 条（寒冰射手 5 /
+// 寒冰菇 14——寒冰射手：雪豆命中后在 Projectile::DoImpact 单体分支把 ApplyChill 挂上的
+// 1000 帧按单株乘数放宽（==1000 认出、更长的减速不动）；寒冰菇：Zombie::HitIceTrap 三档
+// 冻结各 +200 帧/层，唯一调用者就是 IceZombies）。表内下标随插入右移：批 4
+// 档里 id 16..26、批 5 档里 15/17/18 的层数会错位到别的植物（批 1/批 2/批 3 档同理；开发期接受，见方案 §六）。
 // 血量型条目（批 1 的 5 条 + 坚果墙）不用挂点——Plant.cpp:484 对任意株统一乘
 // RunPlantUpgradeMul(mSeedType)，表里加一行就生效（南瓜头护罩血已查证同走 mPlantHealth）。
 static const RunPlantUpgradeDef gRunPlantUpgradeDefs[RUN_PLANT_UPGRADE_COUNT] =
@@ -46,8 +49,10 @@ static const RunPlantUpgradeDef gRunPlantUpgradeDefs[RUN_PLANT_UPGRADE_COUNT] =
 	{ SeedType::SEED_CHERRYBOMB,   "Wide Blast",   "樱桃炸弹爆炸范围 +25%\n（每层）",   0.25f },
 	{ SeedType::SEED_WALLNUT,      "Thick Shell",  "坚果墙血量 +50%\n（每层）",         0.50f },
 	{ SeedType::SEED_POTATOMINE,   "Deep Charge",  "土豆雷伤害 +40%\n（每层）",         0.40f },
+	{ SeedType::SEED_SNOWPEA,      "Frostbite",    "命中减速时长 +30%\n（每层）",       0.30f, 3 },
 	{ SeedType::SEED_REPEATER,     "Quick Rhythm", "射击间隔逐层 ×0.75\n（每层）",      -0.25f, 3, true },
 	{ SeedType::SEED_SUNSHROOM,    "Bright Cap",   "每次多产 1 阳光\n（每层）",         0.00f, 3 },
+	{ SeedType::SEED_ICESHROOM,    "Deep Freeze",  "全场冰冻 +2 秒\n（每层）",          0.00f, 2 },
 	{ SeedType::SEED_DOOMSHROOM,   "Annihilation", "爆炸范围 +25%\n（每层）",           0.25f, 2 },
 	{ SeedType::SEED_LILYPAD,      "Tough Pad",    "血量 +100%\n（每层）",              1.00f, 2 },
 	{ SeedType::SEED_SQUASH,       "Heavy Squash", "压击处僵尸眩晕 +2 秒\n（每层）",    0.00f, 2 },

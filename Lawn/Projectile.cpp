@@ -833,6 +833,16 @@ void Projectile::DoImpact(Zombie* theZombie)
 		// @pvz-online: 闯关 buff「火力」：单体命中伤害按倍率放大（溅射那条同上，在 DoSplashDamage 里）。
 		int aDamage = (int)(GetProjectileDef().mDamage * mApp->RunBuffMul(RUN_BUFF_FIREPOWER) + 0.5f);
 		theZombie->TakeDamage(aDamage, aDamageFlags);
+
+		// @pvz-online: 单株升级「Frostbite」（寒冰射手，表行 SEED_SNOWPEA）：命中减速时长
+		// +30%/层（乘数型、至多 3 层）。减速本体在 TakeDamage 的 DAMAGE_FREEZE 分支
+		// （Zombie::ApplyChill 把 mChilledCounter 抬到 1000 帧）；这里在雪豆命中后按单株
+		// 乘数放宽。==1000 认出「这一击刚挂上标准减速」：更长的（冰道/寒冰菇 2000）不动，
+		// 保持 max 语义不变短；冰雪瓜走上面的溅射分支、寒冰菇走 HitIceTrap，都到不了这。
+		if (mProjectileType == ProjectileType::PROJECTILE_SNOWPEA && theZombie->mChilledCounter == 1000)
+		{
+			theZombie->mChilledCounter = (int)(1000 * mApp->RunPlantUpgradeMul(SeedType::SEED_SNOWPEA) + 0.5f);
+		}
 	}
 
 	float aLastPosX = mPosX - mVelX;
