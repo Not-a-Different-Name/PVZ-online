@@ -33,6 +33,9 @@ public:
 	static const int	RUN_SEED_SLOTS		= 8;	// 种子槽固定 8 格（覆盖原版 mPurchases+6 规则）
 	static const int	RUN_POOL_MAX		= 48;	// 卡池上限 = 全部植物
 	static const int	RUN_CHOICES			= 3;	// 一屏摆几张卡
+	// @pvz-online: mBuffChoices 的空缺哨兵（方案 §2.4 的防御守卫）：候选不足三条时多出来的
+	// 格子填它——不是合法 id（全局 8 + 单株 48 都够不到），选择函数与屏上按钮一律忽略。
+	static const unsigned short RUN_BUFF_CHOICE_NONE = 0xFFFF;
 
 	// @pvz-online: 出怪编排旋钮（M4-a，用户定案）：点数不封顶、数量封顶；点数多就出强僵尸。
 	// 用在 Board::PickZombieWaves / Board::PickZombieType 的闯关分支，调平衡只动这组数。
@@ -57,7 +60,7 @@ public:
 	int							mPendingPlantPicks;		// 还欠几株新植物（一屏只选一株，选完减一）
 	int							mPendingBuffPicks;		// 还欠几个增益
 	SeedType					mPlantChoices[RUN_CHOICES];
-	unsigned short				mBuffChoices[RUN_CHOICES];
+	unsigned short				mBuffChoices[RUN_CHOICES];	// 三条候选 id（缺格 = RUN_BUFF_CHOICE_NONE）
 	unsigned int				mPickCounter;			// 抽过几次：同一局里每屏的候选都不一样
 	unsigned int				mPickSalt;				// 本机随机盐：StartNew/Load 时各生成一次，进程内不变——
 														// 同一局里重开同关还是同一组三条（防刷），换进程/换机器就不同

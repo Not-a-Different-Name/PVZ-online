@@ -9,6 +9,7 @@
 #include "../../ConstEnums.h"
 #include "graphics/ImageFont.h"
 #include "graphics/SysFont.h"
+#include <cstdio>
 #include <vector>
 
 // ── 中文描述这一档 ──────────────────────────────────────────────────────
@@ -160,10 +161,22 @@ RunPickDialog::RunPickDialog(LawnApp* theApp, RunState* theRun) : LawnDialog(
 	{
 		mColumnX[i] = 0;
 		// 按钮上就是这株植物 / 这条增益的名字——名字和卡面对得上，玩家才知道自己点的是哪张
-		SexyString aLabel = mPlantPick
-			? Plant::GetNameString(theRun->mPlantChoices[i])
-			: SexyString(GetRunChoiceName(theRun->mBuffChoices[i]));
+		SexyString aLabel;
+		if (mPlantPick)
+		{
+			aLabel = Plant::GetNameString(theRun->mPlantChoices[i]);
+		}
+		else if (theRun->mBuffChoices[i] != RunState::RUN_BUFF_CHOICE_NONE)
+		{
+			aLabel = SexyString(GetRunChoiceName(theRun->mBuffChoices[i]));
+		}
 		mChoiceButtons[i] = MakeButton(RunPickDialog_Choice0 + i, this, aLabel);
+		// 空缺格（防御，方案 §2.4）：空着不画、不可点——置灰兜底；逻辑层 TakeBuffChoice
+		// 还会再忽略一次哨兵，双保险。
+		if (!mPlantPick && theRun->mBuffChoices[i] == RunState::RUN_BUFF_CHOICE_NONE)
+		{
+			mChoiceButtons[i]->mDisabled = true;
+		}
 	}
 
 	mTallBottom = true;
@@ -261,21 +274,40 @@ void RunPickDialog::Draw(Graphics* g)
 		}
 		else
 		{
+			unsigned short aBuffId = mRun->mBuffChoices[i];
+			// 空缺格（防御，方案 §2.4）：空着不画——这一列什么都不出现
+			if (aBuffId == RunState::RUN_BUFF_CHOICE_NONE) continue;
+
 			// 效果说明贴着各自的按钮画：三列各说各的，不用让人去猜哪句话配哪个名字。
 			// 中文走 SysFont（位图字体没有中文字形），按列宽断行、逐行居中。
-			Rect aRect(mColumnX[i] + 2, mAreaTop, mColumnWidth - 4, mAreaHeight);
 			SysFont* aFont = RunPickCjkFont();
+			int aLineHeight = (aFont != NULL ? aFont->GetHeight() : mLinesFont->GetHeight()) + 3;
+			// 说明区从底边让出一行给「已有 x/N」（方案 §2.5 定案 Q6：说明带「至多 N 层」+
+			// 这里报已有层数），免得长说明和它叠在一起。
+			Rect aRect(mColumnX[i] + 2, mAreaTop, mColumnWidth - 4, mAreaHeight - aLineHeight - 4);
 			if (aFont != NULL)
 			{
 				g->SetFont(aFont);
 				g->SetColor(mColors[Dialog::COLOR_LINES]);
-				RunPickDrawCjkLines(g, aFont, aRect, GetRunChoiceDesc(mRun->mBuffChoices[i]));
+				RunPickDrawCjkLines(g, aFont, aRect, GetRunChoiceDesc(aBuffId));
+
+				// 「已有 x/N」：封顶条目带 /N；无限条目只报已有层数。画在卡片区底边、逐列居中。
+				int aOwned = mRun->GetBuffCount(aBuffId);
+				int aCap = GetRunChoiceMaxStacks(aBuffId);
+				char aCountUtf8[64];
+				if (aCap > 0) snprintf(aCountUtf8, sizeof(aCountUtf8), "已有 %d/%d", aOwned, aCap);
+				else snprintf(aCountUtf8, sizeof(aCountUtf8), "已有 %d", aOwned);
+				std::string aCountText = RunPickAnsiFromUtf8(aCountUtf8);
+				int aCountY = mAreaTop + mAreaHeight - aLineHeight;
+				if (aCountY < mAreaTop) aCountY = mAreaTop;
+				int aCountX = mColumnX[i] + (mColumnWidth - aFont->StringWidth(aCountText)) / 2;
+				g->DrawString(aCountText, aCountX, aCountY + aFont->GetAscent());
 			}
 			else
 			{
 				// 连系统字体都建不出来时的兜底：照旧走位图字体（中文会缺字形，但不崩）
 				g->SetFont(mLinesFont);
-				WriteWordWrapped(g, aRect, SexyString(GetRunChoiceDesc(mRun->mBuffChoices[i])),
+				WriteWordWrapped(g, aRect, SexyString(GetRunChoiceDesc(aBuffId)),
 					mLinesFont->GetLineSpacing() + mLineSpacingOffset, mTextAlign);
 			}
 		}

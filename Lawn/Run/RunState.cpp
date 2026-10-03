@@ -178,18 +178,42 @@ void RunState::RollChoices()
 	else
 	{
 		// 增益：全局 8 条 + 单株升级混池抽 3 条互不重复。单株的只收"卡池里已经有这株"的
-		// （设计文档：只对已拥有的植物出）。全局 8 条是保底，池子恒 ≥ 8 条。
-		// 同名跨屏可以再来（叠层，见 BuffStack）。
+		// （设计文档：只对已拥有的植物出）。同名跨屏可以再来（叠层，见 BuffStack）；
+		// 但叠到 mMaxStacks 的条目不再进候选（0 = 无限，方案 §2.2）——到顶就抽不中你。
 		int aCandidates[RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT];
 		int aCount = 0;
-		for (int i = 0; i < RUN_BUFF_COUNT; i++) aCandidates[aCount++] = i;
+		for (int i = 0; i < RUN_BUFF_COUNT; i++)
+		{
+			int aCap = GetRunChoiceMaxStacks(i);
+			if (aCap > 0 && GetBuffCount(i) >= aCap) continue;
+			aCandidates[aCount++] = i;
+		}
 		for (int i = 0; i < RUN_PLANT_UPGRADE_COUNT; i++)
 		{
-			if (HasPlant(GetRunPlantUpgradeDef(i).mPlant)) aCandidates[aCount++] = RUN_BUFF_COUNT + i;
+			int aId = RUN_BUFF_COUNT + i;
+			if (!HasPlant(GetRunPlantUpgradeDef(i).mPlant)) continue;
+			int aCap = GetRunChoiceMaxStacks(aId);
+			if (aCap > 0 && GetBuffCount(aId) >= aCap) continue;
+			aCandidates[aCount++] = aId;
+		}
+
+		// 防御守卫（方案 §2.4）：无限条目兜底，池子正常恒 ≥ 3 条；真抽干时缺格填哨兵、
+		// 一条不剩就把这次欠的增益屏作废——空池进 MTRand::Next(0) 是整数除零，直接崩。
+		if (aCount <= 0)
+		{
+			for (int i = 0; i < RUN_CHOICES; i++) mBuffChoices[i] = RUN_BUFF_CHOICE_NONE;
+			mPendingBuffPicks = 0;
+			TodLog("[run] the buff pool is dry - the owed buff picks are voided");
+			return;
 		}
 
 		for (int i = 0; i < RUN_CHOICES; i++)
 		{
+			if (aCount <= 0)
+			{
+				mBuffChoices[i] = RUN_BUFF_CHOICE_NONE;
+				continue;
+			}
 			int aPick = (int)aRNG.Next((unsigned long)aCount);
 			mBuffChoices[i] = (unsigned short)aCandidates[aPick];
 			aCandidates[aPick] = aCandidates[--aCount];
@@ -217,6 +241,8 @@ void RunState::TakeBuffChoice(int theIndex)
 	if (theIndex < 0 || theIndex >= RUN_CHOICES || mPendingBuffPicks <= 0) return;
 
 	unsigned short aId = mBuffChoices[theIndex];
+	// 空缺格（防御，方案 §2.4）：屏上按钮本就画成不可点；真点到这里也不欠账、不加层。
+	if (aId == RUN_BUFF_CHOICE_NONE) return;
 	for (size_t i = 0; i < mBuffs.size(); i++)
 	{
 		if (mBuffs[i].mId == aId)

@@ -1678,6 +1678,9 @@ void LawnApp::UpdateRunPick()
 		{
 			if (GetDialog(Dialogs::DIALOG_RUN_PICK) != nullptr) return;
 			mRunState->RollChoices();
+			// 抽干兜底（方案 §2.4）：增益池一条不剩时 RollChoices 把欠的屏作废了——
+			// 那一刻三条全是哨兵、没得点，屏别开（开了没出口）；下一帧走下面的收尾。
+			if (!mRunState->HasPendingPick()) return;
 			RunPickDialog* aDialog = new RunPickDialog(this, mRunState);
 			CenterDialog(aDialog, aDialog->mWidth, aDialog->mHeight);
 			AddDialog(Dialogs::DIALOG_RUN_PICK, aDialog);
@@ -1809,13 +1812,25 @@ void LawnApp::RunNoteFailure()
 		mRunState->mFailCounts[mRunState->mLevelIndex]);
 }
 
-// R3 的 buff 数值：乘数型 = 1 + 每层修正 × 层数（没拿到 / 不在闯关 = 1.0），
-// 加成型 = 每层加成 × 层数（同上 = 0）。下限保护：表里数字写歪也不至于把间隔压成 0。
+// R3 的 buff 数值：线性条目 = 1 + 每层修正 × 层数；叠乘条目（方案 §2.3，急袭/速种）=
+// (1 + 每层修正)^层数——每层在已有结果上再乘一次（整数次连乘，不用 powf，负底也稳）。
+// 没拿到 / 不在闯关 = 1.0；加成型 = 每层加成 × 层数。下限保护：表里数字写歪也不至于把
+// 间隔压成 0。非闯关局自动中性值，落点不需要判 mRunState。
 float LawnApp::RunBuffMul(int theBuffId) const
 {
 	if (mRunState == nullptr) return 1.0f;
 
-	float aMul = 1.0f + GetRunBuffDef(theBuffId).mPerStackMul * (float)mRunState->GetBuffCount(theBuffId);
+	const RunBuffDef& aDef = GetRunBuffDef(theBuffId);
+	int aStacks = mRunState->GetBuffCount(theBuffId);
+	float aMul = 1.0f;
+	if (aDef.mMultiplicative)
+	{
+		for (int i = 0; i < aStacks; i++) aMul *= 1.0f + aDef.mPerStackMul;
+	}
+	else
+	{
+		aMul = 1.0f + aDef.mPerStackMul * (float)aStacks;
+	}
 	return aMul < 0.1f ? 0.1f : aMul;
 }
 
@@ -1826,7 +1841,7 @@ int LawnApp::RunBuffAdd(int theBuffId) const
 }
 
 // 单株升级和全局 buff 共用存储：单株的层数就存在 BuffStack 里，
-// id = RUN_BUFF_COUNT + 表内下标（检查点格式因此不用区分两类）。
+// id = RUN_BUFF_COUNT + 表内下标（检查点格式因此不用区分两类）。叠乘口径同 RunBuffMul。
 float LawnApp::RunPlantUpgradeMul(SeedType thePlant) const
 {
 	if (mRunState == nullptr) return 1.0f;
@@ -1834,7 +1849,17 @@ float LawnApp::RunPlantUpgradeMul(SeedType thePlant) const
 	int aIndex = RunPlantUpgradeIndexFor(thePlant);
 	if (aIndex < 0) return 1.0f;
 
-	float aMul = 1.0f + GetRunPlantUpgradeDef(aIndex).mPerStackMul * (float)mRunState->GetBuffCount(RUN_BUFF_COUNT + aIndex);
+	const RunPlantUpgradeDef& aDef = GetRunPlantUpgradeDef(aIndex);
+	int aStacks = mRunState->GetBuffCount(RUN_BUFF_COUNT + aIndex);
+	float aMul = 1.0f;
+	if (aDef.mMultiplicative)
+	{
+		for (int i = 0; i < aStacks; i++) aMul *= 1.0f + aDef.mPerStackMul;
+	}
+	else
+	{
+		aMul = 1.0f + aDef.mPerStackMul * (float)aStacks;
+	}
 	return aMul < 0.1f ? 0.1f : aMul;
 }
 
