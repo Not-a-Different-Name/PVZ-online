@@ -28,13 +28,22 @@ const RunBuffDef& GetRunBuffDef(int theId)
 
 // 单株升级。数值列要和 mDesc 里的百分比对得上，改一边就改另一边。
 // （每层）前面的 \n 是排版用的显式换行，见 RunPickDialog 的中文排版。
+// 顺序纪律（方案 §2.1/Q7）：按 SeedType 升序排，前 5 条（SeedType 0..4）永远留在原位；
+// 新增条目插在自己的 SeedType 位次上。批 1 的 5 条（方案 §六）SeedType 都大于 4，所以是追加。
+// 血量型条目（批 1 的 5 条 + 坚果墙）不用挂点——Plant.cpp:484 对任意株统一乘
+// RunPlantUpgradeMul(mSeedType)，表里加一行就生效（南瓜头护罩血已查证同走 mPlantHealth）。
 static const RunPlantUpgradeDef gRunPlantUpgradeDefs[RUN_PLANT_UPGRADE_COUNT] =
 {
-	{ SeedType::SEED_PEASHOOTER,  "Pea Volley",  "豌豆射手每次多发 1 颗\n（每层）",        0.00f },
-	{ SeedType::SEED_SUNFLOWER,   "Rich Bloom",  "向日葵每次多产 1 阳光\n（每层）",        0.00f },
-	{ SeedType::SEED_CHERRYBOMB,  "Wide Blast",  "樱桃炸弹爆炸范围 +25%\n（每层）",        0.25f },
-	{ SeedType::SEED_WALLNUT,     "Thick Shell", "坚果墙血量 +25%\n（每层）",              0.25f },
-	{ SeedType::SEED_POTATOMINE,  "Deep Charge", "土豆雷伤害 +40%\n（每层）",              0.40f },
+	{ SeedType::SEED_PEASHOOTER,   "Pea Volley",  "豌豆射手每次多发 1 颗\n（每层）",   0.00f },
+	{ SeedType::SEED_SUNFLOWER,    "Rich Bloom",  "向日葵每次多产 1 阳光\n（每层）",   0.00f, 3 },
+	{ SeedType::SEED_CHERRYBOMB,   "Wide Blast",  "樱桃炸弹爆炸范围 +25%\n（每层）",   0.25f },
+	{ SeedType::SEED_WALLNUT,      "Thick Shell", "坚果墙血量 +50%\n（每层）",         0.50f },
+	{ SeedType::SEED_POTATOMINE,   "Deep Charge", "土豆雷伤害 +40%\n（每层）",         0.40f },
+	{ SeedType::SEED_LILYPAD,      "Tough Pad",   "血量 +100%\n（每层）",              1.00f, 2 },
+	{ SeedType::SEED_TALLNUT,      "Iron Shell",  "血量 +50%\n（每层）",               0.50f, 3 },
+	{ SeedType::SEED_PUMPKINSHELL, "Hard Rind",   "血量 +50%\n（每层）",               0.50f, 3 },
+	{ SeedType::SEED_FLOWERPOT,    "Rich Soil",   "血量 +100%\n（每层）",              1.00f, 2 },
+	{ SeedType::SEED_UMBRELLA,     "Canopy",      "血量 +50%\n（每层）",               0.50f, 3 },
 };
 
 const RunPlantUpgradeDef& GetRunPlantUpgradeDef(int theIndex)

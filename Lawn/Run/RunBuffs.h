@@ -50,13 +50,21 @@ const RunBuffDef& GetRunBuffDef(int theId);
 // 只对"卡池里已有这株植物"的玩家出（抽取时过滤，见 RunState::RollChoices）。
 // 落点取用走 LawnApp::RunPlantUpgradeMul / RunPlantUpgradeCount——和全局 buff
 // 一样，非闯关局自动是中性值，落点不需要判 mRunState。
+// @pvz-online: 表按 SeedType 升序维护（方案 docs/06 §2.1 / Q7）——单株 id = 8 + 表内下标，
+// 所以前 5 条（SeedType 0..4）必须永远留在原位：老检查点里的 id 直接按它解读。
+// 新增条目插在自己的 SeedType 位次上（批 1 的 5 条是追加：SeedType 都大于 4）。
 enum RunPlantUpgradeId
 {
 	RUN_UPGRADE_PEASHOOTER,		// 豌豆射手：每次多打 1 发（每层）
-	RUN_UPGRADE_SUNFLOWER,		// 向日葵：每次多产 1 阳光（每层）
+	RUN_UPGRADE_SUNFLOWER,		// 向日葵：每次多产 1 阳光（每层，至多 3 层）
 	RUN_UPGRADE_CHERRYBOMB,		// 樱桃炸弹：爆炸半径 +25%/层
-	RUN_UPGRADE_WALLNUT,		// 坚果墙：血量 +25%/层
+	RUN_UPGRADE_WALLNUT,		// 坚果墙：血量 +50%/层
 	RUN_UPGRADE_POTATOMINE,		// 土豆雷：爆炸伤害 +40%/层
+	RUN_UPGRADE_LILYPAD,		// 睡莲：血量 +100%/层（至多 2 层）
+	RUN_UPGRADE_TALLNUT,		// 高坚果：血量 +50%/层（至多 3 层）
+	RUN_UPGRADE_PUMPKINSHELL,	// 南瓜头：血量 +50%/层（至多 3 层）
+	RUN_UPGRADE_FLOWERPOT,		// 花盆：血量 +100%/层（至多 2 层）
+	RUN_UPGRADE_UMBRELLA,		// 保护伞：血量 +50%/层（至多 3 层）
 	RUN_PLANT_UPGRADE_COUNT
 };
 
