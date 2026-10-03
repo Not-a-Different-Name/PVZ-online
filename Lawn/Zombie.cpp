@@ -9144,7 +9144,10 @@ void Zombie::PlayDeathAnim(unsigned int theDamageFlags)
 
     const char* aDeathTrackName = "anim_death";
     int aDeathAnimHit = Rand(100);
-    bool aCanDoSuperLongDeath = mApp->HasFinishedAdventure() || mBoard->mLevel > 5;
+    // @pvz-online: 闯关局的碎尸判定不挂档案（§5.9）——按引擎关卡口径（>5 关才碎），
+    // 免得同一关的画风随本机通关状态变。
+    bool aCanDoSuperLongDeath = mApp->IsRunMode() ? mBoard->mLevel > 5
+                                                  : (mApp->HasFinishedAdventure() || mBoard->mLevel > 5);
     if (mInPool && aBodyReanim->TrackExists("anim_waterdeath"))
     {
         aDeathTrackName = "anim_waterdeath";

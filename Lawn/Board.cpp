@@ -1751,6 +1751,11 @@ Reanimation* Board::CreateRakeReanim(float theRakeX, float theRakeY, int theRend
 //0x40B9C0
 void Board::PlaceRake()
 {
+	// @pvz-online: 联机/闯关局不吃档案里买的耙子（系统排查 §5.9）——商店优势不该变成
+	// 某个席位的战斗加成，口径与 InitLawnMowers 的"房前不留兜底"一致。
+	if (mApp->IsOnlineGame() || mApp->IsRunMode())
+		return;
+
 	if (!mApp->mPlayerInfo->mPurchases[(int)StoreItem::STORE_ITEM_RAKE])
 		return;
 
@@ -3188,7 +3193,9 @@ PlantingReason Board::CanPlantAt(int theGridX, int theGridY, SeedType theSeedTyp
 		return PlantingReason::PLANTING_NEEDS_POT;
 	}
 	// 南瓜头的种植条件
-	bool aAidPurchased = mApp->mPlayerInfo->mPurchases[StoreItem::STORE_ITEM_FIRSTAID] > 0;
+	// @pvz-online: 档案买的"急救"（坚果包扎术）不进联机/闯关局（§5.9），按未购买算。
+	bool aAidPurchased = !mApp->IsOnlineGame() && !mApp->IsRunMode() &&
+		mApp->mPlayerInfo->mPurchases[StoreItem::STORE_ITEM_FIRSTAID] > 0;
 	if (theSeedType == SeedType::SEED_PUMPKINSHELL)
 	{
 		// 不可种植在玉米加农炮上
@@ -10248,7 +10255,9 @@ void Board::DropLootPiece(int thePosX, int thePosY, int theDropFactor)
 	}
 	else if (aDropHit < aDiamondChance * theDropFactor)
 	{
-		aCoinType = mApp->mPlayerInfo->mPurchases[StoreItem::STORE_ITEM_PACKET_UPGRADE] < 1 ? CoinType::COIN_GOLD : CoinType::COIN_DIAMOND;
+		// @pvz-online: 卡槽升级买的"掉金币升钻石"不进联机/闯关局（§5.9），一律按未购买掉金币。
+		aCoinType = (mApp->IsOnlineGame() || mApp->IsRunMode() ||
+			mApp->mPlayerInfo->mPurchases[StoreItem::STORE_ITEM_PACKET_UPGRADE] < 1) ? CoinType::COIN_GOLD : CoinType::COIN_DIAMOND;
 	}
 	else if (aDropHit < aGoldChance * theDropFactor)
 	{

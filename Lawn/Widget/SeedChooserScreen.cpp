@@ -273,6 +273,10 @@ void SeedChooserScreen::CrazyDavePickSeeds()
 //0x484220
 bool SeedChooserScreen::Has7Rows()
 {
+	// @pvz-online: 联机/闯关局固定 7 行（§5.9）——通关状态和商店购买是本机档案的事，
+	// 不该让同一局里两边的选卡界面长得不一样。
+	if (mApp->IsOnlineGame() || mApp->IsRunMode())
+		return true;
 	// PlayerInfo* aPlayer = mApp->mPlayerInfo; // unused
 	if (mApp->HasFinishedAdventure() || mApp->mPlayerInfo->mPurchases[STORE_ITEM_PLANT_GATLINGPEA]) return true;
 	for (SeedType aSeedType = SEED_TWINSUNFLOWER; aSeedType < SEED_COBCANNON; aSeedType = (SeedType)(aSeedType + 1))
