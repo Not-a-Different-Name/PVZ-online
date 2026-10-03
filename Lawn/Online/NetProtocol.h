@@ -64,7 +64,10 @@ const uint16_t	PROTOCOL_VERSION	= 1;
 // 18 → 19：局内快捷聊天（MSG_QUICK_CHAT）：快捷短语 + 植物表情（T/E 键面板）。编号查表在
 //        QuickChat.h。旧构建把这帧当没见过的消息静默丢——发的人以为喊了、队友没看见，
 //        所以两端要一起更新。
-const uint16_t	MOD_BUILD			= 19;
+// 19 → 20：闯关三档时长（完整 25 关 / 普通 15 关奖励×2 / 快速 10 关奖励×3）。START_LEVEL
+//        的闯关变体加一个模式字节（载荷 17→18 字节）：模式决定关卡表抽行与奖励屏数，
+//        混搭时两端按不同关表建场必演岔，必须同版本。旧长度的 START_LEVEL 会被当串包拒掉。
+const uint16_t	MOD_BUILD			= 20;
 
 const uint16_t	DEFAULT_PORT		= 27777;
 
@@ -280,11 +283,13 @@ struct MsgHelloAck
 };
 
 // START_LEVEL：{ srcSeat, dstSeat, u8 gameMode, u32 level, i32 levelSeed,
-//                u8 isRun, i32 runSeed, u8 runLevelIndex }
+//                u8 isRun, i32 runSeed, u8 runLevelIndex, u8 runMode }
 // levelSeed 是主机 GetLevelRandSeed() 的完整返回值（它含主机存档 ID，客户端必须整体覆盖）。
 // 闯关局（isRun=1）多带"这一局是谁的局、打到第几关"：队友拿它对上自己的检查点，
 // 没检查点 / 对不上就从这一局的起点摆起、把欠下的三选一补回来（补做的屏和真打过的一模一样，
-// 候选由 runSeed + 关序号推导）。单关局这三格全是 0，老语义一字不变。
+// 候选由 runSeed + 关序号推导）。runMode 是闯关的时长档（RunState::RUN_MODE_*，M4-b）：
+// 它决定关卡表抽行与每关后的奖励屏数，队友必须按同一个档建局。单关局 isRun=0，
+// runSeed/runLevelIndex/runMode 全是 0，老语义一字不变。
 struct MsgStartLevel
 {
 	uint8_t			mSrcSeat;
@@ -295,6 +300,7 @@ struct MsgStartLevel
 	uint8_t			mIsRun;
 	int32_t			mRunSeed;
 	uint8_t			mRunLevelIndex;
+	uint8_t			mRunMode;
 };
 
 // LEVEL_DONE：{ srcSeat, dstSeat, u8 done }（1 = 我这块草坪清完了，0 = 又不清净了）
@@ -532,6 +538,7 @@ inline int EncodeStartLevel(uint8_t* theBuffer, int theCapacity, const MsgStartL
 	aWriter.U8(theMsg.mIsRun);
 	aWriter.I32(theMsg.mRunSeed);
 	aWriter.U8(theMsg.mRunLevelIndex);
+	aWriter.U8(theMsg.mRunMode);
 	return aWriter.Overflowed() ? -1 : aWriter.Size();
 }
 
@@ -546,6 +553,7 @@ inline bool DecodeStartLevel(const uint8_t* theData, int theSize, MsgStartLevel&
 	theMsg.mIsRun = aReader.U8();
 	theMsg.mRunSeed = aReader.I32();
 	theMsg.mRunLevelIndex = aReader.U8();
+	theMsg.mRunMode = aReader.U8();
 	return !aReader.Overflowed();
 }
 

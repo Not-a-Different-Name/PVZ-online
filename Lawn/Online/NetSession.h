@@ -120,11 +120,13 @@ public:
 	// 主机开局：把这一局的模式、关卡、波表种子告诉队友。没连上时返回 false。
 	// 联机闯关（R5）再多带三个数：是不是闯关局、局种子、关序号——队友据此对齐进度
 	// （见 LawnApp::AlignRunToHost）；单关局用默认值，线格式上这三格是 0。
+	// theRunMode（M4-b）是闯关的时长档（RunState::RUN_MODE_*）：它决定关卡表抽行与
+	// 奖励屏数，队友必须按同一个档建局；单关局默认 0。
 	// theTargetSeat 默认 SEAT_UNSET = 发给所有队友；中途拉一个人进关必须点名单发——
 	// 扇出会把已经在打的人重新点名一遍（那会重建棋盘）。
 	bool			SendStartLevel(uint8_t theGameMode, uint32_t theLevel, int32_t theLevelSeed,
 						bool theIsRun = false, int32_t theRunSeed = 0, uint8_t theRunLevelIndex = 0,
-						uint8_t theTargetSeat = NetProto::SEAT_UNSET);
+						uint8_t theTargetSeat = NetProto::SEAT_UNSET, uint8_t theRunMode = 0);
 
 	// 客户端侧：取出主机发来的开局命令（同时清掉）。没有就返回 false。
 	// 单槽而不是队列：开局命令只有"最新那条"有意义，堆着旧的开局命令没有用处。
