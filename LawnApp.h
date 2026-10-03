@@ -286,7 +286,7 @@ public:
 	// "冒险"牌按下：true = 已经受理（开面板或排队等开局），false = 落回原来的单关联机流程。
 	bool							RequestAdventure();
 	void							UpdateAdventureRequest();
-	void							StartRun();
+	void							StartRun(int theRunMode);	// theRunMode = RunState::RUN_MODE_*（时长档）
 	void							ContinueRun();
 	void							EnterRunLevel();
 	// @pvz-online: 联机闯关（R5）：把本机进度对齐到主机点名的这一关。同一局种子就接着走

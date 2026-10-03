@@ -1297,7 +1297,7 @@ void LawnApp::UpdateOnlineEnd()
 					RunState::DeleteCheckpoint(mPlayerInfo->mId);
 					ShowGameSelector();
 					LawnMessageBox(Dialogs::DIALOG_MESSAGE, "Run complete",
-						"You made it through all 25 levels!\nClick ADVENTURE for a new run.",
+						StrFormat("You made it through all %d levels!\nClick ADVENTURE for a new run.", mRunState->GetLevelCount()).c_str(),
 						"OK", "", Dialog::BUTTONS_FOOTER);
 				}
 				else
@@ -1478,15 +1478,16 @@ void LawnApp::UpdateAdventureRequest()
 			return;
 		}
 	}
-	StartRun();
+	// 完整版：M4-b 的选模式页（提交 3）接线后，这里换成选模式页返回的档位。
+	StartRun(RunState::RUN_MODE_FULL);
 }
 
-void LawnApp::StartRun()
+void LawnApp::StartRun(int theRunMode)
 {
 	delete mRunState;
 	mRunState = new RunState();
-	mRunState->StartNew(MakeRunSeed(mAppCounter));
-	TodLog("[run] a new run starts (seed %d)", mRunState->mRunSeed);
+	mRunState->StartNew(MakeRunSeed(mAppCounter), theRunMode);
+	TodLog("[run] a new run starts (seed %d, mode %d)", mRunState->mRunSeed, mRunState->mMode);
 	// 手里的两株不够开局：先挑两株（两次三选一），选完 RunPickChosen 才进第 1 关。
 	mRunState->BeginStartPicks();
 }
@@ -1616,7 +1617,7 @@ void LawnApp::UpdateRunEnd()
 		RunState::DeleteCheckpoint(mPlayerInfo->mId);
 		ShowGameSelector();
 		LawnMessageBox(Dialogs::DIALOG_MESSAGE, "Run complete",
-			"You made it through all 25 levels!\nClick ADVENTURE for a new run.",
+			StrFormat("You made it through all %d levels!\nClick ADVENTURE for a new run.", mRunState->GetLevelCount()).c_str(),
 			"OK", "", Dialog::BUTTONS_FOOTER);
 	}
 	else

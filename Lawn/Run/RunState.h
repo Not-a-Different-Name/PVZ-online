@@ -7,9 +7,11 @@
 
 // @pvz-online: 全流程闯关（肉鸽）的本地状态 + 检查点文件。
 //
-// 一局 = 25 关：五个场景（白天 → 夜 → 泳池 → 迷雾 → 屋顶）各 5 关，每场景从原版关里
-// 挑中后段的 5 关（首关就是 10 波关，关号对照表见 LevelForIndex）——场景与难度只由
-// 关卡号推出，所以"第几关"就是这一串序号。
+// 一局分三档时长（M4-b，用户定案）：完整版 = 5 场景 × 5 关 = 25 关；普通版 = 每场景
+// 第 1/3/5 关 = 15 关（每关后奖励屏 ×2）；快速版 = 每场景第 1/5 关 = 10 关（奖励屏 ×3）。
+// 三档共用同一张 25 关号表（完整版全取、普通/快速抽行，见 LevelForModeIndex），首关
+// 仍是 10 波带旗；场景（白天 → 夜 → 泳池 → 迷雾 → 屋顶）与难度阶梯只看第几关落在
+// 哪个场景，三档不差一个字。
 // 卡池随三选一逐关变大、buff 跟着这一局走——检查点把这两样一起带走。
 //
 // 检查点写在 userdata/run%d.dat，和 user%d.dat（本机档案进度）完全分开：
@@ -21,7 +23,11 @@
 class RunState
 {
 public:
-	static const int	RUN_LEVEL_COUNT		= 25;	// 5 场景 × 5 关
+	// @pvz-online: 时长档（M4-b）。完整版一局 25 关；普通版抽每场景第 1/3/5 关、快速版
+	// 抽第 1/5 关——短一局用更密的奖励屏补内容量（倍乘见 BeginLevelEndPicks）。
+	enum	{ RUN_MODE_FULL = 0, RUN_MODE_NORMAL = 1, RUN_MODE_QUICK = 2 };
+
+	static const int	RUN_LEVEL_COUNT		= 25;	// 完整版总关数 = 5 场景 × 5 关（数组/静态表的尺寸上限）
 	static const int	RUN_SCENE_COUNT		= 5;	// 白天 → 夜 → 泳池 → 迷雾 → 屋顶
 	static const int	RUN_LEVELS_PER_SCENE = RUN_LEVEL_COUNT / RUN_SCENE_COUNT;
 	static const int	RUN_SEED_SLOTS		= 8;	// 种子槽固定 8 格（覆盖原版 mPurchases+6 规则）
@@ -57,7 +63,8 @@ public:
 	// @pvz-online 内存态：这一局正在打（含"刚过关、正要进下一关"的空档）。
 	// 回主菜单 = LawnApp 把这个对象删掉；检查点留在盘上，续关时重新读出来。
 	int							mRunSeed;		// 这一局的种子：每关波表的种子由它推导，重开同一关不变
-	int							mLevelIndex;	// 0..(RUN_LEVEL_COUNT-1) = 当前（或待打的）关序号；>= RUN_LEVEL_COUNT = 已通关
+	int							mMode;			// 时长档（RUN_MODE_*）：决定关卡表抽行与每关后的奖励屏数
+	int							mLevelIndex;	// 0..(关数-1) = 当前（或待打的）关序号；>= 关数 = 已通关（关数见 GetLevelCount）
 	std::vector<SeedType>		mPool;			// 这一局的卡池（按加入顺序；起始 = 向日葵 + 豌豆射手）
 	std::vector<BuffStack>		mBuffs;			// 这一局拿到的 buff（同名可叠加）
 	int							mFailCounts[RUN_LEVEL_COUNT];	// 每关失败次数（首版只存不用，平衡阶段再定惩罚）
@@ -71,7 +78,12 @@ public:
 	RunState();
 
 	// 全新一局：卡池回到两株、失败计数清零、从第 1 关开打。
-	void				StartNew(int theRunSeed);
+	void				StartNew(int theRunSeed, int theRunMode = RUN_MODE_FULL);
+
+	// 时长档的关数口径：每场景关数（5/3/2）与总关数（25/15/10）。模式非法按完整版。
+	static int			LevelsPerScene(int theRunMode);
+	static int			LevelCountForMode(int theRunMode);
+	int					GetLevelCount() const { return LevelCountForMode(mMode); }
 
 	// 该选植物 / 该选 buff 了（一局开始时先挑两株——进第 1 关前手里就有 4 株；
 	// 每过一关再挑两株 + 一个增益）。只负责"欠几屏"，候选由 RollChoices 现抽。
@@ -104,7 +116,7 @@ public:
 	static void			DeleteCheckpoint(int theProfileId);
 	static std::string	GetCheckpointName(int theProfileId);
 
-	bool				IsComplete() const { return mLevelIndex >= RUN_LEVEL_COUNT; }
+	bool				IsComplete() const { return mLevelIndex >= GetLevelCount(); }
 	void				AdvanceLevel() { mLevelIndex++; }
 
 	// @pvz-online: 补发追赶（R5）。开始补：目标关序号存下，先把当前这关的奖励屏选完
@@ -125,7 +137,11 @@ public:
 	// 当前关：mLevel 值的映射（关号表见 LevelForIndex）与波表种子。序号越界返回 -1 / 0。
 	int					GetLevel() const;
 	int					GetLevelSeed() const;
+	// 完整版 25 关号表（表内序号 → 引擎关号）。普通/快速档的关号都是它的子集，所以
+	// RunLevelIndexForEngineLevel 按"完整版口径"反查仍命中——波数、种类名单永远跟引擎关走。
 	static int			LevelForIndex(int theIndex);
+	// 按时长档抽行的关号表：普通版取每场景第 1/3/5 关、快速版取第 1/5 关（M4-b）。
+	static int			LevelForModeIndex(int theRunMode, int theIndex);
 
 	// @pvz-online: 难度阶梯（M4-a）取用口。正在打的那一关的序号，口径与 GetLevel /
 	// GetLevelSeed 一致（追赶期间 = 目标关）；场景档 0..4；难度 = 千分比表

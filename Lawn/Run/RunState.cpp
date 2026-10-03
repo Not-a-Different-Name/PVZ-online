@@ -9,15 +9,17 @@
 #include "../../SexyAppFramework/SexyAppBase.h"
 
 // @pvz-online: 闯关状态的实体。检查点格式（小端，x86 直写）：
-//   u32 magic 'RUN1' + u16 版本 + u16 保留
+//   u32 magic 'RUN1' + u16 版本 + u16（低字节 = 时长档，高字节保留）
 //   i32 runSeed + i32 levelIndex + u16 failCounts[25]
 //   u16 卡池数 + 每株 u16 SeedType
 //   u16 buff 数 + 每条 (u16 id, u16 层数)
 // 版本不符 / 越界一律当"没有检查点"——宁可从头开新局，也不带着半截数据进场。
 // v2：一局从 5 关扩到 25 关，failCounts 数组跟着变长——v1 的档一律按"没有"处理。
+// v3：加时长档（M4-b 三档时长）——旧版的保留位恒 0，恰好就是"完整版"，所以 v2 的档
+//     直接按完整版续；载荷长度一个字节没变。
 
 static const unsigned int RUN_CHECKPOINT_MAGIC = 0x314E5552;	// 'RUN1'
-static const unsigned short RUN_CHECKPOINT_VERSION = 2;
+static const unsigned short RUN_CHECKPOINT_VERSION = 3;
 
 static std::vector<unsigned char>& AppendU16(std::vector<unsigned char>& theData, unsigned int theValue)
 {
@@ -75,9 +77,10 @@ RunState::RunState()
 	StartNew(0);
 }
 
-void RunState::StartNew(int theRunSeed)
+void RunState::StartNew(int theRunSeed, int theRunMode)
 {
 	mRunSeed = theRunSeed;
+	mMode = theRunMode;
 	mLevelIndex = 0;
 	mPool.clear();
 	mPool.push_back(SeedType::SEED_SUNFLOWER);
@@ -105,8 +108,12 @@ void RunState::BeginStartPicks()
 
 void RunState::BeginLevelEndPicks()
 {
-	mPendingPlantPicks = CanOfferPlantPick() ? 2 : 0;
-	mPendingBuffPicks = 1;
+	// 每关后的奖励屏按时长档倍乘（M4-b 定案）：完整 ×1、普通 ×2、快速 ×3——"短一局"
+	// 用更密的奖励补内容量。植物候选抽干时自动只发增益屏（见 CanOfferPlantPick）。
+	static const int aMul[] = { 1, 2, 3 };
+	int aTimes = (mMode >= RUN_MODE_FULL && mMode <= RUN_MODE_QUICK) ? aMul[mMode] : 1;
+	mPendingPlantPicks = CanOfferPlantPick() ? 2 * aTimes : 0;
+	mPendingBuffPicks = 1 * aTimes;
 }
 
 bool RunState::CanOfferPlantPick() const
@@ -257,6 +264,36 @@ int RunState::LevelForIndex(int theIndex)
 	return aLevels[theIndex];
 }
 
+// 时长档的每场景关数（完整 5 / 普通 3 / 快速 2）。模式非法按完整版——检查点、联机包
+// 里来的值都过这道闸，越界值永远到不了下面的表。
+int RunState::LevelsPerScene(int theRunMode)
+{
+	static const int aPerScene[] = { 5, 3, 2 };
+	if (theRunMode < RUN_MODE_FULL || theRunMode > RUN_MODE_QUICK) return aPerScene[RUN_MODE_FULL];
+	return aPerScene[theRunMode];
+}
+
+int RunState::LevelCountForMode(int theRunMode)
+{
+	return RUN_SCENE_COUNT * LevelsPerScene(theRunMode);
+}
+
+// 按时长档从同一张 25 关表里抽行：普通版每场景取第 1/3/5 关、快速版取第 1/5 关
+// （M4-b 定案）。抽出来的还是这张表里的引擎关号——波数、出怪、种类名单都按引擎关走，
+// 所以 RunLevelIndexForEngineLevel 的完整版反查在三档里都命中。
+int RunState::LevelForModeIndex(int theRunMode, int theIndex)
+{
+	static const int aSubs[RUN_MODE_QUICK + 1][RUN_LEVELS_PER_SCENE] = {
+		{ 0, 1, 2, 3, 4 },	// 完整版：全取
+		{ 0, 2, 4, 0, 0 },	// 普通版：每场景第 1/3/5 关
+		{ 0, 4, 0, 0, 0 },	// 快速版：每场景第 1/5 关
+	};
+	if (theRunMode < RUN_MODE_FULL || theRunMode > RUN_MODE_QUICK) theRunMode = RUN_MODE_FULL;
+	int aPerScene = LevelsPerScene(theRunMode);
+	if (theIndex < 0 || theIndex >= LevelCountForMode(theRunMode)) return -1;
+	return LevelForIndex((theIndex / aPerScene) * RUN_LEVELS_PER_SCENE + aSubs[theRunMode][theIndex % aPerScene]);
+}
+
 // @pvz-online: 补发追赶期间（R6）：人先站到"要追到的那一关"的草坪上，再在草坪上把
 // 欠下的三选一补完（见 UpdateRunPick）——所以正在打的这一关就是目标关，关卡号、
 // 波表种子和难度阶梯都得按它算，不然先进草坪的那一下会建错关。
@@ -265,14 +302,14 @@ int RunState::GetPlayingLevelIndex() const
 	return IsCatchingUp() ? mCatchUpLevel : mLevelIndex;
 }
 
-// 场景档 0..4。mLevelIndex 会短暂停在"已通关"（== RUN_LEVEL_COUNT）这种空档上：
-// 夹进范围里，别让越界值把难度表读穿。
+// 场景档 0..4。mLevelIndex 会短暂停在"已通关"（== 关数）这种空档上：
+// 夹进范围里，别让越界值把难度表读穿。每场景关数按时长档（5/3/2）。
 int RunState::GetSceneIndex() const
 {
 	int aIndex = GetPlayingLevelIndex();
 	if (aIndex < 0) aIndex = 0;
-	if (aIndex > RUN_LEVEL_COUNT - 1) aIndex = RUN_LEVEL_COUNT - 1;
-	return aIndex / RUN_LEVELS_PER_SCENE;
+	if (aIndex > GetLevelCount() - 1) aIndex = GetLevelCount() - 1;
+	return aIndex / LevelsPerScene(mMode);
 }
 
 // 难度阶梯（M4-a，用户定案）：每过一个场景血量与数量同乘 ×1.2 → 1.0/1.2/1.44/1.73/2.07。
@@ -286,7 +323,7 @@ int RunState::GetDifficultyPermille() const
 
 int RunState::GetLevel() const
 {
-	return LevelForIndex(GetPlayingLevelIndex());
+	return LevelForModeIndex(mMode, GetPlayingLevelIndex());
 }
 
 int RunState::GetLevelSeed() const
@@ -303,7 +340,7 @@ int RunState::GetLevelSeed() const
 // 本关失败一次。序号越界只会出现在"已通关 / 空局"这种不该有人报失败的时候，直接不理。
 void RunState::NoteLevelFailed()
 {
-	if (mLevelIndex < 0 || mLevelIndex >= RUN_LEVEL_COUNT) return;
+	if (mLevelIndex < 0 || mLevelIndex >= GetLevelCount()) return;
 	mFailCounts[mLevelIndex]++;
 }
 
@@ -327,7 +364,7 @@ bool RunState::Save(int theProfileId) const
 	std::vector<unsigned char> aData;
 	AppendI32(aData, (int)RUN_CHECKPOINT_MAGIC);
 	AppendU16(aData, RUN_CHECKPOINT_VERSION);
-	AppendU16(aData, 0);
+	AppendU16(aData, (unsigned int)(mMode & 0xFF));		// 低字节 = 时长档，高字节保留
 	AppendI32(aData, mRunSeed);
 	AppendI32(aData, mLevelIndex);
 	for (int i = 0; i < RUN_LEVEL_COUNT; i++)
@@ -371,10 +408,21 @@ bool RunState::Load(int theProfileId)
 	{
 		return false;
 	}
-	if (aMagic != RUN_CHECKPOINT_MAGIC || aVersion != RUN_CHECKPOINT_VERSION)
+	// v3 才有时长档。v2 的保留位恒 0，恰好就是"完整版"——v2 的档直接按完整版续，
+	// 不用作废。再往前的版本一律当"没有检查点"。
+	int aMode = RUN_MODE_FULL;
+	if (aMagic != RUN_CHECKPOINT_MAGIC || (aVersion != RUN_CHECKPOINT_VERSION && aVersion != 2))
 	{
 		TodLog("[run] checkpoint magic/version mismatch, ignored");
 		return false;
+	}
+	if (aVersion == RUN_CHECKPOINT_VERSION)
+	{
+		aMode = (int)(aReserved & 0xFF);
+		if (aMode < RUN_MODE_FULL || aMode > RUN_MODE_QUICK)
+		{
+			return false;
+		}
 	}
 
 	int aRunSeed = 0, aLevelIndex = 0;
@@ -382,7 +430,7 @@ bool RunState::Load(int theProfileId)
 	{
 		return false;
 	}
-	if (aLevelIndex < 0 || aLevelIndex > RUN_LEVEL_COUNT)
+	if (aLevelIndex < 0 || aLevelIndex > LevelCountForMode(aMode))
 	{
 		return false;
 	}
@@ -431,6 +479,7 @@ bool RunState::Load(int theProfileId)
 	}
 
 	mRunSeed = aRunSeed;
+	mMode = aMode;
 	mLevelIndex = aLevelIndex;
 	memcpy(mFailCounts, aFailCounts, sizeof(mFailCounts));
 	mPool = aPool;
