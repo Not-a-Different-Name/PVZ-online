@@ -4480,7 +4480,9 @@ void Plant::DoSpecial()
         aPosY = mY + mHeight / 2;
 
         mApp->PlaySample(SOUND_POTATO_MINE);
-        if (mBoard->KillAllZombiesInRadius(mRow, aPosX, aPosY, 60, 0, false, aDamageRangeFlags) >= 1)
+        // @pvz-online: 闯关「宽装药」：爆炸半径 ×(1+25%/层)（直伤的单株乘数已从 Board::KillAllZombiesInRadius 摘除）
+        int aRadius = (int)(60 * mApp->RunPlantUpgradeMul(SeedType::SEED_POTATOMINE) + 0.5f);
+        if (mBoard->KillAllZombiesInRadius(mRow, aPosX, aPosY, aRadius, 0, false, aDamageRangeFlags) >= 1)
             ReportAchievement::GiveAchievement(mApp, Spudow, true); // @Patoke: add achievement
 
         int aRenderPosition = Board::MakeRenderOrder(RenderLayer::RENDER_LAYER_PARTICLE, mRow, 0);
@@ -5359,9 +5361,11 @@ Rect Plant::GetPlantAttackRect(PlantWeapon thePlantWeapon)
     case SeedType::SEED_SPIKEROCK:      aRect = Rect(mX + 20,       mY,             mWidth - 50,        mHeight);               break;
     case SeedType::SEED_POTATOMINE:     aRect = Rect(mX,            mY,             mWidth - 25,        mHeight);               break;
     case SeedType::SEED_TORCHWOOD:      aRect = Rect(mX + 50,       mY,             30,                 mHeight);               break;
-    case SeedType::SEED_PUFFSHROOM:
+    // @pvz-online: 闯关「远孢子」1 层射程铺满整行（同 default 支 800px；开火门=攻击矩形，弹道无射程限制）
+    case SeedType::SEED_PUFFSHROOM:     aRect = Rect(mX + 60,       mY,             mApp->RunPlantUpgradeCount(SeedType::SEED_PUFFSHROOM) > 0 ? BOARD_WIDTH : 230, mHeight); break;
     case SeedType::SEED_SEASHROOM:      aRect = Rect(mX + 60,       mY,             230,                mHeight);               break;
-    case SeedType::SEED_FUMESHROOM:     aRect = Rect(mX + 60,       mY,             340,                mHeight);               break;
+    // @pvz-online: 闯关「浓雾」：大喷菇雾气射程每层 +1 格（80px）
+    case SeedType::SEED_FUMESHROOM:     aRect = Rect(mX + 60,       mY,             340 + 80 * mApp->RunPlantUpgradeCount(SeedType::SEED_FUMESHROOM), mHeight); break;
     case SeedType::SEED_GLOOMSHROOM:    aRect = Rect(mX - 80,       mY - 80,        240,                240);                   break;
     case SeedType::SEED_TANGLEKELP:     aRect = Rect(mX,            mY,             mWidth,             mHeight);               break;
     case SeedType::SEED_CATTAIL:        aRect = Rect(-BOARD_WIDTH,  -BOARD_HEIGHT,  BOARD_WIDTH * 2,    BOARD_HEIGHT * 2);      break;

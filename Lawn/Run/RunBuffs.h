@@ -53,7 +53,7 @@ const RunBuffDef& GetRunBuffDef(int theId);
 // @pvz-online: 表按 SeedType 升序维护（方案 docs/06 §2.1 / Q7）——单株 id = 8 + 表内下标，
 // 所以前 5 条（SeedType 0..4）必须永远留在原位：老检查点里的 id 直接按它解读。
 // 新增条目插在自己的 SeedType 位次上：批 1 的 5 条是追加（SeedType 都大于 4），批 2/批 3/
-// 批 4/批 5/批 6 的 14 条插进中段——每插一批，更早批次档里单株 id 的层数就会错位到别的植物（开发期
+// 批 4/批 5/批 6/批 7 的 16 条插进中段——每插一批，更早批次档里单株 id 的层数就会错位到别的植物（开发期
 // 接受，见方案 §六）；满编 48 条后表下标 == SeedType。
 enum RunPlantUpgradeId
 {
@@ -61,10 +61,12 @@ enum RunPlantUpgradeId
 	RUN_UPGRADE_SUNFLOWER,		// 向日葵：每次多产 1 阳光（每层，至多 3 层）
 	RUN_UPGRADE_CHERRYBOMB,		// 樱桃炸弹：爆炸半径 +25%/层
 	RUN_UPGRADE_WALLNUT,		// 坚果墙：血量 +50%/层
-	RUN_UPGRADE_POTATOMINE,		// 土豆雷：爆炸伤害 +40%/层
+	RUN_UPGRADE_POTATOMINE,		// 土豆雷：爆炸半径 +25%/层
 	RUN_UPGRADE_SNOWPEA,		// 寒冰射手：命中减速时长 +30%/层（至多 3 层）
 	RUN_UPGRADE_REPEATER,		// 双发：射击间隔 ×0.75/层（至多 3 层）
+	RUN_UPGRADE_PUFFSHROOM,		// 小喷菇：射程变为无限（只可选 1 层）
 	RUN_UPGRADE_SUNSHROOM,		// 阳光菇：每次多产 1 阳光（每层，至多 3 层）
+	RUN_UPGRADE_FUMESHROOM,		// 大喷菇：雾气射程 +1 格/层（至多 2 层）
 	RUN_UPGRADE_ICESHROOM,		// 寒冰菇：全场冰冻 +2 秒/层（至多 2 层）
 	RUN_UPGRADE_DOOMSHROOM,		// 毁灭菇：爆炸半径 +25%/层（至多 2 层）
 	RUN_UPGRADE_LILYPAD,		// 睡莲：血量 +100%/层（至多 2 层）

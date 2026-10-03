@@ -38,8 +38,12 @@ const RunBuffDef& GetRunBuffDef(int theId)
 // 纯表：每道一次 Fire，Plant.cpp:4790 的多发循环按株取数）；批 6 的 2 条（寒冰射手 5 /
 // 寒冰菇 14——寒冰射手：雪豆命中后在 Projectile::DoImpact 单体分支把 ApplyChill 挂上的
 // 1000 帧按单株乘数放宽（==1000 认出、更长的减速不动）；寒冰菇：Zombie::HitIceTrap 三档
-// 冻结各 +200 帧/层，唯一调用者就是 IceZombies）。表内下标随插入右移：批 4
-// 档里 id 16..26、批 5 档里 15/17/18 的层数会错位到别的植物（批 1/批 2/批 3 档同理；开发期接受，见方案 §六）。
+// 冻结各 +200 帧/层，唯一调用者就是 IceZombies）；批 7 的 2 条（小喷菇 8 / 大喷菇 10——射程族，
+// 挂点都在 Plant::GetPlantAttackRect 的攻击矩形：小喷菇带层即同 default 支一路铺到板尾（同 800px，
+// FindTargetZombie 拿这矩形当开火门，弹道本身无射程上限），大喷菇每层 +80px；同批土豆雷 4 改
+// 「Wide Charge」：效果从爆炸直伤 +40% 换成半径 +25%/层——直伤乘数从
+// Board::KillAllZombiesInRadius 摘除，半径乘数落 Plant::DoSpecial 土豆雷支）。表内下标随插入右移：批 4
+// 档里 id 16..26、批 5 档里 15/17/18、批 6 档里 15..31 的层数会错位到别的植物（批 1/批 2/批 3 档同理；开发期接受，见方案 §六）。
 // 血量型条目（批 1 的 5 条 + 坚果墙）不用挂点——Plant.cpp:484 对任意株统一乘
 // RunPlantUpgradeMul(mSeedType)，表里加一行就生效（南瓜头护罩血已查证同走 mPlantHealth）。
 static const RunPlantUpgradeDef gRunPlantUpgradeDefs[RUN_PLANT_UPGRADE_COUNT] =
@@ -48,10 +52,12 @@ static const RunPlantUpgradeDef gRunPlantUpgradeDefs[RUN_PLANT_UPGRADE_COUNT] =
 	{ SeedType::SEED_SUNFLOWER,    "Rich Bloom",   "向日葵每次多产 1 阳光\n（每层）",   0.00f, 3 },
 	{ SeedType::SEED_CHERRYBOMB,   "Wide Blast",   "樱桃炸弹爆炸范围 +25%\n（每层）",   0.25f },
 	{ SeedType::SEED_WALLNUT,      "Thick Shell",  "坚果墙血量 +50%\n（每层）",         0.50f },
-	{ SeedType::SEED_POTATOMINE,   "Deep Charge",  "土豆雷伤害 +40%\n（每层）",         0.40f },
+	{ SeedType::SEED_POTATOMINE,   "Wide Charge",  "土豆雷爆炸范围 +25%\n（每层）",     0.25f },
 	{ SeedType::SEED_SNOWPEA,      "Frostbite",    "命中减速时长 +30%\n（每层）",       0.30f, 3 },
 	{ SeedType::SEED_REPEATER,     "Quick Rhythm", "射击间隔逐层 ×0.75\n（每层）",      -0.25f, 3, true },
+	{ SeedType::SEED_PUFFSHROOM,   "Far Spore",    "射程变为无限",                     0.00f, 1 },
 	{ SeedType::SEED_SUNSHROOM,    "Bright Cap",   "每次多产 1 阳光\n（每层）",         0.00f, 3 },
+	{ SeedType::SEED_FUMESHROOM,   "Thick Fumes",  "雾气射程 +1 格\n（每层）",          0.00f, 2 },
 	{ SeedType::SEED_ICESHROOM,    "Deep Freeze",  "全场冰冻 +2 秒\n（每层）",          0.00f, 2 },
 	{ SeedType::SEED_DOOMSHROOM,   "Annihilation", "爆炸范围 +25%\n（每层）",           0.25f, 2 },
 	{ SeedType::SEED_LILYPAD,      "Tough Pad",    "血量 +100%\n（每层）",              1.00f, 2 },

@@ -10491,8 +10491,8 @@ int Board::KillAllZombiesInRadius(int theRow, int theX, int theY, int theRadius,
 				{
 					// @pvz-online: 闯关 buff「爆破」：爆炸直伤 ×(1+30%/层)。走 theBurn=false
 					// 这条的只有土豆雷；燃烧那条（樱桃/辣椒/末日菇）在 Zombie::ApplyBurn 里加。
-					// 单株升级「深装药」也只挂在土豆雷身上，乘数在这里一并取。
-					aZombie->TakeDamage((int)(1800 * mApp->RunBuffMul(RUN_BUFF_BLAST) * mApp->RunPlantUpgradeMul(SeedType::SEED_POTATOMINE) + 0.5f), 18U);
+					// 单株升级「宽装药」只加半径（见 Plant::DoSpecial 土豆雷支），这里不再乘单株。
+					aZombie->TakeDamage((int)(1800 * mApp->RunBuffMul(RUN_BUFF_BLAST) + 0.5f), 18U);
 				}
 
 				aKilledZombies++;
