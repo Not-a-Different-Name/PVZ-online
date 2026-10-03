@@ -4844,13 +4844,17 @@ void Zombie::UpdateYuckyFace()
             aCanGoDown = false;
         }
 
+        // @pvz-online: 修复上游方向写反的换道（用户 2026-10-03 报"送到 0 和第 6 路"）：
+        // 原「只能往下」分支走 mRow-1、「只能往上」分支走 mRow+1——第 0 行僵尸吃完大蒜
+        // 被 SetRow(-1)、第 5 行被 SetRow(6)，越出 0..5 后贴着草坪边穿行/走出屏幕。
+        // 两分支目标对调回正；下方池/陆地邻接检查不动（方向语义随之自洽）。
         if (aCanGoDown && !aCanGoUp)
         {
-            SetRow(mRow - 1);
+            SetRow(mRow + 1);
         }
         else if (!aCanGoDown && aCanGoUp)
         {
-            SetRow(mRow + 1);
+            SetRow(mRow - 1);
         }
         else if (aCanGoDown && aCanGoUp)
         {
