@@ -1,8 +1,8 @@
 PVZ-online（合作联机改版）编译产物
 ====================================
-构建时间 : 2026-10-03 13:08
-来源提交 : 7c2ef5e（分支 pvz-online，本机）
-MOD_BUILD: 21
-游戏     : SexyAppFramework.exe  8002048 字节
-SHA256   : cc5e849f12843199be280c873296ecd58c8914d8a6a3526b69825091aaad0896
+构建时间 : 2026-10-03 15:06
+来源提交 : 7e41f44（分支 pvz-online，本机）
+MOD_BUILD: 22
+游戏     : SexyAppFramework.exe  8006656 字节
+SHA256   : e6705ee92d642581cb8587832e4c0dd33639c7fe676205031792eefa1187c902
 中继服务 : pvz-relay.exe（Go 写的房间中继服务器，默认端口 27777）
