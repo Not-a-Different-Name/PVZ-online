@@ -69,6 +69,8 @@ cmd /c <pvz-online 根>\build-msvc.bat reconfig  # 删除 build-x86 重新配置
 - `ConstEnums.h` — GameMode 枚举（生存×15、挑战×22+、解谜等待裁）
 - `Lawn/System/PlayerInfo.cpp` + `ProfileMgr.cpp` — 用户进度（本地存档改造点）
 - `Lawn/Online/` — 联机层（`NetProtocol.h` 协议 / `NetLink` 唯一 socket 层 / `NetSession` 会话状态机）；
+- `Lawn/ModText.h/.cpp` — UI 语言档（注册表 `ModLanguage`，自动按 `GetACP()==936`）+
+  `Tr(zh,en)` 择串 + 中文宽字符直绘（位图字体没有汉字；语言批见 `docs/03` §5.27）
   玩法与协议速查见 `docs/04-联机-M2.md`
 - `SexyAppFramework/paklib/PakInterface.cpp` — 资源读取（FOpen pak→散装回退）
 
