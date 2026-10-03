@@ -783,11 +783,11 @@ void Board::PickZombieWaves()
 			aZombiePoints = aZombiePoints * mApp->GetRunState()->GetDifficultyPermille() / 1000;
 		}
 
-		// @pvz-online: 席位顺位刷怪乘数（2026-10-03 用户定案，取代早先文档里的 8:4:2:1）：
-		// 直接倍乘——末席（最后上座的席位）原量 ×1 不变，往前每升一位 +1 倍：
-		// 四人 4:3:2:1、三人 3:2:1、二人 2:1。顺位按"上座席位"排（第 r 位权重 n-r+1）；
-		// 各客户端只为自己的棋盘缩放，不涉协议。乘在旗帜波 ×2.5 之前。
-		// 同一倍率也放大每波数量封顶（下面 aWaveZombieCap）：1 号位 4 倍时 20 → 80 只。
+		// @pvz-online: 席位顺位刷怪乘数（2026-10-03 用户二次定案：改回 2 的幂，取代当日的线性 4:3:2:1）：
+		// 末席（最后上座的席位）原量 ×1 不变，往前每升一位翻一倍：四人 8:4:2:1、三人 4:2:1、
+		// 二人 2:1；五六人续 16、32，顶到 32 封顶（用户定）。顺位按"上座席位"排
+		// （第 r 位权重 2^(n-r)）；各客户端只为自己的棋盘缩放，不涉协议。乘在旗帜波 ×2.5 之前。
+		// 同一倍率也放大每波数量封顶（下面 aWaveZombieCap）：1 号位 8 倍时 20 → 160 只。
 		int aSeatMult = 1;
 		if (mApp->IsOnlineGame() && mApp->mOnlineSession != nullptr)
 		{
@@ -801,11 +801,12 @@ void Board::PickZombieWaves()
 					if (mApp->mOnlineSession->IsSeatOccupied(aSeat))
 						aRank++;
 				}
-				aSeatMult = aSeatCount - aRank + 1;
+				aSeatMult = 1 << (aSeatCount - aRank);	// 第 r 位 = 2^(n-r)：末席 1、1 号位 2^(n-1)
+				if (aSeatMult > 32) aSeatMult = 32;		// 用户定封顶 32（六席顶正好 32；席位再抬先拦）
 
 				// @pvz-online: 出怪难度档（2026-10-03 用户定案）：房主开局前选的全局旋钮，
 				// 直接乘在顺位乘数上——轻松 ×0.5 / 高压 ×1.5，乘后向下取整、保底 1 倍
-				// （末位 1×1.5 取整仍 1、1×0.5 保底 1；顺位形状 4:3:2:1 在高压下变 6:4:3:1）。
+				// （末位 1×1.5 取整仍 1、1×0.5 保底 1；顺位形状 8:4:2:1 在高压下变 12:6:3:1）。
 				// 只在闯关局生效；非闯关 / 单机局档位恒为标准（也是恒等 ×1）。
 				if (mApp->IsRunMode() && mApp->GetRunState() != nullptr)
 				{
@@ -946,9 +947,9 @@ void Board::PickZombieWaves()
 		// ------------------------------------------------------------------------------------------------
 		// @pvz-online: 闯关"数量封顶"（M4-a 定案）：点数不封顶，但一波最多 RUN_WAVE_ZOMBIE_CAP 只；
 		// 预算花不完的零头直接作废——富余的点数靠 PickZombieType 的强僵尸优先花在质量上。
-		// 联机再按席位顺位乘数同倍放大（2026-10-03 用户定案：1 号位 4 倍 → 上限 80 只；
-		// 难度档高压在乘数里再 ×1.5 → 上限 120 只，数组留量 200 装得下）；
-		// 非闯关基准 = 原版 50，数组上限 MAX_ZOMBIES_IN_WAVE 按基准×4 留量。
+		// 联机再按席位顺位乘数同倍放大（2026-10-03 幂次口径：1 号位 8 倍 → 上限 160 只；
+		// 难度档高压在乘数里再 ×1.5 → 上限 240 只，数组留量 400 装得下）；
+		// 非闯关基准 = 原版 50，数组上限 MAX_ZOMBIES_IN_WAVE 按基准×8 留量。
 		int aWaveZombieCap = (mApp->IsRunMode() ? RunState::RUN_WAVE_ZOMBIE_CAP : WAVE_ZOMBIE_CAP_BASE) * aSeatMult;
 		while (aZombiePoints > 0 && aZombiePicker.mZombieCount < aWaveZombieCap)
 		{
@@ -5790,11 +5791,27 @@ bool Board::HasLevelAwardDropped()
 	return mLevelAwardSpawned || mNextSurvivalStageCounter > 0 || mBoardFadeOutCounter >= 0;
 }
 
+// @pvz-online: 联机里"本席位清完、全队还没清完"的等待窗（2026-10-03 用户定案）。
+// 清空 ≠ 本关结束：这个窗口里草坪要保持完全正常运转——天上照落阳光、产阳光植物照产、
+// 队友漏过来的怪照常打（掉头照走、会呻吟、掉币），直到所有席位都完成才由
+// LawnApp::UpdateOnlineEnd 统一收摊。实现 = 几处把 mLevelAwardSpawned 当"本关已结束"
+// 的消费点在 HasLevelAwardDropped() 上再叠一句「且不在等待窗」：UpdateSunSpawning、
+// Plant::UpdateProductionPlant、Zombie 三处（掉头即死/呻吟/掉币）。
+// mLevelAwardSpawned 本身照旧置位——它是"我清完了"的上报口径（SendLevelDone 取它），
+// 别动；刷怪门（UpdateZombieSpawning）也刻意不叠：等队友的窗口里波次逻辑不许复活。
+// 三人/四人局不用特判：IsPeerLevelDone() 本身就是"其他上座席位全报清完"。
+bool Board::OnlineWaitingForTeam()
+{
+	return mApp->IsOnlineGame() && mLevelAwardSpawned
+		&& mApp->mOnlineSession != nullptr && mApp->mOnlineSession->HasOtherSeats()
+		&& !mApp->mOnlineSession->IsPeerLevelDone();
+}
+
 //0x413A70
 void Board::UpdateSunSpawning()
 {
-	if (StageIsNight() || 
-		HasLevelAwardDropped() || 
+	if (StageIsNight() ||
+		(HasLevelAwardDropped() && !OnlineWaitingForTeam()) ||
 		mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_RAINING_SEEDS || 
 		mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_ICE || 
 		mApp->mGameMode == GameMode::GAMEMODE_UPSELL ||
