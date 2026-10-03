@@ -463,6 +463,16 @@ static void WidenWinterMelonChill(LawnApp* theApp, Zombie* theZombie)
 	}
 }
 
+// @pvz-online: 单株升级「Kindling」（火炬树桩，表行 SEED_TORCHWOOD）：火弹伤害 +50%/层
+//（乘数型、至多 2 层）。豌豆穿过火炬树桩变火弹（ConvertToFireball），基础伤害 40 不变；
+// 两个伤害计算点（溅射 DoSplashDamage 的 aOriginalDamage、打抗火僵尸的单发分支）都过它，
+// 溅射的 1/3 递减与上限换算从放大后的基数推，比例关系保持不变。
+static int KindlingFireballDamage(LawnApp* theApp, ProjectileType theType, int theBaseDamage)
+{
+	if (theType != ProjectileType::PROJECTILE_FIREBALL) return theBaseDamage;
+	return (int)(theBaseDamage * theApp->RunPlantUpgradeMul(SeedType::SEED_TORCHWOOD) + 0.5f);
+}
+
 void Projectile::DoSplashDamage(Zombie* theZombie)
 {
 	const ProjectileDefinition& aProjectileDef = GetProjectileDef();
@@ -480,6 +490,9 @@ void Projectile::DoSplashDamage(Zombie* theZombie)
 	// @pvz-online: 闯关 buff「火力」：基数先放大，后面的溅射上限/递减换算全从它推，
 	// 比例关系保持不变（非闯关局 RunBuffMul 恒为 1.0，取整后与原值一致）。
 	int aOriginalDamage = (int)(aProjectileDef.mDamage * mApp->RunBuffMul(RUN_BUFF_FIREPOWER) + 0.5f);
+	// @pvz-online: 单株升级「Kindling」（火炬树桩）：火弹再乘单株乘数（helper 注释），
+	// 后面的溅射 1/3 递减与上限换算都从放大后的基数推，比例不变。
+	aOriginalDamage = KindlingFireballDamage(mApp, mProjectileType, aOriginalDamage);
 	int aSplashDamage = aOriginalDamage / 3;
 	int aMaxSplashDamageAmount = aSplashDamage * 7;
 	if (mProjectileType == ProjectileType::PROJECTILE_FIREBALL)
@@ -858,6 +871,9 @@ void Projectile::DoImpact(Zombie* theZombie)
 		unsigned int aDamageFlags = GetDamageFlags(theZombie);
 		// @pvz-online: 闯关 buff「火力」：单体命中伤害按倍率放大（溅射那条同上，在 DoSplashDamage 里）。
 		int aDamage = (int)(GetProjectileDef().mDamage * mApp->RunBuffMul(RUN_BUFF_FIREPOWER) + 0.5f);
+		// @pvz-online: 单株升级「Kindling」（火炬树桩）：火弹打抗火僵尸（投石车/冰车等
+		// IsSplashDamage 为假）走这条单发路径，同样乘（helper 注释）。
+		aDamage = KindlingFireballDamage(mApp, mProjectileType, aDamage);
 		theZombie->TakeDamage(aDamage, aDamageFlags);
 
 		// @pvz-online: 单株升级「Frostbite」（寒冰射手，表行 SEED_SNOWPEA）：命中减速时长

@@ -1172,6 +1172,13 @@ void Plant::UpdateGraveBuster()
         {
             aGraveStone->GridItemDie();
             mBoard->mGravesCleared++;
+            // @pvz-online: 单株升级「Quick Dig」（墓碑吞噬者，表行 SEED_GRAVEBUSTER）：吞掉
+            // 墓碑成功额外落 25 阳光/层（计数型、至多 2 层）——真吞到才给，落币法同咖啡豆。
+            int aSunCoins = mApp->RunPlantUpgradeCount(SeedType::SEED_GRAVEBUSTER);
+            for (int i = 0; i < aSunCoins; i++)
+            {
+                mBoard->AddCoin(mX, mY, CoinType::COIN_SUN, CoinMotion::COIN_MOTION_FROM_PLANT);
+            }
         }
 
         mApp->AddTodParticle(mX + 40, mY + 40, mRenderOrder + 4, ParticleEffect::PARTICLE_GRAVE_BUSTER_DIE);
@@ -1917,7 +1924,9 @@ void Plant::UpdateChomper()
             }
 
             mState = PlantState::STATE_CHOMPER_DIGESTING;
-            mStateCountdown = 4000;
+            // @pvz-online: 单株升级「Ravenous」（大嘴花，表行 SEED_CHOMPER）：咀嚼（消化）
+            // 时间 ×0.5，只可选 1 层。4000 帧是咬到后的消化倒计时；咬/吞动画本身不动。
+            mStateCountdown = (int)(4000 * mApp->RunPlantUpgradeMul(SeedType::SEED_CHOMPER) + 0.5f);
         }
     }
     else if (mState == PlantState::STATE_CHOMPER_DIGESTING)
@@ -4560,7 +4569,10 @@ void Plant::DoSpecial()
         {
             // @pvz-online: 闯关里蘑菇不会再睡，"唤醒"永远没有对象——咖啡豆改产阳光：
             // 四枚 25（用户定案），和向日葵同一套落币方式
-            for (int i = 0; i < 4; i++)
+            // @pvz-online: 单株升级「Rich Roast」（咖啡豆，表行 SEED_INSTANT_COFFEE）：
+            // 产阳光每层 +100（+4 枚）——4 枚基数 ×(1+层)：1 层 8 枚 = 200、2 层 12 枚 = 300。
+            int aSunCoinCount = 4 * (1 + mApp->RunPlantUpgradeCount(SeedType::SEED_INSTANT_COFFEE));
+            for (int i = 0; i < aSunCoinCount; i++)
             {
                 mBoard->AddCoin(mX, mY, CoinType::COIN_SUN, CoinMotion::COIN_MOTION_FROM_PLANT);
             }
