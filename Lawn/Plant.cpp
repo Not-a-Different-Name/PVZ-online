@@ -951,9 +951,10 @@ void Plant::UpdateShooter()
     mLaunchCounter--;
     if (mLaunchCounter <= 0)
     {
-        // @pvz-online: 闯关 buff「急袭」：射击周期 ×(1−10%/层)。只缩这个节奏计数器——
-        // 动画里那些"倒计时到固定值放子弹"的检查点（加特林 18/35/51/68 等）不能动，否则对不上。
-        mLaunchCounter = (int)((mLaunchRate - Sexy::Rand(15)) * mApp->RunBuffMul(RUN_BUFF_SWIFT) + 0.5f);
+        // @pvz-online: 闯关 buff：全局「急袭」（×0.8/层）与单株射速族（双发/杨桃/卷心菜/机枪，
+        // ×0.75/层）都只缩这个节奏计数器——动画里那些"倒计时到固定值放子弹"的检查点（加特林
+        // 18/35/51/68 等）不能动，否则对不上。其余射手不在单株表里，RunPlantUpgradeMul 恒 1.0。
+        mLaunchCounter = (int)((mLaunchRate - Sexy::Rand(15)) * mApp->RunBuffMul(RUN_BUFF_SWIFT) * mApp->RunPlantUpgradeMul(mSeedType) + 0.5f);
 
         if (mSeedType == SeedType::SEED_THREEPEATER)
         {
