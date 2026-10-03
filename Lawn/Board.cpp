@@ -3154,7 +3154,9 @@ PlantingReason Board::CanPlantAt(int theGridX, int theGridY, SeedType theSeedTyp
 	Plant* aNormalPlant = aPlantOnLawn.mNormalPlant;
 	if (theSeedType == SeedType::SEED_LILYPAD || theSeedType == SeedType::SEED_TANGLEKELP || theSeedType == SeedType::SEED_SEASHROOM)
 	{
-		if (!IsPoolSquare(theGridX, theGridY))
+		// @pvz-online: 闯关里这几样也能种在草坪上（用户 2026-10-03 定案）——非泳池格不再
+		// 拒种，占位规则与水里一致（空格子才放得下）；屋顶不放开，仍按"只能种水上"拒。
+		if (!IsPoolSquare(theGridX, theGridY) && (!mApp->IsRunMode() || StageHasRoof()))
 		{
 			return PlantingReason::PLANTING_ONLY_IN_POOL;
 		}
@@ -3288,7 +3290,8 @@ PlantingReason Board::CanPlantAt(int theGridX, int theGridY, SeedType theSeedTyp
 	{
 		return PlantingReason::PLANTING_NEEDS_UPGRADE;
 	}
-	else if (theSeedType == SeedType::SEED_CATTAIL && aGridSquare != GridSquareType::GRIDSQUARE_POOL)
+	// @pvz-online: 香蒲同理（用户 2026-10-03 定案）——闯关里草坪也能直接种；非闯关照旧只限泳池
+	else if (theSeedType == SeedType::SEED_CATTAIL && aGridSquare != GridSquareType::GRIDSQUARE_POOL && !mApp->IsRunMode())
 	{
 		return PlantingReason::PLANTING_NOT_HERE;
 	}
@@ -10127,7 +10130,9 @@ unsigned int Board::SeedNotRecommendedForLevel(SeedType theSeedType)
 	{
 		SetBit(aNotRec, NotRecommend::NOT_RECOMMENDED_ON_ROOF, true);
 	}
-	if (!StageHasPool() && Plant::IsAquatic(theSeedType))
+	// @pvz-online: 闯关里水生四样（睡莲/缠绕海草/水兵菇/香蒲）都能种草坪，"需要泳池"的
+	// 灰罩不再成立（与 CanPlantAt 同一定案）。
+	if (!StageHasPool() && Plant::IsAquatic(theSeedType) && !mApp->IsRunMode())
 	{
 		SetBit(aNotRec, NotRecommend::NOT_RECOMMENDED_NEEDS_POOL, true);
 	}
@@ -10416,6 +10421,10 @@ void Board::UpdateGridItems()
 //0x41D7D0
 bool Board::PlantingRequirementsMet(SeedType theSeedType)
 {
+	// @pvz-online: 闯关里紫卡全是"直接种"（R6 定案，见 CanPlantAt）——卡槽的"需要底座"
+	// 门槛（拿不起来、点响蜂鸣、画灰）都不再适用，这里一处放行。
+	if (mApp->IsRunMode()) return true;
+
 	switch (theSeedType)
 	{
 	case SeedType::SEED_GATLINGPEA:			return CountPlantByType(SeedType::SEED_REPEATER);
