@@ -4139,7 +4139,9 @@ bool LawnApp::CanShowAlmanac()
 	if (mPlayerInfo == nullptr)
 		return false;
 
-	return HasFinishedAdventure() || mPlayerInfo->mLevel >= 15;
+	// @pvz-online: 图鉴直接解锁（用户 2026-10-03 拍板）——不再随档案进度锁
+	// （原版条件 HasFinishedAdventure() || mLevel >= 15）。图鉴内部的条目揭示逻辑照旧。
+	return true;
 }
 
 //0x454090
@@ -4163,7 +4165,9 @@ bool LawnApp::CanShowZenGarden()
 	if (IsTrialStageLocked())
 		return false;
 
-	return HasFinishedAdventure() || mPlayerInfo->mLevel >= 45;
+	// @pvz-online: 禅境花园直接解锁（用户 2026-10-03 拍板）——不再随档案进度锁
+	// （原版条件 HasFinishedAdventure() || mLevel >= 45）。花园内的购买/种植规则照旧。
+	return true;
 }
 
 bool LawnApp::CanSpawnYetis()

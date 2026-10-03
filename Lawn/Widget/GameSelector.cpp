@@ -498,7 +498,9 @@ void GameSelector::SyncButtons()
 		aSelectorReanim->AssignRenderGroupToPrefix("almanac_key_shadow", RENDER_GROUP_HIDDEN);
 
 	mZenGardenButton->mDisabled = !aZenGardenOpen;
-	mZenGardenButton->mVisible = false; // @pvz-online: M1 裁剪——禅境花园入口下架
+	// @pvz-online: 花园入口恢复（用户 2026-10-03 拍板"花园和图鉴直接解锁"）——M1 时
+	// 它随档案进度锁（45 关）一起下架，现在跟图鉴一样常驻，可用性只走 CanShowZenGarden。
+	mZenGardenButton->mVisible = aZenGardenOpen;
 
 	// @Patoke: all of these are already assigned in the constructor, why assign them here? (this fixes the hover highlight)
 	if (mMinigamesLocked)
@@ -1496,6 +1498,11 @@ void GameSelector::ButtonDepress(int theId)
 	case GameSelector::GameSelector_Almanac:
 		mApp->DoAlmanacDialog()->WaitForResult(true);
 		mApp->mMusic->MakeSureMusicIsPlaying(MusicTune::MUSIC_TUNE_TITLE_CRAZY_DAVE_MAIN_THEME);
+		break;
+	case GameSelector::GameSelector_ZenGarden:
+		// @pvz-online: 花园入口恢复后补回点击行为（M1 下架时连 case 一起删了）。
+		mApp->KillGameSelector();
+		mApp->PreNewGame(GameMode::GAMEMODE_CHALLENGE_ZEN_GARDEN, false);
 		break;
 	case GameSelector::GameSelector_AchievementsBack: // @Patoke: seems to be unused
 		SlideTo(0, 0);
