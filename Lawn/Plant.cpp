@@ -96,6 +96,26 @@ static int CobCannonArmFrames(LawnApp* theApp, int theBaseFrames)
     return (int)(theBaseFrames * theApp->RunPlantUpgradeMul(SeedType::SEED_COBCANNON) + 0.5f);
 }
 
+// @pvz-online: 攻速族（全局「急袭」× 单株射速族）统一改「动画加速」实现（用户 2026-10-04 定案）。
+// 旧实现只缩 mLaunchCounter，叠层高时下一发触发会打断进行中的多段攻击动画——忧郁菇 4 连、
+// 香蒲双发、加特林 4 连、双发射手第二发会被"卡掉"（实测用户点名忧郁菇/香蒲）。现在把同一条
+// 开火链上的节奏量整体 ×k：射击动画速率 ×k、全部节奏计数器（动画计数初值、各命中检查点）÷k，
+// 命中帧与「多发间隔 : 装填间隔」比例完全不变，只是整条链快 k 倍——多发不再被截断。
+// 注意：mLaunchCounter 的重置（UpdateShooter）仍写 ×RunBuffMul×RunPlantUpgradeMulKind 的
+// 乘法形式，它数学上就是 ÷k，全链同一因子。
+static float PlantShootSpeed(LawnApp* theApp, SeedType theSeedType)
+{
+    float aMul = theApp->RunBuffMul(RUN_BUFF_SWIFT) * theApp->RunPlantUpgradeMulKind(theSeedType, RUN_UPGRADE_KIND_RHYTHM);
+    return 1.0f / aMul;
+}
+
+// 节奏计数器/检查点按速度因子取整缩放（下限 1；速度 = 1 时原样返回，非攻速植物零影响）
+static int PlantShootTicks(int theBaseTicks, float theSpeed)
+{
+    int aScaled = (int)(theBaseTicks / theSpeed + 0.5f);
+    return aScaled < 1 ? 1 : aScaled;
+}
+
 void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, SeedType theImitaterType)
 {
     mPlantCol = theGridX;
@@ -774,6 +794,8 @@ bool Plant::FindTargetAndFire(int theRow, PlantWeapon thePlantWeapon)
     if (aZombie == nullptr)
         return false;
 
+    float aSpeed = PlantShootSpeed(mApp, mSeedType);
+
     EndBlink();
     Reanimation* aBodyReanim = mApp->ReanimationTryToGet(mBodyReanimID);
     Reanimation* aHeadReanim = mApp->ReanimationTryToGet(mHeadReanimID);
@@ -783,56 +805,56 @@ bool Plant::FindTargetAndFire(int theRow, PlantWeapon thePlantWeapon)
         Reanimation* aHeadReanim2 = mApp->ReanimationGet(mHeadReanimID2);
         aHeadReanim2->StartBlend(20);
         aHeadReanim2->mLoopType = ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD;
-        aHeadReanim2->mAnimRate = 35.0f;
+        aHeadReanim2->mAnimRate = 35.0f * aSpeed;
         aHeadReanim2->SetFramesForLayer("anim_splitpea_shooting");
-        mShootingCounter = 26;
+        mShootingCounter = PlantShootTicks(26, aSpeed);
     }
     else if (aHeadReanim && aHeadReanim->TrackExists("anim_shooting"))
     {
         aHeadReanim->StartBlend(20);
         aHeadReanim->mLoopType = ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD;
-        aHeadReanim->mAnimRate = 35.0f;
+        aHeadReanim->mAnimRate = 35.0f * aSpeed;
         aHeadReanim->SetFramesForLayer("anim_shooting");
 
-        mShootingCounter = 33;
+        mShootingCounter = PlantShootTicks(33, aSpeed);
         if (mSeedType == SeedType::SEED_REPEATER || mSeedType == SeedType::SEED_SPLITPEA || mSeedType == SeedType::SEED_LEFTPEATER)
         {
-            aHeadReanim->mAnimRate = 45.0f;
-            mShootingCounter = 26;
+            aHeadReanim->mAnimRate = 45.0f * aSpeed;
+            mShootingCounter = PlantShootTicks(26, aSpeed);
         }
         else if (mSeedType == SeedType::SEED_GATLINGPEA)
         {
-            aHeadReanim->mAnimRate = 38.0f;
-            mShootingCounter = 100;
+            aHeadReanim->mAnimRate = 38.0f * aSpeed;
+            mShootingCounter = PlantShootTicks(100, aSpeed);
         }
     }
     else if (mState == PlantState::STATE_CACTUS_HIGH)
     {
-        PlayBodyReanim("anim_shootinghigh", ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD, 20, 35.0f);
-        mShootingCounter = 23;
+        PlayBodyReanim("anim_shootinghigh", ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD, 20, 35.0f * aSpeed);
+        mShootingCounter = PlantShootTicks(23, aSpeed);
     }
     else if (mSeedType == SeedType::SEED_GLOOMSHROOM)
     {
-        PlayBodyReanim("anim_shooting", ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD, 20, 14.0f);
-        mShootingCounter = 200;
+        PlayBodyReanim("anim_shooting", ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD, 20, 14.0f * aSpeed);
+        mShootingCounter = PlantShootTicks(200, aSpeed);
     }
     else if (mSeedType == SeedType::SEED_CATTAIL)
     {
-        PlayBodyReanim("anim_shooting", ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD, 20, 30.0f);
-        mShootingCounter = 50;
+        PlayBodyReanim("anim_shooting", ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD, 20, 30.0f * aSpeed);
+        mShootingCounter = PlantShootTicks(50, aSpeed);
     }
     else if (aBodyReanim && aBodyReanim->TrackExists("anim_shooting"))
     {
-        PlayBodyReanim("anim_shooting", ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD, 20, 35.0f);
+        PlayBodyReanim("anim_shooting", ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD, 20, 35.0f * aSpeed);
 
         switch (mSeedType)
         {
-        case SeedType::SEED_FUMESHROOM:     mShootingCounter = 50;  break;
-        case SeedType::SEED_PUFFSHROOM:     mShootingCounter = 29;  break;
-        case SeedType::SEED_SCAREDYSHROOM:  mShootingCounter = 25;  break;
-        case SeedType::SEED_CABBAGEPULT:    mShootingCounter = 32;  break;
+        case SeedType::SEED_FUMESHROOM:     mShootingCounter = PlantShootTicks(50, aSpeed);  break;
+        case SeedType::SEED_PUFFSHROOM:     mShootingCounter = PlantShootTicks(29, aSpeed);  break;
+        case SeedType::SEED_SCAREDYSHROOM:  mShootingCounter = PlantShootTicks(25, aSpeed);  break;
+        case SeedType::SEED_CABBAGEPULT:    mShootingCounter = PlantShootTicks(32, aSpeed);  break;
         case SeedType::SEED_MELONPULT:
-        case SeedType::SEED_WINTERMELON:    mShootingCounter = 36;  break;
+        case SeedType::SEED_WINTERMELON:    mShootingCounter = PlantShootTicks(36, aSpeed);  break;
         case SeedType::SEED_KERNELPULT:
         {
             // @pvz-online: 单株升级「Buttery」（玉米投手，表行 SEED_KERNELPULT）：黄油触发
@@ -846,11 +868,11 @@ bool Plant::FindTargetAndFire(int theRow, PlantWeapon thePlantWeapon)
                 mState = PlantState::STATE_KERNELPULT_BUTTER;
             }
 
-            mShootingCounter = 30;
+            mShootingCounter = PlantShootTicks(30, aSpeed);
             break;
         }
-        case SeedType::SEED_CACTUS:         mShootingCounter = 35;  break;
-        default:                            mShootingCounter = 29;  break;
+        case SeedType::SEED_CACTUS:         mShootingCounter = PlantShootTicks(35, aSpeed);  break;
+        default:                            mShootingCounter = PlantShootTicks(29, aSpeed);  break;
         }
     }
     else
@@ -869,6 +891,7 @@ void Plant::LaunchThreepeater()
         (mBoard->RowCanHaveZombies(rowAbove) && FindTargetZombie(rowAbove, PlantWeapon::WEAPON_PRIMARY)) ||
         (mBoard->RowCanHaveZombies(rowBelow) && FindTargetZombie(rowBelow, PlantWeapon::WEAPON_PRIMARY)))
     {
+        float aSpeed = PlantShootSpeed(mApp, mSeedType);
         Reanimation* aHeadReanim1 = mApp->ReanimationGet(mHeadReanimID);
         Reanimation* aHeadReanim2 = mApp->ReanimationGet(mHeadReanimID2);
         Reanimation* aHeadReanim3 = mApp->ReanimationGet(mHeadReanimID3);
@@ -877,24 +900,24 @@ void Plant::LaunchThreepeater()
         {
             aHeadReanim1->StartBlend(10);
             aHeadReanim1->mLoopType = ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD;
-            aHeadReanim1->mAnimRate = 20.0f;
+            aHeadReanim1->mAnimRate = 20.0f * aSpeed;
             aHeadReanim1->SetFramesForLayer("anim_shooting1");
         }
 
         aHeadReanim2->StartBlend(10);
         aHeadReanim2->mLoopType = ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD;
-        aHeadReanim2->mAnimRate = 20.0f;
+        aHeadReanim2->mAnimRate = 20.0f * aSpeed;
         aHeadReanim2->SetFramesForLayer("anim_shooting2");
 
         if (mBoard->RowCanHaveZombies(rowAbove))
         {
             aHeadReanim3->StartBlend(10);
             aHeadReanim3->mLoopType = ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD;
-            aHeadReanim3->mAnimRate = 20.0f;
+            aHeadReanim3->mAnimRate = 20.0f * aSpeed;
             aHeadReanim3->SetFramesForLayer("anim_shooting3");
         }
 
-        mShootingCounter = 35;
+        mShootingCounter = PlantShootTicks(35, aSpeed);
     }
 }
 
@@ -957,8 +980,9 @@ void Plant::LaunchStarFruit()
 {
     if (FindStarFruitTarget())
     {
-        PlayBodyReanim("anim_shoot", ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD, 20, 28.0f);
-        mShootingCounter = 40;
+        float aSpeed = PlantShootSpeed(mApp, mSeedType);
+        PlayBodyReanim("anim_shoot", ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD, 20, 28.0f * aSpeed);
+        mShootingCounter = PlantShootTicks(40, aSpeed);
     }
 }
 
@@ -990,13 +1014,17 @@ void Plant::StarFruitFire()
 //0x45F8A0
 void Plant::UpdateShooter()
 {
+    float aSpeed = PlantShootSpeed(mApp, mSeedType);
+
     mLaunchCounter--;
     if (mLaunchCounter <= 0)
     {
-        // @pvz-online: 闯关 buff：全局「急袭」（×0.8/层）与单株射速族（双发/杨桃/卷心菜/机枪，
-        // ×0.75/层）都只缩这个节奏计数器——动画里那些"倒计时到固定值放子弹"的检查点（加特林
-        // 18/35/51/68 等）不能动，否则对不上。修正批（2026-10-03）改走 Kind 闸门口：只有
-        // 射速族条目（Kind=RHYTHM）进得来——此前任意行都乘，寒冰射手 +30% 行会把雪豆射速拉长。
+        // @pvz-online: 闯关攻速族（全局「急袭」×0.8/层 + 单株射速族 ×0.75/层）现为「动画加速」
+        // 实现（用户 2026-10-04 定案，见 PlantShootSpeed）：本行重置值与下面两处 ==25/==50
+        // 触发点都按同一速度因子缩放。旧实现只缩这个计数器，叠层高时下一发触发会打断进行中的
+        // 多段攻击动画（忧郁菇 4 连/香蒲双发/加特林 4 连/双发第二发被卡掉）；现在动画速率与
+        // 全部检查点同比例提速，命中帧与多发间隔比例不变。Kind 闸门保留（2026-10-03 修正批：
+        // 只有射速族条目进得来——此前任意行都乘，寒冰射手 +30% 行会把雪豆射速拉长）。
         mLaunchCounter = (int)((mLaunchRate - Sexy::Rand(15)) * mApp->RunBuffMul(RUN_BUFF_SWIFT) * mApp->RunPlantUpgradeMulKind(mSeedType, RUN_UPGRADE_KIND_RHYTHM) + 0.5f);
 
         if (mSeedType == SeedType::SEED_THREEPEATER)
@@ -1028,11 +1056,11 @@ void Plant::UpdateShooter()
         }
     }
 
-    if (mLaunchCounter == 50 && mSeedType == SeedType::SEED_CATTAIL)
+    if (mLaunchCounter == PlantShootTicks(50, aSpeed) && mSeedType == SeedType::SEED_CATTAIL)
     {
         FindTargetAndFire(mRow, PlantWeapon::WEAPON_PRIMARY);
     }
-    if (mLaunchCounter == 25)
+    if (mLaunchCounter == PlantShootTicks(25, aSpeed))
     {
         if (mSeedType == SeedType::SEED_REPEATER || mSeedType == SeedType::SEED_LEFTPEATER)
         {
@@ -3444,7 +3472,11 @@ void Plant::UpdateShooting()
 
     mShootingCounter--;
 
-    if (mSeedType == SeedType::SEED_FUMESHROOM && mShootingCounter == 15)
+    // @pvz-online: 命中/粒子检查点随「动画加速」同比例缩放（见 PlantShootSpeed 注释）。
+    // 非攻速植物 aSpeed==1，取整后与原常量逐值相同，行为零变化。
+    float aSpeed = PlantShootSpeed(mApp, mSeedType);
+
+    if (mSeedType == SeedType::SEED_FUMESHROOM && mShootingCounter == PlantShootTicks(15, aSpeed))
     {
         int aRenderPosition = Board::MakeRenderOrder(RenderLayer::RENDER_LAYER_PARTICLE, mRow, 0);
         AddAttachedParticle(mX + 85, mY + 31, aRenderPosition, ParticleEffect::PARTICLE_FUMECLOUD);
@@ -3452,26 +3484,26 @@ void Plant::UpdateShooting()
 
     if (mSeedType == SeedType::SEED_GLOOMSHROOM)
     {
-        if (mShootingCounter == 136 || mShootingCounter == 108 || mShootingCounter == 80 || mShootingCounter == 52)
+        if (mShootingCounter == PlantShootTicks(136, aSpeed) || mShootingCounter == PlantShootTicks(108, aSpeed) || mShootingCounter == PlantShootTicks(80, aSpeed) || mShootingCounter == PlantShootTicks(52, aSpeed))
         {
             int aRenderPosition = Board::MakeRenderOrder(RenderLayer::RENDER_LAYER_PARTICLE, mRow, 0);
             AddAttachedParticle(mX + 40, mY + 40, aRenderPosition, ParticleEffect::PARTICLE_GLOOMCLOUD);
         }
-        if (mShootingCounter == 126 || mShootingCounter == 98 || mShootingCounter == 70 || mShootingCounter == 42)
+        if (mShootingCounter == PlantShootTicks(126, aSpeed) || mShootingCounter == PlantShootTicks(98, aSpeed) || mShootingCounter == PlantShootTicks(70, aSpeed) || mShootingCounter == PlantShootTicks(42, aSpeed))
         {
             Fire(nullptr, mRow, PlantWeapon::WEAPON_PRIMARY);
         }
     }
     else if (mSeedType == SeedType::SEED_GATLINGPEA)
     {
-        if (mShootingCounter == 18 || mShootingCounter == 35 || mShootingCounter == 51 || mShootingCounter == 68)
+        if (mShootingCounter == PlantShootTicks(18, aSpeed) || mShootingCounter == PlantShootTicks(35, aSpeed) || mShootingCounter == PlantShootTicks(51, aSpeed) || mShootingCounter == PlantShootTicks(68, aSpeed))
         {
             Fire(nullptr, mRow, PlantWeapon::WEAPON_PRIMARY);
         }
     }
     else if (mSeedType == SeedType::SEED_CATTAIL)
     {
-        if (mShootingCounter == 19)
+        if (mShootingCounter == PlantShootTicks(19, aSpeed))
         {
             Zombie* aZombie = FindTargetZombie(mRow, PlantWeapon::WEAPON_PRIMARY);
             if (aZombie)
