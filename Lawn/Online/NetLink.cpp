@@ -281,7 +281,10 @@ struct NetLink::Impl
 			}
 
 			int anError = WSAGetLastError();
-			if (anError == WSAETIMEDOUT) continue;					// 只是暂时没数据
+			// @pvz-online: 997（WSA_IO_PENDING）＝「内部 I/O 还挂着」，是重试类码不是断线码——
+			// 阻塞 socket + SO_RCVTIMEO 的超时竞态下会偶发（2026-10-04 实机日志：正常收包后读到）。
+			// 真断线不掩：没有包进账照样由上层 TIMEOUT_FRAMES 判「连接超时」。
+			if (anError == WSAETIMEDOUT || anError == WSA_IO_PENDING) continue;	// 只是暂时没数据
 			if (anError == WSAEWOULDBLOCK) { Sleep(1); continue; }
 			if (anError == WSAENOTSOCK || anError == WSAEINTR) return false;	// 正在 Close()
 			FailWithError("Connection lost", anError);
@@ -528,7 +531,8 @@ bool NetLink::Send(const void* theData, int theSize)
 		}
 
 		int anError = WSAGetLastError();
-		if (anError == WSAETIMEDOUT || anError == WSAEWOULDBLOCK)
+		// @pvz-online: 997 与 RecvExact 同理（「还挂着」的瞬时态），并入重试组，重试上限照旧。
+		if (anError == WSAETIMEDOUT || anError == WSAEWOULDBLOCK || anError == WSA_IO_PENDING)
 		{
 			if (++aRetries > SEND_RETRY_LIMIT)
 			{
