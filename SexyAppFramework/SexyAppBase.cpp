@@ -5074,6 +5074,12 @@ void SexyAppBase::SwitchScreenMode(bool wantWindowed, bool is3d, bool force)
 {
 	if (mForceFullscreen)
 		wantWindowed = false;
+	// @pvz-online: mirror guard for the forced-windowed flag (user request, 2026-10-04) —
+	// this is the chokepoint every fullscreen request funnels through, so one guard here
+	// covers the options checkbox, SIZE_MAXIMIZED and the DDInterface fallbacks alike.
+	// If both flags are ever set, windowed wins (last write).
+	if (mForceWindowed)
+		wantWindowed = true;
 
 	if (mIsWindowed == wantWindowed && !force)
 	{
@@ -6294,8 +6300,11 @@ void SexyAppBase::Init()
 	if (mIsWindowed && !mFullScreenWindow)
 	{
 		// How can we be windowed if our screen isn't even big enough?
-		if ((mWidth >= GetSystemMetrics(SM_CXFULLSCREEN)) ||
-			(mHeight >= GetSystemMetrics(SM_CYFULLSCREEN)))
+		// @pvz-online: unless windowed is forced (user request, 2026-10-04) — then a
+		// window hanging off a tiny screen beats going fullscreen against the flag.
+		if (!mForceWindowed &&
+			((mWidth >= GetSystemMetrics(SM_CXFULLSCREEN)) ||
+			 (mHeight >= GetSystemMetrics(SM_CYFULLSCREEN))))
 		{
 			mIsWindowed = false;
 			mForceFullscreen = true;

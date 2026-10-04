@@ -584,6 +584,11 @@ void SexyApp::InitPropertiesHook()
 	// @pvz-online: force windowed for development — Steam partner.xml defaults to
 	// exclusive fullscreen, which hijacks the whole display and survives crashes badly
 	mIsWindowed = true;
+	// @pvz-online: fullscreen is disabled outright (user request, 2026-10-04). This flag
+	// blocks Alt+Enter and lets SexyAppBase::SwitchScreenMode() veto every fullscreen
+	// request (options checkbox, window maximize, DDInterface fallbacks); the options
+	// checkbox itself answers with a notice dialog instead (NewOptionsDialog).
+	mForceWindowed = true;
 
 	std::string aNewTitle = GetString("Title", "");
 	if (aNewTitle.length() > 0)
