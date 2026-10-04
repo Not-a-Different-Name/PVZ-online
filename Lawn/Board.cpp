@@ -6712,12 +6712,13 @@ static inline void AddUIRenderItem(RenderItem* theRenderList, int& theCurRenderI
 static bool gShowZombieHealthNumbers = false;
 static bool gShowPlantHealthNumbers = false;
 
-// @pvz-online: 单个血量数字：像素字体白字黑描边，居中画在实体矩形上方（DrawString 的 y 是基线）
-static void DrawHealthNumberOverRect(Graphics* g, int theHealth, const Rect& theRect)
+// @pvz-online: 单个血量数字：像素字体白字黑描边，居中画在实体矩形上方（DrawString 的 y 是基线）。
+// theLine = 自下往上第几行（0 = 紧贴矩形上沿，往上每行步进 16px；僵尸的防具数字叠行用）
+static void DrawHealthNumberOverRect(Graphics* g, int theHealth, const Rect& theRect, int theLine = 0)
 {
 	SexyString aText = StrFormat(_S("%d"), theHealth);
 	int aTextX = theRect.mX + theRect.mWidth / 2 - Sexy::FONT_CONTINUUMBOLD14->StringWidth(aText) / 2;
-	int aTextY = theRect.mY - 4;
+	int aTextY = theRect.mY - 4 - theLine * 16;
 	g->SetFont(Sexy::FONT_CONTINUUMBOLD14);
 	g->SetColor(Color::Black);
 	g->DrawString(aText, aTextX - 1, aTextY);
@@ -7144,7 +7145,17 @@ void Board::DrawGameObjects(Graphics* g)
 		{
 			if (!aZombie->IsDeadOrDying())
 			{
-				DrawHealthNumberOverRect(g, aZombie->mBodyHealth, aZombie->GetZombieRect());
+				// @pvz-online: 主体数字在底行；防具（头盔/盾牌/气球，>0 才算）自下往上依次叠行
+				// （2026-10-04 用户指令：防具也显示血量）
+				Rect aZombieRect = aZombie->GetZombieRect();
+				int aLine = 0;
+				DrawHealthNumberOverRect(g, aZombie->mBodyHealth, aZombieRect, aLine++);
+				if (aZombie->mHelmHealth > 0)
+					DrawHealthNumberOverRect(g, aZombie->mHelmHealth, aZombieRect, aLine++);
+				if (aZombie->mShieldHealth > 0)
+					DrawHealthNumberOverRect(g, aZombie->mShieldHealth, aZombieRect, aLine++);
+				if (aZombie->mFlyingHealth > 0)
+					DrawHealthNumberOverRect(g, aZombie->mFlyingHealth, aZombieRect, aLine++);
 			}
 		}
 	}
