@@ -57,6 +57,47 @@ public:
 		uint8_t		mSeat;		// 跟这事有关的席位（PEER_JOINED/PEER_LEFT 用；别的类型是 SEAT_UNSET）
 	};
 
+	// 观战结束的原因（棋盘取走 TakeWatchEnded 后据此决定要不要给玩家一句提示）。
+	enum class WatchEnd : uint8_t
+	{
+		NONE = 0,
+		USER,			// 我自己松的手/按 ESC（棋盘自己知道，不用提示）
+		TIMEOUT,		// 3 秒没有快照——对面没响应（旧构建 / 他那边卡了）——提示
+		TARGET_LEFT,	// 被看的人走了/掉线——提示
+		SILENT			// 其他安静收场（换位后目标成了自己、关卡换代、对面主动停推）
+	};
+
+	// 一份快照解析后的样子（纯展示数据：接收端照它画，不建任何实体）。
+	// 数组定长给满协议上限——发送端已在源头截断，这里不可能更多。
+	struct ViewSnapshot
+	{
+		struct Zombie
+		{
+			uint16_t	mType;
+			uint8_t		mRow;
+			int			mX;			// 已经换算回像素坐标（协议上是 x+512）
+			uint8_t		mHP;		// 0..100 的体血百分比
+			uint8_t		mFlags;		// NetProto::SNAPSHOT_ZFLAG_*
+		};
+		struct Plant
+		{
+			uint8_t		mSeedType;
+			uint8_t		mRow;
+			uint8_t		mCol;
+			uint8_t		mHP;
+		};
+
+		uint8_t		mFlags;			// NetProto::SNAPSHOT_FLAG_*（暂停/清完/截断）
+		uint8_t		mWave;
+		uint8_t		mWaveTotal;
+		uint8_t		mRows;			// 这一关的行数（5/6），画背景按它来
+		uint8_t		mMowers;		// bit r = 第 r 行推车还在
+		int			mZombieCount;
+		Zombie		mZombies[NetProto::SNAPSHOT_ZOMBIE_MAX];
+		int			mPlantCount;
+		Plant		mPlants[NetProto::SNAPSHOT_PLANT_MAX];
+	};
+
 	// 帧计数按主循环固定 10ms 一拍折算：100 帧 ≈ 1 秒
 	static const int	HEARTBEAT_FRAMES			= 100;
 	static const int	TIMEOUT_FRAMES				= 500;
@@ -64,6 +105,10 @@ public:
 	// 中继握手掐表：发了 CREATE/JOIN 之后 10 秒没等到 WELCOME 就判死。
 	// 直连那边**故意不掐表**（TCP 通了就一直等 HELLO），这条只走中继。
 	static const int	RELAY_HANDSHAKE_FRAMES		= 1000;
+	// 观战（队友场地查看）的三个计时，同样 10ms 一拍：
+	static const int	WATCH_KEEPALIVE_FRAMES		= 200;	// 观看者每 2 秒一条保活
+	static const int	WATCH_SNAPSHOT_FRAMES		= 300;	// 观看者 3 秒没有快照 = 对面没响应，观看收场
+	static const int	WATCH_KEEPER_FRAMES			= 600;	// 被看方 6 秒收不到保活 = 观看者没了，停推
 
 public:
 	NetSession();
@@ -265,6 +310,33 @@ public:
 	// 背压时最新一条最有用。没有就返回 false。
 	bool			TakePendingQuickChat(NetProto::MsgQuickChat& theMsg);
 
+	// ---- 观战（队友场地查看）----
+	// 观看端：开始看某席位（按住 V 那一刻调一次）。发 BEGIN 并开始收快照；每 2 秒自动补
+	// 一条保活，3 秒收不到快照就收场（WatchEnd::TIMEOUT）。没连上/席位越界/空位/
+	// 是我自己，都返回 false（看不成）。
+	bool			BeginWatch(uint8_t theSeat);
+	// 观看端：结束观看（松开 V / ESC / 掉线兜底）。theNotify=true 会给被看方发 END
+	//（对面立刻停推；不发的兜底是被看方 6 秒收不到保活自己停）。
+	void			EndWatch(bool theNotify = true);
+	bool			IsWatching() const { return mWatchTargetSeat != NetProto::SEAT_UNSET; }
+	uint8_t			GetWatchTargetSeat() const { return mWatchTargetSeat; }
+	// 观看结束的原因（取一次就清；还在看 / 没看过都是 NONE）。USER 和 SILENT 不用提示，
+	// TIMEOUT 提示"对方没有响应"、TARGET_LEFT 提示"对方离开了"——棋盘自己择串。
+	WatchEnd		TakeWatchEnded();
+	// 观看端：最新一份快照到了没有（取一次就清；棋盘每帧问一次）。快照是"最新覆盖"的流，
+	// 只留一份不排队——过期的战场定格没有展示价值，丢了就丢了。
+	bool			TakeViewSnapshot(ViewSnapshot& theSnapshot);
+
+	// 被看端：现在有人在看我吗（棋盘据此决定这一帧要不要打包快照）。
+	bool			HasBoardWatchers() const { return mBoardWatcherMask != 0; }
+	// 被看端：观众席位列表（棋盘按它逐个发快照——快照是单播，一个观众一份）。
+	// 返回写进 theSeats 的个数（最多 theMax 个）。
+	int				GetBoardWatcherSeats(uint8_t* theSeats, int theMax) const;
+	// 被看端：推一份快照给一个观众（会话层负责分片与 seq，不解析内容）。
+	// theBody/theSize 是快照数据段（格式见 NetProtocol.h 的 SNAPSHOT_* 注释），
+	// 超过 SNAPSHOT_MAX_PARTS×250 字节的会被拒——那是调用方该裁的账。
+	bool			SendBoardSnapshot(uint8_t theViewerSeat, const uint8_t* theBody, int theSize);
+
 	State			GetState() const { return mState; }
 	Role			GetRole() const { return mRole; }
 	Transport		GetTransport() const { return mTransport; }
@@ -348,6 +420,12 @@ private:
 	void			ClearPauseState();
 	// 把"谁清完了"整个忘掉（新一局开始、掉线、收摊时用）。
 	void			ClearLevelDoneState();
+	// 观看端状态整段清掉（收摊/判死/关卡换代/看完了），并给棋盘留一句"为什么结束"
+	// （theReason）。观众表（被看端）不在这里清：收摊/判死走 DiscardLevelPackets 一起清，
+	// 那里的道别 END 是先发后清的。
+	void			ClearWatchState(WatchEnd theReason);
+	// 给某席位发一条 BOARD_WATCH（op 由调用方定；dst 就是 theSeat）。
+	bool			SendBoardWatchMsg(uint8_t theSeat, uint8_t theOp);
 	// 上座席位是不是都报了"清完了"。一个队友都没有的空局返回 false——
 	// 单机里没人陪你判胜。
 	bool			AreAllSeatsDone() const;
@@ -401,6 +479,23 @@ private:
 	std::vector<NetProto::MsgEscapedZombie>	mPendingEscapedZombies;
 	// 收到的局内快捷聊天（收包在会话层、显示在棋盘，跨层不建 UI，理由同漏怪队列）。
 	std::vector<NetProto::MsgQuickChat>	mPendingQuickChats;
+	// ---- 观战（队友场地查看）----
+	// 观看端：我在看谁（SEAT_UNSET = 没在看）、两个计时、分片装配缓冲。
+	uint8_t				mWatchTargetSeat;
+	int					mFramesSinceWatchKeepalive;
+	int					mFramesSinceWatchSnapshot;
+	uint16_t			mWatchAssemblySeq;		// 正在拼的那一代（与来片 seq 不等就作废重来）
+	int					mWatchAssemblyParts;	// 已按序收到的片数
+	int					mWatchAssemblySize;		// 已收字节数
+	uint8_t				mWatchAssemblyBuf[NetProto::SNAPSHOT_MAX_PARTS * NetProto::SNAPSHOT_PART_PAYLOAD];
+	bool				mHasViewSnapshot;		// 有还没被棋盘取走的新快照
+	ViewSnapshot		mLastSnapshot;
+	WatchEnd			mWatchEndPending;		// 还没被取走的结束原因（NONE = 没有）
+	// 被看端：谁在看我的场地（bit = 席位号，bit 1..6）+ 每人上次说话距今帧数
+	//（6 秒没声就删——观看者掉线时 END 到不了，只能靠这个兜底）。
+	uint8_t				mBoardWatcherMask;
+	int					mBoardWatcherFrames[NetProto::MAX_PLAYERS + 1];
+	uint16_t			mSnapshotSeq;			// 快照代次（每发一份 +1，u16 回绕）
 	uint8_t				mSwapRequestSeat;	// 我发出的换位请求发给了谁（SEAT_UNSET = 没在等）
 	uint8_t				mSwapAskSeat;		// 哪个席位正问我换不换（SEAT_UNSET = 没有）
 	bool				mSwapCommitHandled;	// 中继：COMMIT 已经有人接手（我发的，或对面会发），等广播

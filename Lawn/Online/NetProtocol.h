@@ -16,7 +16,7 @@
 // 字段逐个按小端读写（Writer/Reader），所以结构体在内存里的对齐/填充与线格式无关。
 // 收到的包长度与类型对不上时必须断线——那是串包，不是可以忽略的噪声。
 //
-// type 分两段（M3 中继）：1..15 是游戏帧——直连时两端互发；中继时客户端发给服务器，
+// type 分两段（M3 中继）：1..18 是游戏帧——直连时两端互发；中继时客户端发给服务器，
 // 服务器只读 payload[1]=dstSeat，把 payload 逐字节转给那个席位的连接。0xF000 起是
 // 控制帧，只在中继模式下出现，由服务器生成/消费（建房、名册、保活、换位），不转发。
 
@@ -105,7 +105,12 @@ const uint16_t	PROTOCOL_VERSION	= 1;
 //        ×2、其余席位不动（二人 2:2、四人 8:4:2:2；末位每波数量上限同步 20/50→40/100）。
 //        帧格式没动、各客户端仍只为自己棋盘缩放，但混搭时末位一边 ×1 一边 ×2，
 //        出怪量对不上，必须两边同版本（见 docs/03-过程与问题.md §5.37）。
-const uint16_t	MOD_BUILD			= 30;
+// 30 → 31：队友场地查看（观战，2026-10-05 用户定案）：新增 BOARD_WATCH（点播/保活/收播）
+//        与 BOARD_SNAPSHOT（被看方按 ~15Hz 回推的战场定格，数据大、按 250B 分片）。
+//        两个帧都是游戏帧，全在既有 256B 单帧上限之内——分片就是为绕开它，中继服务器
+//        **零改动**、照 dst 转发。旧构建收到这两帧当没见过的帧静默丢：观看方等 3 秒超时、
+//        提示"没有响应"。快照内容与超时行为和构建同代次绑定，两边必须同版本。
+const uint16_t	MOD_BUILD			= 31;
 
 const uint16_t	DEFAULT_PORT		= 27777;
 
@@ -147,7 +152,9 @@ enum MessageType : uint16_t
 	MSG_LEVEL_EXIT		= 13,	// 双向：我离开这一局、回主菜单了
 	MSG_RUN_GO			= 14,	// H→C：全员都已进场，各席位开始做自己的三选一
 	MSG_SEEDS_READY		= 15,	// 双向：我这一轮的选卡状态（1 = 选好了，等其他人）
-	MSG_QUICK_CHAT		= 16	// 双向：局内快捷聊天，只传编号（1-8 短语、9-16 植物表情，查表在 QuickChat.h）
+	MSG_QUICK_CHAT		= 16,	// 双向：局内快捷聊天，只传编号（1-8 短语、9-16 植物表情，查表在 QuickChat.h）
+	MSG_BOARD_WATCH		= 17,	// 双向：观战点播/保活/收播（op 见 WatchOp；dst = 被看席位）
+	MSG_BOARD_SNAPSHOT	= 18	// 被看方→观看者：战场定格快照（一行实体一款、分片发，见 MsgBoardSnapshot）
 };
 
 // ------------------------------------------------------------------------------------------------
@@ -482,6 +489,84 @@ struct MsgQuickChat
 	uint8_t			mDstSeat;
 	uint8_t			mId;
 };
+
+// ----------------------------------------------------------------------------------------------------
+// ★ 观战（队友场地查看）
+// ----------------------------------------------------------------------------------------------------
+//
+// 一句话架构：**观看者点播、被看方回推**。按住 V 时观看者向某席位发 BEGIN（之后每 2 秒一条
+// KEEPALIVE 报"还在看"），被看方收到就按 ~15Hz 把"我场地现在长什么样"打包回推；松开 V 发 END。
+// 被看方不回复确认——快照本身就是确认（观看端 3 秒收不到快照就当"没有响应"，见 NetSession
+// 的 WATCH_*_FRAMES）；被看方 6 秒收不到保活就停推（观看者掉线的兜底，比 END 先到不了更常见）。
+//
+// 为什么是分片：单帧 MAX_PAYLOAD=256 是硬上限（中继对更长的帧直接判坏断连，
+// 见 server/relay/proto.go 的 readFrame），而一份战场快照满编上千字节。抬上限要客户端与
+// 服务器**同刻更新**（还得云上重部署），分片就不用——每片都合规，中继照 dst 转发，
+// **服务器一个字节都不用改**。
+
+// WATCH_BEGIN：{ srcSeat, dstSeat, u8 op }（op 见 WatchOp）
+// "我开始看你这一席了 / 还在看 / 不看了"。全是单播（dst = 被看席位），不走扇出：
+// 看谁就只打扰谁。中继按 dst 转发、空席位自动丢——观看者点播前先自己筛掉空席位就行。
+struct MsgBoardWatch
+{
+	uint8_t			mSrcSeat;
+	uint8_t			mDstSeat;
+	uint8_t			mOp;
+};
+
+enum WatchOp : uint8_t
+{
+	WATCH_BEGIN		= 1,	// 观看者→被看者：开始看你（被看方凭这个开始推快照）
+	WATCH_KEEPALIVE	= 2,	// 观看者→被看者：还在看（每 2 秒一条，被看方 6 秒收不到就停推）
+	WATCH_END		= 3		// 观看者→被看者：不看了（被看方立刻停推；被看方离开关卡时也发这条）
+};
+
+// 分片的线格式：payload = { srcSeat, dstSeat, u16 seq, u8 part, u8 count, data ≤ 250 }
+// seq 每份快照 +1（u16 回绕），part 是 0..count-1 的片号。TCP 有序，所以同一份的片必然
+// 按序到达——part 只是用来发现"前面有片丢了/这半份是上一代的"，丢了就把半份作废、等下一份，
+// 绝不把两代字节拼在一起。观看端注意：**没有 part seq 的帧是整帧丢的**，只能靠时间超时发现。
+const int	SNAPSHOT_PART_HEADER	= 6;	// src, dst, u16 seq, u8 part, u8 count
+const int	SNAPSHOT_PART_PAYLOAD	= MAX_PAYLOAD - SNAPSHOT_PART_HEADER;	// 250
+const int	SNAPSHOT_MAX_PARTS		= 8;	// 一份最多几片（8×250=2000B；实发满编约 5 片）
+
+struct MsgBoardSnapshot
+{
+	uint8_t			mSrcSeat;
+	uint8_t			mDstSeat;
+	uint16_t		mSeq;
+	uint8_t			mPart;
+	uint8_t			mCount;
+	uint8_t			mData[SNAPSHOT_PART_PAYLOAD];
+};
+
+// ---- 快照数据段（把 count 片按 part 拼回后按下述布局解析；全部小端）----
+// 头 7 字节：u8 flags（bit0 暂停、bit1 本关清完、bit2 截断=容量不够裁过实体）、
+//            u8 nZ、u8 nP、u8 mowers（bit r = 第 r 行推车还在）、
+//            u8 wave、u8 waveTotal、u8 rows（这一关行数 5/6——观看端不许写死）
+// 僵尸 nZ × 7B：{ u16 type, u8 row, u16 qx, u8 hp, u8 zflags }
+//     qx = 像素 x + 512（棋盘坐标可以为负——入场口在屏右外面）；发送端取整；
+//     hp = 当前体血 / 满血 ×100（封顶 100）；zflags 见 SNAPSHOT_ZFLAG_*
+// 植物 nP × 4B：{ u8 seedType, u8 row, u8 col, u8 hp }
+// 超编：发送端裁掉"最靠右（威胁最小）"的僵尸 / 多余的植物并置截断位——
+// 观看画面的角落少几个刚进场的怪，比整帧不显示强。
+const int	SNAPSHOT_HEADER_SIZE	= 7;
+const int	SNAPSHOT_ZOMBIE_SIZE	= 7;
+const int	SNAPSHOT_PLANT_SIZE		= 4;
+const int	SNAPSHOT_ZOMBIE_MAX		= 120;	// 单份快照的僵尸上限（超过就裁）
+const int	SNAPSHOT_PLANT_MAX		= 60;	// 植物上限同理
+
+// flags 位
+const uint8_t	SNAPSHOT_FLAG_PAUSED	= 0x01;	// 被看方当前暂停着（画面照出，界面上注明）
+const uint8_t	SNAPSHOT_FLAG_COMPLETE	= 0x02;	// 被看方这一关已经清完（等队友/等结算）
+const uint8_t	SNAPSHOT_FLAG_TRUNCATED	= 0x04;	// 实体超编裁过（观看端不提示，只是知悉）
+
+// 僵尸 zflags 位（选从简：戴没戴东西，具体甲种不传——v1 画个近似即可）
+const uint8_t	SNAPSHOT_ZFLAG_HELMET	= 0x01;	// 有头甲（路障/铁桶等）
+const uint8_t	SNAPSHOT_ZFLAG_SHIELD	= 0x02;	// 有护盾（铁门/垃圾箱等）
+const uint8_t	SNAPSHOT_ZFLAG_FLYING	= 0x04;	// 飞行中（气球僵尸）
+
+// 一份快照的字节数：7 + 7×nZ + 4×nP（上限 7 + 840 + 240 = 1087B → 5 片）。
+
 
 // ====================================================================================================
 // ★ 中继控制帧载荷
@@ -889,6 +974,59 @@ inline bool DecodeQuickChat(const uint8_t* theData, int theSize, MsgQuickChat& t
 	theMsg.mDstSeat = aReader.U8();
 	theMsg.mId = aReader.U8();
 	return !aReader.Overflowed();
+}
+
+inline int EncodeBoardWatch(uint8_t* theBuffer, int theCapacity, const MsgBoardWatch& theMsg)
+{
+	Writer aWriter(theBuffer, theCapacity);
+	aWriter.U8(theMsg.mSrcSeat);
+	aWriter.U8(theMsg.mDstSeat);
+	aWriter.U8(theMsg.mOp);
+	return aWriter.Overflowed() ? -1 : aWriter.Size();
+}
+
+inline bool DecodeBoardWatch(const uint8_t* theData, int theSize, MsgBoardWatch& theMsg)
+{
+	Reader aReader(theData, theSize);
+	theMsg.mSrcSeat = aReader.U8();
+	theMsg.mDstSeat = aReader.U8();
+	theMsg.mOp = aReader.U8();
+	return !aReader.Overflowed();
+}
+
+// 快照分片是变长的（最后一片不满），所以编码要显式给数据长度；解码把"片头之后的全部"
+// 当作数据收进 mData，长度由调用方从 theSize - SNAPSHOT_PART_HEADER 自己算
+// （Decode 返回值只管头合法性）。
+inline int EncodeBoardSnapshot(uint8_t* theBuffer, int theCapacity, const MsgBoardSnapshot& theMsg, int theDataSize)
+{
+	if (theDataSize < 0 || theDataSize > SNAPSHOT_PART_PAYLOAD) return -1;
+
+	Writer aWriter(theBuffer, theCapacity);
+	aWriter.U8(theMsg.mSrcSeat);
+	aWriter.U8(theMsg.mDstSeat);
+	aWriter.U16(theMsg.mSeq);
+	aWriter.U8(theMsg.mPart);
+	aWriter.U8(theMsg.mCount);
+	aWriter.Bytes(theMsg.mData, theDataSize);
+	return aWriter.Overflowed() ? -1 : aWriter.Size();
+}
+
+inline bool DecodeBoardSnapshot(const uint8_t* theData, int theSize, MsgBoardSnapshot& theMsg)
+{
+	if (theSize < SNAPSHOT_PART_HEADER || theSize > MAX_PAYLOAD) return false;
+
+	Reader aReader(theData, theSize);
+	theMsg.mSrcSeat = aReader.U8();
+	theMsg.mDstSeat = aReader.U8();
+	theMsg.mSeq = aReader.U16();
+	theMsg.mPart = aReader.U8();
+	theMsg.mCount = aReader.U8();
+	if (aReader.Overflowed()) return false;
+
+	int aDataSize = theSize - SNAPSHOT_PART_HEADER;
+	memset(theMsg.mData, 0, sizeof(theMsg.mData));
+	if (aDataSize > 0) memcpy(theMsg.mData, theData + SNAPSHOT_PART_HEADER, aDataSize);
+	return true;
 }
 
 // ---- 中继控制帧 ----

@@ -29,6 +29,7 @@ const int	PAUSE_PAYLOAD_SIZE		= 3;	// src, dst, u8 paused
 const int	LEVEL_DONE_PAYLOAD_SIZE	= 3;	// src, dst, u8 done
 const int	GAME_OVER_PAYLOAD_SIZE	= 3;	// src, dst, u8 reason
 const int	QUICK_CHAT_PAYLOAD_SIZE	= 3;	// src, dst, u8 id
+const int	BOARD_WATCH_PAYLOAD_SIZE = 3;	// src, dst, u8 op（快照是变长帧，长度校验按 NetProtocol.h 的常量算）
 
 // 收到的快捷聊天最多攒几条：喊话是时间敏感信息，攒一堆旧的全堆给棋盘没意义；
 // 满了丢最旧、保最新（TakePendingQuickChat 处同款注释）。棋盘每帧都会来取，常态下攒不满。
@@ -47,6 +48,49 @@ std::string SanitizeName(const char* theName, int theMaxBytes)
 		if (aChar >= 32 && aChar < 127) aResult += (char)aChar;
 	}
 	return aResult;
+}
+
+// 把拼好的快照数据段解析成展示模型（格式见 NetProtocol.h 的 SNAPSHOT_* 注释）。
+// 任何结构对不上都返回 false——调用方保留上一份画面、等下一份自愈，绝不画半份垃圾。
+bool ParseViewSnapshot(const uint8_t* theBody, int theSize, NetSession::ViewSnapshot& theSnapshot)
+{
+	if (theSize < NetProto::SNAPSHOT_HEADER_SIZE) return false;
+
+	NetProto::Reader aReader(theBody, theSize);
+	theSnapshot.mFlags = aReader.U8();
+	uint8_t aZombieCount = aReader.U8();
+	uint8_t aPlantCount = aReader.U8();
+	theSnapshot.mMowers = aReader.U8();
+	theSnapshot.mWave = aReader.U8();
+	theSnapshot.mWaveTotal = aReader.U8();
+	theSnapshot.mRows = aReader.U8();
+	if (aReader.Overflowed()) return false;
+
+	if (aZombieCount > NetProto::SNAPSHOT_ZOMBIE_MAX || aPlantCount > NetProto::SNAPSHOT_PLANT_MAX)
+		return false;
+	int aExpected = NetProto::SNAPSHOT_HEADER_SIZE
+		+ aZombieCount * NetProto::SNAPSHOT_ZOMBIE_SIZE
+		+ aPlantCount * NetProto::SNAPSHOT_PLANT_SIZE;
+	if (theSize != aExpected) return false;
+
+	theSnapshot.mZombieCount = aZombieCount;
+	for (int i = 0; i < aZombieCount; i++)
+	{
+		theSnapshot.mZombies[i].mType = aReader.U16();
+		theSnapshot.mZombies[i].mRow = aReader.U8();
+		theSnapshot.mZombies[i].mX = (int)aReader.U16() - 512;	// 线上是 x+512（棋盘坐标可为负）
+		theSnapshot.mZombies[i].mHP = aReader.U8();
+		theSnapshot.mZombies[i].mFlags = aReader.U8();
+	}
+	theSnapshot.mPlantCount = aPlantCount;
+	for (int i = 0; i < aPlantCount; i++)
+	{
+		theSnapshot.mPlants[i].mSeedType = aReader.U8();
+		theSnapshot.mPlants[i].mRow = aReader.U8();
+		theSnapshot.mPlants[i].mCol = aReader.U8();
+		theSnapshot.mPlants[i].mHP = aReader.U8();
+	}
+	return !aReader.Overflowed();
 }
 
 }
@@ -82,6 +126,16 @@ NetSession::NetSession()
 	mSwapCommitHandled = false;
 	mAnyAckRejected = false;
 	mNoticeFrames = 0;
+	mWatchTargetSeat = NetProto::SEAT_UNSET;
+	mFramesSinceWatchKeepalive = 0;
+	mFramesSinceWatchSnapshot = 0;
+	mWatchAssemblySeq = 0;
+	mWatchAssemblyParts = 0;
+	mWatchAssemblySize = 0;
+	mHasViewSnapshot = false;
+	mWatchEndPending = WatchEnd::NONE;
+	mBoardWatcherMask = 0;
+	mSnapshotSeq = 0;
 }
 
 NetSession::~NetSession()
@@ -432,6 +486,47 @@ void NetSession::Update()
 			SetDead(NetText("连接超时。", "Connection timed out.").c_str());
 			return;
 		}
+
+		// ---- 观战：观看端补保活/掐超时，被看端删掉哑巴观众 ----
+		if (IsWatching())
+		{
+			if (!IsSeatOccupied(mWatchTargetSeat))
+			{
+				// 看的人走了（中继 PEER_LEAVE / 直连掉线前的名册）：收场，棋盘给一句提示
+				ClearWatchState(WatchEnd::TARGET_LEFT);
+			}
+			else if (mWatchTargetSeat == mLocalSeat)
+			{
+				// 换位把那个位子换成了我自己：看自己没有意义，安静收场
+				ClearWatchState(WatchEnd::SILENT);
+			}
+			else
+			{
+				if (++mFramesSinceWatchKeepalive >= WATCH_KEEPALIVE_FRAMES)
+				{
+					mFramesSinceWatchKeepalive = 0;
+					SendBoardWatchMsg(mWatchTargetSeat, NetProto::WATCH_KEEPALIVE);
+				}
+				if (++mFramesSinceWatchSnapshot >= WATCH_SNAPSHOT_FRAMES)
+				{
+					// 3 秒一份快照都没有：对面是旧构建（把快照帧当没见过的帧丢了）或者卡住了。
+					// 先补一条 END 让对面别白推，再收场——棋盘据此提示"没有响应"。
+					TodLog("[net] no snapshot for 3s - stop watching seat %u", (unsigned)mWatchTargetSeat);
+					SendBoardWatchMsg(mWatchTargetSeat, NetProto::WATCH_END);
+					ClearWatchState(WatchEnd::TIMEOUT);
+				}
+			}
+		}
+		for (uint8_t aSeat = 1; aSeat <= NetProto::MAX_PLAYERS; aSeat++)
+		{
+			if (!(mBoardWatcherMask & (1u << aSeat))) continue;
+			// 6 秒没说话：观看者掉线时 END 到不了，只能靠这个兜底（和心跳超时同理）
+			if (++mBoardWatcherFrames[aSeat] > WATCH_KEEPER_FRAMES)
+			{
+				mBoardWatcherMask &= (uint8_t)~(1u << aSeat);
+				TodLog("[net] watcher seat %u went quiet - stop sending snapshots", (unsigned)aSeat);
+			}
+		}
 	}
 
 	// 即时说明按帧倒计时，到点自己消失（状态行每帧重算，不用另外触发重画）
@@ -752,6 +847,16 @@ void NetSession::ApplySeatSwap(uint8_t theSeatA, uint8_t theSeatB)
 	std::swap(mSeats[theSeatA], mSeats[theSeatB]);
 	if (mLocalSeat == theSeatA) mLocalSeat = theSeatB;
 	else if (mLocalSeat == theSeatB) mLocalSeat = theSeatA;
+	// 观众表同一条道理："谁在看我"跟着人走——他换到几号位，快照就得发给几号位。
+	// （观看端的目标是"几号位那个场地"，反过来不跟人走：换过去看的就是新坐那位，见 Update 的观战段。）
+	{
+		bool aBitA = (mBoardWatcherMask & (1u << theSeatA)) != 0;
+		bool aBitB = (mBoardWatcherMask & (1u << theSeatB)) != 0;
+		mBoardWatcherMask &= (uint8_t)~((1u << theSeatA) | (1u << theSeatB));
+		if (aBitA) mBoardWatcherMask |= (uint8_t)(1u << theSeatB);
+		if (aBitB) mBoardWatcherMask |= (uint8_t)(1u << theSeatA);
+		std::swap(mBoardWatcherFrames[theSeatA], mBoardWatcherFrames[theSeatB]);
+	}
 	// 房主也是个"人"不是个座位：换位把他挪到别处，找他的地址（开局应答的去处）得跟着走。
 	// 不跟着走的话，房主换完位就再也收不到 ACK，开局会一直卡在"等队友"上。
 	if (mHostSeat == theSeatA) mHostSeat = theSeatB;
@@ -782,6 +887,17 @@ void NetSession::DiscardLevelPackets()
 	mHasPendingLevelExit = false;
 	mPendingEscapedZombies.clear();
 	mPendingQuickChats.clear();
+	// 观战也是"这一局"的事：先跟还在看我场地的观众逐个道别（他们那边立刻收场、不用等
+	// 6 秒超时兜底），再清观众表；我自己的观看状态整段作废——半份快照和上一关的定格
+	// 都不跨局（下一关按住 V 重新点播即可）。
+	if (IsConnected() && mBoardWatcherMask)
+	{
+		uint8_t aWatchers[NetProto::MAX_PLAYERS];
+		int aCount = GetBoardWatcherSeats(aWatchers, NetProto::MAX_PLAYERS);
+		for (int i = 0; i < aCount; i++) SendBoardWatchMsg(aWatchers[i], NetProto::WATCH_END);
+	}
+	mBoardWatcherMask = 0;
+	ClearWatchState(WatchEnd::SILENT);
 	// 选卡状态和开局应答也是"这一局"的（含自己那格"上次发出去的值"）：回主菜单、
 	// 掉线、收摊都得清，否则下一局会被上一局的记账挡住。
 	for (int aSeat = 0; aSeat <= NetProto::MAX_PLAYERS; aSeat++)
@@ -896,6 +1012,142 @@ bool NetSession::TakePendingQuickChat(NetProto::MsgQuickChat& theMsg)
 	// 先进先出：聊天按到达顺序显示；满员挤掉的旧条在入队时就丢了，这里只管往外递
 	theMsg = mPendingQuickChats.front();
 	mPendingQuickChats.erase(mPendingQuickChats.begin());
+	return true;
+}
+
+// ====================================================================================================
+// ★ 观战（队友场地查看）
+// ====================================================================================================
+
+bool NetSession::SendBoardWatchMsg(uint8_t theSeat, uint8_t theOp)
+{
+	NetProto::MsgBoardWatch aMsg;
+	aMsg.mSrcSeat = mLocalSeat;
+	aMsg.mDstSeat = theSeat;
+	aMsg.mOp = theOp;
+
+	uint8_t aPayload[NetProto::MAX_PAYLOAD];
+	int aSize = NetProto::EncodeBoardWatch(aPayload, (int)sizeof(aPayload), aMsg);
+	if (aSize <= 0) return false;
+
+	// 单播：看谁只打扰谁。中继空席位会被服务器丢弃、直连只有一个对端，都由 Dispatch 管。
+	return Dispatch(NetProto::MSG_BOARD_WATCH, aPayload, aSize, theSeat);
+}
+
+bool NetSession::BeginWatch(uint8_t theSeat)
+{
+	if (!IsConnected()) return false;
+	// 席位得是个真上座的号、而且不能是自己——看自己场地没有意义（屏幕本来就在）
+	if (theSeat < 1 || theSeat > NetProto::MAX_PLAYERS
+		|| theSeat == mLocalSeat || !IsSeatOccupied(theSeat))
+		return false;
+
+	// 换目标（按住 V 期间按 1-6 切人就走这条路）：先跟旧目标打声招呼，别让他白推
+	if (IsWatching() && mWatchTargetSeat != theSeat)
+		SendBoardWatchMsg(mWatchTargetSeat, NetProto::WATCH_END);
+
+	mWatchTargetSeat = theSeat;
+	mFramesSinceWatchKeepalive = 0;
+	mFramesSinceWatchSnapshot = 0;
+	mWatchAssemblyParts = 0;
+	mWatchAssemblySize = 0;
+	mWatchEndPending = WatchEnd::NONE;
+
+	if (!SendBoardWatchMsg(theSeat, NetProto::WATCH_BEGIN))
+	{
+		// 发都没发出去（对面恰好在上一帧走了）：别干等 3 秒超时，直接收场
+		ClearWatchState(WatchEnd::TARGET_LEFT);
+		return false;
+	}
+	TodLog("[net] watching seat %u's board", (unsigned)theSeat);
+	return true;
+}
+
+void NetSession::EndWatch(bool theNotify)
+{
+	if (!IsWatching()) return;
+
+	if (theNotify) SendBoardWatchMsg(mWatchTargetSeat, NetProto::WATCH_END);
+	ClearWatchState(WatchEnd::USER);
+}
+
+void NetSession::ClearWatchState(WatchEnd theReason)
+{
+	bool aWasWatching = IsWatching();
+	mWatchTargetSeat = NetProto::SEAT_UNSET;
+	mFramesSinceWatchKeepalive = 0;
+	mFramesSinceWatchSnapshot = 0;
+	mWatchAssemblyParts = 0;
+	mWatchAssemblySize = 0;
+	mHasViewSnapshot = false;
+	// "为什么结束"只在真的在看、且有原因可留时挂出去（棋盘取一次就清）
+	if (aWasWatching && theReason != WatchEnd::NONE)
+		mWatchEndPending = theReason;
+}
+
+NetSession::WatchEnd NetSession::TakeWatchEnded()
+{
+	WatchEnd aResult = mWatchEndPending;
+	mWatchEndPending = WatchEnd::NONE;
+	return aResult;
+}
+
+bool NetSession::TakeViewSnapshot(ViewSnapshot& theSnapshot)
+{
+	if (!mHasViewSnapshot) return false;
+
+	theSnapshot = mLastSnapshot;
+	mHasViewSnapshot = false;
+	return true;
+}
+
+int NetSession::GetBoardWatcherSeats(uint8_t* theSeats, int theMax) const
+{
+	int aCount = 0;
+	for (uint8_t aSeat = 1; aSeat <= NetProto::MAX_PLAYERS && aCount < theMax; aSeat++)
+	{
+		if (mBoardWatcherMask & (1u << aSeat)) theSeats[aCount++] = aSeat;
+	}
+	return aCount;
+}
+
+bool NetSession::SendBoardSnapshot(uint8_t theViewerSeat, const uint8_t* theBody, int theSize)
+{
+	if (!IsConnected()) return false;
+	if (!theBody || theSize < 0) return false;
+	if (theViewerSeat < 1 || theViewerSeat > NetProto::MAX_PLAYERS) return false;
+	if (!(mBoardWatcherMask & (1u << theViewerSeat))) return false;	// 没人在看（或已经走了）就别发
+	if (theSize > NetProto::SNAPSHOT_MAX_PARTS * NetProto::SNAPSHOT_PART_PAYLOAD) return false;
+
+	int aCount = (theSize + NetProto::SNAPSHOT_PART_PAYLOAD - 1) / NetProto::SNAPSHOT_PART_PAYLOAD;
+	if (aCount < 1) aCount = 1;		// 空数据也至少发一片（正常情况下头就有 7 字节，到不了这儿）
+
+	// 代次每"份" +1。两个观众各调一次会各 +1：seq 只在同一条观看流里比较，
+	// 观众端只认相等/不等，跳号无碍（而且跳号还顺手把"两代拼一起"挡死）。
+	mSnapshotSeq++;
+
+	for (int aPart = 0; aPart < aCount; aPart++)
+	{
+		int aOffset = aPart * NetProto::SNAPSHOT_PART_PAYLOAD;
+		int aDataSize = theSize - aOffset;
+		if (aDataSize > NetProto::SNAPSHOT_PART_PAYLOAD) aDataSize = NetProto::SNAPSHOT_PART_PAYLOAD;
+
+		NetProto::MsgBoardSnapshot aMsg;
+		memset(&aMsg, 0, sizeof(aMsg));
+		aMsg.mSrcSeat = mLocalSeat;
+		aMsg.mDstSeat = theViewerSeat;
+		aMsg.mSeq = mSnapshotSeq;
+		aMsg.mPart = (uint8_t)aPart;
+		aMsg.mCount = (uint8_t)aCount;
+		if (aDataSize > 0) memcpy(aMsg.mData, theBody + aOffset, aDataSize);
+
+		uint8_t aPayload[NetProto::MAX_PAYLOAD];
+		int aPayloadSize = NetProto::EncodeBoardSnapshot(aPayload, (int)sizeof(aPayload), aMsg, aDataSize);
+		if (aPayloadSize <= 0) return false;
+
+		if (!Dispatch(NetProto::MSG_BOARD_SNAPSHOT, aPayload, aPayloadSize, theViewerSeat))
+			return false;	// 中间断了：这一份没发完，观众端把半份作废、等下一份自愈
+	}
 	return true;
 }
 
@@ -1581,6 +1833,130 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 			}
 			mPendingQuickChats.push_back(aMsg);
 			TodLog("[net] seat %u says something (id %u)", (unsigned)aMsg.mSrcSeat, (unsigned)aMsg.mId);
+		}
+		break;
+
+	case NetProto::MSG_BOARD_WATCH:
+		{
+			// 观战点播/保活/收播（op 见 WatchOp）。**被看端和观看端的收件都在这里**：
+			// BEGIN/KEEPALIVE 落在被看端的观众表上；END 落在被看端（停推）或观看端
+			//（被看方离开关卡时的"别看了"，观看起来是对方主动停推）。
+			NetProto::MsgBoardWatch aMsg;
+			if (aPayloadSize != BOARD_WATCH_PAYLOAD_SIZE || !NetProto::DecodeBoardWatch(aPayload, aPayloadSize, aMsg))
+			{
+				SetDead(NetText("对方发来的数据包有问题。", "A player sent a malformed packet.").c_str());
+				return;
+			}
+			// 席位号得是个真坐在席位上的号（同 QUICK_CHAT 的理由：防坏包与构建混搭）
+			if (aMsg.mSrcSeat < 1 || aMsg.mSrcSeat > NetProto::MAX_PLAYERS
+				|| aMsg.mSrcSeat == mLocalSeat || !IsSeatOccupied(aMsg.mSrcSeat))
+			{
+				TodLog("[net] threw away a BOARD_WATCH with a bogus seat (%u)", (unsigned)aMsg.mSrcSeat);
+				break;
+			}
+
+			if (aMsg.mOp == NetProto::WATCH_BEGIN || aMsg.mOp == NetProto::WATCH_KEEPALIVE)
+			{
+				// BEGIN 建表，KEEPALIVE 续命。KEEPALIVE 顺带兜底补位：万一 BEGIN 恰好丢了
+				// （极边缘），别让观看者对着这边干等到超时——收到保活就算他还在看。
+				if (!(mBoardWatcherMask & (1u << aMsg.mSrcSeat)))
+				{
+					mBoardWatcherMask |= (uint8_t)(1u << aMsg.mSrcSeat);
+					TodLog("[net] seat %u starts watching my board", (unsigned)aMsg.mSrcSeat);
+				}
+				mBoardWatcherFrames[aMsg.mSrcSeat] = 0;
+			}
+			else if (aMsg.mOp == NetProto::WATCH_END)
+			{
+				// 停止观看他：先把我看他这条停掉……
+				if (IsWatching() && aMsg.mSrcSeat == mWatchTargetSeat)
+				{
+					TodLog("[net] seat %u stopped sharing", (unsigned)aMsg.mSrcSeat);
+					ClearWatchState(WatchEnd::SILENT);
+				}
+				// ……再把他看我这条停掉（两个方向互不相干，可能同时成立）
+				if (mBoardWatcherMask & (1u << aMsg.mSrcSeat))
+				{
+					mBoardWatcherMask &= (uint8_t)~(1u << aMsg.mSrcSeat);
+					TodLog("[net] seat %u stops watching my board", (unsigned)aMsg.mSrcSeat);
+				}
+			}
+			else
+			{
+				TodLog("[net] threw away a BOARD_WATCH with a bogus op (%u)", (unsigned)aMsg.mOp);
+			}
+		}
+		break;
+
+	case NetProto::MSG_BOARD_SNAPSHOT:
+		{
+			// 观战快照（分片到达）。这一族全部**宽松处置**：坏帧丢帧、半份作废、等下一份自愈。
+			// 理由是它和其他帧不同——快照是显示层的附加流，长度又天然变长（最后一片不满），
+			// "长度对不上"在这里分不出串包还是正常短尾；为一条画不出来的帧把整局判死不值。
+			NetProto::MsgBoardSnapshot aMsg;
+			if (!NetProto::DecodeBoardSnapshot(aPayload, aPayloadSize, aMsg))
+			{
+				TodLog("[net] threw away a malformed BOARD_SNAPSHOT");
+				break;
+			}
+			if (!IsWatching() || aMsg.mSrcSeat != mWatchTargetSeat)
+			{
+				// 不是正在看的人发的（刚停了/换人了）：丢
+				TodLog("[net] threw away a BOARD_SNAPSHOT from seat %u (not watching)", (unsigned)aMsg.mSrcSeat);
+				break;
+			}
+			if (aMsg.mCount < 1 || aMsg.mCount > (uint8_t)NetProto::SNAPSHOT_MAX_PARTS || aMsg.mPart >= aMsg.mCount)
+			{
+				TodLog("[net] threw away a BOARD_SNAPSHOT with bad part info (%u/%u)",
+					(unsigned)aMsg.mPart, (unsigned)aMsg.mCount);
+				break;
+			}
+
+			if (aMsg.mSeq != mWatchAssemblySeq)
+			{
+				// 换代了：只认新代的第一片，中间的片在这半份上作废——绝不把两代字节拼一起
+				if (aMsg.mPart != 0)
+				{
+					TodLog("[net] a BOARD_SNAPSHOT part %u of a new generation arrived mid-assembly - dropped",
+						(unsigned)aMsg.mPart);
+					break;
+				}
+				mWatchAssemblySeq = aMsg.mSeq;
+				mWatchAssemblyParts = 0;
+				mWatchAssemblySize = 0;
+			}
+			if (aMsg.mPart != (uint8_t)mWatchAssemblyParts)
+			{
+				// 片序断了（TCP 有序，只能是前面有片被丢过）：这半份作废，等下一份
+				TodLog("[net] a BOARD_SNAPSHOT part gap (%u vs expected %d) - dropped the half",
+					(unsigned)aMsg.mPart, mWatchAssemblyParts);
+				break;
+			}
+
+			int aDataSize = aPayloadSize - NetProto::SNAPSHOT_PART_HEADER;
+			memcpy(mWatchAssemblyBuf + mWatchAssemblySize, aMsg.mData, aDataSize);
+			mWatchAssemblySize += aDataSize;
+			mWatchAssemblyParts++;
+
+			if (mWatchAssemblyParts == aMsg.mCount)
+			{
+				// 拼齐：解析成展示模型。解析不过就保留上一份画面、这份作废（等下一份自愈）。
+				ViewSnapshot aSnapshot;
+				memset(&aSnapshot, 0, sizeof(aSnapshot));
+				if (ParseViewSnapshot(mWatchAssemblyBuf, mWatchAssemblySize, aSnapshot))
+				{
+					mLastSnapshot = aSnapshot;
+					mHasViewSnapshot = true;
+					mFramesSinceWatchSnapshot = 0;
+				}
+				else
+				{
+					TodLog("[net] a BOARD_SNAPSHOT did not parse (%d bytes) - kept the previous frame",
+						mWatchAssemblySize);
+				}
+				mWatchAssemblyParts = 0;
+				mWatchAssemblySize = 0;
+			}
 		}
 		break;
 
