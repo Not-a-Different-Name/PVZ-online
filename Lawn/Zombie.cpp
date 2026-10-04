@@ -54,6 +54,10 @@ ZombieDefinition gZombieDefs[NUM_ZOMBIE_TYPES] = {  //0x69DA80
     { ZOMBIE_TALLNUT_HEAD,      REANIM_ZOMBIE,              4,      99,     10,     2000,   _S("ZOMBIE") },
     { ZOMBIE_REDEYE_GARGANTUAR, REANIM_GARGANTUAR,          10,     48,     15,     6000,   _S("REDEYED_GARGANTUAR") },
     { ZOMBIE_ZOMBATAR,          REANIM_ZOMBIE,              1,      1,      1,      0,      _S("ZOMBATAR_FLAG_ZOMBIE")},
+    // @pvz-online: 桶钢门（铁桶+铁门合成）——只在闯关名单投放：startingLevel 99 让所有
+    // 非闯关模式在 CanZombieSpawnOnLevel 早退（同表尾 ZOMBATAR 的 pickWeight=0 手法）。
+    // 点数 6 = 铁桶/铁门(4) 与橄榄球(7) 之间；名字复用铁门的本地化串（图鉴页同文案）。
+    { ZOMBIE_PAIL_DOOR,         REANIM_ZOMBIE,              6,      99,     10,     1500,   _S("SCREEN_DOOR_ZOMBIE") },
 };
 
 static ZombieType gBossZombieList[] = {  //0x69DE1C
@@ -217,6 +221,17 @@ void Zombie::ZombieInitialize(int theRow, ZombieType theType, bool theVariant, Z
         mShieldType = ShieldType::SHIELDTYPE_DOOR;
         mShieldHealth = 1100;
         LoadPlainZombieReanim();
+        AttachShield();
+        break;
+
+    case ZombieType::ZOMBIE_PAIL_DOOR:  // @pvz-online: 桶钢门 = 铁桶（头盔）+ 铁门（盾）组合
+        LoadPlainZombieReanim();
+        ReanimShowPrefix("anim_bucket", RENDER_GROUP_NORMAL);
+        ReanimShowPrefix("anim_hair", RENDER_GROUP_HIDDEN);
+        mHelmType = HelmType::HELMTYPE_PAIL;
+        mHelmHealth = 1100;
+        mShieldType = ShieldType::SHIELDTYPE_DOOR;
+        mShieldHealth = 1100;
         AttachShield();
         break;
 
@@ -958,6 +973,12 @@ void Zombie::SetupReanimLayers(Reanimation* aReanim, ZombieType theZombieType)
     }
     else if (theZombieType == ZombieType::ZOMBIE_DOOR)
     {
+        SetupDoorArms(aReanim, true);
+    }
+    else if (theZombieType == ZombieType::ZOMBIE_PAIL_DOOR)
+    {
+        aReanim->AssignRenderGroupToPrefix("anim_bucket", RENDER_GROUP_NORMAL);
+        aReanim->AssignRenderGroupToPrefix("anim_hair", RENDER_GROUP_HIDDEN);
         SetupDoorArms(aReanim, true);
     }
     else if (theZombieType == ZombieType::ZOMBIE_NEWSPAPER)
@@ -4754,7 +4775,8 @@ bool Zombie::HasYuckyFaceImage()
         mZombieType == ZombieType::ZOMBIE_DANCER || 
         mZombieType == ZombieType::ZOMBIE_BACKUP_DANCER || 
         mZombieType == ZombieType::ZOMBIE_NEWSPAPER || 
-        mZombieType == ZombieType::ZOMBIE_POLEVAULTER;
+        mZombieType == ZombieType::ZOMBIE_POLEVAULTER ||
+        mZombieType == ZombieType::ZOMBIE_PAIL_DOOR;
 }
 
 //0x52B5B0
@@ -9314,6 +9336,7 @@ void Zombie::UpdateDeath()
         case ZombieType::ZOMBIE_TRAFFIC_CONE:
         case ZombieType::ZOMBIE_PAIL:
         case ZombieType::ZOMBIE_DOOR:
+        case ZombieType::ZOMBIE_PAIL_DOOR:
         case ZombieType::ZOMBIE_PEA_HEAD:
         case ZombieType::ZOMBIE_WALLNUT_HEAD:
         case ZombieType::ZOMBIE_TALLNUT_HEAD:

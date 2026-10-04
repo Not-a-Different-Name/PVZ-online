@@ -17,7 +17,7 @@ bool RunZombieAllowedOnLevel(ZombieType theZombieType, int theRunLevelIndex);
 
 // @pvz-online: 闯关的抽怪权重（2026-10-03 用户定案"丰富僵尸种类"）：原版 pickWeight 里
 // 普僵/路障各 4000、其余 1000-3500，抽出来近半个战场都是这两样。这里对名单内的类型给
-// "平铺"权重（同权；2026-10-04 起气球单独降到 1/4），种类分布立刻散开；权重为 0 的
+// "平铺"权重（同权；2026-10-04 起气球单独降到 1/4、2026-10-05 起桶钢门单独半档），种类分布立刻散开；权重为 0 的
 // 特殊类型（鸭子圈/旗帜/伴舞）保持 0。只在闯关分支替代 aZombieDef.mPickWeight 用，
 // 非闯关局一字不动。
 int RunZombieWeight(ZombieType theZombieType);

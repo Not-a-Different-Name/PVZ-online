@@ -1384,6 +1384,7 @@ enum ZombieType
     ZOMBIE_TALLNUT_HEAD,
     ZOMBIE_REDEYE_GARGANTUAR,
     ZOMBIE_ZOMBATAR,
+    ZOMBIE_PAIL_DOOR,  // @pvz-online: 桶钢门（铁桶+铁门合成，双护具共存）
     /* @Patoke: replanted/console shenanigans
     ZOMBIE_TARGET,
     ZOMBIE_TRASH_CAN,
