@@ -2065,18 +2065,40 @@ int LawnApp::RunPlantUpgradeCount(SeedType thePlant) const
 // @pvz-online: 修正批（2026-10-03）：Kind 闸门版取用口——血量/射速节奏/多发/种植冷却
 // 四处通用挂点专用。该株没有条目、或条目的 mKind 对不上 → 中性值：条目只有挂点
 // 语义相符时才被消费（此前通用挂点对所有行无条件生效，语义无关的条目会静默乘进去）。
+// @pvz-online: 批 18（2026-10-04）：本批换掉的行里，几条新上限（mMaxStacks=1）的老语义
+// 条目在旧档可能带 2+ 层——这里按上限截读（超出不追溯），避免旧档 2 层大喷菇/3 层机枪
+// 这类旧层数直接全量吃到新效果。专项直调口（plain Mul/Count）不动，维持「旧档超限不追溯」。
 float LawnApp::RunPlantUpgradeMulKind(SeedType thePlant, RunPlantUpgradeKind theKind) const
 {
+	if (mRunState == nullptr) return 1.0f;
 	int aIndex = RunPlantUpgradeIndexFor(thePlant);
-	if (aIndex < 0 || GetRunPlantUpgradeDef(aIndex).mKind != theKind) return 1.0f;
-	return RunPlantUpgradeMul(thePlant);
+	if (aIndex < 0) return 1.0f;
+	const RunPlantUpgradeDef& aDef = GetRunPlantUpgradeDef(aIndex);
+	if (aDef.mKind != theKind) return 1.0f;
+	int aStacks = mRunState->GetBuffCount(RUN_BUFF_COUNT + aIndex);
+	if (aDef.mMaxStacks > 0 && aStacks > aDef.mMaxStacks) aStacks = aDef.mMaxStacks;
+	float aMul = 1.0f;
+	if (aDef.mMultiplicative)
+	{
+		for (int i = 0; i < aStacks; i++) aMul *= 1.0f + aDef.mPerStackMul;
+	}
+	else
+	{
+		aMul = 1.0f + aDef.mPerStackMul * (float)aStacks;
+	}
+	return aMul < 0.1f ? 0.1f : aMul;
 }
 
 int LawnApp::RunPlantUpgradeCountKind(SeedType thePlant, RunPlantUpgradeKind theKind) const
 {
+	if (mRunState == nullptr) return 0;
 	int aIndex = RunPlantUpgradeIndexFor(thePlant);
-	if (aIndex < 0 || GetRunPlantUpgradeDef(aIndex).mKind != theKind) return 0;
-	return RunPlantUpgradeCount(thePlant);
+	if (aIndex < 0) return 0;
+	const RunPlantUpgradeDef& aDef = GetRunPlantUpgradeDef(aIndex);
+	if (aDef.mKind != theKind) return 0;
+	int aStacks = mRunState->GetBuffCount(RUN_BUFF_COUNT + aIndex);
+	if (aDef.mMaxStacks > 0 && aStacks > aDef.mMaxStacks) aStacks = aDef.mMaxStacks;
+	return aStacks;
 }
 
 float LawnApp::RunCoffeeBeanRefreshMul(SeedType thePlant, SeedType theImitaterType) const

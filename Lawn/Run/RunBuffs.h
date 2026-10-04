@@ -24,6 +24,7 @@ enum RunBuffId
 	RUN_BUFF_RESERVE,		// 储备：每关开局阳光 +50（无限）
 	RUN_BUFF_SKYFALL,		// 天降：天上掉阳光间隔 −20%（至多 4 层）
 	RUN_BUFF_BLAST,			// 爆破：一次性植物伤害 +30%（无限）
+	RUN_BUFF_PRECISION,		// 精准：全体伤害 +15%（无限；2026-10-04 批 18 追加为 id 8）
 	RUN_BUFF_COUNT
 };
 
@@ -51,13 +52,17 @@ const RunBuffDef& GetRunBuffDef(int theId);
 // 只对"卡池里已有这株植物"的玩家出（抽取时过滤，见 RunState::RollChoices）。
 // 落点取用走 LawnApp::RunPlantUpgradeMul / RunPlantUpgradeCount——和全局 buff
 // 一样，非闯关局自动是中性值，落点不需要判 mRunState。
-// @pvz-online: 表按 SeedType 升序维护（方案 docs/06 §2.1 / Q7）——单株 id = 8 + 表内下标，
-// 所以前 5 条（SeedType 0..4）必须永远留在原位：老检查点里的 id 直接按它解读。
+// @pvz-online: 表按 SeedType 升序维护（方案 docs/06 §2.1 / Q7）——单株 id = RUN_BUFF_COUNT
+// + 表内下标，所以前 5 条（SeedType 0..4）必须永远留在原位：老检查点里的 id 直接按它解读。
+// （2026-10-04 批 18 起 RUN_BUFF_COUNT 8→9，单株 id 全体右移 1；旧档按 v6 迁移读平。）
 // 新增条目插在自己的 SeedType 位次上：批 1 的 5 条是追加（SeedType 都大于 4），批 2/批 3/
 // 批 4/批 5/批 6/批 7 的 16 条、批 8 的地刺 1 条、批 9 的磁系 2 条、批 10 的投手族 4 条、
 // 批 11 的计时/产出族 4 条、批 12 的弹道/索敌族 3 条与批 13 的控制/减速族 4 条插进中段——
 // 每插一批，更早批次档里单株 id 的层数就会错位到别的植物（开发期接受，见方案 §六）；
 // 满编 48 条后表下标 == SeedType。
+// 2026-10-04 批 18：整条替换 9 行（寒冰射手/双发/大喷菇/卷心菜/玉米投手/大蒜/西瓜/机枪/冰西瓜，
+// 表下标 == SeedType 不动，仅整行换语义）；全局表 8→9 条（追加「Precision」为 id 8）——
+// 单株 id 全体右移 1，旧检查点按 v6 迁移（RunState::Load：aVersion<6 时 id≥8 均 +1）。
 enum RunPlantUpgradeId
 {
 	RUN_UPGRADE_PEASHOOTER,		// 豌豆射手：每次多打 1 发（每层）
@@ -65,12 +70,12 @@ enum RunPlantUpgradeId
 	RUN_UPGRADE_CHERRYBOMB,		// 樱桃炸弹：爆炸半径 +25%/层
 	RUN_UPGRADE_WALLNUT,		// 坚果墙：血量 +150%/层
 	RUN_UPGRADE_POTATOMINE,		// 土豆雷：爆炸半径 +25%/层
-	RUN_UPGRADE_SNOWPEA,		// 寒冰射手：命中减速时长 +30%/层（至多 3 层）
+	RUN_UPGRADE_SNOWPEA,		// 寒冰射手：发射冰西瓜（只可选 1 层；2026-10-04 批 18 由减速时长族整条换掉）
 	RUN_UPGRADE_CHOMPER,		// 大嘴花：咀嚼时间减半（只可选 1 层）
-	RUN_UPGRADE_REPEATER,		// 双发：射击间隔 ×0.75/层（至多 3 层）
+	RUN_UPGRADE_REPEATER,		// 双发：每次射击多发 2 颗（无上限；2026-10-04 批 18 由射击间隔族整条换掉）
 	RUN_UPGRADE_PUFFSHROOM,		// 小喷菇：每次多发 2 颗/层（无上限；2026-10-04 由「射程变为无限」改，射程挂点已还原）
 	RUN_UPGRADE_SUNSHROOM,		// 阳光菇：每次多产 1 阳光（每层，至多 3 层）
-	RUN_UPGRADE_FUMESHROOM,		// 大喷菇：雾气射程 +1 格/层（至多 2 层）
+	RUN_UPGRADE_FUMESHROOM,		// 大喷菇：攻击间隔 ×0.25（只可选 1 层；2026-10-04 批 18 由射程族整条换掉）
 	RUN_UPGRADE_GRAVEBUSTER,	// 墓碑吞噬者：吞掉墓碑额外产 25 阳光（每层，至多 2 层）
 	RUN_UPGRADE_HYPNOSHROOM,	// 魅惑菇：被魅惑僵尸咬到的僵尸也变友军（只可选 1 层）
 	RUN_UPGRADE_SCAREDYSHROOM,	// 胆小菇：敌人贴近时不再缩头（只可选 1 层）
@@ -92,19 +97,19 @@ enum RunPlantUpgradeId
 	RUN_UPGRADE_STARFRUIT,		// 杨桃：子弹变为追踪弹（只可选 1 层；2026-10-04 由射速族整条换掉）
 	RUN_UPGRADE_PUMPKINSHELL,	// 南瓜头：血量 +150%/层（至多 3 层）
 	RUN_UPGRADE_MAGNETSHROOM,	// 磁力菇：吸取间隔 ×0.75/层（至多 3 层）
-	RUN_UPGRADE_CABBAGEPULT,	// 卷心菜投手：投掷间隔 ×0.75/层（至多 3 层）
+	RUN_UPGRADE_CABBAGEPULT,	// 卷心菜投手：种植费用变为 0（只可选 1 层；2026-10-04 批 18 由投掷间隔族整条换掉）
 	RUN_UPGRADE_FLOWERPOT,		// 花盆：血量 +150%/层（至多 2 层）
-	RUN_UPGRADE_KERNELPULT,		// 玉米投手：黄油触发概率 +25%/层（至多 3 层）
+	RUN_UPGRADE_KERNELPULT,		// 玉米投手：种下后变成玉米加农炮（只可选 1 层；2026-10-04 批 18 由黄油率族整条换掉）
 	RUN_UPGRADE_INSTANT_COFFEE,	// 咖啡豆：唤醒产阳光 +25/层（至多 2 层）
-	RUN_UPGRADE_GARLIC,			// 大蒜：被驱赶的僵尸减速 +5 秒/层（至多 2 层）
+	RUN_UPGRADE_GARLIC,			// 大蒜：巨人砸击时像地刺王一样耐砸（只可选 1 层；2026-10-04 批 18 由减速族整条换掉）
 	RUN_UPGRADE_UMBRELLA,		// 保护伞：血量 +150%/层（至多 3 层）
 	RUN_UPGRADE_MARIGOLD,		// 金盏花：每次多产 1 枚（每层，至多 3 层）
-	RUN_UPGRADE_MELONPULT,		// 西瓜投手：溅射范围 +25%/层（至多 2 层）
-	RUN_UPGRADE_GATLINGPEA,		// 机枪射手：射击间隔 ×0.75/层（至多 3 层）
+	RUN_UPGRADE_MELONPULT,		// 西瓜投手：每次多发 1 个西瓜（无上限；2026-10-04 批 18 由溅射范围族整条换掉）
+	RUN_UPGRADE_GATLINGPEA,		// 机枪射手：攻击间隔 ×0.5（只可选 1 层；2026-10-04 批 18 由射击间隔族整条换掉）
 	RUN_UPGRADE_TWINSUNFLOWER,	// 双子向日葵：每轮多产 1 阳光（每层，至多 3 层）
 	RUN_UPGRADE_GLOOMSHROOM,	// 忧郁菇：光环范围 +1 格（只可选 1 层；2026-10-04 上限 2→1）
 	RUN_UPGRADE_CATTAIL,		// 猫尾草：攻击目标 +1 个/层（至多 2 层）
-	RUN_UPGRADE_WINTERMELON,	// 冰西瓜：溅射减速时长 +50%/层（至多 2 层）
+	RUN_UPGRADE_WINTERMELON,	// 冰西瓜：溅射半径 +50%/层（无上限；2026-10-04 批 18 由减速时长族整条换掉）
 	RUN_UPGRADE_GOLDMAGNET,		// 吸金磁：吸取间隔 ×0.75/层（至多 3 层）
 	RUN_UPGRADE_SPIKEROCK,		// 地刺王：攻击间隔 ×0.75/层（至多 3 层）
 	RUN_UPGRADE_COBCANNON,		// 玉米加农炮：装填时间 ×0.75/层（至多 3 层）

@@ -749,7 +749,7 @@ void Board::PickZombieWaves()
 			aZombiePoints = aWave / 3 + 1;
 		}
 
-		// 闯关的难度阶梯（M4-a）：数量随场景档同乘 ×1.2/场景（血量在 ZombieInitialize 里缩放）。
+		// 闯关的难度阶梯（M4-a）：数量随场景档同乘 ×1.5/场景（血量在 ZombieInitialize 里缩放）。
 		// 乘在旗帜波 ×2.5 之前：旗帜波的总点数也一起吃这个系数。整数乘除，两端逐位一致。
 		if (mApp->IsRunMode())
 		{
@@ -778,8 +778,8 @@ void Board::PickZombieWaves()
 				if (aSeatMult > 32) aSeatMult = 32;		// 用户定封顶 32（六席顶正好 32；席位再抬先拦）
 
 				// @pvz-online: 出怪难度档（2026-10-03 用户定案）：房主开局前选的全局旋钮，
-				// 直接乘在顺位乘数上——轻松 ×0.5 / 高压 ×1.5，乘后向下取整、保底 1 倍
-				// （末位 1×1.5 取整仍 1、1×0.5 保底 1；顺位形状 32:16:8:4:2:1 在高压下变 48:24:12:6:3:1）。
+				// 直接乘在顺位乘数上——轻松 ×0.5 / 高压 ×2.0，乘后向下取整、保底 1 倍
+				// （1×0.5 保底 1；顺位形状 32:16:8:4:2:1 在高压下翻倍变 64:32:16:8:4:2）。
 				// 只在闯关局生效；非闯关 / 单机局档位恒为标准（也是恒等 ×1）。
 				if (mApp->IsRunMode() && mApp->GetRunState() != nullptr)
 				{
@@ -921,7 +921,7 @@ void Board::PickZombieWaves()
 		// @pvz-online: 闯关"数量封顶"（M4-a 定案）：点数不封顶，但一波最多 RUN_WAVE_ZOMBIE_CAP 只；
 		// 预算花不完的零头直接作废——富余的点数靠 PickZombieType 的强僵尸优先花在质量上。
 		// 联机再按席位顺位乘数同倍放大（2026-10-03 幂次口径：六人局 1 号位 32 倍 → 闯关上限
-		// 20×32 = 640 只、高压再 ×1.5 → 960 只；非闯关 50×32 = 1600 = 数组上限，正好兜住）；
+		// 20×32 = 640 只、高压再 ×2.0 → 1280 只（仍小于数组上限）；非闯关 50×32 = 1600 = 数组上限，正好兜住）；
 		// 非闯关基准 = 原版 50，数组上限 MAX_ZOMBIES_IN_WAVE 按基准×32 留量。
 		int aWaveZombieCap = (mApp->IsRunMode() ? RunState::RUN_WAVE_ZOMBIE_CAP : WAVE_ZOMBIE_CAP_BASE) * aSeatMult;
 		while (aZombiePoints > 0 && aZombiePicker.mZombieCount < aWaveZombieCap)
@@ -3333,6 +3333,24 @@ PlantingReason Board::CanPlantAt(int theGridX, int theGridY, SeedType theSeedTyp
 		return PlantingReason::PLANTING_NOT_HERE;
 	}
 
+	// @pvz-online: 批 18 玉米投手「Artillery」——种下即变玉米加农炮（1 层）。加农炮占锚点格 +
+	// 右邻格（占位见 GetPlantsOnLawn）：右邻格越界或已有普通/南瓜头/飞行植物都算放不下，拦在
+	// 这里——校验在扣费之前，所以是"提示种不下、不扣阳光"（用户拍板 ④）。mEasyPlantingCheat
+	// 短路一是照抄上面紫卡的老规矩，二是断递归——cheat 开时 IsValidCobCannonSpotHelper 会递归
+	// 调回 CanPlantAt(KERNELPULT)。
+	if (theSeedType == SeedType::SEED_KERNELPULT && mApp->IsRunMode() &&
+		mApp->RunPlantUpgradeCount(SeedType::SEED_KERNELPULT) > 0 &&
+		!(mApp->mEasyPlantingCheat || IsValidCobCannonSpot(theGridX, theGridY)))
+	{
+		PlantsOnLawn aRightLawn;
+		GetPlantsOnLawn(theGridX + 1, theGridY, &aRightLawn);
+		if (theGridX + 1 >= MAX_GRID_SIZE_X ||
+			aRightLawn.mNormalPlant || aRightLawn.mPumpkinPlant || aRightLawn.mFlyingPlant)
+		{
+			return PlantingReason::PLANTING_NOT_HERE;
+		}
+	}
+
 	return PlantingReason::PLANTING_OK;
 }
 
@@ -4204,6 +4222,14 @@ void Board::MouseDownWithPlant(int x, int y, int theClickCount)
 		{
 			DisplayAdvice(_S("[ADVICE_PLANTING_NEED_SLEEPING]"), MessageStyle::MESSAGE_STYLE_HINT_FAST, AdviceType::ADVICE_PLANTING_NEED_SLEEPING);
 		}
+		else if (aReason == PlantingReason::PLANTING_NOT_HERE &&
+			aPlantingSeedType == SeedType::SEED_KERNELPULT && mApp->IsRunMode() &&
+			mApp->RunPlantUpgradeCount(SeedType::SEED_KERNELPULT) > 0)
+		{
+			// @pvz-online: 批 18 玉米投手「Artillery」——通用 NOT_HERE 原本静默（沿用原版习惯），
+			// 但这条路径用户要求"提示种不下"（拍板 ④），补上标准「不能种在这里」提示。
+			DisplayAdvice(_S("[ADVICE_CANT_PLANT_THERE]"), MessageStyle::MESSAGE_STYLE_HINT_FAST, AdviceType::ADVICE_CANT_PLANT_THERE);
+		}
 
 		// 特定情况下，放下原有手持的植物
 		if (mCursorObject->mCursorType == CursorType::CURSOR_TYPE_PLANT_FROM_GLOVE || mApp->IsWhackAZombieLevel())
@@ -4248,6 +4274,18 @@ void Board::MouseDownWithPlant(int x, int y, int theClickCount)
 		{
 			return;
 		}
+	}
+
+	bool aKernelToCob = false;
+	// @pvz-online: 批 18 玉米投手「Artillery」替换点——扣费之后（按玉米投手 100 扣）把种植类型
+	// 整换成加农炮：后面的升级杀锚点、杀右邻格、落地 AddPlant 全按加农炮走，等同闯关里已有的
+	// 直接种加农炮路径。只换卡槽种植——手套搬运也读游标类型，不能把搬玉米变成种加农炮。
+	if (mCursorObject->mCursorType == CursorType::CURSOR_TYPE_PLANT_FROM_BANK &&
+		aPlantingSeedType == SeedType::SEED_KERNELPULT && mApp->IsRunMode() &&
+		mApp->RunPlantUpgradeCount(SeedType::SEED_KERNELPULT) > 0)
+	{
+		aPlantingSeedType = SeedType::SEED_COBCANNON;
+		aKernelToCob = true;
 	}
 	
 	// 升级种植或坚果包扎术等情况时，先将原植物销毁
@@ -4317,7 +4355,16 @@ void Board::MouseDownWithPlant(int x, int y, int theClickCount)
 	}
 	else if (mCursorObject->mCursorType == CursorType::CURSOR_TYPE_PLANT_FROM_BANK)
 	{
-		Plant* aPlant = AddPlant(aGridX, aGridY, mCursorObject->mType, mCursorObject->mImitaterType);
+		SeedType aSpawnType = mCursorObject->mType;
+		SeedType aSpawnImitater = mCursorObject->mImitaterType;
+		// @pvz-online: 批 18 玉米投手「Artillery」——换过加农炮时游标仍指着玉米（模仿者是
+		// SEED_IMITATER），落地显式改种加农炮本体；模仿游标也种本体——没有加农炮的模仿版。
+		if (aKernelToCob)
+		{
+			aSpawnType = SeedType::SEED_COBCANNON;
+			aSpawnImitater = SeedType::SEED_NONE;
+		}
+		Plant* aPlant = AddPlant(aGridX, aGridY, aSpawnType, aSpawnImitater);
 		if (aIsAwake)
 		{
 			aPlant->SetSleeping(false);

@@ -12,6 +12,8 @@
 // 急袭/速种改叠乘 ×0.8、储备 50、天降封顶 4、爆破不变。
 // 2026-10-04（用户指令，见 docs/07 批五）：扎根每层 +50% → +150%，与六条单株血量行
 // （批二统一 +150%/层）对齐——至此全部血量成长行每层数值统一 1.5。
+// 2026-10-04 批 18：追加第 9 条「Precision 所有伤害 +15%」（id 8；挂点 Zombie::TakeDamage
+// 总入口，乘性叠在火力基数之上）——全局表 8→9 条，单株 id 全体右移 1（检查点 v6 迁移）。
 static const RunBuffDef gRunBuffDefs[RUN_BUFF_COUNT] =
 {
 	{ "Firepower",    "所有子弹伤害 +30%",      "All projectile damage +30%",       0.30f,  0 },
@@ -22,6 +24,7 @@ static const RunBuffDef gRunBuffDefs[RUN_BUFF_COUNT] =
 	{ "Reserves",     "每关开局 +50 阳光",      "+50 sun at each level start",      0.00f, 50 },
 	{ "Skyfall",      "天降阳光更快 20%",       "Sky sun falls 20% faster",        -0.20f,  0, 4 },
 	{ "Demolition",   "一次性植物伤害 +30%",    "Instant plant damage +30%",        0.30f,  0 },
+	{ "Precision",    "所有伤害 +15%",          "All damage +15%",                  0.15f,  0 },
 };
 
 const RunBuffDef& GetRunBuffDef(int theId)
@@ -101,6 +104,28 @@ const RunBuffDef& GetRunBuffDef(int theId)
 //   星弹出膛后走香蒲刺同款 MOTION_HOMING（转向/命中都在 Projectile 的 homing 分支）；
 //   弹种/贴图不变（照旧 PROJECTILE_STAR）、五向散开的初速保留；选敌/挂点在
 //   Plant::StarFruitFire（批 12 香蒲多目标同款的距离口径，逐颗排除已锁定目标）。
+// 批 18 2026-10-04（用户指令，见 docs/07 同日条目；本批 11 项，9 条行整条替换 + 1 条全局 + 1 项非表）：
+//   新增全局「Precision 所有伤害 +15%」（无限；挂点 Zombie::TakeDamage 总入口——总量放大后
+//   再走各分支，乘性叠在「火力」基数之上，1.30×1.15≈1.495）；
+//   寒冰射手 Frostbite→Blizzard：发射冰西瓜（1 层；Fire 出口弹种换成 PROJECTILE_WINTERMELON，
+//   80 伤 + 冰冻 + 溅射，直线飞行走 UpdateNormalMotion 的兜底速度，无需设初速）；
+//   双发 Quick Rhythm→Pea Barrage：每次射击多发 2 颗/层（无上限；SHOTCOUNT 通挂点——
+//   该株一轮 = 两次 Fire，故每层一轮净增 2 颗，满打满算的「每次 +2」）；
+//   大喷菇 Thick Fumes→Fume Rush：攻击间隔 ×0.25（1 层；RHYTHM 通挂点，原射程挂点还原）；
+//   卷心菜 Heavy Toss→Free Toss：种植费用变为 0（1 层；GetCost 的 run 块开头短路，卡面/
+//   扣费/可用全走此口，模仿者按底座解析）；玉米投手 Buttery→Artillery：种下后变为玉米加农炮
+//   （1 层；CanPlantAt 校验加农炮点位、执行器扣费后换 SEED_COBCANNON 走既有加农炮种植路径，
+//   点位放不下则拦截提示、不扣阳光；原黄油率挂点还原 Sexy::Rand(4)==0）；
+//   大蒜 Pungent→Iron Clove：巨人砸击时像地刺王一样耐砸（1 层；Gargantuar 砸击加分支——
+//   每砸 -50 血、不反伤不震，≤0 才被吃掉；原换道减速挂点删）；
+//   西瓜 Heavy Melon→Melon Barrage：每次多发 1 个西瓜/层（无上限；投手初速段内循环追加
+//   完整弹道参数的同型弹，EFFECT——不进多发通环以免呆弹；原溅射范围挂点换给冰西瓜）；
+//   机枪 Rapid Fire→Overclock：攻击间隔 ×0.5（1 层；RHYTHM 通挂点）；
+//   冰西瓜 Winter Chill→Deep Splash：溅射半径 +50%/层（无上限；IsZombieHitBySplash 的
+//   判定矩形宽 ×单株乘数，主命中不动；原「溅射减速放宽」WidenWinterMelonChill 挂点整体删）；
+//   另有非表项：三线射手成本 325→150（gPlantDefs，全模式生效）。
+//   id 纪律：全局表 8→9 条使单株 id 全体右移 1——旧检查点 v6 迁移（RunState::Load：
+//   aVersion<6 时 id≥8 均 +1）。
 // 血量型条目（批 1 的 5 条 + 坚果墙）不用专门挂点——Plant.cpp:484 的通用血量口按
 // RUN_UPGRADE_KIND_HEALTH 消费（修正批起，不再对任意行生效），表里加一行标上 Kind
 // 就生效（南瓜头护罩血已查证同走 mPlantHealth）。
@@ -111,12 +136,12 @@ static const RunPlantUpgradeDef gRunPlantUpgradeDefs[RUN_PLANT_UPGRADE_COUNT] =
 	{ SeedType::SEED_CHERRYBOMB,   "Wide Blast",   "樱桃炸弹爆炸范围 +25%\n（每层）",   "Cherry Bomb blast radius +25%\n(per stack)",        0.25f },
 	{ SeedType::SEED_WALLNUT,      "Thick Shell",  "坚果墙血量 +150%\n（每层）",        "Wall-nut health +150%\n(per stack)",                1.50f, 0, false, RUN_UPGRADE_KIND_HEALTH },
 	{ SeedType::SEED_POTATOMINE,   "Wide Charge",  "土豆雷爆炸范围 +25%\n（每层）",     "Potato Mine blast radius +25%\n(per stack)",        0.25f },
-	{ SeedType::SEED_SNOWPEA,      "Frostbite",    "命中减速时长 +30%\n（每层）",       "Slow duration +30% on hit\n(per stack)",            0.30f, 3 },
+	{ SeedType::SEED_SNOWPEA,      "Blizzard",     "发射冰西瓜",                        "Fires winter melons",                                0.00f, 1 },
 	{ SeedType::SEED_CHOMPER,      "Ravenous",     "咀嚼时间减半",                      "Chew time halved",                                   -0.50f, 1 },
-	{ SeedType::SEED_REPEATER,     "Quick Rhythm", "射击间隔逐层 ×0.75\n（每层）",      "Fire interval ×0.75/stack",                          -0.25f, 3, true, RUN_UPGRADE_KIND_RHYTHM },
+	{ SeedType::SEED_REPEATER,     "Pea Barrage",  "每次射击多发 2 颗\n（每层）",       "Fires 2 extra peas per shot\n(per stack)",           0.00f, 0, false, RUN_UPGRADE_KIND_SHOTCOUNT },
 	{ SeedType::SEED_PUFFSHROOM,   "Spore Volley", "每次多发 2 颗\n（每层）",           "Fires 2 extra spores per shot\n(per stack)",        0.00f, 0, false, RUN_UPGRADE_KIND_SHOTCOUNT },
 	{ SeedType::SEED_SUNSHROOM,    "Bright Cap",   "每次多产 1 阳光\n（每层）",         "Produces 1 extra sun\n(per stack)",                  0.00f, 3 },
-	{ SeedType::SEED_FUMESHROOM,   "Thick Fumes",  "雾气射程 +1 格\n（每层）",          "Fume range +1 tile\n(per stack)",                    0.00f, 2 },
+	{ SeedType::SEED_FUMESHROOM,   "Fume Rush",    "攻击间隔 ×0.25",                    "Attack interval ×0.25",                              -0.75f, 1, false, RUN_UPGRADE_KIND_RHYTHM },
 	{ SeedType::SEED_GRAVEBUSTER,  "Quick Dig",    "吞掉墓碑额外产 25 阳光\n（每层）",  "Grave eaten yields +25 sun\n(per stack)",            0.00f, 2 },
 	{ SeedType::SEED_HYPNOSHROOM,  "Devotion",     "被魅惑僵尸咬到的僵尸也变友军",      "Zombies bitten by a hypnotized zombie turn friendly", 0.00f, 1 },
 	{ SeedType::SEED_SCAREDYSHROOM, "Bravery",     "敌人贴近时不再缩头",                "No longer hides when zombies get close",             0.00f, 1 },
@@ -138,19 +163,19 @@ static const RunPlantUpgradeDef gRunPlantUpgradeDefs[RUN_PLANT_UPGRADE_COUNT] =
 	{ SeedType::SEED_STARFRUIT,    "Homing Stars", "子弹变为追踪弹",                    "Shots become homing",                                0.00f, 1 },
 	{ SeedType::SEED_PUMPKINSHELL, "Hard Rind",    "血量 +150%\n（每层）",              "Health +150%\n(per stack)",                          1.50f, 3, false, RUN_UPGRADE_KIND_HEALTH },
 	{ SeedType::SEED_MAGNETSHROOM, "Magnet Pull",  "吸取间隔逐层 ×0.75\n（每层）",      "Recharge interval ×0.75/stack",                      -0.25f, 3, true },
-	{ SeedType::SEED_CABBAGEPULT,  "Heavy Toss",   "投掷间隔逐层 ×0.75\n（每层）",      "Throw interval ×0.75/stack",                         -0.25f, 3, true, RUN_UPGRADE_KIND_RHYTHM },
+	{ SeedType::SEED_CABBAGEPULT,  "Free Toss",    "种植费用变为 0",                    "Planting cost becomes 0",                            0.00f, 1 },
 	{ SeedType::SEED_FLOWERPOT,    "Rich Soil",    "血量 +150%\n（每层）",              "Health +150%\n(per stack)",                          1.50f, 2, false, RUN_UPGRADE_KIND_HEALTH },
-	{ SeedType::SEED_KERNELPULT,   "Buttery",      "黄油触发概率 +25%\n（每层）",       "Butter chance +25%\n(per stack)",                    0.25f, 3 },
+	{ SeedType::SEED_KERNELPULT,   "Artillery",    "种下后变为玉米加农炮",              "Becomes a Cob Cannon when planted",                  0.00f, 1 },
 	{ SeedType::SEED_INSTANT_COFFEE,"Rich Roast",  "唤醒产阳光 +25\n（每层）",          "Waking sun +25\n(per stack)",                        0.00f, 2 },
-	{ SeedType::SEED_GARLIC,       "Pungent",      "被驱赶僵尸减速 5 秒\n（每层）",     "Diverted zombies slowed 5 sec\n(per stack)",         0.00f, 2 },
+	{ SeedType::SEED_GARLIC,       "Iron Clove",   "巨人砸击时像地刺王一样耐砸",        "Survives Gargantuar smashes like a Spikerock",       0.00f, 1 },
 	{ SeedType::SEED_UMBRELLA,     "Canopy",       "血量 +150%\n（每层）",              "Health +150%\n(per stack)",                          1.50f, 3, false, RUN_UPGRADE_KIND_HEALTH },
 	{ SeedType::SEED_MARIGOLD,     "Golden Bloom", "每次多产 1 枚\n（每层）",           "1 extra coin per cycle\n(per stack)",                0.00f, 3 },
-	{ SeedType::SEED_MELONPULT,    "Heavy Melon",  "溅射范围 +25%\n（每层）",           "Splash radius +25%\n(per stack)",                    0.25f, 2 },
-	{ SeedType::SEED_GATLINGPEA,   "Rapid Fire",   "射击间隔逐层 ×0.75\n（每层）",      "Fire interval ×0.75/stack",                          -0.25f, 3, true, RUN_UPGRADE_KIND_RHYTHM },
+	{ SeedType::SEED_MELONPULT,    "Melon Barrage","每次多发 1 个西瓜\n（每层）",       "Fires 1 extra melon per volley\n(per stack)",        0.00f, 0 },
+	{ SeedType::SEED_GATLINGPEA,   "Overclock",    "攻击间隔 ×0.5",                     "Attack interval ×0.5",                               -0.50f, 1, false, RUN_UPGRADE_KIND_RHYTHM },
 	{ SeedType::SEED_TWINSUNFLOWER, "Twin Bloom",  "每次多产 1 阳光\n（每层）",         "1 extra sun per cycle\n(per stack)",                 0.00f, 3 },
 	{ SeedType::SEED_GLOOMSHROOM,  "Gloom",        "光环范围 +1 格",                    "Aura radius +1 tile",                                0.00f, 1 },
 	{ SeedType::SEED_CATTAIL,      "Quick Claw",   "攻击目标 +1 个\n（每层）",          "Targets +1 zombie\n(per stack)",                     0.00f, 2 },
-	{ SeedType::SEED_WINTERMELON,  "Winter Chill", "溅射减速时长 +50%\n（每层）",       "Splash slow duration +50%\n(per stack)",             0.50f, 2 },
+	{ SeedType::SEED_WINTERMELON,  "Deep Splash",  "溅射半径 +50%\n（每层）",           "Splash radius +50%\n(per stack)",                    0.50f, 0 },
 	{ SeedType::SEED_GOLD_MAGNET,  "Gilded Pull",  "吸取间隔逐层 ×0.75\n（每层）",      "Recharge interval ×0.75/stack",                      -0.25f, 3, true },
 	{ SeedType::SEED_SPIKEROCK,    "Royal Thorns", "攻击间隔逐层 ×0.75\n（每层）",      "Attack interval ×0.75/stack",                        -0.25f, 3, true },
 	{ SeedType::SEED_COBCANNON,    "Rapid Reload", "装填时间逐层 ×0.75\n（每层）",      "Reload time ×0.75/stack",                            -0.25f, 3, true },

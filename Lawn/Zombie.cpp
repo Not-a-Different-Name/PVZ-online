@@ -2145,6 +2145,16 @@ void Zombie::UpdateZombieGargantuar()
                             SquishAllInSquare(aPlant->mPlantCol, aPlant->mRow, ZombieAttackType::ATTACKTYPE_CHEW);
                         }
                     }
+                    else if (aPlant->mSeedType == SeedType::SEED_GARLIC && mApp->RunPlantUpgradeCount(SeedType::SEED_GARLIC) > 0)
+                    {
+                        // @pvz-online: 批 18 大蒜「Iron Clove」——像地刺王一样耐砸：每砸 -50 血、不反伤，
+                        // 砸空才被吃掉（大蒜 400 血 = 砸 8 次；受击形象按血线自动更新）。
+                        aPlant->mPlantHealth -= 50;
+                        if (aPlant->mPlantHealth <= 0)
+                        {
+                            SquishAllInSquare(aPlant->mPlantCol, aPlant->mRow, ZombieAttackType::ATTACKTYPE_CHEW);
+                        }
+                    }
                     else
                     {
                         SquishAllInSquare(aPlant->mPlantCol, aPlant->mRow, ZombieAttackType::ATTACKTYPE_CHEW);
@@ -2178,6 +2188,15 @@ void Zombie::UpdateZombieGargantuar()
                 {
                     TakeDamage(20, 32U);
                     aPlant->SpikeRockTakeDamage();
+                    if (aPlant->mPlantHealth <= 0)
+                    {
+                        SquishAllInSquare(aPlant->mPlantCol, aPlant->mRow, ZombieAttackType::ATTACKTYPE_CHEW);
+                    }
+                }
+                else if (aPlant->mSeedType == SeedType::SEED_GARLIC && mApp->RunPlantUpgradeCount(SeedType::SEED_GARLIC) > 0)
+                {
+                    // @pvz-online: 批 18 大蒜「Iron Clove」——同上一份（DO_FIX_BUGS 版）的耐砸分支。
+                    aPlant->mPlantHealth -= 50;
                     if (aPlant->mPlantHealth <= 0)
                     {
                         SquishAllInSquare(aPlant->mPlantCol, aPlant->mRow, ZombieAttackType::ATTACKTYPE_CHEW);
@@ -4803,21 +4822,6 @@ void Zombie::UpdateYuckyFace()
     if (mYuckyFaceCounter == 170)
     {
         StartWalkAnim(20);
-
-        // @pvz-online: 单株升级「Pungent」（大蒜，批 13）：被驱赶（换道那一刻）减速 5 秒/层、
-        // 至多 2 层。语义照地刺（Plant::DoRowAreaDamage）：CanBeChilled 挡下、不缩短更长的
-        // 减速、首次挂上出冰音。mYuckyFace 唯一来源就是大蒜（AnimateChewSound 的 garlic 支），
-        // 这里天然只对大蒜触发；换不换得成道都算"被驱赶"，非闯关恒 0。
-        int aSlowFrames = 500 * mApp->RunPlantUpgradeCount(SeedType::SEED_GARLIC);
-        if (aSlowFrames > 0 && CanBeChilled() && aSlowFrames > mChilledCounter)
-        {
-            if (mChilledCounter == 0)
-            {
-                mApp->PlayFoley(FoleyType::FOLEY_FROZEN);
-            }
-            mChilledCounter = aSlowFrames;
-            UpdateAnimSpeed();
-        }
 
         bool aCanGoUp = true;
         bool aCanGoDown = true;
@@ -8114,6 +8118,11 @@ void Zombie::TakeDamage(int theDamage, unsigned int theDamageFlags)
 {
     if (mZombiePhase == ZombiePhase::PHASE_JACK_IN_THE_BOX_POPPING || IsDeadOrDying())
         return;
+
+    // @pvz-online: 批 18 全局「Precision 所有伤害 +15%」——僵尸受击的总入口，先放大再走
+    // 各分支（护盾/头盔/本体的依次分配、HITS_SHIELD_AND_BODY 的重置全吃放大值）。
+    // 火力（Firepower）在弹种基数上先乘，这里末梢再乘，两条全局乘性叠加；非闯关自动 1.0。
+    theDamage = (int)(theDamage * mApp->RunBuffMul(RUN_BUFF_PRECISION) + 0.5f);
 
     int aDamageRemaining = theDamage;
 

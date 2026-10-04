@@ -21,9 +21,12 @@
 //     就是"标准"，所以 v3 的档直接按标准续；载荷长度同样没变。
 // v5：加末位推车记账（联机末位每行一台、整局一次性）——追加在载荷末尾；v4 及更老的档
 //     读不到这两字节，按"一辆都没用"续。
+// v6：批 18（2026-10-04）全局表尾插了第 9 条 Precision——全局 id 0..7 不动，单株 id 由
+//     「8 + 下标」全体右移 1 变「9 + 下标」；v5 及更老的档读到 id >= 8 的全部 +1 读平
+//     （旧档里 id 8 是第一个单株、不是 Precision，不会撞车）。载荷长度一个字节没变。
 
 static const unsigned int RUN_CHECKPOINT_MAGIC = 0x314E5552;	// 'RUN1'
-static const unsigned short RUN_CHECKPOINT_VERSION = 5;
+static const unsigned short RUN_CHECKPOINT_VERSION = 6;
 
 static std::vector<unsigned char>& AppendU16(std::vector<unsigned char>& theData, unsigned int theValue)
 {
@@ -473,12 +476,12 @@ bool RunState::Load(int theProfileId)
 	{
 		return false;
 	}
-	// v3 才有时长档、v4 才有难度档、v5 才有推车记账。老版本占的保留位恒 0，恰好是各自
-	// 默认档——v2 的档按完整版续、v3 的档按标准难度续，都不用作废；v4 及更老的档没有
-	// 推车字段，按"一辆都没用"续。再往前的版本一律当"没有检查点"。
+	// v3 才有时长档、v4 才有难度档、v5 才有推车记账（v6 与 v5 的保留位含义相同）。老版本
+	// 占的保留位恒 0，恰好是各自默认档——v2 的档按完整版续、v3 的档按标准难度续，都不作废；
+	// v5 及更老的档没有推车字段，按"一辆都没用"续。再往前的版本一律当"没有检查点"。
 	int aMode = RUN_MODE_FULL;
 	int aDiff = RUN_DIFF_STD;
-	if (aMagic != RUN_CHECKPOINT_MAGIC || (aVersion != RUN_CHECKPOINT_VERSION && aVersion != 4 && aVersion != 3 && aVersion != 2))
+	if (aMagic != RUN_CHECKPOINT_MAGIC || (aVersion != RUN_CHECKPOINT_VERSION && aVersion != 5 && aVersion != 4 && aVersion != 3 && aVersion != 2))
 	{
 		TodLog("[run] checkpoint magic/version mismatch, ignored");
 		return false;
@@ -550,6 +553,13 @@ bool RunState::Load(int theProfileId)
 		BuffStack aStack;
 		aStack.mId = (unsigned short)aId;
 		aStack.mCount = (unsigned short)aCount;
+		// @pvz-online: 批 18——Precision 全局插在表尾（新 id 8），单株 id 由「8 + 下标」全体
+		// 右移 1 变「9 + 下标」；v5 及更老的档里 id >= 8 的其实都是单株，读进来先 +1 读平。
+		// 全局 0..7 不动；旧档的 id 8 是"第一个单株"，不是 Precision，不会撞车。
+		if (aVersion < 6 && aStack.mId >= 8)
+		{
+			aStack.mId = (unsigned short)(aStack.mId + 1);
+		}
 		aBuffs.push_back(aStack);
 	}
 

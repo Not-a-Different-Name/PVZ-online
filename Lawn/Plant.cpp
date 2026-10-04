@@ -42,7 +42,7 @@ PlantDefinition gPlantDefs[SeedType::NUM_SEED_TYPES] = {  //0x69F2B0
     { SeedType::SEED_DOOMSHROOM,        nullptr, ReanimationType::REANIM_DOOMSHROOM,    20, 125,    5000,   PlantSubClass::SUBCLASS_NORMAL,     0,      _S("DOOM_SHROOM") },
     { SeedType::SEED_LILYPAD,           nullptr, ReanimationType::REANIM_LILYPAD,       19, 25,     750,    PlantSubClass::SUBCLASS_NORMAL,     0,      _S("LILY_PAD") },
     { SeedType::SEED_SQUASH,            nullptr, ReanimationType::REANIM_SQUASH,        21, 50,     3000,   PlantSubClass::SUBCLASS_NORMAL,     0,      _S("SQUASH") },
-    { SeedType::SEED_THREEPEATER,       nullptr, ReanimationType::REANIM_THREEPEATER,   12, 325,    750,    PlantSubClass::SUBCLASS_SHOOTER,    150,    _S("THREEPEATER") },
+    { SeedType::SEED_THREEPEATER,       nullptr, ReanimationType::REANIM_THREEPEATER,   12, 150,    750,    PlantSubClass::SUBCLASS_SHOOTER,    150,    _S("THREEPEATER") },
     { SeedType::SEED_TANGLEKELP,        nullptr, ReanimationType::REANIM_TANGLEKELP,    17, 25,     3000,   PlantSubClass::SUBCLASS_NORMAL,     0,      _S("TANGLE_KELP") },
     { SeedType::SEED_JALAPENO,          nullptr, ReanimationType::REANIM_JALAPENO,      11, 125,    5000,   PlantSubClass::SUBCLASS_NORMAL,     0,      _S("JALAPENO") },
     { SeedType::SEED_SPIKEWEED,         nullptr, ReanimationType::REANIM_SPIKEWEED,     22, 100,    750,    PlantSubClass::SUBCLASS_NORMAL,     0,      _S("SPIKEWEED") },
@@ -857,10 +857,9 @@ bool Plant::FindTargetAndFire(int theRow, PlantWeapon thePlantWeapon)
         case SeedType::SEED_WINTERMELON:    mShootingCounter = PlantShootTicks(36, aSpeed);  break;
         case SeedType::SEED_KERNELPULT:
         {
-            // @pvz-online: 单株升级「Buttery」（玉米投手，表行 SEED_KERNELPULT）：黄油触发
-            // 概率 +25%/层（计数型、至多 3 层）。基础 = Rand(4)==0（1/4）；带 n 层后门变成
-            // < 1+n——3 层必出（4/4），与表文案「+25%/层」口径一致。
-            if (Sexy::Rand(4) < 1 + mApp->RunPlantUpgradeCount(SeedType::SEED_KERNELPULT))
+            // @pvz-online: 批 18 玉米投手行改为「Artillery 种下变加农炮」——黄油率恢复原版
+            // 固定 1/4（原 Buttery 挂点删除）。
+            if (Sexy::Rand(4) == 0)
             {
                 aBodyReanim = mApp->ReanimationGet(mBodyReanimID);
                 aBodyReanim->AssignRenderGroupToPrefix("Cornpult_butter", RENDER_GROUP_NORMAL);
@@ -4954,6 +4953,14 @@ void Plant::Fire(Zombie* theTargetZombie, int theRow, PlantWeapon thePlantWeapon
         aProjectileType = ProjectileType::PROJECTILE_BUTTER;
     }
 
+    // @pvz-online: 批 18 寒冰射手「Blizzard」——发射冰西瓜（1 层）：出口弹种整换成冰瓜弹
+    // （80 伤 + 冰冻 + 溅射全按弹种自带；枪口雪粒子与 FOLEY_SNOW_PEA_SPARKLES 保留；
+    // 直线飞行吃 UpdateNormalMotion 的兜底速度，无需设初速）。
+    if (mSeedType == SeedType::SEED_SNOWPEA && mApp->RunPlantUpgradeCount(SeedType::SEED_SNOWPEA) > 0)
+    {
+        aProjectileType = ProjectileType::PROJECTILE_WINTERMELON;
+    }
+
     mApp->PlayFoley(FoleyType::FOLEY_THROW);
     if (mSeedType == SeedType::SEED_SNOWPEA || mSeedType == SeedType::SEED_WINTERMELON)
     {
@@ -5158,6 +5165,23 @@ void Plant::Fire(Zombie* theTargetZombie, int theRow, PlantWeapon thePlantWeapon
         aProjectile->mVelY = 0.0f;
         aProjectile->mVelZ = aRangeY / 120.0f - 7.0f;
         aProjectile->mAccZ = 0.115f;
+
+        // @pvz-online: 批 18 西瓜「Melon Barrage」——每次多发 1 个西瓜/层（无上限；用户定案）。
+        // 额外瓜照主弹的完整参数出发（同速同弧线、位置向右后错开 21px），落点因此与主弹
+        // 基本重合。行上留 EFFECT 不进多发通环：那边按直射弹写法补弹，投手弹会变呆弹。
+        if (mSeedType == SeedType::SEED_MELONPULT)
+        {
+            for (int i = 0, aExtra = mApp->RunPlantUpgradeCount(SeedType::SEED_MELONPULT); i < aExtra; i++)
+            {
+                Projectile* aExtraProjectile = mBoard->AddProjectile(aOriginX + 21 * (i + 1), aOriginY, mRenderOrder - 1, theRow, aProjectileType);
+                aExtraProjectile->mDamageRangeFlags = aProjectile->mDamageRangeFlags;
+                aExtraProjectile->mMotionType = ProjectileMotion::MOTION_LOBBED;
+                aExtraProjectile->mVelX = aRangeX / 120.0f;
+                aExtraProjectile->mVelY = 0.0f;
+                aExtraProjectile->mVelZ = aRangeY / 120.0f - 7.0f;
+                aExtraProjectile->mAccZ = 0.115f;
+            }
+        }
     }
     else if (mSeedType == SeedType::SEED_THREEPEATER)
     {
@@ -5508,6 +5532,13 @@ int Plant::GetCost(SeedType theSeedType, SeedType theImitaterType)
         int aCost = GetPlantDefinition(aCostSeedType).mSeedCost;
         if (gLawnApp->IsRunMode())
         {
+            // @pvz-online: 批 18 卷心菜「Free Toss」——种植费用变为 0（1 层）。卡面显示、
+            // 扣费、可用判定全走 GetCost 这一个口，所以自动一致；模仿者上面已解析到本株。
+            if (aCostSeedType == SeedType::SEED_CABBAGEPULT && gLawnApp->RunPlantUpgradeCount(SeedType::SEED_CABBAGEPULT) > 0)
+            {
+                return 0;
+            }
+
             // @pvz-online: 闯关里紫卡直接种（见 Board::CanPlantAt），售价 = 紫卡原价
             // + 基础植物原价（用户定案清单）；两笔都按原版取值，不再叠加蘑菇 +25。
             SeedType aBaseType = GetUpgradeBaseFor(aCostSeedType);
@@ -5684,8 +5715,8 @@ Rect Plant::GetPlantAttackRect(PlantWeapon thePlantWeapon)
     case SeedType::SEED_TORCHWOOD:      aRect = Rect(mX + 50,       mY,             30,                 mHeight);               break;
     case SeedType::SEED_PUFFSHROOM:
     case SeedType::SEED_SEASHROOM:      aRect = Rect(mX + 60,       mY,             230,                mHeight);               break;
-    // @pvz-online: 闯关「浓雾」：大喷菇雾气射程每层 +1 格（80px）
-    case SeedType::SEED_FUMESHROOM:     aRect = Rect(mX + 60,       mY,             340 + 80 * mApp->RunPlantUpgradeCount(SeedType::SEED_FUMESHROOM), mHeight); break;
+    // @pvz-online: 批 18 大喷菇行改为「Fume Rush 攻击间隔 ×0.25」——射程恢复原版 340（原射程挂点删除）。
+    case SeedType::SEED_FUMESHROOM:     aRect = Rect(mX + 60,       mY,             340,                mHeight);               break;
     // @pvz-online: 闯关「Gloom」（忧郁菇，批 14）：光环范围每层 +1 格——240×240（3 格）
     // 逐层 +160px、中心不动（n 层 = 3+2n 格宽）；纵向行差在 DoRowAreaDamage 同步外扩。
     case SeedType::SEED_GLOOMSHROOM:

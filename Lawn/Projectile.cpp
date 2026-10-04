@@ -417,13 +417,12 @@ bool Projectile::IsZombieHitBySplash(Zombie* theZombie)
 	{
 		aProjectileRect.mWidth = 100;
 	}
-	// @pvz-online: 单株升级「Heavy Melon」（西瓜投手，表行 SEED_MELONPULT）：溅射判定
-	// 矩形宽 +25%/层（乘数型、至多 2 层）。只放宽这块溅射判定用的矩形——主命中的投射物
-	// 碰撞（GetProjectileRect 本体）不动，免得改到西瓜直击的手感；冰西瓜不加宽
-	// （它的行是减速时长）。
-	else if (mProjectileType == ProjectileType::PROJECTILE_MELON)
+	// @pvz-online: 批 18 冰西瓜「Deep Splash」——溅射半径 +50%/层（无上限；用户定案）。
+	// 只放宽这块溅射判定用的矩形（宽随乘数），主命中的投射物碰撞（GetProjectileRect
+	// 本体）不动，溅射伤害/减速的数值不受影响；西瓜行换成连击后不再走这里。
+	else if (mProjectileType == ProjectileType::PROJECTILE_WINTERMELON)
 	{
-		aProjectileRect.mWidth = (int)(aProjectileRect.mWidth * mApp->RunPlantUpgradeMul(SeedType::SEED_MELONPULT) + 0.5f);
+		aProjectileRect.mWidth = (int)(aProjectileRect.mWidth * mApp->RunPlantUpgradeMul(SeedType::SEED_WINTERMELON) + 0.5f);
 	}
 
 	int aRowDeviation = theZombie->mRow - mRow;
@@ -453,19 +452,6 @@ bool Projectile::IsZombieHitBySplash(Zombie* theZombie)
 }
 
 //0x46D390
-// @pvz-online: 单株升级「Winter Chill」（冰西瓜，表行 SEED_WINTERMELON）：溅射减速时长
-// +50%/层（乘数型、至多 2 层）。减速本体同寒冰射手先例：GetDamageFlags 给 WINTERMELON
-// 的 DAMAGE_FREEZE 经 ApplyChill 把 mChilledCounter 抬到 1000 帧，命中后这里按单株
-// 乘数放宽。==1000 认出「这一击刚挂上标准减速」：更长的（冰道/寒冰菇 2000）不动，
-// 保持 max 语义不变短。两条命中路径（溅射 DoSplashDamage / 打抗火僵尸的单发分支）都调它。
-static void WidenWinterMelonChill(LawnApp* theApp, Zombie* theZombie)
-{
-	if (theZombie->mChilledCounter == 1000)
-	{
-		theZombie->mChilledCounter = (int)(1000 * theApp->RunPlantUpgradeMul(SeedType::SEED_WINTERMELON) + 0.5f);
-	}
-}
-
 // @pvz-online: 单株升级「Kindling」（火炬树桩，表行 SEED_TORCHWOOD）：火弹伤害 +50%/层
 //（乘数型、至多 2 层）。豌豆穿过火炬树桩变火弹（ConvertToFireball），基础伤害 40 不变；
 // 两个伤害计算点（溅射 DoSplashDamage 的 aOriginalDamage、打抗火僵尸的单发分支）都过它，
@@ -523,11 +509,6 @@ void Projectile::DoSplashDamage(Zombie* theZombie)
 			else
 			{
 				aZombie->TakeDamage(aSplashDamage, aDamageFlags);
-			}
-			// @pvz-online: 冰西瓜的溅射减速放宽（表行 SEED_WINTERMELON，见 helper 注释）。
-			if (mProjectileType == ProjectileType::PROJECTILE_WINTERMELON)
-			{
-				WidenWinterMelonChill(mApp, aZombie);
 			}
 		}
 	}
@@ -878,24 +859,6 @@ void Projectile::DoImpact(Zombie* theZombie)
 		// IsSplashDamage 为假）走这条单发路径，同样乘（helper 注释）。
 		aDamage = KindlingFireballDamage(mApp, mProjectileType, aDamage);
 		theZombie->TakeDamage(aDamage, aDamageFlags);
-
-		// @pvz-online: 单株升级「Frostbite」（寒冰射手，表行 SEED_SNOWPEA）：命中减速时长
-		// +30%/层（乘数型、至多 3 层）。减速本体在 TakeDamage 的 DAMAGE_FREEZE 分支
-		// （Zombie::ApplyChill 把 mChilledCounter 抬到 1000 帧）；这里在雪豆命中后按单株
-		// 乘数放宽。==1000 认出「这一击刚挂上标准减速」：更长的（冰道/寒冰菇 2000）不动，
-		// 保持 max 语义不变短；冰雪瓜走上面的溅射分支、寒冰菇走 HitIceTrap，都到不了这。
-		if (mProjectileType == ProjectileType::PROJECTILE_SNOWPEA && theZombie->mChilledCounter == 1000)
-		{
-			theZombie->mChilledCounter = (int)(1000 * mApp->RunPlantUpgradeMul(SeedType::SEED_SNOWPEA) + 0.5f);
-		}
-
-		// @pvz-online: 单株升级「Winter Chill」（冰西瓜）：同款放宽——冰西瓜打抗火僵尸
-		// （投石车/冰车/铁门/梯子，IsSplashDamage 为假）走这条单发路径；减速本体仍是
-		// Freeze 分支的标准 1000 帧，==1000 守卫保 max 语义（见 helper 注释）。
-		if (mProjectileType == ProjectileType::PROJECTILE_WINTERMELON)
-		{
-			WidenWinterMelonChill(mApp, theZombie);
-		}
 	}
 
 	float aLastPosX = mPosX - mVelX;
