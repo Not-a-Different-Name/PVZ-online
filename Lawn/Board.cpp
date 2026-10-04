@@ -8,6 +8,7 @@
 #include "System/PoolEffect.h"
 #include "System/PopDRMComm.h"
 #include "System/TypingCheck.h"
+#include "System/ReanimationLawn.h"
 #include "Widget/StoreScreen.h"
 #include "Widget/AwardScreen.h"
 #include "../Sexy.TodLib/Trail.h"
@@ -93,6 +94,10 @@ Board::Board(LawnApp* theApp)
 	mWatchSnapshotTicker = 0;
 	mHasRemoteSnapshot = false;
 	mWatchEndSeen = NetSession::WatchEnd::NONE;
+	mWatchNoticeTimer = 0;
+	mWatchKeyHeld = false;
+	mWatchRearmBlocked = false;
+	mWatchLastSeat = NetProto::SEAT_UNSET;
 	mLevel = 0;
 	mCursorObject = new CursorObject();
 	mCursorPreview = new CursorPreview();
@@ -8250,6 +8255,12 @@ void Board::DrawUITop(Graphics* g)
 		DrawQuickChat(g);
 	}
 
+	// @pvz-online: 观战结束提示（超时/对方离开）——结束后残留 ~2 秒，观看中不画
+	if (mWatchNoticeTimer > 0)
+	{
+		DrawWatchNotice(g);
+	}
+
 	if (mTimeStopCounter == 0 && mCursorObject->BeginDraw(g))
 	{
 		mCursorObject->Draw(g);
@@ -8266,6 +8277,14 @@ void Board::Draw(Graphics* g)
 {
 	if (mApp->GetDialog(Dialogs::DIALOG_STORE) || mApp->GetDialog(Dialogs::DIALOG_ALMANAC))
 		return;
+
+	// @pvz-online: 观战批③——观看态整窗画队友场地（全屏切入；自己的模拟照跑，只是画面让位）。
+	// 判定与进入口径一致（局内 + V 按着 + 订阅在）；结束观看立刻回到自家画面。
+	if (IsWatchingView())
+	{
+		DrawBoardWatch(g);
+		return;
+	}
 
 	g->SetLinearBlend(true);
 
@@ -8465,7 +8484,8 @@ void Board::DoTypingCheck(KeyCode theKey)
 
 bool Board::QuickChatAvailable()
 {
-	return mApp->IsOnlineGame() && mApp->mOnlineSession != nullptr &&
+	// 观看队友场地时不开面板：观看层盖住全屏，面板看不见却还在吞键（T/E 会被这里先接走）
+	return !mWatchKeyHeld && mApp->IsOnlineGame() && mApp->mOnlineSession != nullptr &&
 		mApp->mOnlineSession->IsConnected() &&
 		mApp->mGameScene == GameScenes::SCENE_PLAYING;
 }
@@ -8833,6 +8853,9 @@ void Board::UpdateBoardWatch()
 		mWatchSnapshotTicker = 0;
 		mHasRemoteSnapshot = false;
 		mWatchEndSeen = NetSession::WatchEnd::NONE;
+		mWatchNoticeTimer = 0;
+		mWatchKeyHeld = false;
+		mWatchRearmBlocked = false;
 		return;
 	}
 
@@ -8843,8 +8866,29 @@ void Board::UpdateBoardWatch()
 		mRemoteSnapshot = aSnapshot;
 		mHasRemoteSnapshot = true;
 	}
+	// 结束原因：只有"对面没响应/对面走了"值得给一句提示；自己松手/安静退场不打扰。
+	// 展示完（~2 秒）清回 NONE，避免下一局误弹。
 	NetSession::WatchEnd anEnd = aSession->TakeWatchEnded();
-	if (anEnd != NetSession::WatchEnd::NONE) mWatchEndSeen = anEnd;
+	if (anEnd == NetSession::WatchEnd::TIMEOUT || anEnd == NetSession::WatchEnd::TARGET_LEFT)
+	{
+		mWatchEndSeen = anEnd;
+		mWatchNoticeTimer = 120;
+	}
+	if (mWatchNoticeTimer > 0)
+	{
+		mWatchNoticeTimer--;
+		if (mWatchNoticeTimer == 0) mWatchEndSeen = NetSession::WatchEnd::NONE;
+	}
+
+	// 失焦/KeyUp 丢失兜底：本机键状态已经不认为 V 按着了 → 按松手收场（还在看就发 END，
+	// 对面立刻停推）。正常松手路径在 Board::KeyUp；这里兜住窗口失焦（ClearKeysDown 会
+	// 清 mKeyDown）、场景切换把 KeyUp 收给别的 widget 等情形。幂等：没按/没看只清标志。
+	if (mWatchKeyHeld && !mWidgetManager->mKeyDown['V'])
+	{
+		mWatchKeyHeld = false;
+		if (aSession->IsWatching()) aSession->EndWatch(true);
+	}
+	if (mWatchRearmBlocked && !mWidgetManager->mKeyDown['V']) mWatchRearmBlocked = false;
 
 	// 被看端：没人看零开销；有人看每 7 帧（≈15Hz）打包一份、逐观众单播。
 	// 观众走光重置节拍——下一个观众一来立刻拿到第一份，不用等满一拍。
@@ -8872,6 +8916,278 @@ void Board::UpdateBoardWatch()
 	}
 }
 
+// ====================================================================================================
+// @pvz-online: 观战批③——观看 UI。口径（2026-10-05 与用户敲定）：
+//   · 按住 V 全屏切入队友场地（自己的模拟照跑不暂停）；松开 V / Esc 退回；
+//   · 按住期间 1-6 直选席位（观看态优先拦截，1/2 不切血量显示）；观看中一切键吞掉
+//     （防止空格弹暂停菜单盖住观看层）；
+//   · 失焦/KeyUp 丢失由 UpdateBoardWatch 的 mKeyDown 轮询兜底；
+//   · 结束原因 TIMEOUT/TARGET_LEFT 在收场后提示 ~2 秒（DrawWatchNotice）。
+// 绘制全部只读 mRemoteSnapshot（纯展示数据），不建/不碰任何实体；坐标与棋盘同系。
+
+bool Board::IsWatchingView()
+{
+	NetSession* aSession = mApp->mOnlineSession;
+	return mWatchKeyHeld
+		&& mApp->mGameScene == GameScenes::SCENE_PLAYING
+		&& aSession != nullptr && aSession->IsWatching();
+}
+
+// 挑默认观看席位：上次看的还在 → 接着看；否则按席位号最小的"非自己上座者"。
+// 返回 SEAT_UNSET = 没别人可看（单人房）。
+uint8_t Board::PickDefaultWatchSeat()
+{
+	NetSession* aSession = mApp->mOnlineSession;
+	if (aSession == nullptr || !aSession->IsConnected()) return NetProto::SEAT_UNSET;
+	if (mWatchLastSeat != NetProto::SEAT_UNSET && mWatchLastSeat != aSession->GetLocalSeat()
+		&& aSession->IsSeatOccupied(mWatchLastSeat))
+	{
+		return mWatchLastSeat;
+	}
+	for (uint8_t aSeat = 1; aSeat <= NetProto::MAX_PLAYERS; aSeat++)
+	{
+		if (aSeat != aSession->GetLocalSeat() && aSession->IsSeatOccupied(aSeat)) return aSeat;
+	}
+	return NetProto::SEAT_UNSET;
+}
+
+// KeyDown 钩子。返回 true = 这个键被观看功能吃掉（不落给血量键/暂停/ESC 链）。
+bool Board::HandleBoardWatchKey(KeyCode theKey)
+{
+	NetSession* aSession = mApp->mOnlineSession;
+
+	if (theKey == 'V' || theKey == 'v')
+	{
+		// 自动重复的 V：按住的幂等吞掉；ESC 退场后压到真松手，别把观看立刻拉回来
+		if (mWatchRearmBlocked) return true;
+		if (mWatchKeyHeld) return true;
+		if (mApp->mGameScene != GameScenes::SCENE_PLAYING || !mApp->IsOnlineGame()
+			|| aSession == nullptr || !aSession->IsConnected())
+		{
+			return false;	// 单机/不在局内：V 没有含义，落回原链
+		}
+		uint8_t aSeat = PickDefaultWatchSeat();
+		if (aSeat == NetProto::SEAT_UNSET || !aSession->BeginWatch(aSeat))
+		{
+			return false;	// 没有可看的队友：不吞，V 当没按过
+		}
+		mWatchKeyHeld = true;
+		mWatchLastSeat = aSeat;
+		return true;
+	}
+
+	if (!mWatchKeyHeld) return false;
+
+	// 以下都在"V 还按着"期间（含被超时/离开收场后还没松手的尾巴）
+	if (theKey == KeyCode::KEYCODE_ESCAPE)
+	{
+		if (aSession != nullptr && aSession->IsWatching()) aSession->EndWatch(true);
+		mWatchKeyHeld = false;		// 与松手同语义：要再看得松手重按
+		mWatchRearmBlocked = true;	// 压住 V 自动重复，等真松手（KeyUp/轮询兜底）再解锁
+		return true;
+	}
+	if (theKey >= '1' && theKey <= '0' + NetProto::MAX_PLAYERS)
+	{
+		uint8_t aSeat = (uint8_t)(theKey - '0');
+		if (aSession != nullptr && aSeat != aSession->GetLocalSeat() && aSession->IsSeatOccupied(aSeat))
+		{
+			if (aSession->IsWatching()) aSession->EndWatch(true);
+			if (aSession->BeginWatch(aSeat)) mWatchLastSeat = aSeat;
+		}
+		return true;	// 观看态优先拦截 1/2：这里不落血量显示键
+	}
+	return IsWatchingView();	// 观看中别的键也吞（空格/回车不落暂停链）；没看上就照旧
+}
+
+// 观看层的血条小助手：黑底一圈 + 按血量变色（>60 绿 / >30 黄 / 其余红）
+static void WatchDrawHealthBar(Graphics* g, int theX, int theY, int theW, int theH, int theHP)
+{
+	g->SetColor(Color(0, 0, 0, 170));
+	g->FillRect(theX - 1, theY - 1, theW + 2, theH + 2);
+	g->SetColor(theHP > 60 ? Color(70, 200, 70, 230) : (theHP > 30 ? Color(230, 200, 60, 230) : Color(220, 70, 60, 230)));
+	g->FillRect(theX, theY, theW * theHP / 100, theH);
+}
+
+// 中央大字条（暂停/清完标记用）
+static void WatchDrawCenterTag(Graphics* g, const char* theText, const Color& theColor)
+{
+	ModText::Font* aBigFont = ModText::GetFont(24, true);
+	std::wstring aText = ModText::WideFromUtf8(theText);
+	int aTextW = ModText::TextWidth(aBigFont, aText);
+	int aBoxX = (BOARD_WIDTH - aTextW) / 2 - 16;
+	g->SetColor(Color(0, 0, 0, 170));
+	g->FillRect(aBoxX, 276, aTextW + 32, 44);
+	ModText::DrawTextWide(g, aBigFont, aBoxX + 16, 282, aText, theColor, g->mClipRect);
+}
+
+void Board::DrawBoardWatch(Graphics* g)
+{
+	const NetSession::ViewSnapshot& aSnap = mRemoteSnapshot;
+
+	// 背景：按自家关卡题材选图（合作局同关）。照 DrawBackdrop 的选图口径，但只铺底——
+	// SOD/挑战叠加/水池波纹这些是"自家棋盘状态"，观看层不带。
+	Image* aBgImage = nullptr;
+	switch (mBackground)
+	{
+	case BackgroundType::BACKGROUND_1_DAY:				aBgImage = Sexy::IMAGE_BACKGROUND1;					break;
+	case BackgroundType::BACKGROUND_2_NIGHT:			aBgImage = Sexy::IMAGE_BACKGROUND2;					break;
+	case BackgroundType::BACKGROUND_3_POOL:				aBgImage = Sexy::IMAGE_BACKGROUND3;					break;
+	case BackgroundType::BACKGROUND_4_FOG:				aBgImage = Sexy::IMAGE_BACKGROUND4;					break;
+	case BackgroundType::BACKGROUND_5_ROOF:				aBgImage = Sexy::IMAGE_BACKGROUND5;					break;
+	case BackgroundType::BACKGROUND_6_BOSS:				aBgImage = Sexy::IMAGE_BACKGROUND6BOSS;				break;
+	case BackgroundType::BACKGROUND_MUSHROOM_GARDEN:	aBgImage = Sexy::IMAGE_BACKGROUND_MUSHROOMGARDEN;	break;
+	case BackgroundType::BACKGROUND_GREENHOUSE:			aBgImage = Sexy::IMAGE_BACKGROUND_GREENHOUSE;		break;
+	case BackgroundType::BACKGROUND_ZOMBIQUARIUM:		aBgImage = Sexy::IMAGE_AQUARIUM1;					break;
+	default:											break;
+	}
+	if (aBgImage != nullptr)
+	{
+		if (aBgImage == Sexy::IMAGE_BACKGROUND_MUSHROOMGARDEN || aBgImage == Sexy::IMAGE_BACKGROUND_GREENHOUSE || aBgImage == Sexy::IMAGE_AQUARIUM1)
+			g->DrawImage(aBgImage, 0, 0);
+		else
+			g->DrawImage(aBgImage, -BOARD_OFFSET, 0);
+	}
+	else
+	{
+		g->SetColor(Color(24, 40, 24, 255));
+		g->FillRect(0, 0, BOARD_WIDTH, BOARD_HEIGHT);
+	}
+
+	// 行/列参考线：帮观众数清格位（行距泳池关 85、其余 100，与 GridToPixel 同口径）
+	int aRows = aSnap.mRows;
+	if (aRows < 1 || aRows > MAX_GRID_SIZE_Y) aRows = StageHas6Rows() ? 6 : 5;
+	const int aRowStep = StageHasPool() ? 85 : 100;
+	const int aLawnTop = GridToPixelY(0, 0);
+	g->SetColor(Color(0, 0, 0, 36));
+	for (int r = 1; r < aRows; r++)
+	{
+		g->FillRect(LAWN_XMIN, aLawnTop + r * aRowStep - 1, MAX_GRID_SIZE_X * 80, 2);
+	}
+	for (int c = 1; c < MAX_GRID_SIZE_X; c++)
+	{
+		g->FillRect(LAWN_XMIN + c * 80 - 1, aLawnTop, 2, aRows * aRowStep);
+	}
+
+	ModText::Font* aFont = ModText::GetFont(12, false);
+
+	// ---- 顶部信息条（有没有快照都画：显示在看谁）----
+	uint8_t aTargetSeat = mApp->mOnlineSession != nullptr ? mApp->mOnlineSession->GetWatchTargetSeat() : NetProto::SEAT_UNSET;
+	std::string aNameUtf8;
+	if (mApp->mOnlineSession != nullptr && mApp->mOnlineSession->IsSeatOccupied(aTargetSeat))
+	{
+		aNameUtf8 = mApp->mOnlineSession->GetSeatName(aTargetSeat);
+	}
+	if (aNameUtf8.empty()) aNameUtf8 = "P" + std::to_string((unsigned)aTargetSeat);
+
+	std::string aLine1 = ModText::Tr("正在观看 ", "Watching ");
+	aLine1 += aNameUtf8;
+	aLine1 += ModText::Tr(" 的场地 · 第 ", "'s lawn · Wave ");
+	aLine1 += std::to_string((int)aSnap.mWave) + "/" + std::to_string((int)aSnap.mWaveTotal);
+	aLine1 += ModText::Tr(" 波", "");
+	std::wstring aTitle = ModText::WideFromUtf8(aLine1.c_str());
+	std::string aHintUtf8 = ModText::Tr("按 1-", "1-");
+	aHintUtf8 += std::to_string((int)NetProto::MAX_PLAYERS);
+	aHintUtf8 += ModText::Tr(" 换人 · 松开 V 或 Esc 返回", " switch · release V / Esc to return");
+	std::wstring aHint = ModText::WideFromUtf8(aHintUtf8.c_str());
+
+	g->SetColor(Color(0, 0, 0, 150));
+	g->FillRect(0, 0, BOARD_WIDTH, 48);
+	ModText::DrawTextWide(g, aFont, 12, 6, aTitle, Color(255, 255, 255, 255), g->mClipRect);
+	ModText::DrawTextWide(g, aFont, 12, 26, aHint, Color(190, 190, 190, 255), g->mClipRect);
+
+	if (!mHasRemoteSnapshot)
+	{
+		std::wstring aText = ModText::WideFromUtf8(ModText::Tr("正在连接队友画面…", "Connecting to teammate's board..."));
+		int aTextW = ModText::TextWidth(aFont, aText);
+		int aBoxX = (BOARD_WIDTH - aTextW) / 2 - 12;
+		g->SetColor(Color(0, 0, 0, 150));
+		g->FillRect(aBoxX, 286, aTextW + 24, 28);
+		ModText::DrawTextWide(g, aFont, aBoxX + 12, 292, aText, Color(255, 255, 255, 255), g->mClipRect);
+		return;
+	}
+
+	// 推车：位图 bit r = 该行兜底还在（待命位 = 屏外左侧 −21，照 LawnMower::Draw 的偏移口径）
+	for (int r = 0; r < aRows; r++)
+	{
+		if ((aSnap.mMowers & (1 << r)) == 0) continue;
+		LawnMowerType aMowerType = LawnMowerType::LAWNMOWER_LAWN;
+		float aMowerY = GetPosYBasedOnRow(-21.0f + 40.0f, r) + 23.0f + 19.0f;
+		if (StageHasRoof())
+		{
+			aMowerType = LawnMowerType::LAWNMOWER_ROOF;
+			aMowerY -= 40.0f;
+		}
+		else if (StageHasPool() && mPlantRow[r] == PlantRowType::PLANTROW_POOL)
+		{
+			aMowerType = LawnMowerType::LAWNMOWER_POOL;
+			aMowerY -= 33.0f;
+		}
+		mApp->mReanimatorCache->DrawCachedMower(g, -21.0f + 6.0f, aMowerY, aMowerType);
+	}
+
+	// 植物：DrawCachedPlant 的坐标口径 = 格左上（与棋盘 Plant 实体一致）
+	for (int i = 0; i < aSnap.mPlantCount; i++)
+	{
+		const NetSession::ViewSnapshot::Plant& aP = aSnap.mPlants[i];
+		if (aP.mRow >= aRows || aP.mCol >= MAX_GRID_SIZE_X) continue;	// 防御坏包
+		if (aP.mSeedType >= SeedType::NUM_SEED_TYPES) continue;
+		int aX = GridToPixelX(aP.mCol, aP.mRow);
+		int aY = GridToPixelY(aP.mCol, aP.mRow);
+		mApp->mReanimatorCache->DrawCachedPlant(g, (float)aX, (float)aY, (SeedType)aP.mSeedType, DrawVariation::VARIATION_NORMAL);
+		if (aP.mHP < 100)
+		{
+			WatchDrawHealthBar(g, aX + 20, aY + 6, 40, 4, aP.mHP);
+		}
+	}
+
+	// 僵尸：缓存图内 reanim 原点在图内 (40,40)（GARGANTUAR 是 (40,60)），照
+	// Zombie::GetPosYBasedOnRow 的口径把原点摆到 行 y−30（气球再抬 30）。
+	// 视觉细节（缩放/微调）以实机 1:1 截图为准。
+	for (int i = 0; i < aSnap.mZombieCount; i++)
+	{
+		const NetSession::ViewSnapshot::Zombie& aZ = aSnap.mZombies[i];
+		if (aZ.mRow >= aRows) continue;
+		if ((int)aZ.mType >= (int)ZombieType::NUM_CACHED_ZOMBIE_TYPES) continue;
+		float aOriginY = GetPosYBasedOnRow((float)aZ.mX + 40.0f, aZ.mRow) - 30.0f;
+		if (aZ.mType == ZombieType::ZOMBIE_BALLOON) aOriginY -= 30.0f;
+		float aPivotY = (aZ.mType == ZombieType::ZOMBIE_GARGANTUAR) ? 60.0f : 40.0f;
+		float aDrawY = aOriginY - aPivotY;
+		mApp->mReanimatorCache->DrawCachedZombie(g, (float)aZ.mX - 40.0f, aDrawY, (ZombieType)aZ.mType);
+		if (aZ.mHP < 100)
+		{
+			WatchDrawHealthBar(g, aZ.mX - 25, (int)aDrawY + 2, 50, 5, aZ.mHP);
+		}
+		if ((aZ.mFlags & NetProto::SNAPSHOT_ZFLAG_HELMET) || (aZ.mFlags & NetProto::SNAPSHOT_ZFLAG_SHIELD))
+		{
+			g->SetColor(Color(140, 200, 255, 220));	// 淡蓝小点 = 有甲（头盔/门板）
+			g->FillRect(aZ.mX - 31, (int)aDrawY + 3, 4, 4);
+		}
+	}
+
+	// 暂停/清完标记：对方的状态（快照位），中央一行大字
+	if (aSnap.mFlags & NetProto::SNAPSHOT_FLAG_PAUSED)
+	{
+		WatchDrawCenterTag(g, ModText::Tr("对方已暂停", "They paused"), Color(255, 230, 140, 255));
+	}
+	else if (aSnap.mFlags & NetProto::SNAPSHOT_FLAG_COMPLETE)
+	{
+		WatchDrawCenterTag(g, ModText::Tr("对方已清空草坪", "Their lawn is clear"), Color(160, 240, 160, 255));
+	}
+}
+
+void Board::DrawWatchNotice(Graphics* g)
+{
+	ModText::Font* aFont = ModText::GetFont(12, false);
+	std::wstring aText = ModText::WideFromUtf8(mWatchEndSeen == NetSession::WatchEnd::TIMEOUT
+		? ModText::Tr("队友没有响应", "Teammate is not responding")
+		: ModText::Tr("队友已离开", "Teammate left"));
+	int aTextW = ModText::TextWidth(aFont, aText);
+	int aBoxX = (BOARD_WIDTH - aTextW) / 2 - 12;
+	g->SetColor(Color(0, 0, 0, 160));
+	g->FillRect(aBoxX, 136, aTextW + 24, 26);
+	ModText::DrawTextWide(g, aFont, aBoxX + 12, 141, aText, Color(255, 200, 200, 255), g->mClipRect);
+}
+
 //0x41B820
 void Board::KeyDown(KeyCode theKey)
 {
@@ -8879,6 +9195,10 @@ void Board::KeyDown(KeyCode theKey)
 
 	// @pvz-online: 联机局内 T/E 唤出快捷聊天；面板开着时吞掉一切键（含 ESC/SPACE）
 	if (HandleQuickChatKey(theKey)) return;
+
+	// @pvz-online: 观战——V 按住进入/退出、观看中 1-6 直选席位、观看中一切键拦截
+	// （必须排在血量 1/2 键之前：观看态优先拿 1/2 当切人键）
+	if (HandleBoardWatchKey(theKey)) return;
 
 	// @pvz-online: 血量数字显示开关：1 = 僵尸、2 = 植物（各自切换；纯本地显示）
 	if (theKey == '1' || theKey == '2')
@@ -8925,6 +9245,21 @@ void Board::KeyDown(KeyCode theKey)
 		else if (CanInteractWithBoardButtons() && mApp->mGameScene != GameScenes::SCENE_ZOMBIES_WON)
 		{
 			mApp->DoNewOptions(false);
+		}
+	}
+}
+
+// @pvz-online: 观战——松开 V 收场（主动发 END，对面立刻停推、不用等 6 秒保活超时）。
+// 失焦时收不到 KeyUp，由 UpdateBoardWatch 的 mKeyDown 轮询兜底。
+void Board::KeyUp(KeyCode theKey)
+{
+	if ((theKey == 'V' || theKey == 'v') && (mWatchKeyHeld || mWatchRearmBlocked))
+	{
+		mWatchKeyHeld = false;
+		mWatchRearmBlocked = false;
+		if (mApp->mOnlineSession != nullptr && mApp->mOnlineSession->IsWatching())
+		{
+			mApp->mOnlineSession->EndWatch(true);	// WatchEnd::USER——自己松的手，不提示
 		}
 	}
 }

@@ -264,7 +264,7 @@ public:
 	virtual void					MouseDown(int x, int y, int theClickCount);
 	virtual void					MouseUp(int x, int y, int theClickCount);
 	virtual void					KeyChar(SexyChar theChar);
-	virtual void					KeyUp(KeyCode) {}
+	virtual void					KeyUp(KeyCode theKey);
 	virtual void					KeyDown(KeyCode theKey);
 	virtual void					Update();
 	void							UpdateLayers();
@@ -547,14 +547,23 @@ public:
 	int								mChatInputCooldown;
 
 	// @pvz-online: 观战（队友场地查看）——被看端每 ~15Hz 打包战场快照逐观众单播；
-	// 观看端把最新快照搬进暂存区（画面与提示在批③的观看 UI 里画）。
+	// 观看端按住 V 时整窗画队友场地（批③），自己的棋盘照跑不暂停。
 	// 挂在 Update 的 mPaused 早退之前：被看方暂停时也要推（快照带 PAUSED 位）。
 	void							UpdateBoardWatch();
 	int								BuildBoardSnapshot(uint8_t* theBuffer, int theCapacity);
+	bool							HandleBoardWatchKey(KeyCode theKey);	// KeyDown 钩子；true = 吞键
+	bool							IsWatchingView();						// V 按着 + 订阅在 + 局内
+	uint8_t							PickDefaultWatchSeat();
+	void							DrawBoardWatch(Graphics* g);			// 全屏观看层（只读快照）
+	void							DrawWatchNotice(Graphics* g);			// 结束提示（超时/离开）
 
 	NetSession::ViewSnapshot		mRemoteSnapshot;		// 最新一份队友战场定格（观看端）
 	bool							mHasRemoteSnapshot;
-	NetSession::WatchEnd			mWatchEndSeen;			// 观看结束原因（取走即清；批③据此提示）
+	NetSession::WatchEnd			mWatchEndSeen;			// 待展示的结束原因（TIMEOUT/TARGET_LEFT；展示完清回 NONE）
+	int								mWatchNoticeTimer;		// 结束提示残留帧数（~2 秒）
+	bool							mWatchKeyHeld;			// 本机 V 按住中（结束观看也要等松手再按）
+	bool							mWatchRearmBlocked;		// ESC 退场后压住重进，直到 V 真的松手（防自动重复）
+	uint8_t							mWatchLastSeat;			// 上次看的席位（再按 V 还看他；SEAT_UNSET = 无）
 	int								mWatchSnapshotTicker;	// 被看端发送节拍（每 7 帧 ≈ 15Hz 一份）
 };
 extern bool gShownMoreSunTutorial;
