@@ -1595,6 +1595,7 @@ void LawnApp::UpdateAdventureRequest()
 // @pvz-online: 进入游戏后的玩法公告（2026-10-03 用户要的）：启动后第一次落到主菜单时弹一次，
 // 简要说明联机玩法与功能（正文按 OnlineStartDialog 的 '\n' 手动分行）。每进程只弹一次；
 // 阻塞式（WaitForResult 泵主循环）——这时候会话要么还没建、要么在后台自己跑心跳，不受影响。
+// 框支持整屏拖动且无边缘回夹（2026-10-04 用户要求）：框大了可以拖出去，把被边缘挡住的部分看全。
 void LawnApp::UpdateStartupAnnounce()
 {
 	if (mShowedStartupAnnounce) return;
@@ -1626,7 +1627,7 @@ void LawnApp::UpdateStartupAnnounce()
 			"· In game: ESC pauses; T / E for phrases and\n"
 			"  emotes (number keys to pick); the top-left\n"
 			"  chip = roster and seat swap."),
-		ModText::Tr("知道了", "OK"), nullptr, OnlineStartDialog::NOTIFY_NONE);
+		ModText::Tr("知道了", "OK"), nullptr, OnlineStartDialog::NOTIFY_NONE, true);
 	CenterDialog(aDialog, aDialog->mWidth, aDialog->mHeight);
 	TodLog("[announce] dialog %dx%d (screen %dx%d)", aDialog->mWidth, aDialog->mHeight, mWidth, mHeight);
 	AddDialog(Dialogs::DIALOG_ONLINE_START, aDialog);

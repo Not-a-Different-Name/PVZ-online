@@ -63,10 +63,11 @@ static int BodyBlockHeight(ModText::Font* theFont, int theLineCount)
 }
 
 OnlineStartDialog::OnlineStartDialog(LawnApp* theApp, const char* theTitleUtf8, const char* theBodyUtf8,
-	const char* theYesUtf8, const char* theNoUtf8, Notify theNotify) : LawnDialog(
+	const char* theYesUtf8, const char* theNoUtf8, Notify theNotify, bool theDraggable) : LawnDialog(
 		theApp, Dialogs::DIALOG_ONLINE_START, true, _S(""), _S(""), _S(""), Dialog::BUTTONS_NONE)
 {
 	mNotify = theNotify;
+	mDraggable = theDraggable;
 	mTitle = (theTitleUtf8 != nullptr) ? theTitleUtf8 : "";
 	mBody = (theBodyUtf8 != nullptr) ? theBodyUtf8 : "";
 	mTitleY = 0;
@@ -225,6 +226,21 @@ void OnlineStartDialog::Draw(Graphics* g)
 void OnlineStartDialog::KeyDown(KeyCode theKey)
 {
 	(void)theKey;
+}
+
+// 拖动：Dialog 基类本来就带（MouseDown 记锚点、MouseUp 收摊），但 MouseDrag 会把框
+// 钳在屏幕边缘 ±8px 内——公告框大了，被边缘卡住就看不全。这里给 draggable 的框去掉钳制：
+// 不设界，框可以拖到屏幕外，想看哪块拖哪块（2026-10-04 用户要求）。
+// 锚点沿用基类那一套（mDragMouseX/Y = 光标在框内的落点），不回夹时无需更新——公式里
+// x = 绝对坐标 - mX，代入后 aNew = 绝对坐标 - 锚点，光标恒钉在原落点上。
+void OnlineStartDialog::MouseDrag(int x, int y)
+{
+	if (!mDraggable || !mDragging)
+	{
+		LawnDialog::MouseDrag(x, y);   // 未按下的经过 / 普通框：走 Dialog 的钳制版
+		return;
+	}
+	Move(mX + x - mDragMouseX, mY + y - mDragMouseY);
 }
 
 //0x4572E0 的同一支音效（LawnDialog::ButtonPress），听着还是原版的石头按钮

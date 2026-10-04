@@ -30,12 +30,15 @@ public:
 	};
 
 	// 按钮文案传空指针 = 不摆那个按钮；两个都空 = 纯看板。
+	// theDraggable = 整框可鼠标拖动、且不受屏幕边缘回夹（基线 Dialog 自带拖拽，但钳在
+	// 屏幕边缘 ±8px 内，框大了会被卡住看不全——只有启动公告框要这个，2026-10-04 用户要求）。
 	OnlineStartDialog(LawnApp* theApp, const char* theTitleUtf8, const char* theBodyUtf8,
-		const char* theYesUtf8, const char* theNoUtf8, Notify theNotify);
+		const char* theYesUtf8, const char* theNoUtf8, Notify theNotify, bool theDraggable = false);
 	virtual ~OnlineStartDialog();
 
 	virtual void			Draw(Graphics* g);
 	virtual void			KeyDown(KeyCode theKey);
+	virtual void			MouseDrag(int x, int y);
 	virtual void			ButtonPress(int theId);
 	virtual void			ButtonDepress(int theId);
 	virtual void			Resize(int theX, int theY, int theWidth, int theHeight);
@@ -50,6 +53,7 @@ private:
 	int						mButtonCount;
 	LawnStoneButton*		mButtons[2];
 	Notify					mNotify;
+	bool					mDraggable;	// 可整框拖动且无边缘回夹（启动公告框才置 true）
 };
 
 #endif
