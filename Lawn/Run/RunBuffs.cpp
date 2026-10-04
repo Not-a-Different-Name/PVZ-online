@@ -26,11 +26,16 @@
 //   （同批还有非表项：末位顺位乘数 ×1→×2，见 Board.cpp 与 docs/03 §5.37；MOD_BUILD 29→30。）
 // 2026-10-05 批八（用户指令，见 docs/07 同日条目）：灰烬/一次性族四项——
 //   ① 全局「Demolition 爆破」+30% → +60%/层（一次性植物伤害）；
-//   ② 樱桃/土豆雷/毁灭菇三行半径 +25% → +50%/层（只动表值与 desc，代码挂点原样）；
+//   ② 樱桃/土豆雷/毁灭菇三行半径 +25% → +50%/层（只动表值与 desc，代码挂点原样；
+//      其中毁灭菇那条已在批八b 整条换掉、半径还原 250——见下方批八b 注）；
 //   ③ 寒冰菇行 +2 秒/层 → +4 秒/层（Zombie::HitIceTrap 钩子 200→400 帧/层）；
 //   ④ 窝瓜行「压击处眩晕 +2 秒/层」整条换「砸击次数 +2/层」——UpdateSquash 改多段砸击
 //      （落地还有余额就起身再砸，共 1+2n 次），原 DoSquashDamage 的 ApplyButter 挂点删。
 //   （同批 MOD_BUILD 不进位：纯表值与单机表现，无协议影响。）
+// 2026-10-05 批八b（用户指令，见 docs/07 同日条目）：毁灭菇行整条换「爆炸造成 50000 伤害」
+//   （只可选 1 层）——取代批八 ② 的毁灭菇半径条目。Board::KillAllZombiesInRadius 与
+//   Zombie::ApplyBurn 加直伤基数覆写参数（0 = 默认 1800）；覆写只换基数（厚血目标改吃
+//   50000、薄血目标照旧烧死保味），全局「爆破」乘数照常叠乘。
 static const RunBuffDef gRunBuffDefs[RUN_BUFF_COUNT] =
 {
 	{ "Firepower",    "所有子弹伤害 +30%",      "All projectile damage +30%",       0.30f,  0 },
@@ -163,7 +168,7 @@ static const RunPlantUpgradeDef gRunPlantUpgradeDefs[RUN_PLANT_UPGRADE_COUNT] =
 	{ SeedType::SEED_HYPNOSHROOM,  "Devotion",     "被魅惑僵尸咬到的僵尸也变友军",      "Zombies bitten by a hypnotized zombie turn friendly", 0.00f, 1 },
 	{ SeedType::SEED_SCAREDYSHROOM, "Bravery",     "敌人贴近时不再缩头",                "No longer hides when zombies get close",             0.00f, 1 },
 	{ SeedType::SEED_ICESHROOM,    "Deep Freeze",  "全场冰冻 +4 秒\n（每层）",          "Board freeze +4 sec\n(per stack)",                   0.00f, 2 },
-	{ SeedType::SEED_DOOMSHROOM,   "Annihilation", "爆炸范围 +50%\n（每层）",           "Blast radius +50%\n(per stack)",                     0.50f, 2 },
+	{ SeedType::SEED_DOOMSHROOM,   "Annihilation", "爆炸造成 50000 伤害",               "Blast deals 50000 damage",                           0.00f, 1 },
 	{ SeedType::SEED_LILYPAD,      "Tough Pad",    "血量 +150%\n（每层）",              "Health +150%\n(per stack)",                          1.50f, 2, false, RUN_UPGRADE_KIND_HEALTH },
 	{ SeedType::SEED_SQUASH,       "Heavy Squash", "砸击次数 +2\n（每层）",             "Smashes 2 extra times\n(per stack)",                 0.00f, 2 },
 	{ SeedType::SEED_THREEPEATER,  "Triple Volley", "每条道多发 1 颗\n（每层）",        "1 extra pea per lane\n(per stack)",                  0.00f, 2, false, RUN_UPGRADE_KIND_SHOTCOUNT },

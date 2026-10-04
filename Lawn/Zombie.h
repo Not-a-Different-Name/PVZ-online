@@ -281,7 +281,9 @@ public:
     void                            UpdateClimbingLadder();
     void                            UpdateZombieGargantuar();
     int                             GetBodyDamageIndex();
-    void                            ApplyBurn();
+    // @pvz-online: theDirectDamage = 燃烧直伤基数覆写（0 = 默认 1800×「爆破」乘数）；
+    // 毁灭菇单株升级「Annihilation」传 50000（经 Board::KillAllZombiesInRadius 透传，批八b）。
+    void                            ApplyBurn(int theDirectDamage = 0);
     void                            UpdateBurn();
     bool                            ZombieNotWalking();
     Zombie*                         FindZombieTarget();

@@ -8843,17 +8843,20 @@ void Zombie::RemoveColdEffects()
 }
 
 //0x532B70
-void Zombie::ApplyBurn()
+// @pvz-online: theDirectDamage = 燃烧直伤基数覆写（0 = 默认 1800）——批八b 毁灭菇单株升级
+//「Annihilation」经 Board::KillAllZombiesInRadius 传 50000；其余燃烧源不传、行为同前。
+void Zombie::ApplyBurn(int theDirectDamage)
 {
     if (mDead || mZombiePhase == ZombiePhase::PHASE_ZOMBIE_BURNED)
         return;
 
     if (mBodyHealth >= 1800 || mZombieType == ZombieType::ZOMBIE_BOSS)
     {
-        // @pvz-online: 闯关 buff「爆破」：一次性植物的燃烧直伤 ×(1+30%/层)。这条只在目标
+        // @pvz-online: 闯关 buff「爆破」：一次性植物的燃烧直伤 ×(1+60%/层)。这条只在目标
         // 血够厚（≥1800）时走——普通僵尸无论 1800 还是 2340 都是"烧死"，加伤只对血牛有意义。
         // 闯关关卡里的燃烧源就是樱桃/辣椒/末日菇（僵尸自爆类不出现，僵尸侧蹭到也无妨）。
-        TakeDamage((int)(1800 * mApp->RunBuffMul(RUN_BUFF_BLAST) + 0.5f), 18U);
+        int aBlastBase = theDirectDamage > 0 ? theDirectDamage : 1800;
+        TakeDamage((int)(aBlastBase * mApp->RunBuffMul(RUN_BUFF_BLAST) + 0.5f), 18U);
         return;
     }
 

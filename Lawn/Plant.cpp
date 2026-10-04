@@ -4727,9 +4727,15 @@ void Plant::DoSpecial()
     {
         mApp->PlaySample(SOUND_DOOMSHROOM);
 
-        // @pvz-online: 单株升级「扩爆」：半径 ×(1+50%/层)（RunBuffs 单株表；批八由 25% 上调，同樱桃写法）
-        int aRadius = (int)(250 * mApp->RunPlantUpgradeMul(SeedType::SEED_DOOMSHROOM) + 0.5f);
-        mBoard->KillAllZombiesInRadius(mRow, aPosX, aPosY, aRadius, 3, true, aDamageRangeFlags);
+        // @pvz-online: 单株升级「Annihilation」（批八b）：爆炸直伤 50000（只可选 1 层）——
+        // 覆写经 Board::KillAllZombiesInRadius → Zombie::ApplyBurn 传下（厚血目标吃 50000、
+        // 薄血目标照旧烧死保味）；半径回原版 250（批八的半径 +50% 条目已由本条整行取代）。
+        int aDirectDamage = 0;
+        if (mApp->RunPlantUpgradeCount(SeedType::SEED_DOOMSHROOM) > 0)
+        {
+            aDirectDamage = 50000;
+        }
+        mBoard->KillAllZombiesInRadius(mRow, aPosX, aPosY, 250, 3, true, aDamageRangeFlags, aDirectDamage);
         KillAllPlantsNearDoom();
 
         mApp->AddTodParticle(aPosX, aPosY, (int)RenderLayer::RENDER_LAYER_TOP, ParticleEffect::PARTICLE_DOOM);

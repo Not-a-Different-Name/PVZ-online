@@ -10628,7 +10628,7 @@ bool Board::PlantingRequirementsMet(SeedType theSeedType)
 
 //0x41D8A0
 // GOTY @Patoke: 0x420670
-int Board::KillAllZombiesInRadius(int theRow, int theX, int theY, int theRadius, int theRowRange, bool theBurn, int theDamageRangeFlags)
+int Board::KillAllZombiesInRadius(int theRow, int theX, int theY, int theRadius, int theRowRange, bool theBurn, int theDamageRangeFlags, int theDirectDamage)
 {
 	Zombie* aZombie = nullptr;
 	int aKilledZombies = 0; // @Patoke: implemented this
@@ -10647,14 +10647,17 @@ int Board::KillAllZombiesInRadius(int theRow, int theX, int theY, int theRadius,
 			{
 				if (theBurn)
 				{
-					aZombie->ApplyBurn();
+					// @pvz-online: theDirectDamage 透传给 ApplyBurn（0 = 默认）；毁灭菇单株升级
+					//「Annihilation」的 50000 直伤覆写走这条（批八b）。
+					aZombie->ApplyBurn(theDirectDamage);
 				}
 				else
 				{
-					// @pvz-online: 闯关 buff「爆破」：爆炸直伤 ×(1+30%/层)。走 theBurn=false
+					// @pvz-online: 闯关 buff「爆破」：爆炸直伤 ×(1+60%/层)。走 theBurn=false
 					// 这条的只有土豆雷；燃烧那条（樱桃/辣椒/末日菇）在 Zombie::ApplyBurn 里加。
 					// 单株升级「宽装药」只加半径（见 Plant::DoSpecial 土豆雷支），这里不再乘单株。
-					aZombie->TakeDamage((int)(1800 * mApp->RunBuffMul(RUN_BUFF_BLAST) + 0.5f), 18U);
+					int aBlastBase = theDirectDamage > 0 ? theDirectDamage : 1800;
+					aZombie->TakeDamage((int)(aBlastBase * mApp->RunBuffMul(RUN_BUFF_BLAST) + 0.5f), 18U);
 				}
 
 				aKilledZombies++;

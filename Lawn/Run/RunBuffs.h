@@ -80,7 +80,7 @@ enum RunPlantUpgradeId
 	RUN_UPGRADE_HYPNOSHROOM,	// 魅惑菇：被魅惑僵尸咬到的僵尸也变友军（只可选 1 层）
 	RUN_UPGRADE_SCAREDYSHROOM,	// 胆小菇：敌人贴近时不再缩头（只可选 1 层）
 	RUN_UPGRADE_ICESHROOM,		// 寒冰菇：全场冰冻 +4 秒/层（至多 2 层；2026-10-05 批八由 +2 秒上调）
-	RUN_UPGRADE_DOOMSHROOM,		// 毁灭菇：爆炸半径 +50%/层（至多 2 层；2026-10-05 批八由 +25% 上调）
+	RUN_UPGRADE_DOOMSHROOM,		// 毁灭菇：爆炸直伤 50000（只可选 1 层；2026-10-05 批八b 由半径族整条换掉）
 	RUN_UPGRADE_LILYPAD,		// 睡莲：血量 +150%/层（至多 2 层）
 	RUN_UPGRADE_SQUASH,			// 窝瓜：砸击次数 +2/层（至多 2 层；2026-10-05 批八由眩晕族整条换掉，UpdateSquash 多段砸击）
 	RUN_UPGRADE_THREEPEATER,	// 三线射手：每条道多发 1 颗/层（至多 2 层）
