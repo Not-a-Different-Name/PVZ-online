@@ -62,7 +62,7 @@ RunModeDialog::RunModeDialog(LawnApp* theApp, bool theShowDiff) : LawnDialog(
 		mDiffCaption = ModText::Tr("出怪难度（全队倍率）", "Zombie difficulty (team multiplier)");
 		mDiffLabels[0] = ModText::Tr("轻松 ×0.5", "Easy ×0.5");
 		mDiffLabels[1] = ModText::Tr("标准 ×1", "Standard ×1");
-		mDiffLabels[2] = ModText::Tr("高压 ×1.5", "High ×1.5");
+		mDiffLabels[2] = ModText::Tr("高压 ×2.0", "High ×2.0");
 
 		// 三枚等宽（取最长标签量的），石门贴图平铺对宽度有整段要求（见 CjkStoneButtonWidth）。
 		// 量宽用按钮实际画标签的那档字号（CjkPointSize(CJK_BUTTON_LABEL_PX)），量画同一份。

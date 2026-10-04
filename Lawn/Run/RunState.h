@@ -28,7 +28,7 @@ public:
 	enum	{ RUN_MODE_FULL = 0, RUN_MODE_NORMAL = 1, RUN_MODE_QUICK = 2 };
 
 	// @pvz-online: 出怪难度档（2026-10-03 用户定案）：房主开局前在选模式页选的全局出怪
-	// 旋钮。轻松 ×0.5 / 标准 ×1.0 / 高压 ×1.5——直接乘在全队的顺位乘数上（乘后向下取整、
+	// 旋钮。轻松 ×0.5 / 标准 ×1.0 / 高压 ×2.0（2026-10-04 由 ×1.5 上调）——直接乘在全队的顺位乘数上（乘后向下取整、
 	// 保底 1 倍；每波数量上限随同一乘数放大），落点见 Board::PickZombieWaves。
 	// 房间级设置：一局定一次，随 START_LEVEL 走、进检查点；单机局同样可选。
 	enum	{ RUN_DIFF_EASY = 0, RUN_DIFF_STD = 1, RUN_DIFF_HIGH = 2 };
@@ -168,7 +168,7 @@ public:
 
 	// @pvz-online: 难度阶梯（M4-a）取用口。正在打的那一关的序号，口径与 GetLevel /
 	// GetLevelSeed 一致（追赶期间 = 目标关）；场景档 0..4；难度 = 千分比表
-	// {1000,1200,1440,1728,2073}——每过一个场景血量与数量同乘 ×1.2。
+	// {1000,1500,2250,3375,5062}——每过一个场景血量与数量同乘 ×1.5（2026-10-04 由 ×1.2 上调）。
 	// 全整数运算，联机两端逐位一致（见 GetDifficultyPermille 实现处的说明）。
 	int					GetPlayingLevelIndex() const;
 	int					GetSceneIndex() const;

@@ -81,11 +81,19 @@ bool RunZombieAllowedOnLevel(ZombieType theZombieType, int theRunLevelIndex)
 //（鸭子圈/旗帜/伴舞——它们不走随机抽取这条通道）保持 0，不开新口子。
 static const int RUN_ZOMBIE_PICK_WEIGHT = 1000;
 
+// @pvz-online: 气球单独降档（2026-10-04 用户指令"气球僵尸的权重降低"，见 docs/07 批六）：
+// 平铺档的 1/4——气球飞越前排、早期对空手段有限，反馈偏多。再调只动这一个常数。
+static const int RUN_ZOMBIE_BALLOON_WEIGHT = 250;
+
 int RunZombieWeight(ZombieType theZombieType)
 {
 	if (GetZombieDefinition(theZombieType).mPickWeight <= 0)
 	{
 		return 0;
+	}
+	if (theZombieType == ZombieType::ZOMBIE_BALLOON)
+	{
+		return RUN_ZOMBIE_BALLOON_WEIGHT;
 	}
 	return RUN_ZOMBIE_PICK_WEIGHT;
 }

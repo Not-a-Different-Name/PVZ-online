@@ -336,10 +336,11 @@ int RunState::LevelCountForMode(int theRunMode)
 	return RUN_SCENE_COUNT * LevelsPerScene(theRunMode);
 }
 
-// 出怪难度档的千分比表（2026-10-03 用户定案：轻松 ×0.5 / 标准 ×1.0 / 高压 ×1.5）。
+// 出怪难度档的千分比表（2026-10-03 用户定案：轻松 ×0.5 / 标准 ×1.0；高压 2026-10-04
+// 按玩家反馈由 ×1.5 上调 ×2.0，见 docs/07 批六）。
 int RunState::DiffPermilleFor(int theRunDiff)
 {
-	static const int aPermille[] = { 500, 1000, 1500 };
+	static const int aPermille[] = { 500, 1000, 2000 };
 	if (theRunDiff < RUN_DIFF_EASY || theRunDiff > RUN_DIFF_HIGH) return aPermille[RUN_DIFF_STD];
 	return aPermille[theRunDiff];
 }
@@ -378,12 +379,13 @@ int RunState::GetSceneIndex() const
 	return aIndex / LevelsPerScene(mMode);
 }
 
-// 难度阶梯（M4-a，用户定案）：每过一个场景血量与数量同乘 ×1.2 → 1.0/1.2/1.44/1.73/2.07。
+// 难度阶梯（M4-a，用户定案）：每过一个场景血量与数量同乘 ×1.5 → 1.0/1.5/2.25/3.38/5.06
+//（2026-10-04 按玩家反馈"后期难度不足"由 ×1.2 上调，见 docs/07 批六；截尾口径同旧表）。
 // 写成整数千分比表：两边全靠整数乘除，逐位一致——浮点乘的 0.000001 之差就可能让同一只
 // 僵尸在两台机器上一个剩 1 点血、一个已经死了。
 int RunState::GetDifficultyPermille() const
 {
-	static const int aPermille[RUN_SCENE_COUNT] = { 1000, 1200, 1440, 1728, 2073 };
+	static const int aPermille[RUN_SCENE_COUNT] = { 1000, 1500, 2250, 3375, 5062 };
 	return aPermille[GetSceneIndex()];
 }
 
