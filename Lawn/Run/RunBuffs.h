@@ -17,7 +17,7 @@
 enum RunBuffId
 {
 	RUN_BUFF_FIREPOWER,		// 火力强化：全体子弹伤害 +30%（无限）
-	RUN_BUFF_ROOTED,		// 扎根：全体植物血量 +50%（无限）
+	RUN_BUFF_ROOTED,		// 扎根：全体植物血量 +150%（无限）
 	RUN_BUFF_ABUNDANCE,		// 丰饶：产阳光间隔 −20%（至多 4 层）
 	RUN_BUFF_SWIFT,			// 急袭：攻击间隔叠乘 ×0.8/层（无限）
 	RUN_BUFF_FASTSEED,		// 速种：种植冷却叠乘 ×0.8/层（无限）

@@ -514,7 +514,7 @@ void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, Se
     {
         mPlantHealth *= 2;
     }
-    // @pvz-online: 闯关 buff「扎根」：全体植物血量 ×(1+20%/层)。单株升级（坚果「厚壳」等）
+    // @pvz-online: 闯关 buff「扎根」：全体植物血量 ×(1+150%/层)。单株升级（坚果「厚壳」等）
     // 在同一行一起取——两乘数相乘。修正批（2026-10-03）改走 Kind 闸门口：只有血量型
     // 条目（Kind=HEALTH：坚果/高坚果/睡莲/南瓜头/花盆/保护伞）才乘——此前任意行都乘，
     // 双发/寒冰这类非血量条目会把该株血量一起改了。非闯关局都是 1.0，对 300/4000 无损。

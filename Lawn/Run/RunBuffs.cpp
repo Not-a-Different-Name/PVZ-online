@@ -10,10 +10,12 @@
 // 结构体尾部省略的字段 = mMaxStacks 0（无限）、mMultiplicative false（线性）。
 // 2026-10-03（方案 §三 定案）：全局 8 条整表重标——火力 30%、扎根 50%、丰饶封顶 4、
 // 急袭/速种改叠乘 ×0.8、储备 50、天降封顶 4、爆破不变。
+// 2026-10-04（用户指令，见 docs/07 批五）：扎根每层 +50% → +150%，与六条单株血量行
+// （批二统一 +150%/层）对齐——至此全部血量成长行每层数值统一 1.5。
 static const RunBuffDef gRunBuffDefs[RUN_BUFF_COUNT] =
 {
 	{ "Firepower",    "所有子弹伤害 +30%",      "All projectile damage +30%",       0.30f,  0 },
-	{ "Deep Roots",   "所有植物血量 +50%",      "All plant health +50%",            0.50f,  0 },
+	{ "Deep Roots",   "所有植物血量 +150%",     "All plant health +150%",           1.50f,  0 },
 	{ "Abundance",    "产阳光植物更快 20%",     "Sun plants 20% faster",           -0.20f,  0, 4 },
 	{ "Swift Strikes","植物攻击间隔逐层 ×0.8",  "Plant attack interval ×0.8/stack",-0.20f,  0, 0, true },
 	{ "Quick Seeds",  "种植冷却逐层 ×0.8",      "Planting cooldown ×0.8/stack",    -0.20f,  0, 0, true },
