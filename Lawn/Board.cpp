@@ -6707,6 +6707,27 @@ static inline void AddUIRenderItem(RenderItem* theRenderList, int& theCurRenderI
 }
 
 //0x416880
+// @pvz-online: 实体血量数字显示（用户需求 2026-10-04：数字、原值不换算；
+// 1 键切僵尸、2 键切植物，仅本机显示、不进联机协议；进程内保持，跨关卡不重置）
+static bool gShowZombieHealthNumbers = false;
+static bool gShowPlantHealthNumbers = false;
+
+// @pvz-online: 单个血量数字：像素字体白字黑描边，居中画在实体矩形上方（DrawString 的 y 是基线）
+static void DrawHealthNumberOverRect(Graphics* g, int theHealth, const Rect& theRect)
+{
+	SexyString aText = StrFormat(_S("%d"), theHealth);
+	int aTextX = theRect.mX + theRect.mWidth / 2 - Sexy::FONT_CONTINUUMBOLD14->StringWidth(aText) / 2;
+	int aTextY = theRect.mY - 4;
+	g->SetFont(Sexy::FONT_CONTINUUMBOLD14);
+	g->SetColor(Color::Black);
+	g->DrawString(aText, aTextX - 1, aTextY);
+	g->DrawString(aText, aTextX + 1, aTextY);
+	g->DrawString(aText, aTextX, aTextY - 1);
+	g->DrawString(aText, aTextX, aTextY + 1);
+	g->SetColor(Color(255, 255, 255));
+	g->DrawString(aText, aTextX, aTextY);
+}
+
 void Board::DrawGameObjects(Graphics* g)
 {
 	TodHesitationTrace("creating render list");
@@ -7112,6 +7133,30 @@ void Board::DrawGameObjects(Graphics* g)
 		default:
 			TOD_ASSERT();
 			break;
+		}
+	}
+
+	// @pvz-online: 血量数字叠加层（画在全部渲染项之后，独立两个开关）
+	if (gShowZombieHealthNumbers)
+	{
+		Zombie* aZombie = nullptr;
+		while (IterateZombies(aZombie))
+		{
+			if (!aZombie->IsDeadOrDying())
+			{
+				DrawHealthNumberOverRect(g, aZombie->mBodyHealth, aZombie->GetZombieRect());
+			}
+		}
+	}
+	if (gShowPlantHealthNumbers)
+	{
+		Plant* aPlant = nullptr;
+		while (IteratePlants(aPlant))
+		{
+			if (!aPlant->mDead)
+			{
+				DrawHealthNumberOverRect(g, aPlant->mPlantHealth, aPlant->GetPlantRect());
+			}
 		}
 	}
 
@@ -8602,6 +8647,20 @@ void Board::KeyDown(KeyCode theKey)
 
 	// @pvz-online: 联机局内 T/E 唤出快捷聊天；面板开着时吞掉一切键（含 ESC/SPACE）
 	if (HandleQuickChatKey(theKey)) return;
+
+	// @pvz-online: 血量数字显示开关：1 = 僵尸、2 = 植物（各自切换；纯本地显示）
+	if (theKey == '1' || theKey == '2')
+	{
+		if (theKey == '1')
+		{
+			gShowZombieHealthNumbers = !gShowZombieHealthNumbers;
+		}
+		else
+		{
+			gShowPlantHealthNumbers = !gShowPlantHealthNumbers;
+		}
+		return;
+	}
 
 	if (mApp->mGameScene == GameScenes::SCENE_LEVEL_INTRO && 
 		mApp->mGameMode != GameMode::GAMEMODE_CHALLENGE_ZEN_GARDEN && 
