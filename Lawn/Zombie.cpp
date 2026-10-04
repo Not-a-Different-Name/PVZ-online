@@ -8578,10 +8578,10 @@ void Zombie::HitIceTrap()
     }
 
     // @pvz-online: 单株升级「Deep Freeze」（寒冰菇，表行 SEED_ICESHROOM）：全场冰冻
-    // +2 秒/层（计数型、至多 2 层）→ 各档冻结时长再 +200 帧/层。HitIceTrap 的唯一
-    // 调用者是寒冰菇的 Plant::IceZombies；CanBeFrozen 挡下的僵尸在上面已早退，不硬塞。
-    // 非闯关局 RunPlantUpgradeCount 恒 0，加 0 无副作用。
-    mIceTrapCounter += 200 * mApp->RunPlantUpgradeCount(SeedType::SEED_ICESHROOM);
+    // +4 秒/层（计数型、至多 2 层；2026-10-05 批八由 +2 秒上调）→ 各档冻结时长再
+    // +400 帧/层。HitIceTrap 的唯一调用者是寒冰菇的 Plant::IceZombies；CanBeFrozen
+    // 挡下的僵尸在上面已早退，不硬塞。非闯关局 RunPlantUpgradeCount 恒 0，加 0 无副作用。
+    mIceTrapCounter += 400 * mApp->RunPlantUpgradeCount(SeedType::SEED_ICESHROOM);
 
     StopZombieSound();
     if (mZombieType == ZombieType::ZOMBIE_BALLOON)

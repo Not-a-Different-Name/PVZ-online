@@ -23,7 +23,7 @@ enum RunBuffId
 	RUN_BUFF_FASTSEED,		// 速种：种植冷却叠乘 ×0.8/层（无限）
 	RUN_BUFF_RESERVE,		// 储备：每关开局阳光 +50（无限）
 	RUN_BUFF_SKYFALL,		// 天降：天上掉阳光间隔 −20%（至多 4 层）
-	RUN_BUFF_BLAST,			// 爆破：一次性植物伤害 +30%（无限）
+	RUN_BUFF_BLAST,			// 爆破：一次性植物伤害 +60%（无限；2026-10-05 批八由 +30% 上调）
 	RUN_BUFF_PRECISION,		// 精准：全体伤害 +15%（无限；2026-10-04 批 18 追加为 id 8）
 	RUN_BUFF_COUNT
 };
@@ -67,9 +67,9 @@ enum RunPlantUpgradeId
 {
 	RUN_UPGRADE_PEASHOOTER,		// 豌豆射手：每次多打 1 发（每层）
 	RUN_UPGRADE_SUNFLOWER,		// 向日葵：每次多产 1 阳光（每层，至多 3 层）
-	RUN_UPGRADE_CHERRYBOMB,		// 樱桃炸弹：爆炸半径 +25%/层
+	RUN_UPGRADE_CHERRYBOMB,		// 樱桃炸弹：爆炸半径 +50%/层（2026-10-05 批八由 +25% 上调）
 	RUN_UPGRADE_WALLNUT,		// 坚果墙：巨人砸击时像地刺王一样耐砸（每次 -200 血；只可选 1 层；2026-10-04 批七由血量族整条换掉）
-	RUN_UPGRADE_POTATOMINE,		// 土豆雷：爆炸半径 +25%/层
+	RUN_UPGRADE_POTATOMINE,		// 土豆雷：爆炸半径 +50%/层（2026-10-05 批八由 +25% 上调）
 	RUN_UPGRADE_SNOWPEA,		// 寒冰射手：发射冰西瓜（只可选 1 层；2026-10-04 批 18 由减速时长族整条换掉）
 	RUN_UPGRADE_CHOMPER,		// 大嘴花：咀嚼时间减半（只可选 1 层）
 	RUN_UPGRADE_REPEATER,		// 双发：每次射击多发 2 颗（无上限；2026-10-04 批 18 由射击间隔族整条换掉）
@@ -79,10 +79,10 @@ enum RunPlantUpgradeId
 	RUN_UPGRADE_GRAVEBUSTER,	// 墓碑吞噬者：吞掉墓碑额外产 25 阳光（每层，至多 2 层）
 	RUN_UPGRADE_HYPNOSHROOM,	// 魅惑菇：被魅惑僵尸咬到的僵尸也变友军（只可选 1 层）
 	RUN_UPGRADE_SCAREDYSHROOM,	// 胆小菇：敌人贴近时不再缩头（只可选 1 层）
-	RUN_UPGRADE_ICESHROOM,		// 寒冰菇：全场冰冻 +2 秒/层（至多 2 层）
-	RUN_UPGRADE_DOOMSHROOM,		// 毁灭菇：爆炸半径 +25%/层（至多 2 层）
+	RUN_UPGRADE_ICESHROOM,		// 寒冰菇：全场冰冻 +4 秒/层（至多 2 层；2026-10-05 批八由 +2 秒上调）
+	RUN_UPGRADE_DOOMSHROOM,		// 毁灭菇：爆炸半径 +50%/层（至多 2 层；2026-10-05 批八由 +25% 上调）
 	RUN_UPGRADE_LILYPAD,		// 睡莲：血量 +150%/层（至多 2 层）
-	RUN_UPGRADE_SQUASH,			// 窝瓜：压击处僵尸眩晕 +2 秒/层（至多 2 层）
+	RUN_UPGRADE_SQUASH,			// 窝瓜：砸击次数 +2/层（至多 2 层；2026-10-05 批八由眩晕族整条换掉，UpdateSquash 多段砸击）
 	RUN_UPGRADE_THREEPEATER,	// 三线射手：每条道多发 1 颗/层（至多 2 层）
 	RUN_UPGRADE_TANGLEKELP,		// 缠绕海草：每层多缠 1 只僵尸（至多 2 层）
 	RUN_UPGRADE_JALAPENO,		// 火爆辣椒：种植冷却 ×0.75/层（至多 3 层）

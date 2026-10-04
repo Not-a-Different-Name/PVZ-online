@@ -24,6 +24,13 @@
 //   ③ 地刺王行「攻击间隔 ×0.75/层（至多 3 层）」整条换「血量 +200%/层（至多 3 层）」，
 //      走 HEALTH 通挂点（Plant.cpp:484），无需新代码。
 //   （同批还有非表项：末位顺位乘数 ×1→×2，见 Board.cpp 与 docs/03 §5.37；MOD_BUILD 29→30。）
+// 2026-10-05 批八（用户指令，见 docs/07 同日条目）：灰烬/一次性族四项——
+//   ① 全局「Demolition 爆破」+30% → +60%/层（一次性植物伤害）；
+//   ② 樱桃/土豆雷/毁灭菇三行半径 +25% → +50%/层（只动表值与 desc，代码挂点原样）；
+//   ③ 寒冰菇行 +2 秒/层 → +4 秒/层（Zombie::HitIceTrap 钩子 200→400 帧/层）；
+//   ④ 窝瓜行「压击处眩晕 +2 秒/层」整条换「砸击次数 +2/层」——UpdateSquash 改多段砸击
+//      （落地还有余额就起身再砸，共 1+2n 次），原 DoSquashDamage 的 ApplyButter 挂点删。
+//   （同批 MOD_BUILD 不进位：纯表值与单机表现，无协议影响。）
 static const RunBuffDef gRunBuffDefs[RUN_BUFF_COUNT] =
 {
 	{ "Firepower",    "所有子弹伤害 +30%",      "All projectile damage +30%",       0.30f,  0 },
@@ -33,7 +40,7 @@ static const RunBuffDef gRunBuffDefs[RUN_BUFF_COUNT] =
 	{ "Quick Seeds",  "种植冷却逐层 ×0.8",      "Planting cooldown ×0.8/stack",    -0.20f,  0, 0, true },
 	{ "Reserves",     "每关开局 +50 阳光",      "+50 sun at each level start",      0.00f, 50 },
 	{ "Skyfall",      "天降阳光更快 20%",       "Sky sun falls 20% faster",        -0.20f,  0, 4 },
-	{ "Demolition",   "一次性植物伤害 +30%",    "Instant plant damage +30%",        0.30f,  0 },
+	{ "Demolition",   "一次性植物伤害 +60%",    "Instant plant damage +60%",        0.60f,  0 },
 	{ "Precision",    "所有伤害 +15%",          "All damage +15%",                  0.15f,  0 },
 };
 
@@ -143,9 +150,9 @@ static const RunPlantUpgradeDef gRunPlantUpgradeDefs[RUN_PLANT_UPGRADE_COUNT] =
 {
 	{ SeedType::SEED_PEASHOOTER,   "Pea Volley",   "豌豆射手每次多发 1 颗\n（每层）",   "Peashooter fires 1 extra pea per shot\n(per stack)", 0.00f, 0, false, RUN_UPGRADE_KIND_SHOTCOUNT },
 	{ SeedType::SEED_SUNFLOWER,    "Rich Bloom",   "向日葵每次多产 1 阳光\n（每层）",   "Sunflower produces 1 extra sun\n(per stack)",       0.00f, 3 },
-	{ SeedType::SEED_CHERRYBOMB,   "Wide Blast",   "樱桃炸弹爆炸范围 +25%\n（每层）",   "Cherry Bomb blast radius +25%\n(per stack)",        0.25f },
+	{ SeedType::SEED_CHERRYBOMB,   "Wide Blast",   "樱桃炸弹爆炸范围 +50%\n（每层）",   "Cherry Bomb blast radius +50%\n(per stack)",        0.50f },
 	{ SeedType::SEED_WALLNUT,      "Thick Shell",  "巨人砸击时像地刺王一样耐砸\n（每次 -200 血）", "Survives Gargantuar smashes like a Spikerock\n(-200 HP per smash)", 0.00f, 1 },
-	{ SeedType::SEED_POTATOMINE,   "Wide Charge",  "土豆雷爆炸范围 +25%\n（每层）",     "Potato Mine blast radius +25%\n(per stack)",        0.25f },
+	{ SeedType::SEED_POTATOMINE,   "Wide Charge",  "土豆雷爆炸范围 +50%\n（每层）",     "Potato Mine blast radius +50%\n(per stack)",        0.50f },
 	{ SeedType::SEED_SNOWPEA,      "Blizzard",     "发射冰西瓜",                        "Fires winter melons",                                0.00f, 1 },
 	{ SeedType::SEED_CHOMPER,      "Ravenous",     "咀嚼时间减半",                      "Chew time halved",                                   -0.50f, 1 },
 	{ SeedType::SEED_REPEATER,     "Pea Barrage",  "每次射击多发 2 颗\n（每层）",       "Fires 2 extra peas per shot\n(per stack)",           0.00f, 0, false, RUN_UPGRADE_KIND_SHOTCOUNT },
@@ -155,10 +162,10 @@ static const RunPlantUpgradeDef gRunPlantUpgradeDefs[RUN_PLANT_UPGRADE_COUNT] =
 	{ SeedType::SEED_GRAVEBUSTER,  "Quick Dig",    "吞掉墓碑额外产 25 阳光\n（每层）",  "Grave eaten yields +25 sun\n(per stack)",            0.00f, 2 },
 	{ SeedType::SEED_HYPNOSHROOM,  "Devotion",     "被魅惑僵尸咬到的僵尸也变友军",      "Zombies bitten by a hypnotized zombie turn friendly", 0.00f, 1 },
 	{ SeedType::SEED_SCAREDYSHROOM, "Bravery",     "敌人贴近时不再缩头",                "No longer hides when zombies get close",             0.00f, 1 },
-	{ SeedType::SEED_ICESHROOM,    "Deep Freeze",  "全场冰冻 +2 秒\n（每层）",          "Board freeze +2 sec\n(per stack)",                   0.00f, 2 },
-	{ SeedType::SEED_DOOMSHROOM,   "Annihilation", "爆炸范围 +25%\n（每层）",           "Blast radius +25%\n(per stack)",                     0.25f, 2 },
+	{ SeedType::SEED_ICESHROOM,    "Deep Freeze",  "全场冰冻 +4 秒\n（每层）",          "Board freeze +4 sec\n(per stack)",                   0.00f, 2 },
+	{ SeedType::SEED_DOOMSHROOM,   "Annihilation", "爆炸范围 +50%\n（每层）",           "Blast radius +50%\n(per stack)",                     0.50f, 2 },
 	{ SeedType::SEED_LILYPAD,      "Tough Pad",    "血量 +150%\n（每层）",              "Health +150%\n(per stack)",                          1.50f, 2, false, RUN_UPGRADE_KIND_HEALTH },
-	{ SeedType::SEED_SQUASH,       "Heavy Squash", "压击处僵尸眩晕 +2 秒\n（每层）",    "Zombies at the landing spot stunned +2 sec\n(per stack)", 0.00f, 2 },
+	{ SeedType::SEED_SQUASH,       "Heavy Squash", "砸击次数 +2\n（每层）",             "Smashes 2 extra times\n(per stack)",                 0.00f, 2 },
 	{ SeedType::SEED_THREEPEATER,  "Triple Volley", "每条道多发 1 颗\n（每层）",        "1 extra pea per lane\n(per stack)",                  0.00f, 2, false, RUN_UPGRADE_KIND_SHOTCOUNT },
 	{ SeedType::SEED_TANGLEKELP,   "Entangle",     "多缠 1 只僵尸\n（每层）",           "Grabs 1 extra zombie\n(per stack)",                  0.00f, 2 },
 	{ SeedType::SEED_JALAPENO,     "Inferno",      "种植冷却逐层 ×0.75\n（每层）",      "Planting cooldown ×0.75/stack",                      -0.25f, 3, true, RUN_UPGRADE_KIND_COOLDOWN },

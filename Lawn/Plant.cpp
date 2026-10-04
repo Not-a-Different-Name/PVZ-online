@@ -150,6 +150,11 @@ void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, Se
     mExtraTanglekelpCount = 0;
     mExtraTanglekelpIDs[0] = ZombieID::ZOMBIEID_NULL;
     mExtraTanglekelpIDs[1] = ZombieID::ZOMBIEID_NULL;
+    // @pvz-online: 窝瓜多砸（批八）——<0 = 首次锁定目标时还没记账；起跳点先清 0
+    // （首跳前 PRE_LAUNCH 转移处必写，见 UpdateSquash）。
+    mSquashSmashesLeft = -1;
+    mSquashFromX = 0.0f;
+    mSquashFromY = 0.0f;
     mParticleID = ParticleSystemID::PARTICLESYSTEMID_NULL;
     mBodyReanimID = ReanimationID::REANIMATIONID_NULL;
     mHeadReanimID = ReanimationID::REANIMATIONID_NULL;
@@ -1670,21 +1675,12 @@ void Plant::DoSquashDamage()
             Rect aZombieRect = aZombie->GetZombieRect();
             if (GetRectOverlap(aAttackRect, aZombieRect) > (aZombie->mZombieType == ZombieType::ZOMBIE_FOOTBALL ? -20 : 0))
             {
-                // @pvz-online: 闯关 buff「爆破」：窝瓜压扁伤害 ×(1+30%/层)。
+                // @pvz-online: 闯关 buff「爆破」：窝瓜压扁伤害 ×(1+60%/层，批八由 30% 上调)。
                 aZombie->TakeDamage((int)(1800 * mApp->RunBuffMul(RUN_BUFF_BLAST) + 0.5f), 18U);
 
-                // @pvz-online: 单株升级「重压」：压击处僵尸眩晕 +2 秒/层（RunBuffs 单株表，至多
-                // 2 层）。走 ApplyButter 拿全套眩晕手感（黄油视觉/减速动画/音效）；它有自己的
-                // 守卫（无头/飞行等直接早退），用 ==400 认出真跑过的，再把它的 400 帧（4 秒）
-                // 改成 200 帧/层（2 秒/层）；被守卫拦下的僵尸计数器不动，不硬塞。
-                int aStunFrames = 200 * mApp->RunPlantUpgradeCount(SeedType::SEED_SQUASH);
-                if (aStunFrames > 0 && !aZombie->IsDeadOrDying())
-                {
-                    int aBefore = aZombie->mButteredCounter;
-                    aZombie->ApplyButter();
-                    if (aZombie->mButteredCounter == 400)
-                        aZombie->mButteredCounter = aBefore > aStunFrames ? aBefore : aStunFrames;
-                }
+                // @pvz-online: 单株升级「重压」的眩晕挂点已于批八（2026-10-05）整体删除——
+                // 该行换成「砸击次数 +2/层」，机制移到 UpdateSquash 的多段砸击（落地还有
+                // 余额就起身再砸），不再走 ApplyButter。
             }
         }
     }
@@ -1761,6 +1757,10 @@ void Plant::UpdateSquash()
         Zombie* aZombie = FindSquashTarget();
         if (aZombie)
         {
+            // @pvz-online: 窝瓜多砸（批八）：第一次锁定目标时按层数记余额（每层 +2 次）；
+            // 重臂回 NOTREADY 时不再重置——余额用完才消失（未升级恒 0，落地即 Die）。
+            if (mSquashSmashesLeft < 0)
+                mSquashSmashesLeft = 2 * mApp->RunPlantUpgradeCount(SeedType::SEED_SQUASH);
             mTargetZombieID = mBoard->ZombieGetID(aZombie);
             mTargetX = aZombie->ZombieTargetLeadX(0.0f) - mWidth / 2;
             mState = PlantState::STATE_SQUASH_LOOK;
@@ -1788,6 +1788,11 @@ void Plant::UpdateSquash()
                 mTargetX = aZombie->ZombieTargetLeadX(30.0f) - mWidth / 2;
             }
 
+            // @pvz-online: 窝瓜多砸（批八）：记下本次起跳点——首跳 = 种植格（此刻 mX/mY
+            // 未动过）、后续跳 = 上次落点；RISING 插值起点改用它（原写死种植格）。
+            mSquashFromX = mX;
+            mSquashFromY = mY;
+
             mState = PlantState::STATE_SQUASH_RISING;
             mStateCountdown = 50;
             mRenderOrder = Board::MakeRenderOrder(RenderLayer::RENDER_LAYER_PARTICLE, mRow, 0);
@@ -1800,8 +1805,8 @@ void Plant::UpdateSquash()
 
         if (mState == PlantState::STATE_SQUASH_RISING)
         {
-            mX = TodAnimateCurve(50, 20, mStateCountdown, mBoard->GridToPixelX(mPlantCol, mStartRow), mTargetX, TodCurves::CURVE_EASE_IN_OUT);
-            mY = TodAnimateCurve(50, 20, mStateCountdown, mBoard->GridToPixelY(mPlantCol, mStartRow), aDestY - 120, TodCurves::CURVE_EASE_IN_OUT);
+            mX = TodAnimateCurve(50, 20, mStateCountdown, mSquashFromX, mTargetX, TodCurves::CURVE_EASE_IN_OUT);
+            mY = TodAnimateCurve(50, 20, mStateCountdown, mSquashFromY, aDestY - 120, TodCurves::CURVE_EASE_IN_OUT);
 
             if (mStateCountdown == 0)
             {
@@ -1845,7 +1850,19 @@ void Plant::UpdateSquash()
         {
             if (mStateCountdown == 0)
             {
-                Die();
+                // @pvz-online: 窝瓜多砸（批八）：还有余额就起身回 NOTREADY 再找下一只
+                // （新索敌按此刻落点算），余额用尽才消失——未升级恒 0，行为与原版一致。
+                if (mSquashSmashesLeft > 0)
+                {
+                    mSquashSmashesLeft--;
+                    mState = PlantState::STATE_NOTREADY;
+                    mRenderOrder = CalcRenderOrder();
+                    PlayBodyReanim("anim_idle", ReanimLoopType::REANIM_LOOP, 30, RandRangeFloat(10.0f, 15.0f));
+                }
+                else
+                {
+                    Die();
+                }
             }
         }
     }
@@ -4695,7 +4712,7 @@ void Plant::DoSpecial()
         mApp->PlayFoley(FoleyType::FOLEY_CHERRYBOMB);
         mApp->PlayFoley(FoleyType::FOLEY_JUICY);
 
-        // @pvz-online: 单株升级「扩爆」：半径 ×(1+25%/层)（RunBuffs 单株表）
+        // @pvz-online: 单株升级「扩爆」：半径 ×(1+50%/层)（RunBuffs 单株表；批八由 25% 上调）
         int aRadius = (int)(115 * mApp->RunPlantUpgradeMul(SeedType::SEED_CHERRYBOMB) + 0.5f);
         if (mBoard->KillAllZombiesInRadius(mRow, aPosX, aPosY, aRadius, 1, true, aDamageRangeFlags) >= 10)
             ReportAchievement::GiveAchievement(mApp, Explodonator, true); // @Patoke: add achievement
@@ -4710,7 +4727,7 @@ void Plant::DoSpecial()
     {
         mApp->PlaySample(SOUND_DOOMSHROOM);
 
-        // @pvz-online: 单株升级「扩爆」：半径 ×(1+25%/层)（RunBuffs 单株表；同樱桃 :4403 写法）
+        // @pvz-online: 单株升级「扩爆」：半径 ×(1+50%/层)（RunBuffs 单株表；批八由 25% 上调，同樱桃写法）
         int aRadius = (int)(250 * mApp->RunPlantUpgradeMul(SeedType::SEED_DOOMSHROOM) + 0.5f);
         mBoard->KillAllZombiesInRadius(mRow, aPosX, aPosY, aRadius, 3, true, aDamageRangeFlags);
         KillAllPlantsNearDoom();
@@ -4763,7 +4780,7 @@ void Plant::DoSpecial()
         aPosY = mY + mHeight / 2;
 
         mApp->PlaySample(SOUND_POTATO_MINE);
-        // @pvz-online: 闯关「宽装药」：爆炸半径 ×(1+25%/层)（直伤的单株乘数已从 Board::KillAllZombiesInRadius 摘除）
+        // @pvz-online: 闯关「宽装药」：爆炸半径 ×(1+50%/层)（批八由 25% 上调；直伤的单株乘数已从 Board::KillAllZombiesInRadius 摘除）
         int aRadius = (int)(60 * mApp->RunPlantUpgradeMul(SeedType::SEED_POTATOMINE) + 0.5f);
         if (mBoard->KillAllZombiesInRadius(mRow, aPosX, aPosY, aRadius, 0, false, aDamageRangeFlags) >= 1)
             ReportAchievement::GiveAchievement(mApp, Spudow, true); // @Patoke: add achievement

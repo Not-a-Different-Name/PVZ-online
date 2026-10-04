@@ -193,6 +193,12 @@ public:
     // 至多 2 只），与 mTargetZombieID 的主目标一起抓取/沉底/清场；抓取外恒 0 空槽。
     ZombieID                mExtraTanglekelpIDs[2];
     int                     mExtraTanglekelpCount;
+    // @pvz-online: 窝瓜「Heavy Squash」多砸（批八 2026-10-05）：本次还剩余可砸次数
+    // （首次起跳前按层数记入 2×层数，<0 = 未初始化）；本次起跳点（首跳 = 种植格、
+    // 之后 = 上次落点）——UpdateSquash 的 RISING 插值起点改用它。未升级窝瓜恒 0。
+    int                     mSquashSmashesLeft;
+    float                   mSquashFromX;
+    float                   mSquashFromY;
 
 public:
     Plant();
