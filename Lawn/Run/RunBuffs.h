@@ -89,7 +89,7 @@ enum RunPlantUpgradeId
 	RUN_UPGRADE_CACTUS,			// 仙人掌：尖刺穿透 +1 只/层（至多 2 层）
 	RUN_UPGRADE_BLOVER,			// 三叶草：吹风后全场僵尸减速 +5 秒/层（至多 2 层）
 	RUN_UPGRADE_SPLITPEA,		// 分裂豌豆：背向豌豆每次 +1 颗/层（至多 2 层）
-	RUN_UPGRADE_STARFRUIT,		// 杨桃：射击间隔 ×0.75/层（至多 3 层）
+	RUN_UPGRADE_STARFRUIT,		// 杨桃：子弹变为追踪弹（只可选 1 层；2026-10-04 由射速族整条换掉）
 	RUN_UPGRADE_PUMPKINSHELL,	// 南瓜头：血量 +150%/层（至多 3 层）
 	RUN_UPGRADE_MAGNETSHROOM,	// 磁力菇：吸取间隔 ×0.75/层（至多 3 层）
 	RUN_UPGRADE_CABBAGEPULT,	// 卷心菜投手：投掷间隔 ×0.75/层（至多 3 层）

@@ -94,6 +94,11 @@ const RunBuffDef& GetRunBuffDef(int theId)
 //      原射程挂点（GetPlantAttackRect 小喷菇支的 800px）随之还原为 230px。
 //   ② 忧郁菇行层数上限 2 → 1（效果不变：+1 格光环；文案去掉「（每层）」随单层惯例）。
 //   ③ 六条血量行（坚果墙/睡莲/高坚果/南瓜头/花盆/保护伞）每层 +50%/+100% 统一改 **+150%/层**。
+// 2026-10-04 再调整（用户指令，见 docs/07 同日条目）：杨桃行「Star Rain 射击间隔 ×0.75/层
+//   （至多 3 层）」整条更换 → 「Homing Stars 子弹变为追踪弹」（1 层成型、至多 1 层）。
+//   星弹出膛后走香蒲刺同款 MOTION_HOMING（转向/命中都在 Projectile 的 homing 分支）；
+//   弹种/贴图不变（照旧 PROJECTILE_STAR）、五向散开的初速保留；选敌/挂点在
+//   Plant::StarFruitFire（批 12 香蒲多目标同款的距离口径，逐颗排除已锁定目标）。
 // 血量型条目（批 1 的 5 条 + 坚果墙）不用专门挂点——Plant.cpp:484 的通用血量口按
 // RUN_UPGRADE_KIND_HEALTH 消费（修正批起，不再对任意行生效），表里加一行标上 Kind
 // 就生效（南瓜头护罩血已查证同走 mPlantHealth）。
@@ -128,7 +133,7 @@ static const RunPlantUpgradeDef gRunPlantUpgradeDefs[RUN_PLANT_UPGRADE_COUNT] =
 	{ SeedType::SEED_CACTUS,       "Prickly",      "尖刺穿透 +1 只\n（每层）",          "Spikes pierce +1 zombie\n(per stack)",               0.00f, 2 },
 	{ SeedType::SEED_BLOVER,       "Gale",         "吹风后全场僵尸减速 5 秒\n（每层）", "Slows all zombies 5 sec after blowing\n(per stack)", 0.00f, 2 },
 	{ SeedType::SEED_SPLITPEA,     "Backspike",    "背向豌豆每次 +1 颗\n（每层）",      "1 extra backward pea per shot\n(per stack)",         0.00f, 2 },
-	{ SeedType::SEED_STARFRUIT,    "Star Rain",    "射击间隔逐层 ×0.75\n（每层）",      "Fire interval ×0.75/stack",                          -0.25f, 3, true, RUN_UPGRADE_KIND_RHYTHM },
+	{ SeedType::SEED_STARFRUIT,    "Homing Stars", "子弹变为追踪弹",                    "Shots become homing",                                0.00f, 1 },
 	{ SeedType::SEED_PUMPKINSHELL, "Hard Rind",    "血量 +150%\n（每层）",              "Health +150%\n(per stack)",                          1.50f, 3, false, RUN_UPGRADE_KIND_HEALTH },
 	{ SeedType::SEED_MAGNETSHROOM, "Magnet Pull",  "吸取间隔逐层 ×0.75\n（每层）",      "Recharge interval ×0.75/stack",                      -0.25f, 3, true },
 	{ SeedType::SEED_CABBAGEPULT,  "Heavy Toss",   "投掷间隔逐层 ×0.75\n（每层）",      "Throw interval ×0.75/stack",                         -0.25f, 3, true, RUN_UPGRADE_KIND_RHYTHM },

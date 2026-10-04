@@ -986,10 +986,62 @@ void Plant::LaunchStarFruit()
     }
 }
 
+// @pvz-online: 追踪星弹的选敌（单株升级「Homing Stars」，杨桃，表行 SEED_STARFRUIT）：
+// 权重口径同 FindTargetZombie 的香蒲支（照僵尸矩形中心算距离、近者优先），但不设行差
+// 限制（星弹本来就跨行打）也不限攻击矩形（追踪弹能追到哪就追到哪——能打谁由
+// EffectedByDamage 说了算）；theExcludes 是已被前面几颗星锁定的僵尸（允许含 null 占位），
+// 没有可选目标返回 nullptr。
+static Zombie* FindHomingStarTarget(Board* theBoard, float theCenterX, float theCenterY, int theDamageRangeFlags, Zombie** theExcludes, int theExcludeCount)
+{
+    Zombie* aBestZombie = nullptr;
+    int aHighestWeight = 0;
+    Zombie* aZombie = nullptr;
+    while (theBoard->IterateZombies(aZombie))
+    {
+        if (!aZombie->EffectedByDamage(theDamageRangeFlags))
+        {
+            continue;
+        }
+        bool aExcluded = false;
+        for (int i = 0; i < theExcludeCount; i++)
+        {
+            if (theExcludes[i] == aZombie)
+            {
+                aExcluded = true;
+                break;
+            }
+        }
+        if (aExcluded)
+        {
+            continue;
+        }
+
+        Rect aZombieRect = aZombie->GetZombieRect();
+        int aWeight = -Distance2D(theCenterX, theCenterY, aZombieRect.mX + aZombieRect.mWidth / 2, aZombieRect.mY + aZombieRect.mHeight / 2);
+        if (aBestZombie == nullptr || aWeight > aHighestWeight)
+        {
+            aHighestWeight = aWeight;
+            aBestZombie = aZombie;
+        }
+    }
+    return aBestZombie;
+}
+
 //0x45F720
 void Plant::StarFruitFire()
 {
     mApp->PlayFoley(FoleyType::FOLEY_THROW);
+
+    // @pvz-online: 单株升级「Homing Stars」（杨桃，表行 SEED_STARFRUIT）：子弹变追踪弹
+    //（1 层成型、至多 1 层）。星弹照旧是 PROJECTILE_STAR（贴图/伤害不变）、五向散开的
+    // 初速也不动，出膛后走香蒲刺同款的 MOTION_HOMING——转向与命中（只碰锁定目标）都在
+    // Projectile 的 homing 分支，这里只管发射时锁定目标：距离近者优先、五颗逐颗排除
+    // 已锁定、尽量各打各的；场上不够五只时余星全追最前的那只（追远的不如集火）。目标
+    // 中途死掉 → 星弹保持当前速度直飞（同香蒲刺）；一颗都锁不上（目标刚死光）就保持
+    // 直线星原样飞完。
+    int aHomingStacks = mApp->RunPlantUpgradeCount(SeedType::SEED_STARFRUIT);
+    int aHomingFlags = GetDamageRangeFlags(PlantWeapon::WEAPON_PRIMARY);
+    Zombie* aHomingTargets[5] = { nullptr, nullptr, nullptr, nullptr, nullptr };
 
     float aShootAngleX = cos(DEG_TO_RAD(30.0f)) * 3.33f;
     float aShootAngleY = sin(DEG_TO_RAD(30.0f)) * 3.33f;
@@ -1007,6 +1059,21 @@ void Plant::StarFruitFire()
         case 3:     aProjectile->mVelX = aShootAngleX;  aProjectile->mVelY = aShootAngleY;      break;
         case 4:     aProjectile->mVelX = aShootAngleX;  aProjectile->mVelY = -aShootAngleY;     break;
         default:    TOD_ASSERT();                                                               break;
+        }
+
+        if (aHomingStacks >= 1)
+        {
+            Zombie* aTarget = FindHomingStarTarget(mBoard, mX + 40.0f, mY + 40.0f, aHomingFlags, aHomingTargets, i);
+            if (aTarget == nullptr && i > 0)
+            {
+                aTarget = FindHomingStarTarget(mBoard, mX + 40.0f, mY + 40.0f, aHomingFlags, nullptr, 0);
+            }
+            aHomingTargets[i] = aTarget;
+            if (aTarget)
+            {
+                aProjectile->mMotionType = ProjectileMotion::MOTION_HOMING;
+                aProjectile->mTargetZombieID = mBoard->ZombieGetID(aTarget);
+            }
         }
     }
 }
