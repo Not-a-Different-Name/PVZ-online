@@ -514,9 +514,10 @@ void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, Se
     {
         mPlantHealth *= 2;
     }
-    // @pvz-online: 闯关 buff「扎根」：全体植物血量 ×(1+150%/层)。单株升级（坚果「厚壳」等）
-    // 在同一行一起取——两乘数相乘。修正批（2026-10-03）改走 Kind 闸门口：只有血量型
-    // 条目（Kind=HEALTH：坚果/高坚果/睡莲/南瓜头/花盆/保护伞）才乘——此前任意行都乘，
+    // @pvz-online: 闯关 buff「扎根」：全体植物血量 ×(1+75%/层)（2026-10-04 批七由 150% 下调）。
+    // 单株升级（睡莲「厚垫」等）在同一行一起取——两乘数相乘。修正批（2026-10-03）改走 Kind 闸门口：
+    // 只有血量型条目（Kind=HEALTH：睡莲/南瓜头/花盆/保护伞/地刺王——地刺王 2026-10-04 批七
+    // 由攻击间隔族换成血量族；坚果/高坚果批七换成耐砸，已不在血量族）才乘——此前任意行都乘，
     // 双发/寒冰这类非血量条目会把该株血量一起改了。非闯关局都是 1.0，对 300/4000 无损。
     mPlantHealth = (int)(mPlantHealth * mApp->RunBuffMul(RUN_BUFF_ROOTED) * mApp->RunPlantUpgradeMulKind(theSeedType, RUN_UPGRADE_KIND_HEALTH) + 0.5f);
     mPlantMaxHealth = mPlantHealth;

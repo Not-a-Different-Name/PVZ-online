@@ -17,7 +17,7 @@
 enum RunBuffId
 {
 	RUN_BUFF_FIREPOWER,		// 火力强化：全体子弹伤害 +30%（无限）
-	RUN_BUFF_ROOTED,		// 扎根：全体植物血量 +150%（无限）
+	RUN_BUFF_ROOTED,		// 扎根：全体植物血量 +75%（无限；2026-10-04 批七由 +150% 下调——只改扎根，单株血量行不动）
 	RUN_BUFF_ABUNDANCE,		// 丰饶：产阳光间隔 −20%（至多 4 层）
 	RUN_BUFF_SWIFT,			// 急袭：攻击间隔叠乘 ×0.8/层（无限）
 	RUN_BUFF_FASTSEED,		// 速种：种植冷却叠乘 ×0.8/层（无限）
@@ -68,7 +68,7 @@ enum RunPlantUpgradeId
 	RUN_UPGRADE_PEASHOOTER,		// 豌豆射手：每次多打 1 发（每层）
 	RUN_UPGRADE_SUNFLOWER,		// 向日葵：每次多产 1 阳光（每层，至多 3 层）
 	RUN_UPGRADE_CHERRYBOMB,		// 樱桃炸弹：爆炸半径 +25%/层
-	RUN_UPGRADE_WALLNUT,		// 坚果墙：血量 +150%/层
+	RUN_UPGRADE_WALLNUT,		// 坚果墙：巨人砸击时像地刺王一样耐砸（每次 -200 血；只可选 1 层；2026-10-04 批七由血量族整条换掉）
 	RUN_UPGRADE_POTATOMINE,		// 土豆雷：爆炸半径 +25%/层
 	RUN_UPGRADE_SNOWPEA,		// 寒冰射手：发射冰西瓜（只可选 1 层；2026-10-04 批 18 由减速时长族整条换掉）
 	RUN_UPGRADE_CHOMPER,		// 大嘴花：咀嚼时间减半（只可选 1 层）
@@ -88,7 +88,7 @@ enum RunPlantUpgradeId
 	RUN_UPGRADE_JALAPENO,		// 火爆辣椒：种植冷却 ×0.75/层（至多 3 层）
 	RUN_UPGRADE_SPIKEWEED,		// 地刺：扎过的僵尸减速 +3 秒/层（至多 2 层）
 	RUN_UPGRADE_TORCHWOOD,		// 火炬树桩：火弹伤害 +50%/层（至多 2 层）
-	RUN_UPGRADE_TALLNUT,		// 高坚果：血量 +150%/层（至多 3 层）
+	RUN_UPGRADE_TALLNUT,		// 高坚果：巨人砸击时像地刺王一样耐砸（每次 -200 血；只可选 1 层；2026-10-04 批七由血量族整条换掉）
 	RUN_UPGRADE_SEASHROOM,		// 海蘑菇：种植冷却 ×0.75/层（至多 3 层）
 	RUN_UPGRADE_PLANTERN,		// 路灯花：照亮范围 +1 格/层（至多 2 层）
 	RUN_UPGRADE_CACTUS,			// 仙人掌：尖刺穿透 +1 只/层（至多 2 层）
@@ -111,7 +111,7 @@ enum RunPlantUpgradeId
 	RUN_UPGRADE_CATTAIL,		// 猫尾草：攻击目标 +1 个/层（至多 2 层）
 	RUN_UPGRADE_WINTERMELON,	// 冰西瓜：溅射半径 +50%/层（无上限；2026-10-04 批 18 由减速时长族整条换掉）
 	RUN_UPGRADE_GOLDMAGNET,		// 吸金磁：吸取间隔 ×0.75/层（至多 3 层）
-	RUN_UPGRADE_SPIKEROCK,		// 地刺王：攻击间隔 ×0.75/层（至多 3 层）
+	RUN_UPGRADE_SPIKEROCK,		// 地刺王：血量 +200%/层（至多 3 层；2026-10-04 批七由攻击间隔族整条换掉）
 	RUN_UPGRADE_COBCANNON,		// 玉米加农炮：装填时间 ×0.75/层（至多 3 层）
 	RUN_PLANT_UPGRADE_COUNT
 };

@@ -2145,11 +2145,15 @@ void Zombie::UpdateZombieGargantuar()
                             SquishAllInSquare(aPlant->mPlantCol, aPlant->mRow, ZombieAttackType::ATTACKTYPE_CHEW);
                         }
                     }
-                    else if (aPlant->mSeedType == SeedType::SEED_GARLIC && mApp->RunPlantUpgradeCount(SeedType::SEED_GARLIC) > 0)
+                    else if ((aPlant->mSeedType == SeedType::SEED_GARLIC && mApp->RunPlantUpgradeCount(SeedType::SEED_GARLIC) > 0)
+                          || ((aPlant->mSeedType == SeedType::SEED_WALLNUT || aPlant->mSeedType == SeedType::SEED_TALLNUT)
+                              && mApp->RunPlantUpgradeCount(aPlant->mSeedType) > 0))
                     {
-                        // @pvz-online: 批 18 大蒜「Iron Clove」——像地刺王一样耐砸：每砸 -50 血、不反伤，
-                        // 砸空才被吃掉（大蒜 400 血 = 砸 8 次；受击形象按血线自动更新）。
-                        aPlant->mPlantHealth -= 50;
+                        // @pvz-online: 批 18 大蒜「Iron Clove」+ 批七 坚果/高坚果——像地刺王一样耐砸：
+                        // 大蒜每砸 -50 血、坚果/高坚果每砸 -200 血（用户 2026-10-04 定），不反伤，
+                        // 砸空才被吃掉（大蒜 400 血 = 8 次；坚果 4000 血 = 20 次、高坚果 8000 = 40 次；
+                        // 受击形象按血线自动更新）。
+                        aPlant->mPlantHealth -= (aPlant->mSeedType == SeedType::SEED_GARLIC) ? 50 : 200;
                         if (aPlant->mPlantHealth <= 0)
                         {
                             SquishAllInSquare(aPlant->mPlantCol, aPlant->mRow, ZombieAttackType::ATTACKTYPE_CHEW);
@@ -2193,10 +2197,12 @@ void Zombie::UpdateZombieGargantuar()
                         SquishAllInSquare(aPlant->mPlantCol, aPlant->mRow, ZombieAttackType::ATTACKTYPE_CHEW);
                     }
                 }
-                else if (aPlant->mSeedType == SeedType::SEED_GARLIC && mApp->RunPlantUpgradeCount(SeedType::SEED_GARLIC) > 0)
+                else if ((aPlant->mSeedType == SeedType::SEED_GARLIC && mApp->RunPlantUpgradeCount(SeedType::SEED_GARLIC) > 0)
+                      || ((aPlant->mSeedType == SeedType::SEED_WALLNUT || aPlant->mSeedType == SeedType::SEED_TALLNUT)
+                          && mApp->RunPlantUpgradeCount(aPlant->mSeedType) > 0))
                 {
-                    // @pvz-online: 批 18 大蒜「Iron Clove」——同上一份（DO_FIX_BUGS 版）的耐砸分支。
-                    aPlant->mPlantHealth -= 50;
+                    // @pvz-online: 批 18 大蒜「Iron Clove」+ 批七 坚果/高坚果——同上一份（DO_FIX_BUGS 版）的耐砸分支。
+                    aPlant->mPlantHealth -= (aPlant->mSeedType == SeedType::SEED_GARLIC) ? 50 : 200;
                     if (aPlant->mPlantHealth <= 0)
                     {
                         SquishAllInSquare(aPlant->mPlantCol, aPlant->mRow, ZombieAttackType::ATTACKTYPE_CHEW);

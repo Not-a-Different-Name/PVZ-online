@@ -14,10 +14,20 @@
 // （批二统一 +150%/层）对齐——至此全部血量成长行每层数值统一 1.5。
 // 2026-10-04 批 18：追加第 9 条「Precision 所有伤害 +15%」（id 8；挂点 Zombie::TakeDamage
 // 总入口，乘性叠在火力基数之上）——全局表 8→9 条，单株 id 全体右移 1（检查点 v6 迁移）。
+// 2026-10-04 批七（用户指令，见 docs/07 同日条目）：三处表改动——
+//   ① 扎根每层 +150% → +75%（全局血量行；单株血量行保持 +150%/层 不动——用户定案
+//      「只改扎根」）；
+//   ② 坚果墙/高坚果两行「血量 +150%/层」整条换「巨人砸击时像地刺王一样耐砸（每次
+//      -200 血）」（1 层成型）——与批 18 大蒜同机制、伤害不同（大蒜每次 -50）：
+//      Zombie.cpp 巨人砸击分支按株给伤害，砸空才被吃掉（坚果 4000 血 = 挨 20 次、
+//      高坚果 8000 = 挨 40 次）；
+//   ③ 地刺王行「攻击间隔 ×0.75/层（至多 3 层）」整条换「血量 +200%/层（至多 3 层）」，
+//      走 HEALTH 通挂点（Plant.cpp:484），无需新代码。
+//   （同批还有非表项：末位顺位乘数 ×1→×2，见 Board.cpp 与 docs/03 §5.37；MOD_BUILD 29→30。）
 static const RunBuffDef gRunBuffDefs[RUN_BUFF_COUNT] =
 {
 	{ "Firepower",    "所有子弹伤害 +30%",      "All projectile damage +30%",       0.30f,  0 },
-	{ "Deep Roots",   "所有植物血量 +150%",     "All plant health +150%",           1.50f,  0 },
+	{ "Deep Roots",   "所有植物血量 +75%",      "All plant health +75%",            0.75f,  0 },
 	{ "Abundance",    "产阳光植物更快 20%",     "Sun plants 20% faster",           -0.20f,  0, 4 },
 	{ "Swift Strikes","植物攻击间隔逐层 ×0.8",  "Plant attack interval ×0.8/stack",-0.20f,  0, 0, true },
 	{ "Quick Seeds",  "种植冷却逐层 ×0.8",      "Planting cooldown ×0.8/stack",    -0.20f,  0, 0, true },
@@ -134,7 +144,7 @@ static const RunPlantUpgradeDef gRunPlantUpgradeDefs[RUN_PLANT_UPGRADE_COUNT] =
 	{ SeedType::SEED_PEASHOOTER,   "Pea Volley",   "豌豆射手每次多发 1 颗\n（每层）",   "Peashooter fires 1 extra pea per shot\n(per stack)", 0.00f, 0, false, RUN_UPGRADE_KIND_SHOTCOUNT },
 	{ SeedType::SEED_SUNFLOWER,    "Rich Bloom",   "向日葵每次多产 1 阳光\n（每层）",   "Sunflower produces 1 extra sun\n(per stack)",       0.00f, 3 },
 	{ SeedType::SEED_CHERRYBOMB,   "Wide Blast",   "樱桃炸弹爆炸范围 +25%\n（每层）",   "Cherry Bomb blast radius +25%\n(per stack)",        0.25f },
-	{ SeedType::SEED_WALLNUT,      "Thick Shell",  "坚果墙血量 +150%\n（每层）",        "Wall-nut health +150%\n(per stack)",                1.50f, 0, false, RUN_UPGRADE_KIND_HEALTH },
+	{ SeedType::SEED_WALLNUT,      "Thick Shell",  "巨人砸击时像地刺王一样耐砸\n（每次 -200 血）", "Survives Gargantuar smashes like a Spikerock\n(-200 HP per smash)", 0.00f, 1 },
 	{ SeedType::SEED_POTATOMINE,   "Wide Charge",  "土豆雷爆炸范围 +25%\n（每层）",     "Potato Mine blast radius +25%\n(per stack)",        0.25f },
 	{ SeedType::SEED_SNOWPEA,      "Blizzard",     "发射冰西瓜",                        "Fires winter melons",                                0.00f, 1 },
 	{ SeedType::SEED_CHOMPER,      "Ravenous",     "咀嚼时间减半",                      "Chew time halved",                                   -0.50f, 1 },
@@ -154,7 +164,7 @@ static const RunPlantUpgradeDef gRunPlantUpgradeDefs[RUN_PLANT_UPGRADE_COUNT] =
 	{ SeedType::SEED_JALAPENO,     "Inferno",      "种植冷却逐层 ×0.75\n（每层）",      "Planting cooldown ×0.75/stack",                      -0.25f, 3, true, RUN_UPGRADE_KIND_COOLDOWN },
 	{ SeedType::SEED_SPIKEWEED,    "Barbed Spikes", "扎过的僵尸减速 +3 秒\n（每层）",   "Zombies it pricks slowed +3 sec\n(per stack)",       0.00f, 2 },
 	{ SeedType::SEED_TORCHWOOD,    "Kindling",     "火弹伤害加成 +50%\n（每层）",       "Fire pea damage +50%\n(per stack)",                  0.50f, 2 },
-	{ SeedType::SEED_TALLNUT,      "Iron Shell",   "血量 +150%\n（每层）",              "Health +150%\n(per stack)",                          1.50f, 3, false, RUN_UPGRADE_KIND_HEALTH },
+	{ SeedType::SEED_TALLNUT,      "Iron Shell",   "巨人砸击时像地刺王一样耐砸\n（每次 -200 血）", "Survives Gargantuar smashes like a Spikerock\n(-200 HP per smash)", 0.00f, 1 },
 	{ SeedType::SEED_SEASHROOM,    "Brine Spore",  "种植冷却逐层 ×0.75\n（每层）",      "Planting cooldown ×0.75/stack",                      -0.25f, 3, true, RUN_UPGRADE_KIND_COOLDOWN },
 	{ SeedType::SEED_PLANTERN,     "Lantern Light", "照亮范围 +1 格\n（每层）",         "Illumination radius +1 tile\n(per stack)",           0.00f, 2 },
 	{ SeedType::SEED_CACTUS,       "Prickly",      "尖刺穿透 +1 只\n（每层）",          "Spikes pierce +1 zombie\n(per stack)",               0.00f, 2 },
@@ -177,7 +187,7 @@ static const RunPlantUpgradeDef gRunPlantUpgradeDefs[RUN_PLANT_UPGRADE_COUNT] =
 	{ SeedType::SEED_CATTAIL,      "Quick Claw",   "攻击目标 +1 个\n（每层）",          "Targets +1 zombie\n(per stack)",                     0.00f, 2 },
 	{ SeedType::SEED_WINTERMELON,  "Deep Splash",  "溅射半径 +50%\n（每层）",           "Splash radius +50%\n(per stack)",                    0.50f, 0 },
 	{ SeedType::SEED_GOLD_MAGNET,  "Gilded Pull",  "吸取间隔逐层 ×0.75\n（每层）",      "Recharge interval ×0.75/stack",                      -0.25f, 3, true },
-	{ SeedType::SEED_SPIKEROCK,    "Royal Thorns", "攻击间隔逐层 ×0.75\n（每层）",      "Attack interval ×0.75/stack",                        -0.25f, 3, true },
+	{ SeedType::SEED_SPIKEROCK,    "Royal Thorns", "血量 +200%\n（每层）",              "Health +200%\n(per stack)",                          2.00f, 3, false, RUN_UPGRADE_KIND_HEALTH },
 	{ SeedType::SEED_COBCANNON,    "Rapid Reload", "装填时间逐层 ×0.75\n（每层）",      "Reload time ×0.75/stack",                            -0.25f, 3, true },
 };
 
