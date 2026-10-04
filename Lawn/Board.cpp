@@ -90,6 +90,9 @@ Board::Board(LawnApp* theApp)
 	mChatEmotePage = false;
 	mChatPanelTimer = 0;
 	mChatInputCooldown = 0;
+	mWatchSnapshotTicker = 0;
+	mHasRemoteSnapshot = false;
+	mWatchEndSeen = NetSession::WatchEnd::NONE;
 	mLevel = 0;
 	mCursorObject = new CursorObject();
 	mCursorPreview = new CursorPreview();
@@ -6386,6 +6389,11 @@ void Board::Update()
 	// 暂停中也要能收面板；收包不受暂停影响（队友的喊话不因我暂停就丢）
 	UpdateQuickChat();
 
+	// @pvz-online: 观战（队友场地查看）——被看端推快照 / 观看端收快照与结束原因。
+	// 同样在 mPaused 早退之前：被看方暂停时也要推（快照带 PAUSED 位），
+	// 不然观看端 3 秒收不到快照会判超时收场。
+	UpdateBoardWatch();
+
 	if (mPaused)
 	{
 		mChallenge->Update();
@@ -8697,6 +8705,170 @@ void Board::DrawQuickChat(Graphics* g)
 			SeedType aSeed = QuickChat::EMOTE_SEEDS[anId - 1 - QuickChat::PHRASE_COUNT];
 			QuickChatDrawEmote(g, (float)(aBoxX + aTextW + 18), (float)(aBoxY + 6), aSeed, 0.5f);
 		}
+	}
+}
+
+// ====================================================================================================
+// @pvz-online: 观战（队友场地查看）——棋盘侧的数据管道。被看端每 ~15Hz 把自家战场打包成
+// 一份快照（线格式见 NetProtocol.h 的 SNAPSHOT_* 注释），逐观众单播；观看端把最新一份
+// 搬进 mRemoteSnapshot、结束原因搬进 mWatchEndSeen。画面与提示在观看 UI 里画（批③），
+// 这里只搬数据、不建任何实体。快照是大件：多观众各发一份单播，绝不扇出。
+// ====================================================================================================
+
+// 打包一份战场定格，返回写出的字节数（0 = 缓冲区装不下——正常不会发生，上限 1087B）。
+// 超编裁剪：僵尸留最靠左（最接近防线）的 120 只，裁掉最靠右（还没进场、威胁最小）的；
+// 植物按遍历序收满 60 株为止。裁过就置 TRUNCATED 位（观看端不提示，只是知悉）。
+int Board::BuildBoardSnapshot(uint8_t* theBuffer, int theCapacity)
+{
+	const int aMaxSize = NetProto::SNAPSHOT_HEADER_SIZE
+		+ NetProto::SNAPSHOT_ZOMBIE_MAX * NetProto::SNAPSHOT_ZOMBIE_SIZE
+		+ NetProto::SNAPSHOT_PLANT_MAX * NetProto::SNAPSHOT_PLANT_SIZE;
+	if (theCapacity < aMaxSize) return 0;
+
+	bool aTruncated = false;
+
+	Zombie* aZombiePicks[NetProto::SNAPSHOT_ZOMBIE_MAX];
+	int aZombieCount = 0;
+	Zombie* aZombie = nullptr;
+	while (IterateZombies(aZombie))
+	{
+		if (aZombie->mDead) continue;
+		if (aZombieCount < NetProto::SNAPSHOT_ZOMBIE_MAX)
+		{
+			aZombiePicks[aZombieCount++] = aZombie;
+			continue;
+		}
+		aTruncated = true;
+		int aWorst = 0;
+		for (int i = 1; i < NetProto::SNAPSHOT_ZOMBIE_MAX; i++)
+		{
+			if (aZombiePicks[i]->mX > aZombiePicks[aWorst]->mX) aWorst = i;
+		}
+		if (aZombie->mX < aZombiePicks[aWorst]->mX) aZombiePicks[aWorst] = aZombie;
+	}
+
+	Plant* aPlantPicks[NetProto::SNAPSHOT_PLANT_MAX];
+	int aPlantCount = 0;
+	Plant* aPlant = nullptr;
+	while (IteratePlants(aPlant))
+	{
+		if (aPlant->mDead) continue;
+		if (aPlantCount >= NetProto::SNAPSHOT_PLANT_MAX)
+		{
+			aTruncated = true;
+			break;
+		}
+		aPlantPicks[aPlantCount++] = aPlant;
+	}
+
+	// 推车位图：bit r = 第 r 行的兜底还在（待命或正滚入；冲出去过/被压扁就是没了）
+	uint8_t aMowers = 0;
+	LawnMower* aMower = nullptr;
+	while (IterateLawnMowers(aMower))
+	{
+		if (aMower->mMowerState == LawnMowerState::MOWER_READY
+			|| aMower->mMowerState == LawnMowerState::MOWER_ROLLING_IN)
+		{
+			aMowers |= (uint8_t)(1 << aMower->mRow);
+		}
+	}
+
+	int anAt = 0;
+	theBuffer[anAt++] = (uint8_t)((mPaused ? NetProto::SNAPSHOT_FLAG_PAUSED : 0)
+		| (mLevelAwardSpawned ? NetProto::SNAPSHOT_FLAG_COMPLETE : 0)
+		| (aTruncated ? NetProto::SNAPSHOT_FLAG_TRUNCATED : 0));
+	theBuffer[anAt++] = (uint8_t)aZombieCount;
+	theBuffer[anAt++] = (uint8_t)aPlantCount;
+	theBuffer[anAt++] = aMowers;
+	theBuffer[anAt++] = (uint8_t)mCurrentWave;
+	theBuffer[anAt++] = (uint8_t)mNumWaves;
+	theBuffer[anAt++] = (uint8_t)(StageHas6Rows() ? 6 : 5);
+
+	for (int i = 0; i < aZombieCount; i++)
+	{
+		Zombie* aOne = aZombiePicks[i];
+		int aX = aOne->mX + 512;	// 线上是 x+512（棋盘坐标可为负——入场口在屏外）
+		if (aX < 0) aX = 0;
+		if (aX > 0xFFFF) aX = 0xFFFF;
+		// hp 按体血算（协议口径）；头盔/护盾/气球只传"在不在"，具体甲种观看端不画
+		int aHP = aOne->mBodyMaxHealth > 0 ? aOne->mBodyHealth * 100 / aOne->mBodyMaxHealth : 100;
+		if (aHP < 0) aHP = 0;
+		if (aHP > 100) aHP = 100;
+		uint8_t aFlags = 0;
+		if (aOne->mHelmType != HelmType::HELMTYPE_NONE) aFlags |= NetProto::SNAPSHOT_ZFLAG_HELMET;
+		if (aOne->mShieldType != ShieldType::SHIELDTYPE_NONE) aFlags |= NetProto::SNAPSHOT_ZFLAG_SHIELD;
+		if (aOne->mFlyingHealth > 0 && aOne->mFlyingMaxHealth > 0) aFlags |= NetProto::SNAPSHOT_ZFLAG_FLYING;
+
+		uint16_t aType = (uint16_t)aOne->mZombieType;
+		theBuffer[anAt++] = (uint8_t)(aType & 0xFF);
+		theBuffer[anAt++] = (uint8_t)(aType >> 8);
+		theBuffer[anAt++] = (uint8_t)aOne->mRow;
+		theBuffer[anAt++] = (uint8_t)(aX & 0xFF);
+		theBuffer[anAt++] = (uint8_t)(aX >> 8);
+		theBuffer[anAt++] = (uint8_t)aHP;
+		theBuffer[anAt++] = aFlags;
+	}
+
+	for (int i = 0; i < aPlantCount; i++)
+	{
+		Plant* aOne = aPlantPicks[i];
+		int aHP = aOne->mPlantMaxHealth > 0 ? aOne->mPlantHealth * 100 / aOne->mPlantMaxHealth : 100;
+		if (aHP < 0) aHP = 0;
+		if (aHP > 100) aHP = 100;
+		theBuffer[anAt++] = (uint8_t)aOne->mSeedType;
+		theBuffer[anAt++] = (uint8_t)aOne->mRow;
+		theBuffer[anAt++] = (uint8_t)aOne->mPlantCol;
+		theBuffer[anAt++] = (uint8_t)aHP;
+	}
+
+	return anAt;
+}
+
+void Board::UpdateBoardWatch()
+{
+	NetSession* aSession = mApp->mOnlineSession;
+	if (!mApp->IsOnlineGame() || aSession == nullptr || !aSession->IsConnected())
+	{
+		// 不在联机局/断线了：观看侧暂存与发送节拍整个清掉，别把上一局的定格漂进新局面
+		mWatchSnapshotTicker = 0;
+		mHasRemoteSnapshot = false;
+		mWatchEndSeen = NetSession::WatchEnd::NONE;
+		return;
+	}
+
+	// 观看端：最新一份快照搬进暂存（只有最新有意义——过期的战场定格没有展示价值）
+	NetSession::ViewSnapshot aSnapshot;
+	if (aSession->TakeViewSnapshot(aSnapshot))
+	{
+		mRemoteSnapshot = aSnapshot;
+		mHasRemoteSnapshot = true;
+	}
+	NetSession::WatchEnd anEnd = aSession->TakeWatchEnded();
+	if (anEnd != NetSession::WatchEnd::NONE) mWatchEndSeen = anEnd;
+
+	// 被看端：没人看零开销；有人看每 7 帧（≈15Hz）打包一份、逐观众单播。
+	// 观众走光重置节拍——下一个观众一来立刻拿到第一份，不用等满一拍。
+	if (!aSession->HasBoardWatchers())
+	{
+		mWatchSnapshotTicker = 0;
+		return;
+	}
+	if (mWatchSnapshotTicker > 0)
+	{
+		mWatchSnapshotTicker--;
+		return;
+	}
+	mWatchSnapshotTicker = 7;
+
+	uint8_t aBuffer[NetProto::SNAPSHOT_MAX_PARTS * NetProto::SNAPSHOT_PART_PAYLOAD];
+	int aSize = BuildBoardSnapshot(aBuffer, (int)sizeof(aBuffer));
+	if (aSize <= 0) return;
+
+	uint8_t aSeats[NetProto::MAX_PLAYERS];
+	int aSeatCount = aSession->GetBoardWatcherSeats(aSeats, NetProto::MAX_PLAYERS);
+	for (int i = 0; i < aSeatCount; i++)
+	{
+		aSession->SendBoardSnapshot(aSeats[i], aBuffer, aSize);
 	}
 }
 

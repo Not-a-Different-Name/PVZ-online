@@ -12,6 +12,9 @@
 #include "Coin.h"
 #include "LawnMower.h"
 #include "GridItem.h"
+// @pvz-online: 观战（队友场地查看）要用 NetSession::ViewSnapshot 值成员；这个头链
+// （NetSession→NetLink→NetProtocol）全是不含 winsock 的干净接口，进 Board.h 无碍。
+#include "Online/NetSession.h"
 
 using namespace Sexy;
 
@@ -542,6 +545,17 @@ public:
 	bool							mChatEmotePage;		// 面板当前页：0 = 短语、1 = 表情
 	int								mChatPanelTimer;
 	int								mChatInputCooldown;
+
+	// @pvz-online: 观战（队友场地查看）——被看端每 ~15Hz 打包战场快照逐观众单播；
+	// 观看端把最新快照搬进暂存区（画面与提示在批③的观看 UI 里画）。
+	// 挂在 Update 的 mPaused 早退之前：被看方暂停时也要推（快照带 PAUSED 位）。
+	void							UpdateBoardWatch();
+	int								BuildBoardSnapshot(uint8_t* theBuffer, int theCapacity);
+
+	NetSession::ViewSnapshot		mRemoteSnapshot;		// 最新一份队友战场定格（观看端）
+	bool							mHasRemoteSnapshot;
+	NetSession::WatchEnd			mWatchEndSeen;			// 观看结束原因（取走即清；批③据此提示）
+	int								mWatchSnapshotTicker;	// 被看端发送节拍（每 7 帧 ≈ 15Hz 一份）
 };
 extern bool gShownMoreSunTutorial;
 
