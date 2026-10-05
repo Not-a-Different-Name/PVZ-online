@@ -84,6 +84,8 @@ enum AwardType
     AWARD_HELP_ZOMBIENOTE,
     AWARD_ACHIEVEMENTONLY,
     AWARD_PRECREDITS_ZOMBIENOTE,
+    // @pvz-online: 闯关（肉鸽）通关的奖杯屏（批十）。新值只往后加，老值一个不改。
+    AWARD_RUN_COMPLETE,
 };
 enum BackgroundType
 {

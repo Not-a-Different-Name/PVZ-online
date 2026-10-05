@@ -15,6 +15,17 @@
 #include "../../Sexy.TodLib/TodCommon.h"
 #include "../../Sexy.TodLib/TodStringFile.h"
 #include "AchievementsWidget.h"
+#include "../ModText.h"
+#include "CjkStoneButton.h"
+
+// @pvz-online: 宽字符文本"居中 + 顶对齐"画一行（ModText::DrawTextWide 收的是左上角口径，
+// 居中得自己减半宽）。闯关通关屏的几行中文都用它。
+static void DrawWideCentered(Graphics* g, ModText::Font* theFont, int theCenterX, int theTopY,
+	const std::wstring& theText, const Color& theColor)
+{
+	ModText::DrawTextWide(g, theFont, theCenterX - ModText::TextWidth(theFont, theText) / 2, theTopY,
+		theText, theColor, g->mClipRect);
+}
 
 //0x405780
 // GOTY @Patoke: 0x4063E0
@@ -25,6 +36,7 @@ AwardScreen::AwardScreen(LawnApp* theApp, AwardType theAwardType, bool theShowin
 	mFadeInCounter = 180;
 	mAwardType = theAwardType;
 	mShowingAchievements = theShowingAchievements;
+	mRunLevelCount = 0;
 	TodLoadResources("DelayLoad_AwardScreen");
 
 	// @Patoke: implemented
@@ -177,6 +189,16 @@ AwardScreen::AwardScreen(LawnApp* theApp, AwardType theAwardType, bool theShowin
 		mMenuButton->mBtnNoDraw = true;
 		mMenuButton->mDisabled = true;
 	}
+	// @pvz-online: 闯关通关屏（批十）：关数现在取——按"回主菜单"那一刻 mRunState 就没了，
+	// 那时再问就是空指针（这一批修的正是这个）。中文档的按钮标签位图字体画不了，留空由
+	// Draw 宽字符直绘（见 DrawRunComplete 尾部的按钮标签块）；英文档照原版标签。
+	else if (mAwardType == AWARD_RUN_COMPLETE)
+	{
+		mRunLevelCount = mApp->GetRunState() != nullptr ? mApp->GetRunState()->GetLevelCount() : 0;
+		mStartButton->SetLabel(ModText::IsChinese() ? "" : "[MAIN_MENU_BUTTON]");
+		mMenuButton->mBtnNoDraw = true;
+		mMenuButton->mDisabled = true;
+	}
 	else if (!mApp->IsAdventureMode())
 	{
 		mStartButton->SetLabel("[MAIN_MENU_BUTTON]");
@@ -198,7 +220,8 @@ AwardScreen::AwardScreen(LawnApp* theApp, AwardType theAwardType, bool theShowin
 		mStartButton->SetLabel("[NEXT_LEVEL_BUTTON]");
 
 	// @Patoke: implemented
-	if (mApp->IsAdventureMode() && mApp->EarnedGoldTrophy()) {
+	// @pvz-online: 闯关通关屏不吃这条——它借的就是冒险模式，档案通关过就会误发这枚成就。
+	if (mAwardType != AWARD_RUN_COMPLETE && mApp->IsAdventureMode() && mApp->EarnedGoldTrophy()) {
 		ReportAchievement::GiveAchievement(mApp, NovelPeasPrize, false);
 	}
 
@@ -239,6 +262,11 @@ AwardScreen::~AwardScreen()
 
 bool AwardScreen::IsPaperNote()
 {
+	// @pvz-online: 闯关通关屏不是纸条屏——档案进度恰好停在 10/20/... 时下面那条冒险判定会
+	// 误报（闯关借的就是冒险模式），报错的代价是黑遮罩 + 翻纸音 + 按钮挪位。
+	if (mAwardType == AWARD_RUN_COMPLETE)
+		return false;
+
 	if (mAwardType == AWARD_CREDITS_ZOMBIENOTE || mAwardType == AWARD_HELP_ZOMBIENOTE)
 		return true;
 
@@ -253,6 +281,35 @@ void AwardScreen::DrawBottom(Graphics* g, const SexyString& theTitle, const Sexy
 	TodDrawString(g, theTitle, BOARD_WIDTH / 2, 58, Sexy::FONT_DWARVENTODCRAFT24, Color(213, 159, 43), DS_ALIGN_CENTER);
 	TodDrawString(g, theAward, BOARD_WIDTH / 2, 326, Sexy::FONT_DWARVENTODCRAFT18YELLOW, Color::White, DS_ALIGN_CENTER);
 	TodDrawStringWrapped(g, theMessage, Rect(285, 360, 230, 90), Sexy::FONT_BRIANNETOD16, Color(40, 50, 90), DS_ALIGN_CENTER_VERTICAL_MIDDLE);
+}
+
+// @pvz-online: 闯关通关屏（批十 2026-10-05 玩家反馈落地）。排版照原版挑战模式的奖杯屏
+//（底部面板 + 居中大奖杯图）；文案中英双语——英文档走和 DrawBottom 同款的位图字体，
+// 中文档走 ModText 宽字符直绘（位图字体画不了汉字），行位按基线口径对齐位图那版。
+void AwardScreen::DrawRunComplete(Graphics* g)
+{
+	if (!ModText::IsChinese())
+	{
+		DrawBottom(g, "Run Complete!", "TROPHY",
+			StrFormat("You made it through all %d levels!", mRunLevelCount).c_str());
+	}
+	else
+	{
+		g->DrawImage(Sexy::IMAGE_AWARDSCREEN_BACK, 0, 0);
+
+		ModText::Font* aTitleFont = ModText::GetFont(CjkPointSize(24), true);
+		ModText::Font* aAwardFont = ModText::GetFont(CjkPointSize(18), false);
+		ModText::Font* aMsgFont = ModText::GetFont(CjkPointSize(20), false);
+		std::wstring aTitle = ModText::WideFromUtf8("恭喜通关！");
+		std::wstring aAward = ModText::WideFromUtf8("奖杯");
+		std::wstring aMsg = ModText::WideFromUtf8(StrFormat("你打完了全部 %d 关！", mRunLevelCount).c_str());
+		// 行位对齐 DrawBottom 的三行：标题基线 y=58、奖名 y=326、正文在 (285,360,230,90) 竖居中。
+		DrawWideCentered(g, aTitleFont, BOARD_WIDTH / 2, 58 - ModText::Ascent(aTitleFont), aTitle, Color(213, 159, 43));
+		DrawWideCentered(g, aAwardFont, BOARD_WIDTH / 2, 326 - ModText::Ascent(aAwardFont), aAward, Color::White);
+		DrawWideCentered(g, aMsgFont, BOARD_WIDTH / 2, 360 + (90 - ModText::LineHeight(aMsgFont)) / 2, aMsg, Color(40, 50, 90));
+	}
+
+	g->DrawImage(Sexy::IMAGE_TROPHY_HI_RES, BOARD_WIDTH / 2 - Sexy::IMAGE_TROPHY_HI_RES->mWidth / 2, 137);
 }
 
 //0x4066A0
@@ -298,6 +355,8 @@ void AwardScreen::Draw(Graphics* g)
 		g->DrawImage(Sexy::IMAGE_ZOMBIE_NOTE, 80, 80);
 		g->DrawImage(Sexy::IMAGE_ZOMBIE_NOTE_HELP, 131, 132);
 	}
+	else if (mAwardType == AWARD_RUN_COMPLETE)
+		DrawRunComplete(g);
 	else if (mAwardType != AWARD_ACHIEVEMENTONLY) // @Patoke: add check
 	{
 		if (!mApp->IsAdventureMode())
@@ -404,6 +463,16 @@ void AwardScreen::Draw(Graphics* g)
 	mMenuButton->Draw(g);
 	mContinueButton->Draw(g); // @Patoke: add call
 
+	// @pvz-online: 通关屏的"回主菜单"标签（中文档专用——构造里把位图标签留了空）：
+	// 画在按钮之后、淡入遮罩之前，跟着按钮一起淡入。
+	if (mAwardType == AWARD_RUN_COMPLETE && ModText::IsChinese())
+	{
+		ModText::Font* aBtnFont = ModText::GetFont(CjkPointSize(20), false);
+		DrawWideCentered(g, aBtnFont, mStartButton->mX + mStartButton->mWidth / 2,
+			mStartButton->mY + (mStartButton->mHeight - ModText::LineHeight(aBtnFont)) / 2,
+			ModText::WideFromUtf8("回主菜单"), Color(213, 159, 43));
+	}
+
 	int aFadeInAlpha = TodAnimateCurve(180, 0, mFadeInCounter, 255, 0, CURVE_LINEAR);
 	g->SetColor(IsPaperNote() ? Color(0, 0, 0, aFadeInAlpha) : Color(255, 255, 255, aFadeInAlpha));
 	g->FillRect(0, 0, BOARD_WIDTH, BOARD_HEIGHT);
@@ -460,6 +529,13 @@ void AwardScreen::StartButtonPressed()
 	}
 	else if (mAwardType == AWARD_HELP_ZOMBIENOTE)
 	{
+		mApp->KillAwardScreen();
+		mApp->ShowGameSelector();
+	}
+	else if (mAwardType == AWARD_RUN_COMPLETE)
+	{
+		// @pvz-online: 通关屏（批十）：按钮 = 回主菜单。检查点通关那一刻已经删了；
+		// ShowGameSelector 把这一局的内存态（mRunState 等）一并收掉。
 		mApp->KillAwardScreen();
 		mApp->ShowGameSelector();
 	}

@@ -39,6 +39,7 @@ public:
 	int									mAchievementAnimTime;	//+GOTY @Patoke: 0xBC
 	bool								mShowingAchievements;	//+GOTY @Patoke: 0xD8
 	std::vector<AchievementScreenItem>	mAchievementItems;		//+GOTY @Patoke: 0xC0
+	int									mRunLevelCount;			// @pvz-online: 通关屏用——闯关一局的关数（构造时取好，回菜单按钮一按 mRunState 就没了）
 
 public:
 	// @Patoke: added argument
@@ -49,6 +50,7 @@ public:
 	virtual void		Resize(int theX, int theY, int theWidth, int theHeight) { Widget::Resize(theX, theY, theWidth, theHeight); }
 	static void			DrawBottom(Graphics* g, const SexyString& theTitle, const SexyString& theAward, const SexyString& theMessage);
 	void				DrawAwardSeed(Graphics* g);
+	void				DrawRunComplete(Graphics* g);	// @pvz-online: 闯关通关屏（批十）
 	virtual void		Draw(Graphics* g);
 	virtual void		Update();
 	virtual void		AddedToManager(WidgetManager* theWidgetManager) { Widget::AddedToManager(theWidgetManager); }

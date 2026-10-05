@@ -1299,7 +1299,7 @@ void LawnApp::UpdateOnlineEvents()
 
 // @pvz-online: 这一关对全队结束了没有。三条出路都汇在这儿：
 //   ① 我这块草坪清干净了 → 告诉队友（会话层按"上次发出去的值"去重，每帧问也只发一次）；
-//   ② 所有席位都清完了 → 两边各自回主菜单（不发奖杯、不写档）；
+//   ② 所有席位都清完了 → 两边各自亮通关奖杯屏，按钮回主菜单（不写档）；
 //   ③ 队友报的全队败（末席漏怪）→ 跟着收摊。
 //
 // "清干净了"看的是棋盘自己的判据 mLevelAwardSpawned（波次打完、场上没怪，和原版掉过关
@@ -1356,7 +1356,7 @@ void LawnApp::UpdateOnlineEnd()
 			// @pvz-online: 联机闯关（R5）：全队过了这一关，走的不是"回主菜单"那条路——
 			// 回菜单会把 mRunState 删掉、这一局就没了。两边各自领本关的过关奖（各选各的），
 			// 棋盘留着当换关的背景；选完由 UpdateRunPick 走"主机点名 / 队友等点名"。
-			// 打完第 25 关的收尾（删检查点 + 回菜单 + 提示）两边各自做，做的是一样的。
+			// 打完最后一关的收尾（删检查点 + 亮通关奖杯屏，按钮回菜单）两边各自做，做的是一样的。
 			if (IsRunMode())
 			{
 				TodLog("[net] every lawn is clear - the run moves on");
@@ -1364,13 +1364,12 @@ void LawnApp::UpdateOnlineEnd()
 				if (mRunState->IsComplete())
 				{
 					TodLog("[run] the run is complete");
-					// ShowGameSelector 会把 mRunState 删掉——关数先取出来，别在那之后再碰它。
-					int aLevelCount = mRunState->GetLevelCount();
 					RunState::DeleteCheckpoint(mPlayerInfo->mId);
-					ShowGameSelector();
-					LawnMessageBox(Dialogs::DIALOG_MESSAGE, "Run complete",
-						StrFormat("You made it through all %d levels!\nClick ADVENTURE for a new run.", aLevelCount).c_str(),
-						"OK", "", Dialog::BUTTONS_FOOTER);
+					// 通关收尾（批十）：亮奖杯屏，回主菜单交给屏上的按钮——mRunState 那一刻
+					// 才由 ShowGameSelector 收掉，在那之前它得留着（屏要把关数报出来）。
+					// 这局已经结束：棋盘不再当换关背景，和其它收尾一样拆掉。
+					KillBoard();
+					ShowAwardScreen(AwardType::AWARD_RUN_COMPLETE, false);
 				}
 				else
 				{
@@ -1792,8 +1791,9 @@ void LawnApp::AlignRunToHost(int theRunSeed, int theTargetIndex, int theRunMode,
 }
 
 // 这一关的收摊（CheckForGameEnd 的闯关分支）：闯关不写档、不发奖杯，过一关就是
-// "关序号 +1"，还有剩余关卡就接着进下一关；25 关打完就把检查点删掉、回主菜单——
-// 这一局已经结束了，下次点冒险该开的是新的一局，而不是再问一遍"续不续"。
+// "关序号 +1"，还有剩余关卡就接着进下一关；整局打完就删检查点、亮通关奖杯屏（批十；
+// 屏上的"回主菜单"再回菜单）——这一局已经结束了，下次点冒险该开的是新的一局，
+// 而不是再问一遍"续不续"。
 void LawnApp::UpdateRunEnd()
 {
 	KillBoard();
@@ -1802,13 +1802,10 @@ void LawnApp::UpdateRunEnd()
 	if (mRunState->IsComplete())
 	{
 		TodLog("[run] the run is complete");
-		// ShowGameSelector 会把 mRunState 删掉——关数先取出来，别在那之后再碰它。
-		int aLevelCount = mRunState->GetLevelCount();
+		// 通关收尾（批十）：亮奖杯屏，回主菜单交给屏上的按钮——mRunState 那一刻才由
+		// ShowGameSelector 收掉，在那之前它得留着（屏要把关数报出来）。
 		RunState::DeleteCheckpoint(mPlayerInfo->mId);
-		ShowGameSelector();
-		LawnMessageBox(Dialogs::DIALOG_MESSAGE, "Run complete",
-			StrFormat("You made it through all %d levels!\nClick ADVENTURE for a new run.", aLevelCount).c_str(),
-			"OK", "", Dialog::BUTTONS_FOOTER);
+		ShowAwardScreen(AwardType::AWARD_RUN_COMPLETE, false);
 	}
 	else
 	{
@@ -1832,6 +1829,11 @@ void LawnApp::UpdateRunEnd()
 void LawnApp::UpdateRunPick()
 {
 	if (mRunState == nullptr) return;
+
+	// @pvz-online: 通关收尾期（批十：奖杯屏挂着、mRunState 还没被屏上按钮后的
+	// ShowGameSelector 收掉）什么都不做——尤其别走底下"棋盘不在就开下一关"那条：
+	// 关序号已经越界（== 关数），一开就是坏局。
+	if (mRunState->IsComplete()) return;
 
 	// ① 新草坪已经建好、开场压着（R6 起联机与单机闯关都走这条）：三选一屏就摆在草坪上，
 	// 补发追赶一屏接一屏地补。全都清完才按最新的卡池重填卡槽、放开选卡与开场——
