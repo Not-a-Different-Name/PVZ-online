@@ -113,24 +113,34 @@ void RunState::StartNew(int theRunSeed, int theRunMode, int theRunDiff)
 	}
 }
 
-// 一局的两处选卡口：开局先挑四株 + 两个增益（手里有 6 株才进第 1 关；2026-10-03 多人
-// 实测反馈"开局难度略高"后用户定案加厚，原来只挑两株），每过一关再挑两株 + 一个增益。
-// 屏的先后由 IsPlantPick 决定：先四屏植物、再两屏增益。
+// 一局的两处选卡口：开局先挑四株 + 两个增益（进第 1 关前手里就有 6 株；2026-10-03 多人
+// 实测反馈"开局难度略高"后用户定案加厚，原来只挑两株）。批十 2026-10-05：快速版 5 关全是
+// 每场景收尾的难关，开局再多给两株两增益（4+2 株、2+2 增益）。每过一关的奖励屏见
+// BeginLevelEndPicks。屏的先后由 IsPlantPick 决定：先植物屏、再增益屏。
 // 卡池拿满 48 株后植物屏没得抽——那之后只发增益屏。
 void RunState::BeginStartPicks()
 {
-	mPendingPlantPicks = CanOfferPlantPick() ? 4 : 0;
-	mPendingBuffPicks = 2;
+	int aExtra = (mMode == RUN_MODE_QUICK) ? 2 : 0;
+	mPendingPlantPicks = CanOfferPlantPick() ? 4 + aExtra : 0;
+	mPendingBuffPicks = 2 + aExtra;
+	TodLog("[run] start picks: %d plant(s) + %d buff(s) (mode %d)", mPendingPlantPicks, mPendingBuffPicks, mMode);
 }
 
 void RunState::BeginLevelEndPicks()
 {
-	// 每关后的奖励屏按时长档倍乘（M4-b 定案）：完整 ×1、普通 ×2、快速 ×3——"短一局"
-	// 用更密的奖励补内容量。植物候选抽干时自动只发增益屏（见 CanOfferPlantPick）。
-	static const int aMul[] = { 1, 2, 3 };
+	// 每关后的植物奖按时长档倍乘（M4-b 定案；批十 2026-10-05 按玩家反馈改为 1/3/5）：
+	// 完整 2 株/关、普通 6、快速 10——"短一局"用更密的奖励补内容量。植物候选抽干时
+	// 自动只发增益屏（见 CanOfferPlantPick）。
+	static const int aMul[] = { 1, 3, 5 };
 	int aTimes = (mMode >= RUN_MODE_FULL && mMode <= RUN_MODE_QUICK) ? aMul[mMode] : 1;
 	mPendingPlantPicks = CanOfferPlantPick() ? 2 * aTimes : 0;
-	mPendingBuffPicks = 1 * aTimes;
+	// 增益逐关递增、封顶 7（批十 2026-10-05 用户定案，要的是"2-3-4-5-6-7"这条链）：
+	// 调用点此刻 mLevelIndex 已经指向下一关，所以下一关收尾该给的数就是 min(关序号 + 2, 7)
+	// ——第 1 关收尾 3、……、第 5 关收尾 7，之后每关都 7。三档同一条曲线。
+	int aBuffs = mLevelIndex + 2;
+	if (aBuffs > 7) aBuffs = 7;
+	mPendingBuffPicks = aBuffs;
+	TodLog("[run] level end picks: %d plant(s) + %d buff(s) (level %d, mode %d)", mPendingPlantPicks, mPendingBuffPicks, mLevelIndex, mMode);
 }
 
 bool RunState::CanOfferPlantPick() const
