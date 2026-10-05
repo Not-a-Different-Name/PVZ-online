@@ -115,7 +115,10 @@ const uint16_t	PROTOCOL_VERSION	= 1;
 //        闯关名单自场景 1 sub4 起同时投放。漏怪传递帧（MSG_ESCAPED_ZOMBIE）的 mZombieType
 //        u16 载荷会带出这些值——旧构建解到表外类型会读穿僵尸定义表，必须两边同版本
 //        （见 docs/03-过程与问题.md §5.39/§5.41）。
-const uint16_t	MOD_BUILD			= 32;
+// 32 → 33：闯关难度阶梯 ×1.5→×1.33/场景（2026-10-05 用户定案）：帧格式与 runDiff 字节
+//        语义都没动，但同种子两端各算的波表公式变了——混搭时同一关两边的怪种、数量与
+//        僵尸血量都对不上，必须两边同版本（见 docs/03-过程与问题.md §5.42）。
+const uint16_t	MOD_BUILD			= 33;
 
 const uint16_t	DEFAULT_PORT		= 27777;
 

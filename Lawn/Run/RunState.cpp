@@ -379,13 +379,13 @@ int RunState::GetSceneIndex() const
 	return aIndex / LevelsPerScene(mMode);
 }
 
-// 难度阶梯（M4-a，用户定案）：每过一个场景血量与数量同乘 ×1.5 → 1.0/1.5/2.25/3.38/5.06
-//（2026-10-04 按玩家反馈"后期难度不足"由 ×1.2 上调，见 docs/07 批六；截尾口径同旧表）。
+// 难度阶梯（M4-a，用户定案）：每过一个场景血量与数量同乘 ×1.33 → 1.0/1.33/1.77/2.35/3.13
+//（2026-10-04 按玩家反馈"后期难度不足"由 ×1.2 上调、2026-10-05 回调为 ×1.33，见 docs/07 批六/批九；截尾口径同旧表）。
 // 写成整数千分比表：两边全靠整数乘除，逐位一致——浮点乘的 0.000001 之差就可能让同一只
 // 僵尸在两台机器上一个剩 1 点血、一个已经死了。
 int RunState::GetDifficultyPermille() const
 {
-	static const int aPermille[RUN_SCENE_COUNT] = { 1000, 1500, 2250, 3375, 5062 };
+	static const int aPermille[RUN_SCENE_COUNT] = { 1000, 1330, 1768, 2352, 3129 };
 	return aPermille[GetSceneIndex()];
 }
 
