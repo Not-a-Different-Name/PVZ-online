@@ -2030,6 +2030,20 @@ float LawnApp::RunBuffMul(int theBuffId) const
 	return aMul < 0.1f ? 0.1f : aMul;
 }
 
+// @pvz-online: 闯关「天降」的取用口（2026-10-06 整条重做：夜晚也降阳光 + 速率 ×4、
+// 只可选 1 层）。二值口径：层数 ≥1 即生效、不看叠了几层——旧档这条带 2~4 层的（旧版
+// 每层 −20%、至多 4 层）与 1 层同效，不追溯削减。已超上限的旧档不会再进三选一候选
+// （RunState::RollChoices 按 mMaxStacks 过滤），只是层数原样留着。
+bool LawnApp::RunSkySunAtNight() const
+{
+	return mRunState != nullptr && mRunState->GetBuffCount(RUN_BUFF_SKYFALL) > 0;
+}
+
+float LawnApp::RunSkySunIntervalMul() const
+{
+	return RunSkySunAtNight() ? 0.25f : 1.0f;
+}
+
 int LawnApp::RunBuffAdd(int theBuffId) const
 {
 	if (mRunState == nullptr) return 0;

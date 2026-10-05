@@ -329,6 +329,12 @@ public:
 	// SeedPacket::WasPlanted 的时长链上。非闯关 / 别的植物 = 1.0；模仿者解析同
 	// Plant::GetRefreshTime（SEED_IMITATER + 非空 mImitaterType 用后者）。
 	float							RunCoffeeBeanRefreshMul(SeedType thePlant, SeedType theImitaterType) const;
+	// @pvz-online: 闯关「天降」的取用口（2026-10-06 整条重做：夜晚也降阳光 + 速率 ×4、
+	// 只可选 1 层）。二值语义——层数 ≥1 即生效，不看叠了几层（旧档 2~4 层同 1 层；
+	// 不走 RunBuffMul 的逐层公式，照公式旧档会出负数）。非闯关局 = 中性
+	//（RunSkySunAtNight 为假、倍率 1.0）。挂点 = Board.cpp 的阳光倒计时两处与夜晚门。
+	bool							RunSkySunAtNight() const;
+	float							RunSkySunIntervalMul() const;
 	void							ShowGameSelector();
 	void							KillGameSelector();
 	void							ShowAwardScreen(AwardType theAwardType, bool theShowAchievements); // @Patoke: add argument

@@ -36,6 +36,13 @@
 //   （只可选 1 层）——取代批八 ② 的毁灭菇半径条目。Board::KillAllZombiesInRadius 与
 //   Zombie::ApplyBurn 加直伤基数覆写参数（0 = 默认 1800）；覆写只换基数（厚血目标改吃
 //   50000、薄血目标照旧烧死保味），全局「爆破」乘数照常叠乘。
+// 2026-10-06（用户指令，见 docs/07 同日条目）：「天降」行整条重做——「天上掉阳光间隔
+//   −20%/层、至多 4 层」→「夜晚/迷雾关也降阳光 + 降阳光速率 ×4、只可选 1 层」。
+//   消费走专口 LawnApp::RunSkySunAtNight / RunSkySunIntervalMul，二值口径：层数 ≥1 即生效、
+//   不看叠了几层（旧档这条带 2~4 层的与 1 层同效，不追溯削减——同忧郁菇上限 2→1 先例）；
+//   数值列 −0.75×1 层 = ×0.25 只作文档，与 desc 的「×4」互为倒数（不参与 RunBuffMul 的
+//   逐层公式——照公式旧档 4 层会出负数）。挂点 = Board.cpp 的 mSunCountDown 两处
+//   （InitLevel 初始 / UpdateSunSpawning 重置）与 UpdateSunSpawning 的 StageIsNight 门。
 static const RunBuffDef gRunBuffDefs[RUN_BUFF_COUNT] =
 {
 	{ "Firepower",    "所有子弹伤害 +30%",      "All projectile damage +30%",       0.30f,  0 },
@@ -44,7 +51,7 @@ static const RunBuffDef gRunBuffDefs[RUN_BUFF_COUNT] =
 	{ "Swift Strikes","植物攻击间隔逐层 ×0.8",  "Plant attack interval ×0.8/stack",-0.20f,  0, 0, true },
 	{ "Quick Seeds",  "种植冷却逐层 ×0.8",      "Planting cooldown ×0.8/stack",    -0.20f,  0, 0, true },
 	{ "Reserves",     "每关开局 +50 阳光",      "+50 sun at each level start",      0.00f, 50 },
-	{ "Skyfall",      "天降阳光更快 20%",       "Sky sun falls 20% faster",        -0.20f,  0, 4 },
+	{ "Skyfall",      "夜晚也降阳光，降阳光速率 ×4", "Sky sun also falls at night, 4x drop rate", -0.75f,  0, 1 },
 	{ "Demolition",   "一次性植物伤害 +60%",    "Instant plant damage +60%",        0.60f,  0 },
 	{ "Precision",    "所有伤害 +15%",          "All damage +15%",                  0.15f,  0 },
 };

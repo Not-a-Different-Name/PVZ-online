@@ -22,7 +22,7 @@ enum RunBuffId
 	RUN_BUFF_SWIFT,			// 急袭：攻击间隔叠乘 ×0.8/层（无限）
 	RUN_BUFF_FASTSEED,		// 速种：种植冷却叠乘 ×0.8/层（无限）
 	RUN_BUFF_RESERVE,		// 储备：每关开局阳光 +50（无限）
-	RUN_BUFF_SKYFALL,		// 天降：天上掉阳光间隔 −20%（至多 4 层）
+	RUN_BUFF_SKYFALL,		// 天降：夜晚也降阳光 + 降阳光速率 ×4（只可选 1 层；2026-10-06 由「间隔 −20%/层、至多 4 层」整条重做）
 	RUN_BUFF_BLAST,			// 爆破：一次性植物伤害 +60%（无限；2026-10-05 批八由 +30% 上调）
 	RUN_BUFF_PRECISION,		// 精准：全体伤害 +15%（无限；2026-10-04 批 18 追加为 id 8）
 	RUN_BUFF_COUNT

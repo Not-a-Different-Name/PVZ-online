@@ -1598,10 +1598,11 @@ void Board::InitLevel()
 	}
 	// 初始化阳光掉落
 	mNumSunsFallen = 0;
-	if (!StageIsNight())
+	// @pvz-online: 闯关 buff「天降」（2026-10-06 重做口径）：夜晚/迷雾关也起倒计时
+	// （没这条时夜晚照旧不掉阳光），倍率 ×0.25（速率 ×4）。
+	if (!StageIsNight() || mApp->RunSkySunAtNight())
 	{
-		// @pvz-online: 闯关 buff「天降」：天降阳光更密（倒计时按倍率缩短）。
-		mSunCountDown = (int)(RandRangeInt(425, 700) * mApp->RunBuffMul(RUN_BUFF_SKYFALL) + 0.5f);
+		mSunCountDown = (int)(RandRangeInt(425, 700) * mApp->RunSkySunIntervalMul() + 0.5f);
 	}
 	// 初始化字幕播放记录
 	memset(mHelpDisplayed, 0, sizeof(mHelpDisplayed));
@@ -5840,7 +5841,7 @@ bool Board::OnlineWaitingForTeam()
 //0x413A70
 void Board::UpdateSunSpawning()
 {
-	if (StageIsNight() ||
+	if ((StageIsNight() && !mApp->RunSkySunAtNight()) ||
 		(HasLevelAwardDropped() && !OnlineWaitingForTeam()) ||
 		mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_RAINING_SEEDS || 
 		mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_ICE || 
@@ -5870,9 +5871,10 @@ void Board::UpdateSunSpawning()
 		return;
 
 	mNumSunsFallen++;
-	// @pvz-online: 闯关 buff「天降」：同上，间隔整体缩短（倍率下限 0.1，结果恒 ≥1 帧，
-	// 不会出现"倒计时为 0 永不掉落"的死值——见上面那句 mSunCountDown != 0 的早退）。
-	mSunCountDown = (int)((std::min(SUN_COUNTDOWN_MAX, SUN_COUNTDOWN + mNumSunsFallen * 10) + Rand(SUN_COUNTDOWN_RANGE)) * mApp->RunBuffMul(RUN_BUFF_SKYFALL) + 0.5f);
+	// @pvz-online: 闯关 buff「天降」（2026-10-06 重做口径）：二值 ×0.25（有层就 ×0.25，
+	// 旧档多层不叠乘）；结果恒 ≥1 帧（最小 435×0.25 ≈ 108），不会出现"倒计时为 0 永不
+	// 掉落"的死值——见上面那句 mSunCountDown != 0 的早退。
+	mSunCountDown = (int)((std::min(SUN_COUNTDOWN_MAX, SUN_COUNTDOWN + mNumSunsFallen * 10) + Rand(SUN_COUNTDOWN_RANGE)) * mApp->RunSkySunIntervalMul() + 0.5f);
 	CoinType aSunType = mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_SUNNY_DAY ? CoinType::COIN_LARGESUN : CoinType::COIN_SUN;
 	AddCoin(RandRangeInt(100, 649), 60, aSunType, CoinMotion::COIN_MOTION_FROM_SKY);
 }
