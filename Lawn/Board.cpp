@@ -1571,6 +1571,12 @@ void Board::InitLevel()
 	// 按上座顺位从后往前加 0/0/100/200/300/500（末两席同为 ×2 → 都 0）；单机 / 单人 = 0。
 	// 加在整段分支之后——开局阳光是本关规矩给的多少都照给。
 	mSunMoney += mApp->OnlineStartSunBonus();
+	// @pvz-online: 开局阳光保底（2026-10-06 用户补令「开局至少50阳光」）：闯关局任何席位、
+	// 任何关卡的开局阳光不低于 50——基础 50 打底 + 顺位加成只加不减，这里是显式钉死。
+	if (mApp->IsRunMode() && mSunMoney < 50)
+	{
+		mSunMoney = 50;
+	}
 
 	// 初始化行选择数组
 	memset(mRowPickingArray, 0, sizeof(mRowPickingArray));
