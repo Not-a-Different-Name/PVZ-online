@@ -43,6 +43,9 @@
 //   数值列 −0.75×1 层 = ×0.25 只作文档，与 desc 的「×4」互为倒数（不参与 RunBuffMul 的
 //   逐层公式——照公式旧档 4 层会出负数）。挂点 = Board.cpp 的 mSunCountDown 两处
 //   （InitLevel 初始 / UpdateSunSpawning 重置）与 UpdateSunSpawning 的 StageIsNight 门。
+// 2026-10-06（用户指令，见 docs/07 同日条目）：「储备」（全局原 id 5）删除——全局表 9→8 条，
+//   单株 id 由「9 + 下标」全体左移 1 变「8 + 下标」（检查点 v8 迁移，RunState::Load）；
+//   开局阳光改按上座顺位给（LawnApp::OnlineStartSunBonus，挂点 Board::InitLevel），不再走本表。
 static const RunBuffDef gRunBuffDefs[RUN_BUFF_COUNT] =
 {
 	{ "Firepower",    "所有子弹伤害 +30%",      "All projectile damage +30%",       0.30f,  0 },
@@ -50,7 +53,6 @@ static const RunBuffDef gRunBuffDefs[RUN_BUFF_COUNT] =
 	{ "Abundance",    "产阳光植物更快 20%",     "Sun plants 20% faster",           -0.20f,  0, 4 },
 	{ "Swift Strikes","植物攻击间隔逐层 ×0.8",  "Plant attack interval ×0.8/stack",-0.20f,  0, 0, true },
 	{ "Quick Seeds",  "种植冷却逐层 ×0.8",      "Planting cooldown ×0.8/stack",    -0.20f,  0, 0, true },
-	{ "Reserves",     "每关开局 +50 阳光",      "+50 sun at each level start",      0.00f, 50 },
 	{ "Skyfall",      "夜晚也降阳光，降阳光速率 ×4", "Sky sun also falls at night, 4x drop rate", -0.75f,  0, 1 },
 	{ "Demolition",   "一次性植物伤害 +60%",    "Instant plant damage +60%",        0.60f,  0 },
 	{ "Precision",    "所有伤害 +15%",          "All damage +15%",                  0.15f,  0 },

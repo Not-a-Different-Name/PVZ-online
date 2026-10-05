@@ -335,6 +335,14 @@ public:
 	//（RunSkySunAtNight 为假、倍率 1.0）。挂点 = Board.cpp 的阳光倒计时两处与夜晚门。
 	bool							RunSkySunAtNight() const;
 	float							RunSkySunIntervalMul() const;
+	// @pvz-online: 上座顺位乘数（2026-10-06 从 Board::PickZombieWaves 抽出——出怪量与
+	// 顺位开局阳光共用）：联机且上座 ≥2 席时 = 末两席 ×2、再往前每位翻倍、封顶 ×32；
+	// 单机 / 单人 = 1。只算顺位本身，出怪难度旋钮由出怪消费点自己另乘。
+	int								OnlineSeatMultiplier();
+	// @pvz-online: 顺位开局阳光（2026-10-06 用户定案，取代本批删除的「储备」词条）：
+	// 按上座顺位从后往前 0/0/100/200/300/500——×2→0、×4→+100、×8→+200、×16→+300、
+	// ×32→+500（二人局两端都是 ×2 → 都 0；单机 / 单人 = 0）。挂点 = Board::InitLevel。
+	int								OnlineStartSunBonus();
 	void							ShowGameSelector();
 	void							KillGameSelector();
 	void							ShowAwardScreen(AwardType theAwardType, bool theShowAchievements); // @Patoke: add argument

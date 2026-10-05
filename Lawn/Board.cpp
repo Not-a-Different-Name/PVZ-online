@@ -770,35 +770,21 @@ void Board::PickZombieWaves()
 		// （用户定）。顺位按"上座席位"排（第 r 位权重 2^(n-r)、末位保底 ×2）；
 		// 各客户端只为自己的棋盘缩放，不涉协议。乘在旗帜波 ×2.5 之前。
 		// 同一倍率也放大每波数量封顶（下面 aWaveZombieCap）：1 号位 32 倍时 20 → 640 只。
-		int aSeatMult = 1;
-		if (mApp->IsOnlineGame() && mApp->mOnlineSession != nullptr)
+		// 2026-10-06：公式抽到 LawnApp::OnlineSeatMultiplier（顺位开局阳光同用）。
+		int aSeatMult = mApp->OnlineSeatMultiplier();
+		if (aSeatMult > 1)
 		{
-			int aSeatCount = mApp->mOnlineSession->GetOccupiedSeatCount();
-			if (aSeatCount >= 2)
+			// @pvz-online: 出怪难度档（2026-10-03 用户定案）：房主开局前选的全局旋钮，
+			// 直接乘在顺位乘数上——轻松 ×0.5 / 高压 ×2.0，乘后向下取整、保底 1 倍
+			// （末位 2×0.5 保底 1；顺位形状 32:16:8:4:2:2 在高压下翻倍变 64:32:16:8:4:4）。
+			// 只在闯关局生效；非闯关 / 单机局档位恒为标准（也是恒等 ×1）。
+			if (mApp->IsRunMode() && mApp->GetRunState() != nullptr)
 			{
-				uint8_t aMySeat = mApp->mOnlineSession->GetLocalSeat();
-				int aRank = 0;
-				for (uint8_t aSeat = 1; aSeat <= aMySeat; aSeat++)
-				{
-					if (mApp->mOnlineSession->IsSeatOccupied(aSeat))
-						aRank++;
-				}
-				aSeatMult = 1 << (aSeatCount - aRank);	// 第 r 位 = 2^(n-r)：1 号位 2^(n-1)
-				if (aSeatMult < 2) aSeatMult = 2;		// 末席保底 ×2（2026-10-04 批七：末位出量翻倍，其余席位不动）
-				if (aSeatMult > 32) aSeatMult = 32;		// 用户定封顶 32（六席顶正好 32；席位再抬先拦）
-
-				// @pvz-online: 出怪难度档（2026-10-03 用户定案）：房主开局前选的全局旋钮，
-				// 直接乘在顺位乘数上——轻松 ×0.5 / 高压 ×2.0，乘后向下取整、保底 1 倍
-				// （末位 2×0.5 保底 1；顺位形状 32:16:8:4:2:2 在高压下翻倍变 64:32:16:8:4:4）。
-				// 只在闯关局生效；非闯关 / 单机局档位恒为标准（也是恒等 ×1）。
-				if (mApp->IsRunMode() && mApp->GetRunState() != nullptr)
-				{
-					aSeatMult = aSeatMult * RunState::DiffPermilleFor(mApp->GetRunState()->mDiff) / 1000;
-					if (aSeatMult < 1) aSeatMult = 1;
-				}
-
-				aZombiePoints *= aSeatMult;
+				aSeatMult = aSeatMult * RunState::DiffPermilleFor(mApp->GetRunState()->mDiff) / 1000;
+				if (aSeatMult < 1) aSeatMult = 1;
 			}
+
+			aZombiePoints *= aSeatMult;
 		}
 
 		// 旗帜波的特殊调整
@@ -1581,9 +1567,10 @@ void Board::InitLevel()
 	{
 		mSunMoney = 50;
 	}
-	// @pvz-online: 闯关 buff「储备」：每关开局阳光 +25/层。加在整段分支之后——
-	// 开局阳光是哪条规矩给的不重要，闯关只走白天普通关这一条，加成照给。
-	mSunMoney += mApp->RunBuffAdd(RUN_BUFF_RESERVE);
+	// @pvz-online: 顺位开局阳光（2026-10-06 用户定案，取代本批删除的「储备」词条）：联机局
+	// 按上座顺位从后往前加 0/0/100/200/300/500（末两席同为 ×2 → 都 0）；单机 / 单人 = 0。
+	// 加在整段分支之后——开局阳光是本关规矩给的多少都照给。
+	mSunMoney += mApp->OnlineStartSunBonus();
 
 	// 初始化行选择数组
 	memset(mRowPickingArray, 0, sizeof(mRowPickingArray));

@@ -2044,6 +2044,48 @@ float LawnApp::RunSkySunIntervalMul() const
 	return RunSkySunAtNight() ? 0.25f : 1.0f;
 }
 
+// @pvz-online: 上座顺位乘数（2026-10-06 从 Board::PickZombieWaves 抽出，出怪量与顺位开局
+// 阳光两处共用；公式与口径同原处注释）：末两席同为 ×2、再往前每升一位翻倍、封顶 ×32；
+// 单机 / 单人（上座不足 2 席）= 1。各客户端只为自己的棋盘算，不涉协议。
+int LawnApp::OnlineSeatMultiplier()
+{
+	if (!IsOnlineGame() || mOnlineSession == nullptr) return 1;
+
+	int aSeatCount = mOnlineSession->GetOccupiedSeatCount();
+	if (aSeatCount < 2) return 1;
+
+	uint8_t aMySeat = mOnlineSession->GetLocalSeat();
+	int aRank = 0;
+	for (uint8_t aSeat = 1; aSeat <= aMySeat; aSeat++)
+	{
+		if (mOnlineSession->IsSeatOccupied(aSeat))
+			aRank++;
+	}
+	int aSeatMult = 1 << (aSeatCount - aRank);	// 第 r 位 = 2^(n-r)：1 号位 2^(n-1)
+	if (aSeatMult < 2) aSeatMult = 2;		// 末席保底 ×2（批七：末位出量翻倍，其余席位不动）
+	if (aSeatMult > 32) aSeatMult = 32;		// 用户定封顶 32（六席顶正好 32）
+	return aSeatMult;
+}
+
+// @pvz-online: 顺位开局阳光的档位表（2026-10-06 用户定案）：按上座顺位乘数取档——×2 → 0、
+// ×4 → +100、×8 → +200、×16 → +300、×32 → +500；从后往前读就是 0/0/100/200/300/500。
+static int SeatStartSunForMult(int theSeatMult)
+{
+	if (theSeatMult >= 32) return 500;
+	if (theSeatMult >= 16) return 300;
+	if (theSeatMult >= 8) return 200;
+	if (theSeatMult >= 4) return 100;
+	return 0;
+}
+
+// @pvz-online: 顺位开局阳光（2026-10-06 用户定案：「储备」词条删除，改成按顺位增加、
+// 从后往前 0/0/100/200/300/500）。顺位本身跟出怪乘数走，但不叠出怪难度旋钮（按顺位
+// 取档，高压/轻松不放大也不缩小它）；单机 / 单人 = 0。
+int LawnApp::OnlineStartSunBonus()
+{
+	return SeatStartSunForMult(OnlineSeatMultiplier());
+}
+
 int LawnApp::RunBuffAdd(int theBuffId) const
 {
 	if (mRunState == nullptr) return 0;

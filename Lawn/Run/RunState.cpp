@@ -27,9 +27,12 @@
 // v7：批十（2026-10-05）模式表改版——普通档由每场景第 1/3/5 关改抽 1/5 关（=原快速表）、
 //     快速档改抽每场景第 5 关：同一个关序号在新表里指向别的引擎关，非完整档的旧检查点没
 //     法安全续，一律当"没有检查点"（完整档的表没动，v2..v6 的完整档照续）。载荷长度没变。
+// v8：2026-10-06 全局表删了「储备」（原 id 5）——全局 9→8 条，单株 id 由「9 + 下标」全体
+//     左移 1 变「8 + 下标」；v7 及更老的档读到 id 5（储备）的丢弃，id >= 6 的全部 −1 读平
+//     （v5 及更老的档链条：先按 v6 把 id >= 8 的 +1，再统一 −1）。载荷长度没变。
 
 static const unsigned int RUN_CHECKPOINT_MAGIC = 0x314E5552;	// 'RUN1'
-static const unsigned short RUN_CHECKPOINT_VERSION = 7;
+static const unsigned short RUN_CHECKPOINT_VERSION = 8;
 
 static std::vector<unsigned char>& AppendU16(std::vector<unsigned char>& theData, unsigned int theValue)
 {
@@ -201,7 +204,7 @@ void RunState::RollChoices()
 	}
 	else
 	{
-		// 增益：全局 9 条 + 单株升级混池抽 3 条互不重复，其中第 1 格保底一条全局（批十
+		// 增益：全局 8 条 + 单株升级混池抽 3 条互不重复，其中第 1 格保底一条全局（批十
 		// 2026-10-05 用户定案：植物多了以后单株条目把全局挤成了小概率，"每屏至少看得见
 		// 一条全局"）——全局全封顶/抽干时自然让位，退化成纯混池。单株的只收"卡池里已经有
 		// 这株"的（设计文档：只对已拥有的植物出）。同名跨屏可以再来（叠层，见 BuffStack）；
@@ -518,9 +521,10 @@ bool RunState::Load(int theProfileId)
 	// v5 及更老的档没有推车字段，按"一辆都没用"续。再往前的版本一律当"没有检查点"。
 	// v7 起模式表改版（见文件头 v7 条目）：6 及更老的非完整档关序号对不上新表，读完模式
 	// 字段后直接作废；完整档表没动，照续。
+	// v8 起删了「储备」（见文件头 v8 条目）：旧档 buff id 按下面 buff 循环里的链迁移。
 	int aMode = RUN_MODE_FULL;
 	int aDiff = RUN_DIFF_STD;
-	if (aMagic != RUN_CHECKPOINT_MAGIC || (aVersion != RUN_CHECKPOINT_VERSION && aVersion != 6 && aVersion != 5 && aVersion != 4 && aVersion != 3 && aVersion != 2))
+	if (aMagic != RUN_CHECKPOINT_MAGIC || (aVersion != RUN_CHECKPOINT_VERSION && aVersion != 7 && aVersion != 6 && aVersion != 5 && aVersion != 4 && aVersion != 3 && aVersion != 2))
 	{
 		TodLog("[run] checkpoint magic/version mismatch, ignored");
 		return false;
@@ -603,6 +607,20 @@ bool RunState::Load(int theProfileId)
 		if (aVersion < 6 && aStack.mId >= 8)
 		{
 			aStack.mId = (unsigned short)(aStack.mId + 1);
+		}
+		// @pvz-online: v8——「储备」（原 id 5）删除：全局 9→8 条，单株 id 由「9 + 下标」全体
+		// 左移 1 变「8 + 下标」。链在 v6 的 +1 之后（v5 档：id 8 →+1= 9 →−1= 8 回位）。
+		// id 5 各代次都是储备本体，丢弃不读；id >= 6 一律 −1（含 8→7 Precision、9..56 → 8..55）。
+		if (aVersion < 8)
+		{
+			if (aStack.mId == 5)
+			{
+				continue;
+			}
+			if (aStack.mId >= 6)
+			{
+				aStack.mId = (unsigned short)(aStack.mId - 1);
+			}
 		}
 		aBuffs.push_back(aStack);
 	}

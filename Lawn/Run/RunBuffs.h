@@ -21,10 +21,12 @@ enum RunBuffId
 	RUN_BUFF_ABUNDANCE,		// 丰饶：产阳光间隔 −20%（至多 4 层）
 	RUN_BUFF_SWIFT,			// 急袭：攻击间隔叠乘 ×0.8/层（无限）
 	RUN_BUFF_FASTSEED,		// 速种：种植冷却叠乘 ×0.8/层（无限）
-	RUN_BUFF_RESERVE,		// 储备：每关开局阳光 +50（无限）
 	RUN_BUFF_SKYFALL,		// 天降：夜晚也降阳光 + 降阳光速率 ×4（只可选 1 层；2026-10-06 由「间隔 −20%/层、至多 4 层」整条重做）
 	RUN_BUFF_BLAST,			// 爆破：一次性植物伤害 +60%（无限；2026-10-05 批八由 +30% 上调）
 	RUN_BUFF_PRECISION,		// 精准：全体伤害 +15%（无限；2026-10-04 批 18 追加为 id 8）
+	// 2026-10-06（用户指令，见 docs/07 同日条目）：「储备」（原 id 5）删除——全局 9→8 条，
+	// 单株 id 由「9 + 下标」全体左移 1 变「8 + 下标」（检查点 v8 迁移读平）；开局阳光改按
+	// 上座顺位给（LawnApp::OnlineStartSunBonus，挂点 Board::InitLevel）。
 	RUN_BUFF_COUNT
 };
 
@@ -37,7 +39,8 @@ struct RunBuffDef
 	// 叠乘条目（mMultiplicative）= (1 + mPerStackMul)^层数。0 = 这条不是乘数型。
 	// 取用走 LawnApp::RunBuffMul，非闯关局自动是 1.0。
 	float		mPerStackMul;
-	// 每层的绝对值加成（储备 +50 阳光）。0 = 不是加成型。取用走 LawnApp::RunBuffAdd。
+	// 每层的绝对值加成。0 = 不是加成型。取用走 LawnApp::RunBuffAdd——当前无条目使用
+	// （原「储备」专用；该条 2026-10-06 删除后留机制备用）。
 	int			mPerStackAdd;
 	// @pvz-online: 层数上限：叠到这么多层后不再进候选（0 = 无限）。已超限的旧档保留层数、
 	// 不追溯削减；过滤在 RunState::RollChoices。
@@ -54,7 +57,8 @@ const RunBuffDef& GetRunBuffDef(int theId);
 // 一样，非闯关局自动是中性值，落点不需要判 mRunState。
 // @pvz-online: 表按 SeedType 升序维护（方案 docs/06 §2.1 / Q7）——单株 id = RUN_BUFF_COUNT
 // + 表内下标，所以前 5 条（SeedType 0..4）必须永远留在原位：老检查点里的 id 直接按它解读。
-// （2026-10-04 批 18 起 RUN_BUFF_COUNT 8→9，单株 id 全体右移 1；旧档按 v6 迁移读平。）
+// （2026-10-04 批 18 起 RUN_BUFF_COUNT 8→9，单株 id 全体右移 1；旧档按 v6 迁移读平。
+// 2026-10-06 起 RUN_BUFF_COUNT 9→8——储备删除，单株 id 全体左移 1；旧档按 v8 迁移读平。）
 // 新增条目插在自己的 SeedType 位次上：批 1 的 5 条是追加（SeedType 都大于 4），批 2/批 3/
 // 批 4/批 5/批 6/批 7 的 16 条、批 8 的地刺 1 条、批 9 的磁系 2 条、批 10 的投手族 4 条、
 // 批 11 的计时/产出族 4 条、批 12 的弹道/索敌族 3 条与批 13 的控制/减速族 4 条插进中段——
