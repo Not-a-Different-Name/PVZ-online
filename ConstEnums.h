@@ -1385,6 +1385,8 @@ enum ZombieType
     ZOMBIE_REDEYE_GARGANTUAR,
     ZOMBIE_ZOMBATAR,
     ZOMBIE_PAIL_DOOR,  // @pvz-online: 桶钢门（铁桶+铁门合成，双护具共存）
+    ZOMBIE_CONE_NEWSPAPER,  // @pvz-online: 路障报纸（路障头盔+报纸盾合成）
+    ZOMBIE_PAIL_NEWSPAPER,  // @pvz-online: 桶报纸（铁桶头盔+报纸盾合成）
     /* @Patoke: replanted/console shenanigans
     ZOMBIE_TARGET,
     ZOMBIE_TRASH_CAN,

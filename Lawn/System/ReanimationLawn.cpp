@@ -292,6 +292,37 @@ MemoryImage* ReanimatorCache::MakeCachedZombieFrame(ZombieType theZombieType)
 		aReanim.AssignRenderGroupToTrack("boss_head2", RENDER_GROUP_HIDDEN);
 		aReanim.Draw(&aMemoryGraphics);
 	}
+	else if (theZombieType == ZombieType::ZOMBIE_CONE_NEWSPAPER || theZombieType == ZombieType::ZOMBIE_PAIL_NEWSPAPER)
+	{
+		// @pvz-online: 合成僵尸（路障报纸/桶报纸）图鉴帧——身体（报纸）+ 帽子实例（原版路障/铁桶轨）
+		// 两层绘制；帽子 overlay 照游戏内挂接链合成：身体overlay · 身体头当前矩阵 · 帽子头基准矩阵⁻¹。
+		Reanimation aBodyReanim;
+		aBodyReanim.ReanimationInitializeType(aPosX, aPosY, ReanimationType::REANIM_ZOMBIE_NEWSPAPER);
+		aBodyReanim.SetFramesForLayer("anim_idle");
+		aBodyReanim.AssignRenderGroupToTrack("anim_waterline", RENDER_GROUP_HIDDEN);
+		aBodyReanim.AssignRenderGroupToPrefix("anim_hair", RENDER_GROUP_HIDDEN);
+		aBodyReanim.OverrideScale(aMemoryGraphics.mScaleX, aMemoryGraphics.mScaleY);
+
+		Reanimation aHatReanim;
+		aHatReanim.ReanimationInitializeType(aPosX, aPosY, ReanimationType::REANIM_ZOMBIE);
+		aHatReanim.ShowOnlyTrack(theZombieType == ZombieType::ZOMBIE_CONE_NEWSPAPER ? "anim_cone" : "anim_bucket");
+		aHatReanim.SetFramesForLayer("anim_idle");
+		aHatReanim.mAnimTime = 0.0f;
+		aHatReanim.OverrideScale(aMemoryGraphics.mScaleX, aMemoryGraphics.mScaleY);
+
+		ReanimatorTransform aBodyHeadTransform;
+		aBodyReanim.GetCurrentTransform(aBodyReanim.FindTrackIndex("anim_head1"), &aBodyHeadTransform);
+		SexyTransform2D aBodyHeadMatrix;
+		Reanimation::MatrixFromTransform(aBodyHeadTransform, aBodyHeadMatrix);
+		SexyTransform2D aHatHeadBaseMatrix;
+		aHatReanim.GetTrackBasePoseMatrix(aHatReanim.FindTrackIndex("anim_head1"), aHatHeadBaseMatrix);
+		SexyTransform2D aHatHeadBaseMatrixInv;
+		SexyMatrix3Inverse(aHatHeadBaseMatrix, aHatHeadBaseMatrixInv);
+		aHatReanim.mOverlayMatrix = aBodyReanim.mOverlayMatrix * aBodyHeadMatrix * aHatHeadBaseMatrixInv;
+
+		aBodyReanim.Draw(&aMemoryGraphics);
+		aHatReanim.Draw(&aMemoryGraphics);
+	}
 	else
 	{
 		const char* aTrackName = "anim_idle";

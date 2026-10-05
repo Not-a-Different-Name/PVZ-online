@@ -58,6 +58,10 @@ ZombieDefinition gZombieDefs[NUM_ZOMBIE_TYPES] = {  //0x69DA80
     // 非闯关模式在 CanZombieSpawnOnLevel 早退（同表尾 ZOMBATAR 的 pickWeight=0 手法）。
     // 点数 6 = 铁桶/铁门(4) 与橄榄球(7) 之间；名字复用铁门的本地化串（图鉴页同文案）。
     { ZOMBIE_PAIL_DOOR,         REANIM_ZOMBIE,              6,      99,     10,     1500,   _S("SCREEN_DOOR_ZOMBIE") },
+    // @pvz-online: 路障报纸 / 桶报纸（头盔 + 报纸盾合成）——同桶钢门闯关限定（startingLevel=99）。
+    // 点数 4/6 = 对应头盔原值；名字复用路障/铁桶本地化串（图鉴页同文案，同桶钢门用法）。
+    { ZOMBIE_CONE_NEWSPAPER,    REANIM_ZOMBIE_NEWSPAPER,    4,      99,     10,     1500,   _S("CONEHEAD_ZOMBIE") },
+    { ZOMBIE_PAIL_NEWSPAPER,    REANIM_ZOMBIE_NEWSPAPER,    6,      99,     10,     1500,   _S("BUCKETHEAD_ZOMBIE") },
 };
 
 static ZombieType gBossZombieList[] = {  //0x69DE1C
@@ -170,6 +174,7 @@ void Zombie::ZombieInitialize(int theRow, ZombieType theType, bool theVariant, Z
     mBossMode = 0;
     mBossFireBallReanimID = ReanimationID::REANIMATIONID_NULL;
     mSpecialHeadReanimID = ReanimationID::REANIMATIONID_NULL;
+    mPaperHelmReanimID = ReanimationID::REANIMATIONID_NULL;  // @pvz-online: 路障报纸/桶报纸的帽子实例
     mTargetRow = -1;
     mFireballRow = -1;
     mIsFireBall = false;
@@ -233,6 +238,29 @@ void Zombie::ZombieInitialize(int theRow, ZombieType theType, bool theVariant, Z
         mShieldType = ShieldType::SHIELDTYPE_DOOR;
         mShieldHealth = 1100;
         AttachShield();
+        break;
+
+    // @pvz-online: 路障报纸 / 桶报纸 = 报纸僵尸本体 + 原版头盔（独立帽子实例，挂在身体 anim_head1 轨）
+    case ZombieType::ZOMBIE_CONE_NEWSPAPER:
+    case ZombieType::ZOMBIE_PAIL_NEWSPAPER:
+        mZombieAttackRect = Rect(20, 0, 50, 115);
+        mZombiePhase = ZombiePhase::PHASE_NEWSPAPER_READING;
+        mShieldType = ShieldType::SHIELDTYPE_NEWSPAPER;
+        mShieldHealth = 150;
+        mVariant = false;
+        ReanimShowPrefix("anim_hair", RENDER_GROUP_HIDDEN);
+        if (theType == ZombieType::ZOMBIE_CONE_NEWSPAPER)
+        {
+            mHelmType = HelmType::HELMTYPE_TRAFFIC_CONE;
+            mHelmHealth = 370;
+        }
+        else
+        {
+            mHelmType = HelmType::HELMTYPE_PAIL;
+            mHelmHealth = 1100;
+        }
+        AttachShield();
+        AttachPaperHelmReanim();
         break;
 
     case ZombieType::ZOMBIE_YETI:  //0x522963
@@ -3558,6 +3586,32 @@ void Zombie::DropHead(unsigned int theDamageFlags)
 
     mHasHead = false;
     SetupReanimForLostHead();
+    // @pvz-online: 合成僵尸（路障报纸/桶报纸）掉头——帽子实例随头摘除；盔还在就喷原版飞脱粒子
+    if (mZombieType == ZombieType::ZOMBIE_CONE_NEWSPAPER || mZombieType == ZombieType::ZOMBIE_PAIL_NEWSPAPER)
+    {
+        Reanimation* aHatReanim = mApp->ReanimationTryToGet(mPaperHelmReanimID);
+        if (aHatReanim != nullptr)
+        {
+            aHatReanim->AssignRenderGroupToPrefix("anim_cone", RENDER_GROUP_HIDDEN);
+            aHatReanim->AssignRenderGroupToPrefix("anim_bucket", RENDER_GROUP_HIDDEN);
+        }
+        if (mHelmType == HelmType::HELMTYPE_TRAFFIC_CONE || mHelmType == HelmType::HELMTYPE_PAIL)
+        {
+            if (!TestBit(theDamageFlags, DamageFlags::DAMAGE_DOESNT_LEAVE_BODY))
+            {
+                float aHelmPosX = mPosX;
+                float aHelmPosY = mPosY;
+                GetTrackPosition("anim_head1", aHelmPosX, aHelmPosY);
+                TodParticleSystem* aHelmParticle = mApp->AddTodParticle(
+                    aHelmPosX, aHelmPosY, mRenderOrder + 1,
+                    mHelmType == HelmType::HELMTYPE_TRAFFIC_CONE
+                        ? ParticleEffect::PARTICLE_ZOMBIE_TRAFFIC_CONE
+                        : ParticleEffect::PARTICLE_ZOMBIE_PAIL);
+                OverrideParticleScale(aHelmParticle);
+            }
+            mHelmType = HelmType::HELMTYPE_NONE;
+        }
+    }
     if (TestBit(theDamageFlags, DamageFlags::DAMAGE_DOESNT_LEAVE_BODY))
     {
         return;
@@ -3593,7 +3647,7 @@ void Zombie::DropHead(unsigned int theDamageFlags)
     {
         aRenderOrder = mRenderOrder - 1;
     }
-    if (mZombieType == ZombieType::ZOMBIE_NEWSPAPER)
+    if (mZombieType == ZombieType::ZOMBIE_NEWSPAPER || mZombieType == ZombieType::ZOMBIE_CONE_NEWSPAPER || mZombieType == ZombieType::ZOMBIE_PAIL_NEWSPAPER)
     {
         aEffect = ParticleEffect::PARTICLE_ZOMBIE_NEWSPAPER_HEAD;
     }
@@ -3744,6 +3798,8 @@ void Zombie::SetupReanimForLostArm(unsigned int theDamageFlags)
         ReanimShowPrefix("Zombie_football_leftarm_hand", RENDER_GROUP_HIDDEN);
         break;
     case ZombieType::ZOMBIE_NEWSPAPER:
+    case ZombieType::ZOMBIE_CONE_NEWSPAPER:
+    case ZombieType::ZOMBIE_PAIL_NEWSPAPER:
         ReanimShowTrack("Zombie_paper_hands", RENDER_GROUP_HIDDEN);
         ReanimShowTrack("Zombie_paper_leftarm_lower", RENDER_GROUP_HIDDEN);
         break;
@@ -3785,6 +3841,8 @@ void Zombie::SetupReanimForLostArm(unsigned int theDamageFlags)
             aBodyReanim->SetImageOverride("Zombie_football_leftarm_upper", IMAGE_REANIM_ZOMBIE_FOOTBALL_LEFTARM_UPPER2);
             break;
         case ZombieType::ZOMBIE_NEWSPAPER:
+        case ZombieType::ZOMBIE_CONE_NEWSPAPER:
+        case ZombieType::ZOMBIE_PAIL_NEWSPAPER:
             GetTrackPosition("Zombie_paper_leftarm_lower", aPosX, aPosY);
             aBodyReanim->SetImageOverride("Zombie_paper_leftarm_upper", IMAGE_REANIM_ZOMBIE_PAPER_LEFTARM_UPPER2);
             break;
@@ -3884,6 +3942,8 @@ void Zombie::SetupReanimForLostArm(unsigned int theDamageFlags)
                 aParticle->OverrideImage(nullptr, IMAGE_REANIM_ZOMBIE_FOOTBALL_LEFTARM_HAND);
                 break;
             case ZombieType::ZOMBIE_NEWSPAPER:
+            case ZombieType::ZOMBIE_CONE_NEWSPAPER:
+            case ZombieType::ZOMBIE_PAIL_NEWSPAPER:
                 aParticle->OverrideImage(nullptr, IMAGE_REANIM_ZOMBIE_PAPER_LEFTARM_LOWER);
                 break;
             case ZombieType::ZOMBIE_DANCER:
@@ -4537,7 +4597,7 @@ void Zombie::UpdateActions()
     {
         UpdateZombieFlyer();
     }
-    if (mZombieType == ZombieType::ZOMBIE_NEWSPAPER)
+    if (mZombieType == ZombieType::ZOMBIE_NEWSPAPER || mZombieType == ZombieType::ZOMBIE_CONE_NEWSPAPER || mZombieType == ZombieType::ZOMBIE_PAIL_NEWSPAPER)
     {
         UpdateZombieNewspaper();
     }
@@ -4776,7 +4836,9 @@ bool Zombie::HasYuckyFaceImage()
         mZombieType == ZombieType::ZOMBIE_BACKUP_DANCER || 
         mZombieType == ZombieType::ZOMBIE_NEWSPAPER || 
         mZombieType == ZombieType::ZOMBIE_POLEVAULTER ||
-        mZombieType == ZombieType::ZOMBIE_PAIL_DOOR;
+        mZombieType == ZombieType::ZOMBIE_PAIL_DOOR ||
+        mZombieType == ZombieType::ZOMBIE_CONE_NEWSPAPER ||
+        mZombieType == ZombieType::ZOMBIE_PAIL_NEWSPAPER;
 }
 
 //0x52B5B0
@@ -5054,7 +5116,8 @@ void Zombie::Animate()
                 aLeftHandTime = 0.38f;
                 aRightHandTime = 0.8f;
             }
-            else if (mZombieType == ZombieType::ZOMBIE_NEWSPAPER || mZombieType == ZombieType::ZOMBIE_LADDER)
+            else if (mZombieType == ZombieType::ZOMBIE_NEWSPAPER || mZombieType == ZombieType::ZOMBIE_LADDER
+                || mZombieType == ZombieType::ZOMBIE_CONE_NEWSPAPER || mZombieType == ZombieType::ZOMBIE_PAIL_NEWSPAPER)
             {
                 aLeftHandTime = 0.42f;
                 aRightHandTime = 0.42f;
@@ -7845,7 +7908,22 @@ void Zombie::DropHelm(unsigned int theDamageFlags)
     float aPosX = mPosX + aDrawPos.mImageOffsetX + aDrawPos.mHeadX + 14.0f;
     float aPosY = mPosY + aDrawPos.mImageOffsetY + aDrawPos.mHeadY + aDrawPos.mBodyY + 18.0f;
     ParticleEffect aEffect = ParticleEffect::PARTICLE_NONE;
-    if (mHelmType == HelmType::HELMTYPE_TRAFFIC_CONE)
+    // @pvz-online: 路障报纸/桶报纸的盔挂在独立帽子实例上——藏帽实例轨、按身体头位置喷飞脱粒子
+    if (mZombieType == ZombieType::ZOMBIE_CONE_NEWSPAPER || mZombieType == ZombieType::ZOMBIE_PAIL_NEWSPAPER)
+    {
+        Reanimation* aHatReanim = mApp->ReanimationTryToGet(mPaperHelmReanimID);
+        if (aHatReanim != nullptr)
+        {
+            aHatReanim->AssignRenderGroupToPrefix("anim_cone", RENDER_GROUP_HIDDEN);
+            aHatReanim->AssignRenderGroupToPrefix("anim_bucket", RENDER_GROUP_HIDDEN);
+        }
+        GetTrackPosition("anim_head1", aPosX, aPosY);
+        ReanimShowPrefix("anim_hair", RENDER_GROUP_NORMAL);
+        aEffect = mHelmType == HelmType::HELMTYPE_TRAFFIC_CONE
+            ? ParticleEffect::PARTICLE_ZOMBIE_TRAFFIC_CONE
+            : ParticleEffect::PARTICLE_ZOMBIE_PAIL;
+    }
+    else if (mHelmType == HelmType::HELMTYPE_TRAFFIC_CONE)
     {
         GetTrackPosition("anim_cone", aPosX, aPosY);
         ReanimShowPrefix("anim_cone", RENDER_GROUP_HIDDEN);
@@ -7912,6 +7990,11 @@ int Zombie::TakeHelmDamage(int theDamage, unsigned int theDamageFlags)
     if (aDamageIndexBeforeDamage != aDamageIndexAfterDamage)
     {
         Reanimation* aBodyReanim = mApp->ReanimationTryToGet(mBodyReanimID);
+        // @pvz-online: 路障报纸/桶报纸的盔碎贴图打在被击的帽子实例上（原版打在身体轨上）
+        if (mZombieType == ZombieType::ZOMBIE_CONE_NEWSPAPER || mZombieType == ZombieType::ZOMBIE_PAIL_NEWSPAPER)
+        {
+            aBodyReanim = mApp->ReanimationTryToGet(mPaperHelmReanimID);
+        }
         if (mHelmType == HelmType::HELMTYPE_TRAFFIC_CONE && aDamageIndexAfterDamage == 1 && aBodyReanim)
         {
             aBodyReanim->SetImageOverride("anim_cone", IMAGE_REANIM_ZOMBIE_CONE2);
@@ -8560,6 +8643,44 @@ Reanimation* Zombie::AddAttachedReanim(int thePosX, int thePosY, ReanimationType
     return aReanim;
 }
 
+// @pvz-online: 路障报纸/桶报纸——把原版头盔（REANIM_ZOMBIE 的第二实例，只显 anim_cone/anim_bucket 轨）
+// 挂到报纸身体 reanim 的 anim_head1 轨上。帽子冻结在动画起点帧（mAnimRate=0），挂接偏移取
+// 「身体头基准矩阵 × 帽子头基准矩阵的逆」全矩阵——绘制链 = 身体overlay·T_body_now·base⁻¹·Δ·T_hat_now，
+// 冻结时 T_hat_now==base_hat，合成结果逐帧严格等于身体头矩阵（换动作/死亡也不漂）。
+// 身体 mFrameBasePose 钉帧 0（同植物头僵尸手法）：基准矩阵不随身体当前动画的 mFrameStart 漂移，
+// 否则身体一切换动作（gasp/吃/死亡）帽子就整体偏移。
+void Zombie::AttachPaperHelmReanim()
+{
+    Reanimation* aBodyReanim = mApp->ReanimationTryToGet(mBodyReanimID);
+    if (aBodyReanim == nullptr)
+    {
+        return;
+    }
+
+    aBodyReanim->mFrameBasePose = 0;
+
+    Reanimation* aHatReanim = mApp->AddReanimation(0.0f, 0.0f, 0, ReanimationType::REANIM_ZOMBIE);
+    aHatReanim->ShowOnlyTrack(mZombieType == ZombieType::ZOMBIE_CONE_NEWSPAPER ? "anim_cone" : "anim_bucket");
+    aHatReanim->SetFramesForLayer("anim_walk");
+    aHatReanim->mAnimTime = 0.0f;
+    aHatReanim->mAnimRate = 0.0f;
+
+    SexyTransform2D aBodyHeadMatrix;
+    aBodyReanim->GetTrackBasePoseMatrix(aBodyReanim->FindTrackIndex("anim_head1"), aBodyHeadMatrix);
+    SexyTransform2D aHatHeadMatrix;
+    aHatReanim->GetTrackBasePoseMatrix(aHatReanim->FindTrackIndex("anim_head1"), aHatHeadMatrix);
+    SexyTransform2D aHatHeadMatrixInv;
+    SexyMatrix3Inverse(aHatHeadMatrix, aHatHeadMatrixInv);
+    SexyTransform2D aOffsetMatrix = aBodyHeadMatrix * aHatHeadMatrixInv;
+
+    AttachEffect* aAttachEffect = AttachReanim(aBodyReanim->GetTrackInstanceByName("anim_head1")->mAttachmentID, aHatReanim, 0.0f, 0.0f);
+    if (aAttachEffect)
+    {
+        aAttachEffect->mOffset = aOffsetMatrix;
+    }
+    mPaperHelmReanimID = mApp->ReanimationGetID(aHatReanim);
+}
+
 //0x532350
 void Zombie::RemoveIceTrap()
 {
@@ -8830,7 +8951,8 @@ void Zombie::MowDown()
     {
         DropPole();
     }
-    else if (mZombieType == ZombieType::ZOMBIE_NEWSPAPER || mZombieType == ZombieType::ZOMBIE_BALLOON)
+    else if (mZombieType == ZombieType::ZOMBIE_NEWSPAPER || mZombieType == ZombieType::ZOMBIE_BALLOON
+        || mZombieType == ZombieType::ZOMBIE_CONE_NEWSPAPER || mZombieType == ZombieType::ZOMBIE_PAIL_NEWSPAPER)
     {
         DropHead(0U);
     }
@@ -9366,6 +9488,8 @@ void Zombie::UpdateDeath()
             aFallTime = 0.52f;
             break;
 
+        case ZombieType::ZOMBIE_CONE_NEWSPAPER:
+        case ZombieType::ZOMBIE_PAIL_NEWSPAPER:
         case ZombieType::ZOMBIE_NEWSPAPER:
             aFallTime = 0.63f;
             break;
@@ -9621,7 +9745,7 @@ void Zombie::DrawShadow(Graphics* g)
         }
         aShadowOffsetY += 16.0f;
     }
-    else if (mZombieType == ZombieType::ZOMBIE_NEWSPAPER)
+    else if (mZombieType == ZombieType::ZOMBIE_NEWSPAPER || mZombieType == ZombieType::ZOMBIE_CONE_NEWSPAPER || mZombieType == ZombieType::ZOMBIE_PAIL_NEWSPAPER)
     {
         if (IsWalkingBackwards())
         {
@@ -9746,7 +9870,7 @@ void Zombie::DrawShadow(Graphics* g)
         }
     }
 
-    if (mZombieType == ZombieType::ZOMBIE_NEWSPAPER)
+    if (mZombieType == ZombieType::ZOMBIE_NEWSPAPER || mZombieType == ZombieType::ZOMBIE_CONE_NEWSPAPER || mZombieType == ZombieType::ZOMBIE_PAIL_NEWSPAPER)
     {
         aShadowOffsetY += 4.0f;
     }

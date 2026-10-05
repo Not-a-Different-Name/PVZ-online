@@ -159,6 +159,7 @@ public:
     int                             mBossHeadCounter;                           //+0x13C
     ReanimationID                   mBossFireBallReanimID;                      //+0x140
     ReanimationID                   mSpecialHeadReanimID;                       //+0x144
+    ReanimationID                   mPaperHelmReanimID;                         // @pvz-online: 路障报纸/桶报纸的独立帽子实例（REANIM_ZOMBIE 只显 anim_cone/anim_bucket）
     ReanimationID                   mZombatarHeadReanimID;                      //+GOTY @Patoke: 0x148
     int                             mFireballRow;                               //+0x148
     bool                            mIsFireBall;                                //+0x14C
@@ -293,6 +294,7 @@ public:
     bool                            IsMovingAtChilledSpeed();
     void                            StartWalkAnim(int theBlendTime);
     Reanimation*                    AddAttachedReanim(int thePosX, int thePosY, ReanimationType theReanimType);
+    void                            AttachPaperHelmReanim();
     void                            DragUnder();
     static /*inline*/ void          SetupDoorArms(Reanimation* aReanim, bool theShow);
     static void                     SetupReanimLayers(Reanimation* aReanim, ZombieType theZombieType);
