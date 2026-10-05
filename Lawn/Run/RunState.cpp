@@ -24,9 +24,12 @@
 // v6：批 18（2026-10-04）全局表尾插了第 9 条 Precision——全局 id 0..7 不动，单株 id 由
 //     「8 + 下标」全体右移 1 变「9 + 下标」；v5 及更老的档读到 id >= 8 的全部 +1 读平
 //     （旧档里 id 8 是第一个单株、不是 Precision，不会撞车）。载荷长度一个字节没变。
+// v7：批十（2026-10-05）模式表改版——普通档由每场景第 1/3/5 关改抽 1/5 关（=原快速表）、
+//     快速档改抽每场景第 5 关：同一个关序号在新表里指向别的引擎关，非完整档的旧检查点没
+//     法安全续，一律当"没有检查点"（完整档的表没动，v2..v6 的完整档照续）。载荷长度没变。
 
 static const unsigned int RUN_CHECKPOINT_MAGIC = 0x314E5552;	// 'RUN1'
-static const unsigned short RUN_CHECKPOINT_VERSION = 6;
+static const unsigned short RUN_CHECKPOINT_VERSION = 7;
 
 static std::vector<unsigned char>& AppendU16(std::vector<unsigned char>& theData, unsigned int theValue)
 {
@@ -322,11 +325,11 @@ int RunState::LevelForIndex(int theIndex)
 	return aLevels[theIndex];
 }
 
-// 时长档的每场景关数（完整 5 / 普通 3 / 快速 2）。模式非法按完整版——检查点、联机包
+// 时长档的每场景关数（完整 5 / 普通 2 / 快速 1）。模式非法按完整版——检查点、联机包
 // 里来的值都过这道闸，越界值永远到不了下面的表。
 int RunState::LevelsPerScene(int theRunMode)
 {
-	static const int aPerScene[] = { 5, 3, 2 };
+	static const int aPerScene[] = { 5, 2, 1 };
 	if (theRunMode < RUN_MODE_FULL || theRunMode > RUN_MODE_QUICK) return aPerScene[RUN_MODE_FULL];
 	return aPerScene[theRunMode];
 }
@@ -345,15 +348,16 @@ int RunState::DiffPermilleFor(int theRunDiff)
 	return aPermille[theRunDiff];
 }
 
-// 按时长档从同一张 25 关表里抽行：普通版每场景取第 1/3/5 关、快速版取第 1/5 关
-// （M4-b 定案）。抽出来的还是这张表里的引擎关号——波数、出怪、种类名单都按引擎关走，
+// 按时长档从同一张 25 关表里抽行（批十 2026-10-05 按玩家反馈改版）：普通版每场景取
+// 第 1/5 关（10 关，即原快速表）、快速版取第 5 关（5 关，每场景收尾的难关）。
+// 抽出来的还是这张表里的引擎关号——波数、出怪、种类名单都按引擎关走，
 // 所以 RunLevelIndexForEngineLevel 的完整版反查在三档里都命中。
 int RunState::LevelForModeIndex(int theRunMode, int theIndex)
 {
 	static const int aSubs[RUN_MODE_QUICK + 1][RUN_LEVELS_PER_SCENE] = {
 		{ 0, 1, 2, 3, 4 },	// 完整版：全取
-		{ 0, 2, 4, 0, 0 },	// 普通版：每场景第 1/3/5 关
-		{ 0, 4, 0, 0, 0 },	// 快速版：每场景第 1/5 关
+		{ 0, 4, 0, 0, 0 },	// 普通版：每场景第 1/5 关（=原快速表）
+		{ 4, 0, 0, 0, 0 },	// 快速版：每场景第 5 关（引擎关 10/20/30/40/49）
 	};
 	if (theRunMode < RUN_MODE_FULL || theRunMode > RUN_MODE_QUICK) theRunMode = RUN_MODE_FULL;
 	int aPerScene = LevelsPerScene(theRunMode);
@@ -370,7 +374,7 @@ int RunState::GetPlayingLevelIndex() const
 }
 
 // 场景档 0..4。mLevelIndex 会短暂停在"已通关"（== 关数）这种空档上：
-// 夹进范围里，别让越界值把难度表读穿。每场景关数按时长档（5/3/2）。
+// 夹进范围里，别让越界值把难度表读穿。每场景关数按时长档（5/2/1）。
 int RunState::GetSceneIndex() const
 {
 	int aIndex = GetPlayingLevelIndex();
@@ -481,9 +485,11 @@ bool RunState::Load(int theProfileId)
 	// v3 才有时长档、v4 才有难度档、v5 才有推车记账（v6 与 v5 的保留位含义相同）。老版本
 	// 占的保留位恒 0，恰好是各自默认档——v2 的档按完整版续、v3 的档按标准难度续，都不作废；
 	// v5 及更老的档没有推车字段，按"一辆都没用"续。再往前的版本一律当"没有检查点"。
+	// v7 起模式表改版（见文件头 v7 条目）：6 及更老的非完整档关序号对不上新表，读完模式
+	// 字段后直接作废；完整档表没动，照续。
 	int aMode = RUN_MODE_FULL;
 	int aDiff = RUN_DIFF_STD;
-	if (aMagic != RUN_CHECKPOINT_MAGIC || (aVersion != RUN_CHECKPOINT_VERSION && aVersion != 5 && aVersion != 4 && aVersion != 3 && aVersion != 2))
+	if (aMagic != RUN_CHECKPOINT_MAGIC || (aVersion != RUN_CHECKPOINT_VERSION && aVersion != 6 && aVersion != 5 && aVersion != 4 && aVersion != 3 && aVersion != 2))
 	{
 		TodLog("[run] checkpoint magic/version mismatch, ignored");
 		return false;
@@ -493,6 +499,11 @@ bool RunState::Load(int theProfileId)
 		aMode = (int)(aReserved & 0xFF);
 		if (aMode < RUN_MODE_FULL || aMode > RUN_MODE_QUICK)
 		{
+			return false;
+		}
+		if (aVersion < 7 && aMode != RUN_MODE_FULL)
+		{
+			TodLog("[run] pre-v7 checkpoint with the old mode table, ignored");
 			return false;
 		}
 	}

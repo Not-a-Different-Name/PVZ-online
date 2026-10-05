@@ -7,11 +7,11 @@
 
 // @pvz-online: 全流程闯关（肉鸽）的本地状态 + 检查点文件。
 //
-// 一局分三档时长（M4-b，用户定案）：完整版 = 5 场景 × 5 关 = 25 关；普通版 = 每场景
-// 第 1/3/5 关 = 15 关（每关后奖励屏 ×2）；快速版 = 每场景第 1/5 关 = 10 关（奖励屏 ×3）。
-// 三档共用同一张 25 关号表（完整版全取、普通/快速抽行，见 LevelForModeIndex），首关
-// 仍是 10 波带旗；场景（白天 → 夜 → 泳池 → 迷雾 → 屋顶）与难度阶梯只看第几关落在
-// 哪个场景，三档不差一个字。
+// 一局分三档时长（M4-b 定案；批十 2026-10-05 按玩家反馈改版）：完整版 = 5 场景 × 5 关 = 25 关；
+// 普通版 = 每场景第 1/5 关 = 10 关（即原快速版）；快速版 = 每场景第 5 关 = 5 关（短局取每场景
+// 收尾的难关；短一局用更密的奖励屏补内容量，倍乘见 BeginLevelEndPicks）。三档共用同一张 25 关
+// 号表（完整版全取、普通/快速抽行，见 LevelForModeIndex），首关仍是 10 波带旗；场景（白天 →
+// 夜 → 泳池 → 迷雾 → 屋顶）与难度阶梯只看第几关落在哪个场景，三档不差一个字。
 // 卡池随三选一逐关变大、buff 跟着这一局走——检查点把这两样一起带走。
 //
 // 检查点写在 userdata/run%d.dat，和 user%d.dat（本机档案进度）完全分开：
@@ -23,8 +23,8 @@
 class RunState
 {
 public:
-	// @pvz-online: 时长档（M4-b）。完整版一局 25 关；普通版抽每场景第 1/3/5 关、快速版
-	// 抽第 1/5 关——短一局用更密的奖励屏补内容量（倍乘见 BeginLevelEndPicks）。
+	// @pvz-online: 时长档（M4-b）。完整版一局 25 关；普通版抽每场景第 1/5 关（10 关，=原快速表）、
+	// 快速版抽第 5 关（5 关）——短一局用更密的奖励屏补内容量（倍乘见 BeginLevelEndPicks）。
 	enum	{ RUN_MODE_FULL = 0, RUN_MODE_NORMAL = 1, RUN_MODE_QUICK = 2 };
 
 	// @pvz-online: 出怪难度档（2026-10-03 用户定案）：房主开局前在选模式页选的全局出怪
@@ -96,7 +96,7 @@ public:
 	// 全新一局：卡池回到两株、失败计数清零、从第 1 关开打。
 	void				StartNew(int theRunSeed, int theRunMode = RUN_MODE_FULL, int theRunDiff = RUN_DIFF_STD);
 
-	// 时长档的关数口径：每场景关数（5/3/2）与总关数（25/15/10）。模式非法按完整版。
+	// 时长档的关数口径：每场景关数（5/2/1）与总关数（25/10/5）。模式非法按完整版。
 	static int			LevelsPerScene(int theRunMode);
 	static int			LevelCountForMode(int theRunMode);
 	int					GetLevelCount() const { return LevelCountForMode(mMode); }
@@ -163,7 +163,7 @@ public:
 	// 完整版 25 关号表（表内序号 → 引擎关号）。普通/快速档的关号都是它的子集，所以
 	// RunLevelIndexForEngineLevel 按"完整版口径"反查仍命中——波数、种类名单永远跟引擎关走。
 	static int			LevelForIndex(int theIndex);
-	// 按时长档抽行的关号表：普通版取每场景第 1/3/5 关、快速版取第 1/5 关（M4-b）。
+	// 按时长档抽行的关号表：普通版取每场景第 1/5 关（=原快速表）、快速版取每场景第 5 关（批十改版）。
 	static int			LevelForModeIndex(int theRunMode, int theIndex);
 
 	// @pvz-online: 难度阶梯（M4-a）取用口。正在打的那一关的序号，口径与 GetLevel /
