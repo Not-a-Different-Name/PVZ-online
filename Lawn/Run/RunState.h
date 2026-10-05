@@ -112,13 +112,14 @@ public:
 	// 卡池拿满 48 株时植物屏没得抽，这两处会自动少发/不发植物屏（见 CanOfferPlantPick）。
 	void				BeginStartPicks();
 	void				BeginLevelEndPicks();
-	// 卡池里还有没到手的植物（种子屏才有候选）。玩家最多能拿到 48 株，25 关后段
-	// 每关 +2 株必然抽干候选——抽干了就不再发植物屏，只发增益屏。
+	// 卡池里还有没到手的植物（种子屏才有候选）。玩家最多能拿到 48 株，关数一多每关的
+	// 植物奖（2/6/10 株）必然把候选抽干——抽干了就不再发植物屏，只发增益屏。
 	bool				CanOfferPlantPick() const;
 	bool				HasPendingPick() const { return mPendingPlantPicks > 0 || mPendingBuffPicks > 0; }
 	// 这一屏发的是植物（true）还是 buff（false）。
 	bool				IsPlantPick() const { return mPendingPlantPicks > 0; }
 	// 抽当前这一屏的三条候选，摆在 mPlantChoices / mBuffChoices 里等玩家点。
+	// 增益屏的第 1 格保底一条全局增益（批十 2026-10-05；全局全封顶时自然让位）。
 	void				RollChoices();
 	// 玩家点了第 theIndex 张卡：植物进卡池、buff 叠一层，各欠的数减一。
 	void				TakePlantChoice(int theIndex);

@@ -201,16 +201,21 @@ void RunState::RollChoices()
 	}
 	else
 	{
-		// 增益：全局 8 条 + 单株升级混池抽 3 条互不重复。单株的只收"卡池里已经有这株"的
-		// （设计文档：只对已拥有的植物出）。同名跨屏可以再来（叠层，见 BuffStack）；
+		// 增益：全局 9 条 + 单株升级混池抽 3 条互不重复，其中第 1 格保底一条全局（批十
+		// 2026-10-05 用户定案：植物多了以后单株条目把全局挤成了小概率，"每屏至少看得见
+		// 一条全局"）——全局全封顶/抽干时自然让位，退化成纯混池。单株的只收"卡池里已经有
+		// 这株"的（设计文档：只对已拥有的植物出）。同名跨屏可以再来（叠层，见 BuffStack）；
 		// 但叠到 mMaxStacks 的条目不再进候选（0 = 无限，方案 §2.2）——到顶就抽不中你。
 		int aCandidates[RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT];
 		int aCount = 0;
+		int aGlobals[RUN_BUFF_COUNT];
+		int aGlobalCount = 0;
 		for (int i = 0; i < RUN_BUFF_COUNT; i++)
 		{
 			int aCap = GetRunChoiceMaxStacks(i);
 			if (aCap > 0 && GetBuffCount(i) >= aCap) continue;
 			aCandidates[aCount++] = i;
+			aGlobals[aGlobalCount++] = i;
 		}
 		for (int i = 0; i < RUN_PLANT_UPGRADE_COUNT; i++)
 		{
@@ -231,15 +236,31 @@ void RunState::RollChoices()
 			return;
 		}
 
-		for (int i = 0; i < RUN_CHOICES; i++)
+		// 第 1 格保底一条全局；抽中后从混池里摘掉，三条仍然互不重复。
+		int aSlot = 0;
+		if (aGlobalCount > 0)
+		{
+			int aPick = (int)aRNG.Next((unsigned long)aGlobalCount);
+			unsigned short aGlobalId = (unsigned short)aGlobals[aPick];
+			mBuffChoices[aSlot++] = aGlobalId;
+			for (int i = 0; i < aCount; i++)
+			{
+				if (aCandidates[i] == (int)aGlobalId)
+				{
+					aCandidates[i] = aCandidates[--aCount];
+					break;
+				}
+			}
+		}
+		for (; aSlot < RUN_CHOICES; aSlot++)
 		{
 			if (aCount <= 0)
 			{
-				mBuffChoices[i] = RUN_BUFF_CHOICE_NONE;
+				mBuffChoices[aSlot] = RUN_BUFF_CHOICE_NONE;
 				continue;
 			}
 			int aPick = (int)aRNG.Next((unsigned long)aCount);
-			mBuffChoices[i] = (unsigned short)aCandidates[aPick];
+			mBuffChoices[aSlot] = (unsigned short)aCandidates[aPick];
 			aCandidates[aPick] = aCandidates[--aCount];
 		}
 	}
