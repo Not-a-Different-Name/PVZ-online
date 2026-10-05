@@ -1364,10 +1364,12 @@ void LawnApp::UpdateOnlineEnd()
 				if (mRunState->IsComplete())
 				{
 					TodLog("[run] the run is complete");
+					// ShowGameSelector 会把 mRunState 删掉——关数先取出来，别在那之后再碰它。
+					int aLevelCount = mRunState->GetLevelCount();
 					RunState::DeleteCheckpoint(mPlayerInfo->mId);
 					ShowGameSelector();
 					LawnMessageBox(Dialogs::DIALOG_MESSAGE, "Run complete",
-						StrFormat("You made it through all %d levels!\nClick ADVENTURE for a new run.", mRunState->GetLevelCount()).c_str(),
+						StrFormat("You made it through all %d levels!\nClick ADVENTURE for a new run.", aLevelCount).c_str(),
 						"OK", "", Dialog::BUTTONS_FOOTER);
 				}
 				else
@@ -1800,10 +1802,12 @@ void LawnApp::UpdateRunEnd()
 	if (mRunState->IsComplete())
 	{
 		TodLog("[run] the run is complete");
+		// ShowGameSelector 会把 mRunState 删掉——关数先取出来，别在那之后再碰它。
+		int aLevelCount = mRunState->GetLevelCount();
 		RunState::DeleteCheckpoint(mPlayerInfo->mId);
 		ShowGameSelector();
 		LawnMessageBox(Dialogs::DIALOG_MESSAGE, "Run complete",
-			StrFormat("You made it through all %d levels!\nClick ADVENTURE for a new run.", mRunState->GetLevelCount()).c_str(),
+			StrFormat("You made it through all %d levels!\nClick ADVENTURE for a new run.", aLevelCount).c_str(),
 			"OK", "", Dialog::BUTTONS_FOOTER);
 	}
 	else
