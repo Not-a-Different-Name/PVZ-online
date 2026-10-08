@@ -5134,13 +5134,12 @@ void Plant::Fire(Zombie* theTargetZombie, int theRow, PlantWeapon thePlantWeapon
 
     // @pvz-online: 单株升级「多发」：每层多打一发（RunBuffs 单株表）。
     // 表里进得了这段的是直射豌豆系（豌豆、三线——三线每道调一次 Fire，所以是每道各 +1 颗，
-    // 不是每轮 +3）与小喷菇（2026-10-04 起，每次 +2 颗/层、无上限）——多出来的子弹照主子弹的
+    // 不是每轮 +3）与小喷菇——多出来的子弹照主子弹的
     // 默认直线运动走，出发位置逐发后错一点，看得出是一排子弹而不是一发重影。
     // 修正批（2026-10-03）改走 Kind 闸门口（Kind=SHOTCOUNT）：只有多发型条目进得来——
     // 此前任意带层行都会给该株多发（批 10 的黄油行差点让玉米投手多发玉米）。
-    // 用户口径「小喷菇每次+2」：表行仍是每层 1 个计数，2 颗/层的换算只在这里做。
+    // （2026-10-09 数值对齐：小喷菇 +2 颗/层的 ×2 换算删除，回 +1 颗/层，docs/07 同日条目。）
     int aExtraShots = mApp->RunPlantUpgradeCountKind(mSeedType, RUN_UPGRADE_KIND_SHOTCOUNT);
-    if (mSeedType == SeedType::SEED_PUFFSHROOM) aExtraShots *= 2;
     for (int i = 0; i < aExtraShots; i++)
     {
         Projectile* aExtraProjectile = mBoard->AddProjectile(aOriginX + 21 * (i + 1), aOriginY, mRenderOrder - 1, theRow, aProjectileType);
