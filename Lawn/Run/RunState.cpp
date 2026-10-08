@@ -228,19 +228,17 @@ void RunState::RollChoices()
 	}
 	else
 	{
-		// 增益：全局 8 条 + 单株升级混池抽 3 条互不重复，其中第 1 格保底一条全局（批十
-		// 2026-10-05 用户定案：植物多了以后单株条目把全局挤成了小概率，"每屏至少看得见
-		// 一条全局"）——全局全封顶/抽干时自然让位，退化成纯混池。单株的只收"卡池里已经有
-		// 这株"的（设计文档：只对已拥有的植物出）。同名跨屏可以再来（叠层，见 BuffStack）；
-		// 但叠到 mMaxStacks 的条目不再进候选（0 = 无限，方案 §2.2）——到顶就抽不中你。
+		// 增益：全局 8 条 + 单株升级混池抽 3 条互不重复，全部按权重（§8.7：档位基值
+		// 1★6/2★3/3★1，全局条 ×k）。单株的只收"卡池里已经有这株"的（设计文档：只对已
+		// 拥有的植物出）。同名跨屏可以再来（叠层，见 BuffStack）；但叠到 mMaxStacks 的
+		// 条目不再进候选（0 = 无限，方案 §2.2）——到顶就抽不中你。
+		// （2026-10-09 权重批撤保底：旧「第 1 格保底一条全局」随权重落地撤除——保底是
+		// 无权重时代防全局被挤成小概率的手段，§8.7 定案后由 k 与真实候选池密度保证，
+		// docs/06 §8.4 步骤 3。）
 		int aCandidates[RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT];
 		int aWeights[RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT];		// 同下标抽取权重（§8.7）
 		int aCount = 0;
 		int aTotalW = 0;
-		int aGlobals[RUN_BUFF_COUNT];
-		int aGlobalWeights[RUN_BUFF_COUNT];
-		int aGlobalCount = 0;
-		int aGlobalWeightTotal = 0;
 		for (int i = 0; i < RUN_BUFF_COUNT; i++)
 		{
 			int aCap = GetRunChoiceMaxStacks(i);
@@ -249,10 +247,6 @@ void RunState::RollChoices()
 			aWeights[aCount] = GetRunChoiceWeight(i);
 			aTotalW += aWeights[aCount];
 			aCount++;
-			aGlobals[aGlobalCount] = i;
-			aGlobalWeights[aGlobalCount] = aWeights[aCount - 1];
-			aGlobalWeightTotal += aGlobalWeights[aGlobalCount];
-			aGlobalCount++;
 		}
 		for (int i = 0; i < RUN_PLANT_UPGRADE_COUNT; i++)
 		{
@@ -276,36 +270,9 @@ void RunState::RollChoices()
 			return;
 		}
 
-		// 第 1 格保底一条全局；抽中后从混池里摘掉，三条仍然互不重复。
-		// 保底格内也按权重抽（全局条相互之间）；暂留保底 = §8.4 步骤 2/3 分两批的约定。
-		int aSlot = 0;
-		if (aGlobalCount > 0)
-		{
-			int aPickW = (int)aRNG.Next((unsigned long)aGlobalWeightTotal);
-			int aPick = 0;
-			for (int i = 0; i < aGlobalCount; i++)
-			{
-				aPickW -= aGlobalWeights[i];
-				if (aPickW < 0) { aPick = i; break; }
-			}
-			unsigned short aGlobalId = (unsigned short)aGlobals[aPick];
-			mBuffChoices[aSlot++] = aGlobalId;
-			for (int i = 0; i < aCount; i++)
-			{
-				if (aCandidates[i] == (int)aGlobalId)
-				{
-					aTotalW -= aWeights[i];
-					aCandidates[i] = aCandidates[aCount - 1];
-					aWeights[i] = aWeights[aCount - 1];
-					aCount--;
-					break;
-				}
-			}
-		}
-		// 加权无放回抽剩下的格。权重批（docs/06 §8.7）：未定档条目权重恒 1，本步零行为；
-		// #179 填档后档位基值生效。矛盾对互斥（§8.6.1）在第二 buff 条目落地（#179）时接：
+		// 加权无放回抽三格。矛盾对互斥（§8.6.1）在第二 buff 条目落地（后续批）时接：
 		// 抽中一条后把同株另一条从 aCandidates/aWeights 摘除、aTotalW 同步减。
-		for (; aSlot < RUN_CHOICES; aSlot++)
+		for (int aSlot = 0; aSlot < RUN_CHOICES; aSlot++)
 		{
 			if (aCount <= 0)
 			{
