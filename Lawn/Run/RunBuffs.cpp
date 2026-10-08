@@ -168,7 +168,7 @@ static const RunPlantUpgradeDef gRunPlantUpgradeDefs[RUN_PLANT_UPGRADE_COUNT] =
 	// 3★：豌豆0/寒冰射手5/双发7/小喷菇8/大喷菇10/寒冰菇14/毁灭菇15/三线18/玉米投手34/西瓜39/机枪40
 	// 1★：墓碑11/卷心菜32/咖啡豆35/金盏花38/吸金磁45（金盏花/吸金磁冻结——钱无用途，§8.3）
 	{ SeedType::SEED_PEASHOOTER,   "Pea Volley",   "豌豆射手每次多发 1 颗\n（每层）",   "Peashooter fires 1 extra pea per shot\n(per stack)", 0.00f, 0, false, RUN_UPGRADE_KIND_SHOTCOUNT, 3 },
-	{ SeedType::SEED_SUNFLOWER,    "Rich Bloom",   "向日葵每次多产 1 阳光\n（每层）",   "Sunflower produces 1 extra sun\n(per stack)",       0.00f, 3, false, RUN_UPGRADE_KIND_EFFECT, 2 },
+	{ SeedType::SEED_SUNFLOWER,    "Harvest",      "每轮 25% 概率多产 1 阳光\n（每层）", "25% chance of 1 extra sun per cycle\n(per stack)",   0.00f, 2, false, RUN_UPGRADE_KIND_EFFECT, 2 },
 	{ SeedType::SEED_CHERRYBOMB,   "Wide Blast",   "樱桃炸弹爆炸范围 +50%\n（每层）",   "Cherry Bomb blast radius +50%\n(per stack)",        0.50f, 0, false, RUN_UPGRADE_KIND_EFFECT, 2 },
 	{ SeedType::SEED_WALLNUT,      "Thick Shell",  "巨人砸击时像地刺王一样耐砸\n（每次 -200 血）", "Survives Gargantuar smashes like a Spikerock\n(-200 HP per smash)", 0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
 	{ SeedType::SEED_POTATOMINE,   "Wide Charge",  "土豆雷爆炸范围 +50%\n（每层）",     "Potato Mine blast radius +50%\n(per stack)",        0.50f, 0, false, RUN_UPGRADE_KIND_EFFECT, 2 },
@@ -176,7 +176,7 @@ static const RunPlantUpgradeDef gRunPlantUpgradeDefs[RUN_PLANT_UPGRADE_COUNT] =
 	{ SeedType::SEED_CHOMPER,      "Ravenous",     "咀嚼时间减半",                      "Chew time halved",                                   -0.50f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
 	{ SeedType::SEED_REPEATER,     "Pea Barrage",  "每次射击多发 2 颗\n（每层）",       "Fires 2 extra peas per shot\n(per stack)",           0.00f, 0, false, RUN_UPGRADE_KIND_SHOTCOUNT, 3 },
 	{ SeedType::SEED_PUFFSHROOM,   "Spore Volley", "每次多发 1 颗\n（每层）",           "Fires 1 extra spore per shot\n(per stack)",        0.00f, 0, false, RUN_UPGRADE_KIND_SHOTCOUNT, 3 },
-	{ SeedType::SEED_SUNSHROOM,    "Bright Cap",   "每次多产 1 阳光\n（每层）",         "Produces 1 extra sun\n(per stack)",                  0.00f, 3, false, RUN_UPGRADE_KIND_EFFECT, 2 },
+	{ SeedType::SEED_SUNSHROOM,    "Bright Cap",   "每轮 25% 概率多产 1 阳光\n（每层）", "25% chance of 1 extra sun per cycle\n(per stack)",   0.00f, 2, false, RUN_UPGRADE_KIND_EFFECT, 2 },
 	{ SeedType::SEED_FUMESHROOM,   "Fume Rush",    "攻击间隔 ×0.5",                     "Attack interval ×0.5",                               -0.50f, 1, false, RUN_UPGRADE_KIND_RHYTHM, 3 },
 	{ SeedType::SEED_GRAVEBUSTER,  "Quick Dig",    "吞掉墓碑额外产 25 阳光\n（每层）",  "Grave eaten yields +25 sun\n(per stack)",            0.00f, 2, false, RUN_UPGRADE_KIND_EFFECT, 1 },
 	{ SeedType::SEED_HYPNOSHROOM,  "Devotion",     "被魅惑僵尸咬到的僵尸也变友军",      "Zombies bitten by a hypnotized zombie turn friendly", 0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
@@ -208,7 +208,7 @@ static const RunPlantUpgradeDef gRunPlantUpgradeDefs[RUN_PLANT_UPGRADE_COUNT] =
 	{ SeedType::SEED_MARIGOLD,     "Golden Bloom", "每次多产 1 枚\n（每层）",           "1 extra coin per cycle\n(per stack)",                0.00f, 3, false, RUN_UPGRADE_KIND_EFFECT, 1 },
 	{ SeedType::SEED_MELONPULT,    "Melon Barrage","每次多发 1 个西瓜\n（每层）",       "Fires 1 extra melon per volley\n(per stack)",        0.00f, 0, false, RUN_UPGRADE_KIND_EFFECT, 3 },
 	{ SeedType::SEED_GATLINGPEA,   "Overclock",    "攻击间隔 ×0.5",                     "Attack interval ×0.5",                               -0.50f, 1, false, RUN_UPGRADE_KIND_RHYTHM, 3 },
-	{ SeedType::SEED_TWINSUNFLOWER, "Twin Bloom",  "每次多产 1 阳光\n（每层）",         "1 extra sun per cycle\n(per stack)",                 0.00f, 3, false, RUN_UPGRADE_KIND_EFFECT, 2 },
+	{ SeedType::SEED_TWINSUNFLOWER, "Twin Bloom",  "每轮 25% 概率多产 1 阳光\n（每层）", "25% chance of 1 extra sun per cycle\n(per stack)",   0.00f, 2, false, RUN_UPGRADE_KIND_EFFECT, 2 },
 	{ SeedType::SEED_GLOOMSHROOM,  "Gloom",        "光环范围 +1 格",                    "Aura radius +1 tile",                                0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
 	{ SeedType::SEED_CATTAIL,      "Quick Claw",   "攻击目标 +1 个\n（每层）",          "Targets +1 zombie\n(per stack)",                     0.00f, 2, false, RUN_UPGRADE_KIND_EFFECT, 2 },
 	{ SeedType::SEED_WINTERMELON,  "Deep Splash",  "溅射半径 +50%\n（每层）",           "Splash radius +50%\n(per stack)",                    0.50f, 0, false, RUN_UPGRADE_KIND_EFFECT, 2 },

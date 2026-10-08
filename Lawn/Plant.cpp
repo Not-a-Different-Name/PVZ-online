@@ -1189,25 +1189,30 @@ void Plant::UpdateProductionPlant()
 
         if (mSeedType == SeedType::SEED_SUNSHROOM)
         {
-            // @pvz-online: 单株升级「多产」：每层多落一枚（小阳光阶段多落的还是小阳光）
+            // @pvz-online: 丰收族（2026-10-09 数值对齐，docs/06 §8.2.4）：由「每层必多落一枚」
+            // 改为「每轮 25%×层 概率多产 1 阳光」（cap2）——真值口径 +25%/层（+1 枚/轮对 25 基
+            // 只有 +4%），概率落币沿用金盏花的金银独立摇先例；小阳光阶段多落的还是小阳光。
             CoinType aSunType = (mState == PlantState::STATE_SUNSHROOM_SMALL) ? CoinType::COIN_SMALLSUN : CoinType::COIN_SUN;
             mBoard->AddCoin(mX, mY, aSunType, CoinMotion::COIN_MOTION_FROM_PLANT);
-            for (int i = 0, aExtra = mApp->RunPlantUpgradeCount(SeedType::SEED_SUNSHROOM); i < aExtra; i++)
+            int aHarvestStacks = mApp->RunPlantUpgradeCount(SeedType::SEED_SUNSHROOM);
+            if (aHarvestStacks > 0 && (int)Sexy::Rand(100) < 25 * aHarvestStacks)
                 mBoard->AddCoin(mX, mY, aSunType, CoinMotion::COIN_MOTION_FROM_PLANT);
         }
         else if (mSeedType == SeedType::SEED_SUNFLOWER)
         {
             mBoard->AddCoin(mX, mY, CoinType::COIN_SUN, CoinMotion::COIN_MOTION_FROM_PLANT);
-            // @pvz-online: 单株升级「多产」：每层多落一枚阳光（RunBuffs 单株表）
-            for (int i = 0, aExtra = mApp->RunPlantUpgradeCount(SeedType::SEED_SUNFLOWER); i < aExtra; i++)
+            // @pvz-online: 丰收族「Harvest」：每轮 25%×层 概率多产 1 阳光（同上）
+            int aHarvestStacks = mApp->RunPlantUpgradeCount(SeedType::SEED_SUNFLOWER);
+            if (aHarvestStacks > 0 && (int)Sexy::Rand(100) < 25 * aHarvestStacks)
                 mBoard->AddCoin(mX, mY, CoinType::COIN_SUN, CoinMotion::COIN_MOTION_FROM_PLANT);
         }
         else if (mSeedType == SeedType::SEED_TWINSUNFLOWER)
         {
             mBoard->AddCoin(mX, mY, CoinType::COIN_SUN, CoinMotion::COIN_MOTION_FROM_PLANT);
             mBoard->AddCoin(mX, mY, CoinType::COIN_SUN, CoinMotion::COIN_MOTION_FROM_PLANT);
-            // @pvz-online: 单株升级「多产」：每轮多落一枚（口径 = 每轮 +1，不是两枚各 +1）
-            for (int i = 0, aExtra = mApp->RunPlantUpgradeCount(SeedType::SEED_TWINSUNFLOWER); i < aExtra; i++)
+            // @pvz-online: 丰收族「Twin Bloom」：口径 = 每轮掷一次（不是两枚各掷），25%×层 概率 +1
+            int aHarvestStacks = mApp->RunPlantUpgradeCount(SeedType::SEED_TWINSUNFLOWER);
+            if (aHarvestStacks > 0 && (int)Sexy::Rand(100) < 25 * aHarvestStacks)
                 mBoard->AddCoin(mX, mY, CoinType::COIN_SUN, CoinMotion::COIN_MOTION_FROM_PLANT);
         }
         else if (mSeedType == SeedType::SEED_MARIGOLD)
