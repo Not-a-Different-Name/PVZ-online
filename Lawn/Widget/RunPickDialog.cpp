@@ -178,8 +178,14 @@ RunPickDialog::RunPickDialog(LawnApp* theApp, RunState* theRun) : LawnDialog(
 		}
 	}
 	// 「放弃」（Skip，2026-10-03 用户定案）：三条都不想要时的出路。按钮文案和卡名/标题
-	// 一样走位图字体（没有汉字字形），所以是英文；位置在最下面单独一行（见 Resize）。
+	// 一样走位图字体（没有汉字字形），所以是英文；位置在最下面一行、和「换一批」并排（见 Resize）。
 	mSkipButton = MakeButton(RunPickDialog_Skip, this, _S("Skip"));
+	// 「换一批」（Refresh，2026-10-08 玩家反馈定案）：这一屏的候选重抽一次，每屏限一次。
+	// 机会已经用掉时置为不可点——框架的 Widget::mDisabled，点在派发层就被拦下（和本作
+	// 其它置灰石钮同口径：不变暗、只是按不动）；重开这一屏时按当时的记账重算
+	// （不可点状态跟着 mPickReRolled 走，见 RunState::RerollChoices）。
+	mRefreshButton = MakeButton(RunPickDialog_Refresh, this, _S("Refresh"));
+	if (theRun->mPickReRolled) mRefreshButton->mDisabled = true;
 
 	mTallBottom = true;
 	mVerticalCenterText = false;
@@ -261,6 +267,7 @@ RunPickDialog::~RunPickDialog()
 {
 	for (int i = 0; i < 3; i++) delete mChoiceButtons[i];
 	delete mSkipButton;
+	delete mRefreshButton;
 }
 
 void RunPickDialog::Resize(int theX, int theY, int theWidth, int theHeight)
@@ -283,8 +290,9 @@ void RunPickDialog::Resize(int theX, int theY, int theWidth, int theHeight)
 	aAreaTop += mLinesFont->GetHeight() + 10;
 	mAreaTop = aAreaTop;
 
-	// 最底下单独一行放「放弃」（Skip）：三张卡那一行整体上移一行（按钮高 + 6），卡片区的
-	// 上沿不动、下沿从卡片行反推——和构造函数里多让的 aExtraHeight 是同一笔账。
+	// 最底下那一行放两个按钮（2026-10-08 起：「换一批」在左、「放弃」在右，整行居中）：
+	// 三张卡那一行整体上移一行（按钮高 + 6），卡片区的上沿不动、下沿从卡片行反推——
+	// 和构造函数里多让的 aExtraHeight 是同一笔账（行数没变，高度账原样）。
 	int aSkipY = mHeight - mContentInsets.mBottom - mBackgroundInsets.mBottom - aButtonHeight + 2;
 	if (mTallBottom) aSkipY += 5;
 	int aButtonY = aSkipY - aButtonHeight - 6;
@@ -295,8 +303,10 @@ void RunPickDialog::Resize(int theX, int theY, int theWidth, int theHeight)
 	{
 		mChoiceButtons[i]->Resize(mColumnX[i], aButtonY, mColumnWidth, aButtonHeight);
 	}
-	int aSkipWidth = 150;
-	mSkipButton->Resize((mColumnX[0] + mColumnX[2] + mColumnWidth) / 2 - aSkipWidth / 2, aSkipY, aSkipWidth, aButtonHeight);
+	int aFootCenter = (mColumnX[0] + mColumnX[2] + mColumnWidth) / 2;
+	int aFootWidth = 150;
+	mRefreshButton->Resize(aFootCenter - 8 - aFootWidth, aSkipY, aFootWidth, aButtonHeight);
+	mSkipButton->Resize(aFootCenter + 8, aSkipY, aFootWidth, aButtonHeight);
 }
 
 void RunPickDialog::AddedToManager(WidgetManager* theWidgetManager)
@@ -304,6 +314,7 @@ void RunPickDialog::AddedToManager(WidgetManager* theWidgetManager)
 	LawnDialog::AddedToManager(theWidgetManager);
 	for (int i = 0; i < 3; i++) AddWidget(mChoiceButtons[i]);
 	AddWidget(mSkipButton);
+	AddWidget(mRefreshButton);
 }
 
 void RunPickDialog::RemovedFromManager(WidgetManager* theWidgetManager)
@@ -311,6 +322,7 @@ void RunPickDialog::RemovedFromManager(WidgetManager* theWidgetManager)
 	LawnDialog::RemovedFromManager(theWidgetManager);
 	for (int i = 0; i < 3; i++) RemoveWidget(mChoiceButtons[i]);
 	RemoveWidget(mSkipButton);
+	RemoveWidget(mRefreshButton);
 }
 
 void RunPickDialog::Draw(Graphics* g)
@@ -395,6 +407,10 @@ void RunPickDialog::ButtonDepress(int theId)
 	else if (theId == RunPickDialog_Skip)
 	{
 		mApp->RunPickSkipped();
+	}
+	else if (theId == RunPickDialog_Refresh)
+	{
+		mApp->RunPickRefreshed();
 	}
 }
 

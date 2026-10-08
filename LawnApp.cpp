@@ -1861,7 +1861,9 @@ void LawnApp::UpdateRunPick()
 		if (mRunState->HasPendingPick())
 		{
 			if (GetDialog(Dialogs::DIALOG_RUN_PICK) != nullptr) return;
-			mRunState->RollChoices();
+			// @pvz-online: 候选"抽好了就用"（2026-10-08）：「换一批」在 RerollChoices 里已经把
+			// 这一屏重抽过了——这儿再抽一遍会把"每屏限一次"的记账冲掉（刷新就成无限次了）。
+			if (!mRunState->ChoicesRolled()) mRunState->RollChoices();
 			// 抽干兜底（方案 §2.4）：增益池一条不剩时 RollChoices 把欠的屏作废了——
 			// 那一刻三条全是哨兵、没得点，屏别开（开了没出口）；下一帧走下面的收尾。
 			if (!mRunState->HasPendingPick()) return;
@@ -2010,6 +2012,17 @@ void LawnApp::RunPickSkipped()
 
 	KillDialog(Dialogs::DIALOG_RUN_PICK);
 	mRunState->SkipPendingPick();
+}
+
+// 玩家点了「换一批」（2026-10-08 玩家反馈定案）：把这一屏的三条候选重抽一遍，每屏限一次。
+// 走"关屏 + 重抽"：屏由 UpdateRunPick ① 按新候选重开（尺寸、名字、置灰全重算）——
+// 比就地改标签少一套刷新路径，也顺带把"该选而屏不在就开一张"这条既有循环用起来。
+void LawnApp::RunPickRefreshed()
+{
+	if (mRunState == nullptr) return;
+
+	KillDialog(Dialogs::DIALOG_RUN_PICK);
+	mRunState->RerollChoices();
 }
 
 // R4：输一关就记账——失败次数进检查点（首版只存不用）。紧跟着写盘是刻意的：

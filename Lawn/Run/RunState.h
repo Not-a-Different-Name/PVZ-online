@@ -70,6 +70,11 @@ public:
 	unsigned int				mPickCounter;			// 抽过几次：同一局里每屏的候选都不一样
 	unsigned int				mPickSalt;				// 本机随机盐：StartNew/Load 时各生成一次，进程内不变——
 														// 同一局里重开同关还是同一组三条（防刷），换进程/换机器就不同
+	// @pvz-online: 「换一批」的记账（2026-10-08 玩家反馈）。和上面一样纯内存态、不落检查点：
+	// mChoicesRolled = 当前这一屏的三条候选已经抽好（打掉/放弃后复位，下一屏才会重抽——
+	// 也让「换一批」重开的那一屏不会被再抽一次）；mPickReRolled = 这一屏的刷新机会用掉没有。
+	bool						mChoicesRolled;
+	bool						mPickReRolled;
 
 public:
 	// @pvz-online 内存态：这一局正在打（含"刚过关、正要进下一关"的空档）。
@@ -107,7 +112,8 @@ public:
 
 	// 该选植物 / 该选 buff 了（一局开始时先挑四株 + 两个增益——进第 1 关前手里就有 6 株；
 	// 快速版开局加厚成六株 + 四个增益，批十 2026-10-05）。每过一关再挑一批：植物按时长档
-	// 倍乘（完整 2 / 普通 6 / 快速 10 株），增益逐关 3→7 封顶（见 BeginLevelEndPicks）。
+	// 倍乘（完整 2 / 普通 6 / 快速 10 株），增益每关收尾的发屏数按时长档定（2026-10-08
+	// 玩家反馈批：普通固定 3、快速 3/4/5/5、完整保持 3→7 封顶，见 BeginLevelEndPicks）。
 	// 只负责"欠几屏"，候选由 RollChoices 现抽。
 	// 卡池拿满 48 株时植物屏没得抽，这两处会自动少发/不发植物屏（见 CanOfferPlantPick）。
 	void				BeginStartPicks();
@@ -120,7 +126,13 @@ public:
 	bool				IsPlantPick() const { return mPendingPlantPicks > 0; }
 	// 抽当前这一屏的三条候选，摆在 mPlantChoices / mBuffChoices 里等玩家点。
 	// 增益屏的第 1 格保底一条全局增益（批十 2026-10-05；全局全封顶时自然让位）。
+	// 每抽一次 mPickCounter 推一步——「换一批」重抽也走这里，所以重抽的三条必然≠刚才那三条。
 	void				RollChoices();
+	// @pvz-online: 当前屏的候选抽没抽（LawnApp::UpdateRunPick 靠它别把「换一批」重开的屏再抽一遍）。
+	bool				ChoicesRolled() const { return mChoicesRolled; }
+	// @pvz-online: 「换一批」（2026-10-08 玩家反馈定案）：这一屏重抽一次，玩家每屏多一次
+	// 刷新机会——每屏限一次，用过的屏再点也没效果（屏上的按钮同时置为不可点）。
+	void				RerollChoices();
 	// 玩家点了第 theIndex 张卡：植物进卡池、buff 叠一层，各欠的数减一。
 	void				TakePlantChoice(int theIndex);
 	void				TakeBuffChoice(int theIndex);

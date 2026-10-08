@@ -104,6 +104,8 @@ void RunState::StartNew(int theRunSeed, int theRunMode, int theRunDiff)
 	mMowerUsedRows = 0;
 	mPendingPlantPicks = 0;
 	mPendingBuffPicks = 0;
+	mChoicesRolled = false;
+	mPickReRolled = false;
 	mPickCounter = 0;
 	// 本机随机盐（用户 2026-10-03 定案：各玩家的候选不共用一套随机数）。不进检查点、
 	// 不随联机命令走——pending 屏本来就不落盘，读档/追赶时重抽的屏用什么盐都合法。
@@ -123,6 +125,9 @@ void RunState::StartNew(int theRunSeed, int theRunMode, int theRunDiff)
 // 卡池拿满 48 株后植物屏没得抽——那之后只发增益屏。
 void RunState::BeginStartPicks()
 {
+	// 新一批屏从"还没抽"开始（抽干作废过之后又会发新屏，别被上一轮的抽好标志挡住重抽）。
+	mChoicesRolled = false;
+	mPickReRolled = false;
 	int aExtra = (mMode == RUN_MODE_QUICK) ? 2 : 0;
 	mPendingPlantPicks = CanOfferPlantPick() ? 4 + aExtra : 0;
 	mPendingBuffPicks = 2 + aExtra;
@@ -131,17 +136,31 @@ void RunState::BeginStartPicks()
 
 void RunState::BeginLevelEndPicks()
 {
+	// 新一批屏从"还没抽"开始（同 BeginStartPicks；也覆盖补发追赶 AdvanceCatchUp 的路径）。
+	mChoicesRolled = false;
+	mPickReRolled = false;
+
 	// 每关后的植物奖按时长档倍乘（M4-b 定案；批十 2026-10-05 按玩家反馈改为 1/3/5）：
 	// 完整 2 株/关、普通 6、快速 10——"短一局"用更密的奖励补内容量。植物候选抽干时
 	// 自动只发增益屏（见 CanOfferPlantPick）。
 	static const int aMul[] = { 1, 3, 5 };
 	int aTimes = (mMode >= RUN_MODE_FULL && mMode <= RUN_MODE_QUICK) ? aMul[mMode] : 1;
 	mPendingPlantPicks = CanOfferPlantPick() ? 2 * aTimes : 0;
-	// 增益逐关递增、封顶 7（批十 2026-10-05 用户定案，要的是"2-3-4-5-6-7"这条链）：
-	// 调用点此刻 mLevelIndex 已经指向下一关，所以下一关收尾该给的数就是 min(关序号 + 2, 7)
-	// ——第 1 关收尾 3、……、第 5 关收尾 7，之后每关都 7。三档同一条曲线。
-	int aBuffs = mLevelIndex + 2;
-	if (aBuffs > 7) aBuffs = 7;
+	// 增益每关收尾的发屏数（2026-10-08 玩家反馈批定案）：普通档（10 关）每关固定 3；
+	// 快速档（5 关）逐关 3、4、5、5（= min(关序号 + 2, 5)——它的收尾点恰好 4 个：最后一关
+	// 打完直接亮奖杯屏，调用点自己挡掉末点的屏）；完整档保持批十曲线 min(关序号 + 2, 7)。
+	// 调用点此刻 mLevelIndex 已经指向下一关，所以"下一关收尾该给的数"直接按它算。
+	int aBuffs;
+	if (mMode == RUN_MODE_NORMAL)
+	{
+		aBuffs = 3;
+	}
+	else
+	{
+		aBuffs = mLevelIndex + 2;
+		int aCap = (mMode == RUN_MODE_QUICK) ? 5 : 7;
+		if (aBuffs > aCap) aBuffs = aCap;
+	}
 	mPendingBuffPicks = aBuffs;
 	TodLog("[run] level end picks: %d plant(s) + %d buff(s) (level %d, mode %d)", mPendingPlantPicks, mPendingBuffPicks, mLevelIndex, mMode);
 }
@@ -163,6 +182,11 @@ bool RunState::CanOfferPlantPick() const
 // 还是同一组三条——重开不会变成"刷候选"；换进程/换机器才换盐。
 void RunState::RollChoices()
 {
+	// 这一屏的候选从这一刻就算抽好了（LawnApp::UpdateRunPick 的"还没抽才抽"守卫看它）；
+	// 每抽一次刷新机会回满——「换一批」自己会把它用掉（见 RerollChoices）。
+	mChoicesRolled = true;
+	mPickReRolled = false;
+
 	unsigned int aSeed = (unsigned int)mRunSeed
 		^ (0x9E3779B9u * (unsigned int)(mLevelIndex + 1))
 		^ (0x85EBCA6Bu * (mPickCounter + 1))
@@ -269,6 +293,18 @@ void RunState::RollChoices()
 	}
 }
 
+// @pvz-online: 「换一批」（2026-10-08 玩家反馈定案）：把这一屏的三条候选重抽一遍。
+// 走的就是 RollChoices——mPickCounter 再推一步，重抽的那三条必然跟刚作废的那组不同；
+// 池子只剩一两株时空缺照旧留格，重抽只是把有的那几个换个位置。每屏限一次：用过的屏
+// （mPickReRolled）再点不动（屏上的按钮在重开时同时置为不可点）；下一屏 RollChoices 会把机会回满。
+void RunState::RerollChoices()
+{
+	if (mPickReRolled) return;
+	RollChoices();
+	mPickReRolled = true;
+	TodLog("[run] the choices were refreshed (pick counter %u)", mPickCounter);
+}
+
 void RunState::TakePlantChoice(int theIndex)
 {
 	if (theIndex < 0 || theIndex >= RUN_CHOICES || mPendingPlantPicks <= 0) return;
@@ -280,6 +316,8 @@ void RunState::TakePlantChoice(int theIndex)
 		TodTrace("run: plant %d joins the pool (%d seeds)", (int)aSeed, (int)mPool.size());
 	}
 	mPendingPlantPicks--;
+	// 这一屏消费掉了：下一屏（还有欠的话）得重新抽——见 LawnApp::UpdateRunPick 的"还没抽才抽"守卫。
+	mChoicesRolled = false;
 	// 刚拿到最后一株没到手的植物：本次欠的植物屏到此为止（再选就没候选了）。
 	if (mPendingPlantPicks > 0 && !CanOfferPlantPick()) mPendingPlantPicks = 0;
 }
@@ -297,6 +335,7 @@ void RunState::TakeBuffChoice(int theIndex)
 		{
 			mBuffs[i].mCount++;
 			mPendingBuffPicks--;
+			mChoicesRolled = false;		// 这一屏消费掉了，下一屏重新抽（同 TakePlantChoice）
 			return;
 		}
 	}
@@ -306,6 +345,7 @@ void RunState::TakeBuffChoice(int theIndex)
 	aStack.mCount = 1;
 	mBuffs.push_back(aStack);
 	mPendingBuffPicks--;
+	mChoicesRolled = false;		// 这一屏消费掉了，下一屏重新抽（同 TakePlantChoice）
 }
 
 // @pvz-online: 「放弃」的记账（2026-10-03 用户定案）：不落货、只消账。先后与
@@ -315,11 +355,13 @@ void RunState::SkipPendingPick()
 	if (mPendingPlantPicks > 0)
 	{
 		mPendingPlantPicks--;
+		mChoicesRolled = false;		// 这一屏消费掉了，下一屏重新抽（同 TakePlantChoice）
 		TodLog("[run] a plant pick was skipped (%d still owed)", mPendingPlantPicks);
 	}
 	else if (mPendingBuffPicks > 0)
 	{
 		mPendingBuffPicks--;
+		mChoicesRolled = false;		// 这一屏消费掉了，下一屏重新抽（同 TakePlantChoice）
 		TodLog("[run] a buff pick was skipped (%d still owed)", mPendingBuffPicks);
 	}
 }
