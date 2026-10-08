@@ -140,12 +140,12 @@ void RunState::BeginLevelEndPicks()
 	mChoicesRolled = false;
 	mPickReRolled = false;
 
-	// 每关后的植物奖按时长档倍乘（M4-b 定案；批十 2026-10-05 按玩家反馈改为 1/3/5）：
-	// 完整 2 株/关、普通 6、快速 10——"短一局"用更密的奖励补内容量。植物候选抽干时
-	// 自动只发增益屏（见 CanOfferPlantPick）。
-	static const int aMul[] = { 1, 3, 5 };
-	int aTimes = (mMode >= RUN_MODE_FULL && mMode <= RUN_MODE_QUICK) ? aMul[mMode] : 1;
-	mPendingPlantPicks = CanOfferPlantPick() ? 2 * aTimes : 0;
+	// 每关后的植物奖励数（2026-10-09 定案）：完整 2 株/关不变、普通 6→3、快速 10→4——
+	// 大幅收紧让植物保持稀缺（一局拿不满 48 株），单株增益候选池不被一口气铺宽。
+	// 植物候选抽干时自动只发增益屏（见 CanOfferPlantPick）。
+	static const int aPlants[] = { 2, 3, 4 };
+	int aPerLevel = (mMode >= RUN_MODE_FULL && mMode <= RUN_MODE_QUICK) ? aPlants[mMode] : 2;
+	mPendingPlantPicks = CanOfferPlantPick() ? aPerLevel : 0;
 	// 增益每关收尾的发屏数（2026-10-08 玩家反馈批定案）：普通档（10 关）每关固定 3；
 	// 快速档（5 关）逐关 3、4、5、5（= min(关序号 + 2, 5)——它的收尾点恰好 4 个：最后一关
 	// 打完直接亮奖杯屏，调用点自己挡掉末点的屏）；完整档保持批十曲线 min(关序号 + 2, 7)。
