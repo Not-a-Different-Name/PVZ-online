@@ -25,8 +25,13 @@
 #define CJK_TITLE_PX 22
 #define CJK_BODY_PX 20
 
-// 正文支持 '\n' 手动分行（启动公告那种多行说明；单行文本 = 一行，老面孔不受影响）。
-// '\n' 是 ASCII：UTF-8 字节流里 0x0A 不会出现在多字节序列内部，按字节数行天然安全。
+// "第 n / m 页"翻页指示行的字号（像素高）。比正文小一号：它是辅助信息，不抢正文。
+#define CJK_PAGE_PX 14
+
+// 正文支持 '\n' 手动分行（启动公告那种多行说明；单行文本 = 一行，老面孔不受影响）、
+// '\f' 手动分页（多页公告，最多 4 页——2026-10-08 用户要的翻页）。
+// '\n' / '\f' 都是 ASCII：UTF-8 字节流里 0x0A / 0x0C 不会出现在多字节序列内部，
+// 按字节数行/分页天然安全。
 // 手分行而不是自动换行：宽度可控，换行点由文案自己定，不会在词中间断开也不知道弹窗有多宽。
 static int CountBodyLines(const std::string& theBody)
 {
@@ -69,13 +74,40 @@ OnlineStartDialog::OnlineStartDialog(LawnApp* theApp, const char* theTitleUtf8, 
 	mNotify = theNotify;
 	mDraggable = theDraggable;
 	mTitle = (theTitleUtf8 != nullptr) ? theTitleUtf8 : "";
-	mBody = (theBodyUtf8 != nullptr) ? theBodyUtf8 : "";
 	mTitleY = 0;
 	mBodyY = 0;
+	mPageY = 0;
+	mPageIndex = 0;
+
+	// 正文按 '\f' 拆页（最多 4 页；单页面孔 = 只有第 0 页）
+	{
+		const std::string aBody = (theBodyUtf8 != nullptr) ? theBodyUtf8 : "";
+		mPageCount = 0;
+		size_t aStart = 0;
+		for (size_t i = 0; i <= aBody.size() && mPageCount < 4; i++)
+		{
+			if (i == aBody.size() || aBody[i] == '\f')
+			{
+				mPages[mPageCount++] = aBody.substr(aStart, i - aStart);
+				aStart = i + 1;
+			}
+		}
+	}
 
 	mButtonCount = 0;
 	mButtons[0] = nullptr;
 	mButtons[1] = nullptr;
+	mButtons[2] = nullptr;
+	if (mPageCount > 1)
+	{
+		// 多页公告：左端摆"上一页"、右端"下一页"（下面按创建顺序摆整行，
+		// 中间留着调用方的主按钮——公告就是"知道了"）
+		mButtons[mButtonCount] = new CjkStoneButton(ID_PAGE_PREV, this);
+		mButtons[mButtonCount]->SetLabel(ModText::Tr("上一页", "Prev"));
+		mButtons[mButtonCount]->mHasAlpha = true;
+		mButtons[mButtonCount]->mHasTransparencies = true;
+		mButtonCount++;
+	}
 	if (theYesUtf8 != nullptr && theYesUtf8[0] != '\0')
 	{
 		mButtons[mButtonCount] = new CjkStoneButton(Dialog::ID_YES, this);
@@ -92,21 +124,38 @@ OnlineStartDialog::OnlineStartDialog(LawnApp* theApp, const char* theTitleUtf8, 
 		mButtons[mButtonCount]->mHasTransparencies = true;
 		mButtonCount++;
 	}
+	if (mPageCount > 1)
+	{
+		mButtons[mButtonCount] = new CjkStoneButton(ID_PAGE_NEXT, this);
+		mButtons[mButtonCount]->SetLabel(ModText::Tr("下一页", "Next"));
+		mButtons[mButtonCount]->mHasAlpha = true;
+		mButtons[mButtonCount]->mHasTransparencies = true;
+		mButtonCount++;
+	}
 
 	mTallBottom = (mButtonCount > 0);
 	mVerticalCenterText = false;
 
-	// 版心比最长的一行两侧各宽 40；高度 = 标题 + 间距 + 正文（+ 按钮行），上下都留白——
-	// "弹窗不能挤"就落在这些数字上。CalcSize 会按对话框贴图再取整/加高，多出来的空隙
-	// 由 Resize 里的居中吸收。
+	// 版心比最长的一行两侧各宽 40；高度 = 标题 + 间距 + 正文（+ 翻页指示行 + 按钮行），
+	// 上下都留白——"弹窗不能挤"就落在这些数字上。CalcSize 会按对话框贴图再取整/加高，
+	// 多出来的空隙由 Resize 里的居中吸收。多页时正文块按**最高的一页**定高、宽度取
+	// 各页最宽行——翻页时框大小与正文顶部位置都不动，只有正文行数换了。
 	ModText::Font* aTitleFont = ModText::GetFont(CjkPointSize(CJK_TITLE_PX), true);
 	ModText::Font* aBodyFont = ModText::GetFont(CjkPointSize(CJK_BODY_PX), false);
 	int aTextWidth = ModText::TextWidth(aTitleFont, ModText::WideFromUtf8(mTitle.c_str()));
-	int aBodyWidth = MeasureBodyWidth(aBodyFont, mBody);
-	if (aBodyWidth > aTextWidth) aTextWidth = aBodyWidth;
+	for (int i = 0; i < mPageCount; i++)
+	{
+		int aPageWidth = MeasureBodyWidth(aBodyFont, mPages[i]);
+		if (aPageWidth > aTextWidth) aTextWidth = aPageWidth;
+	}
 
 	int anExtraX = aTextWidth + 80;
-	int anExtraY = ModText::LineHeight(aTitleFont) + 14 + BodyBlockHeight(aBodyFont, CountBodyLines(mBody)) + 46;
+	int anExtraY = ModText::LineHeight(aTitleFont) + 14 + BodyBlockHeight(aBodyFont, MaxBodyLineCount()) + 46;
+	if (mPageCount > 1)
+	{
+		// 翻页指示行跟在正文块下（位置见 Resize 的 mPageY），版心把它也算上
+		anExtraY += BODY_LINE_GAP + ModText::LineHeight(ModText::GetFont(CjkPointSize(CJK_PAGE_PX), false));
+	}
 	if (mButtonCount > 0)
 	{
 		// 版心也得放得下整行按钮：按最长的一条标签定每枚按钮的宽度（两侧各留 16），
@@ -132,7 +181,19 @@ OnlineStartDialog::OnlineStartDialog(LawnApp* theApp, const char* theTitleUtf8, 
 
 OnlineStartDialog::~OnlineStartDialog()
 {
-	for (int i = 0; i < 2; i++) delete mButtons[i];
+	for (int i = 0; i < 3; i++) delete mButtons[i];
+}
+
+// 版心定高与摆位都要"最高的一页"，抽出来两边共用一份口径
+int OnlineStartDialog::MaxBodyLineCount() const
+{
+	int aMax = 1;
+	for (int i = 0; i < mPageCount; i++)
+	{
+		int aLines = CountBodyLines(mPages[i]);
+		if (aLines > aMax) aMax = aLines;
+	}
+	return aMax;
 }
 
 void OnlineStartDialog::Resize(int theX, int theY, int theWidth, int theHeight)
@@ -146,16 +207,20 @@ void OnlineStartDialog::Resize(int theX, int theY, int theWidth, int theHeight)
 	int aButtonY = mHeight - mContentInsets.mBottom - mBackgroundInsets.mBottom - aButtonHeight + 2;
 	if (mTallBottom) aButtonY += 5;
 
-	// 文字块（标题 + 一行间隔 + 正文）摆在按钮行以上、垂直居中
+	// 文字块（标题 + 一行间隔 + 正文 [+ 翻页指示行]）摆在按钮行以上、垂直居中。
+	// 正文块按最高的一页定高——翻页时正文顶部与指示行都不挪窝。
+	int aLineCount = MaxBodyLineCount();
 	int aTextTop = mContentInsets.mTop + mBackgroundInsets.mTop + DIALOG_HEADER_OFFSET;
 	int aTextBottom = (mButtonCount > 0)
 		? aButtonY - 10
 		: mHeight - mContentInsets.mBottom - mBackgroundInsets.mBottom;
-	int aBlockHeight = ModText::LineHeight(aTitleFont) + 14 + BodyBlockHeight(aBodyFont, CountBodyLines(mBody));
+	int aBlockHeight = ModText::LineHeight(aTitleFont) + 14 + BodyBlockHeight(aBodyFont, aLineCount);
+	if (mPageCount > 1) aBlockHeight += BODY_LINE_GAP + ModText::LineHeight(ModText::GetFont(CjkPointSize(CJK_PAGE_PX), false));
 	int aBlockY = aTextTop + (aTextBottom - aTextTop - aBlockHeight) / 2;
 	if (aBlockY < aTextTop) aBlockY = aTextTop;
 	mTitleY = aBlockY;							// ModText 顶对齐：存的直接是顶（原来是基线口径）
 	mBodyY = aBlockY + ModText::LineHeight(aTitleFont) + 14;
+	mPageY = mBodyY + BodyBlockHeight(aBodyFont, aLineCount) + BODY_LINE_GAP;
 
 	if (mButtonCount > 0)
 	{
@@ -201,16 +266,18 @@ void OnlineStartDialog::Draw(Graphics* g)
 			(mWidth - ModText::TextWidth(aTitleFont, aTitle)) / 2, mTitleY,
 			aTitle, mColors[Dialog::COLOR_HEADER], g->mClipRect);
 	}
-	if (!mBody.empty())
+	// 正文只画当前页（单页面孔 = 第 0 页，与旧行为逐像素一致）
+	const std::string& aBody = mPages[mPageIndex];
+	if (!aBody.empty())
 	{
 		ModText::Font* aBodyFont = ModText::GetFont(CjkPointSize(CJK_BODY_PX), false);
 		int aY = mBodyY;
 		size_t aStart = 0;
-		for (size_t i = 0; i <= mBody.size(); i++)
+		for (size_t i = 0; i <= aBody.size(); i++)
 		{
-			if (i == mBody.size() || mBody[i] == '\n')
+			if (i == aBody.size() || aBody[i] == '\n')
 			{
-				std::wstring aLine = ModText::WideFromUtf8(mBody.substr(aStart, i - aStart).c_str());
+				std::wstring aLine = ModText::WideFromUtf8(aBody.substr(aStart, i - aStart).c_str());
 				ModText::DrawTextWide(g, aBodyFont,
 					(mWidth - ModText::TextWidth(aBodyFont, aLine)) / 2, aY,
 					aLine, mColors[Dialog::COLOR_LINES], g->mClipRect);
@@ -218,6 +285,20 @@ void OnlineStartDialog::Draw(Graphics* g)
 				aStart = i + 1;
 			}
 		}
+	}
+	if (mPageCount > 1)
+	{
+		// "第 n / m 页"：中文档两截夹数字，英文档 "Page n / m"
+		ModText::Font* aPageFont = ModText::GetFont(CjkPointSize(CJK_PAGE_PX), false);
+		std::string aLabel = ModText::Tr("第 ", "Page ");
+		aLabel += std::to_string(mPageIndex + 1);
+		aLabel += " / ";
+		aLabel += std::to_string(mPageCount);
+		aLabel += ModText::Tr(" 页", "");
+		std::wstring aPageText = ModText::WideFromUtf8(aLabel.c_str());
+		ModText::DrawTextWide(g, aPageFont,
+			(mWidth - ModText::TextWidth(aPageFont, aPageText)) / 2, mPageY,
+			aPageText, mColors[Dialog::COLOR_LINES], g->mClipRect);
 	}
 }
 
@@ -252,6 +333,18 @@ void OnlineStartDialog::ButtonPress(int theId)
 
 void OnlineStartDialog::ButtonDepress(int theId)
 {
+	// 翻页按钮：只换页，不设 mResult（设了 WaitForResult 就收摊、框就关了）。
+	// 环绕：末页的"下一页"回第 1 页、第 1 页的"上一页"去末页——两枚按钮永远可按，
+	// 不用给按钮做禁用态（CjkStoneButton 没有禁用态的画法）。
+	if (theId == ID_PAGE_PREV || theId == ID_PAGE_NEXT)
+	{
+		if (mPageCount > 1)
+		{
+			mPageIndex = (mPageIndex + ((theId == ID_PAGE_NEXT) ? 1 : mPageCount - 1)) % mPageCount;
+			MarkDirty();
+		}
+		return;
+	}
 	if (theId != Dialog::ID_YES && theId != Dialog::ID_NO) return;
 
 	// 不调 Dialog::ButtonDepress：那条路会把结果转成 2000+/3000+ 的标准对话框编号发给

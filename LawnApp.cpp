@@ -1597,6 +1597,9 @@ void LawnApp::UpdateAdventureRequest()
 // 简要说明联机玩法与功能（正文按 OnlineStartDialog 的 '\n' 手动分行）。每进程只弹一次；
 // 阻塞式（WaitForResult 泵主循环）——这时候会话要么还没建、要么在后台自己跑心跳，不受影响。
 // 框支持整屏拖动且无边缘回夹（2026-10-04 用户要求）：框大了可以拖出去，把被边缘挡住的部分看全。
+// 2026-10-08 起做两页翻页（用户要的）：第 1 页 = 本版更新速览（Build 34，相对上一测试包）、
+// 第 2 页 = 玩法速览（原一屏正文）。页间用 '\f' 分隔，翻页按钮/页码指示由 OnlineStartDialog
+// 自己摆；两页行数都压在原 9 行口径内——翻页后弹窗不该比原来更挤或更出屏。
 void LawnApp::UpdateStartupAnnounce()
 {
 	if (mShowedStartupAnnounce) return;
@@ -1607,27 +1610,41 @@ void LawnApp::UpdateStartupAnnounce()
 	OnlineStartDialog* aDialog = new OnlineStartDialog(this,
 		ModText::Tr("欢迎来到 PvZ 联机合作版", "Welcome to PvZ Online Co-op"),
 		ModText::Tr(
-			"· 2~6 人各守一块草坪，漏掉的僵尸传给下一位\n"
-			"  队友（保留血量）；末位漏怪 = 全队失败。\n"
-			"  末位每行有一台推车兜底，用掉不补。\n"
-			"· 出怪量按席位翻倍：末两席各 2 倍、再往前\n"
-			"  每位翻一倍，最多 ×32。\n"
-			"· 主位大墓碑 = 组队 / 加入房间，主机可发起\n"
-			"  「组队闯关」；第三槽 PUZZLE 石板 = 打单关。\n"
-			"· 局内：ESC 暂停；T / E 短语与表情（数字键选）；\n"
-			"  左上小条 = 名册与换位。",
-			"· 2-6 players each hold one lawn; zombies that\n"
-			"  leak pass to the next seat, keeping their HP;\n"
-			"  a leak on the last seat = team defeat.\n"
-			"  The last seat has one mower per row, single use.\n"
-			"· Spawns scale with seat order: the last two\n"
-			"  seats get 2x, each seat before them doubles, up to x32.\n"
-			"· Top tombstone = team up / join a room; the host\n"
-			"  can start a Team Run. The PUZZLE slab in the\n"
-			"  third slot = single levels.\n"
-			"· In game: ESC pauses; T / E for phrases and\n"
-			"  emotes (number keys to pick); the top-left\n"
-			"  chip = roster and seat swap."),
+			"【本版更新 · Build 34】\n"
+			"· 时长档重排：普通版 10 关、快速版 5 关\n"
+			"· 奖励递增：增益逐关 +1（封顶 7）、植物 2/6/10 株\n"
+			"· 通关后亮奖杯屏并回主菜单（修复通关报错）\n"
+			"· 「天降」重做：夜晚也降阳光、速率 ×4\n"
+			"· 「储备」移除；开局阳光按席次增加、保底 50\n"
+			"\f"
+			"【玩法速览】\n"
+			"· 2~6 人各守一块草坪，漏怪传给下一位队友\n"
+			"  （保留血量）；末位漏怪 = 全队失败。\n"
+			"· 出怪量按席次翻倍：末两席 2 倍、往前每位\n"
+			"  翻倍（封顶 ×32）；末位每行一台兜底推车。\n"
+			"· 主位大墓碑 = 组队 / 加入房间（主机可发起\n"
+			"  闯关）；第三槽 PUZZLE 石板 = 打单关。\n"
+			"· 局内：ESC 暂停、V 看队友场地、T / E 短语与表情",
+			"[Update - Build 34]\n"
+			"· Run modes: Normal 10 levels, Quick 5 levels\n"
+			"· Rewards grow per level: buffs +1 up to 7,\n"
+			"  plants 2/6/10 per level\n"
+			"· Trophy screen after the last level, then\n"
+			"  back to the menu (crash fix)\n"
+			"· Skyfall rework: sun falls at night too, 4x rate\n"
+			"· Reserves removed; start sun by seat order, min 50\n"
+			"\f"
+			"[Basics]\n"
+			"· 2-6 players each hold one lawn; leaked\n"
+			"  zombies pass on with their HP; a leak on\n"
+			"  the last seat = team defeat.\n"
+			"· Spawns scale by seat: last two seats 2x,\n"
+			"  each seat before doubles, up to x32; the\n"
+			"  last seat has one mower per row.\n"
+			"· Top tombstone = team up / join; the third\n"
+			"  slot PUZZLE slab = single levels.\n"
+			"· ESC pauses; hold V to watch a teammate;\n"
+			"  T / E for phrases and emotes."),
 		ModText::Tr("知道了", "OK"), nullptr, OnlineStartDialog::NOTIFY_NONE, true);
 	CenterDialog(aDialog, aDialog->mWidth, aDialog->mHeight);
 	TodLog("[announce] dialog %dx%d (screen %dx%d)", aDialog->mWidth, aDialog->mHeight, mWidth, mHeight);
