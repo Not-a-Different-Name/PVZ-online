@@ -8836,7 +8836,7 @@ void Zombie::RemoveButter()
 }
 
 //0x5326D0
-void Zombie::ApplyButter()
+void Zombie::ApplyButter(int theFrames)
 {
     if (!mHasHead || !CanBeFrozen())
         return;
@@ -8844,7 +8844,9 @@ void Zombie::ApplyButter()
     if (mZombieType == ZombieType::ZOMBIE_ZAMBONI || mZombieType == ZombieType::ZOMBIE_BOSS || IsTangleKelpTarget() || IsBobsledTeamWithSled() || IsFlying())
         return;
 
-    mButteredCounter = 400;
+    // @pvz-online: 帧参数化（权重批数值对齐 2026-10-09）：默认 400 = 原黄油时长不变；
+    // 土豆雷「震雷」按 2 秒/层传入（docs/06 §8.2.4）。
+    mButteredCounter = theFrames;
     Zombie* aZombie = mBoard->ZombieTryToGet(mRelatedZombieID);
     if (aZombie)
     {

@@ -301,7 +301,7 @@ public:
     /*inline*/ bool                 IsOnBoard();
     void                            DrawButter(Graphics* g, const ZombieDrawPosition& theDrawPos);
     bool                            IsImmobilizied();
-    void                            ApplyButter();
+    void                            ApplyButter(int theFrames = 400);
     float                           ZombieTargetLeadX(float theTime);
     void                            UpdateZombieImp();
     void                            SquishAllInSquare(int theX, int theY, ZombieAttackType theAttackType);

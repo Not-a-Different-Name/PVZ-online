@@ -4791,10 +4791,33 @@ void Plant::DoSpecial()
         aPosY = mY + mHeight / 2;
 
         mApp->PlaySample(SOUND_POTATO_MINE);
-        // @pvz-online: 闯关「宽装药」：爆炸半径 ×(1+50%/层)（批八由 25% 上调；直伤的单株乘数已从 Board::KillAllZombiesInRadius 摘除）
-        int aRadius = (int)(60 * mApp->RunPlantUpgradeMul(SeedType::SEED_POTATOMINE) + 0.5f);
+        // @pvz-online: 单株「震雷」（2026-10-09 数值对齐整条重做，docs/06 §8.2.3/§8.2.4）：
+        // 「宽装药」半径 +50%/层 摘除（解半径同句簇——樱桃/冰西瓜/毁灭菇照旧），换
+        // 「爆炸眩晕半径内僵尸 2 秒/层」（cap2）——1800 直伤杀不动的幸存者（巨人族）被震懵；
+        // 眩晕走 ApplyButter（帧参数化，400 帧 = 原黄油默认值不变），原半径乘数挂点随之删除。
+        int aRadius = 60;
+        int aSeismicStacks = mApp->RunPlantUpgradeCount(SeedType::SEED_POTATOMINE);
         if (mBoard->KillAllZombiesInRadius(mRow, aPosX, aPosY, aRadius, 0, false, aDamageRangeFlags) >= 1)
             ReportAchievement::GiveAchievement(mApp, Spudow, true); // @Patoke: add achievement
+
+        if (aSeismicStacks > 0)
+        {
+            // 半径判定照 KillAllZombiesInRadius 的口径（同行、Boss 视作同行、圆-矩形相交）
+            Zombie* aZombie = nullptr;
+            while (mBoard->IterateZombies(aZombie))
+            {
+                if (!aZombie->EffectedByDamage(aDamageRangeFlags))
+                    continue;
+                int aRowDist = aZombie->mRow - mRow;
+                if (aZombie->mZombieType == ZombieType::ZOMBIE_BOSS)
+                    aRowDist = 0;
+                if (aRowDist != 0)
+                    continue;
+                Rect aZombieRect = aZombie->GetZombieRect();
+                if (GetCircleRectOverlap(aPosX, aPosY, aRadius, aZombieRect))
+                    aZombie->ApplyButter(200 * aSeismicStacks);		// 2 秒/层（100 帧/秒口径）
+            }
+        }
 
         int aRenderPosition = Board::MakeRenderOrder(RenderLayer::RENDER_LAYER_PARTICLE, mRow, 0);
         mApp->AddTodParticle(aPosX + 20.0f, aPosY, aRenderPosition, ParticleEffect::PARTICLE_POTATO_MINE);

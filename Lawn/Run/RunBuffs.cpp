@@ -171,7 +171,7 @@ static const RunPlantUpgradeDef gRunPlantUpgradeDefs[RUN_PLANT_UPGRADE_COUNT] =
 	{ SeedType::SEED_SUNFLOWER,    "Harvest",      "每轮 25% 概率多产 1 阳光\n（每层）", "25% chance of 1 extra sun per cycle\n(per stack)",   0.00f, 2, false, RUN_UPGRADE_KIND_EFFECT, 2 },
 	{ SeedType::SEED_CHERRYBOMB,   "Wide Blast",   "樱桃炸弹爆炸范围 +50%\n（每层）",   "Cherry Bomb blast radius +50%\n(per stack)",        0.50f, 0, false, RUN_UPGRADE_KIND_EFFECT, 2 },
 	{ SeedType::SEED_WALLNUT,      "Thick Shell",  "巨人砸击时像地刺王一样耐砸\n（每次 -200 血）", "Survives Gargantuar smashes like a Spikerock\n(-200 HP per smash)", 0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
-	{ SeedType::SEED_POTATOMINE,   "Wide Charge",  "土豆雷爆炸范围 +50%\n（每层）",     "Potato Mine blast radius +50%\n(per stack)",        0.50f, 0, false, RUN_UPGRADE_KIND_EFFECT, 2 },
+	{ SeedType::SEED_POTATOMINE,   "Seismic Mine", "爆炸眩晕半径内僵尸 2 秒\n（每层）", "Blast stuns zombies in radius 2 sec\n(per stack)",   0.00f, 2, false, RUN_UPGRADE_KIND_EFFECT, 2 },
 	{ SeedType::SEED_SNOWPEA,      "Blizzard",     "发射冰西瓜",                        "Fires winter melons",                                0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 3 },
 	{ SeedType::SEED_CHOMPER,      "Ravenous",     "咀嚼时间减半",                      "Chew time halved",                                   -0.50f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
 	{ SeedType::SEED_REPEATER,     "Pea Barrage",  "每次射击多发 2 颗\n（每层）",       "Fires 2 extra peas per shot\n(per stack)",           0.00f, 0, false, RUN_UPGRADE_KIND_SHOTCOUNT, 3 },
