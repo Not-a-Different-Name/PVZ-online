@@ -47,6 +47,9 @@ struct RunBuffDef
 	int			mMaxStacks;
 	// @pvz-online: 叠乘模式（方案 §2.3）：true = 层数按 (1+mPerStackMul)^层数 几何叠乘。
 	bool		mMultiplicative;
+	// @pvz-online: 稀有度档位（docs/06 §8.7，权重批）：1/2/3★；0 = 未定档（中性权重，
+	// 管线零行为）。档位基值 1★=6 / 2★=3 / 3★=1，全局条再乘 k（RUN_GLOBAL_WEIGHT_K_PERMILLE）。
+	int			mRarity;
 };
 
 const RunBuffDef& GetRunBuffDef(int theId);
@@ -151,6 +154,8 @@ struct RunPlantUpgradeDef
 	// @pvz-online: 语义标签（修正批）：只有 Kind 与挂点相符的条目才被该挂点消费。
 	// 省略 = RUN_UPGRADE_KIND_EFFECT。
 	RunPlantUpgradeKind	mKind;
+	// @pvz-online: 稀有度档位（docs/06 §8.7）：1/2/3★；0 = 未定档（中性权重）。尾部省略 = 0。
+	int			mRarity;
 };
 
 const RunPlantUpgradeDef& GetRunPlantUpgradeDef(int theIndex);
@@ -166,6 +171,13 @@ const char* GetRunChoiceName(int theId);
 const char* GetRunChoiceDesc(int theId);
 // 这条条目封顶几层（0 = 无限）；抽取过滤（RunState::RollChoices）与屏上「已有 x/N」用它。
 int GetRunChoiceMaxStacks(int theId);
+
+// @pvz-online: 稀有度/权重（权重批 2026-10-09，docs/06 §8.7）：这条条目的稀有度档位
+// （0 = 未定档 / 1 / 2 / 3★）与抽取权重。未定档条目权重恒 1（管线零行为）；#179 填档后
+// 档位基值 1★=6 / 2★=3 / 3★=1 生效，全局条再乘 k。同屏加权无放回、抽中即从候选摘除。
+enum { RUN_GLOBAL_WEIGHT_K_PERMILLE = 2500 };	// 全局条权重系数 k，千分比（初值 2.5）
+int GetRunChoiceRarity(int theId);
+int GetRunChoiceWeight(int theId);
 
 // 单株升级「这是哪株的」显示名（三选一屏列顶标题行 / 词条查看器用；按当前语言：
 // 中文名 / 英文官方名）；全局增益 / 表里漏了名字 → NULL。

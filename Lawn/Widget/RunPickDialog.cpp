@@ -176,6 +176,12 @@ RunPickDialog::RunPickDialog(LawnApp* theApp, RunState* theRun) : LawnDialog(
 		{
 			mChoiceButtons[i]->mDisabled = true;
 		}
+		// 3★ 金色字（权重批 2026-10-09，docs/06 §8.7）：增益屏非空格按稀有度档位染色。
+		// 未定档（0）恒为白，零行为。
+		else if (GetRunChoiceRarity(theRun->mBuffChoices[i]) == 3)
+		{
+			mChoiceButtons[i]->mGoldLabel = true;
+		}
 	}
 	// 「放弃」（Skip，2026-10-03 用户定案）：三条都不想要时的出路。按钮文案和卡名/标题
 	// 一样走位图字体（没有汉字字形），所以是英文；位置在最下面一行、和「换一批」并排（见 Resize）。

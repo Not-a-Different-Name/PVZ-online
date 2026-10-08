@@ -83,7 +83,12 @@ public:
 class LawnStoneButton : public DialogButton
 {
 public:
-	LawnStoneButton(Image* theComponentImage, int theId, ButtonListener* theListener) : DialogButton(theComponentImage, theId, theListener) { }
+	// @pvz-online: 金色字标签（权重批 2026-10-09，docs/06 §8.1）：3★ 增益的按钮名字
+	// 用金色显示，1★/2★ 默认色。默认 false = 零行为。
+	bool					mGoldLabel;
+
+public:
+	LawnStoneButton(Image* theComponentImage, int theId, ButtonListener* theListener) : DialogButton(theComponentImage, theId, theListener) { mGoldLabel = false; }
 
 	virtual void			Draw(Graphics* g);
 	/*inline*/ void			SetLabel(const SexyString& theLabel);
@@ -113,6 +118,6 @@ public:
 
 LawnStoneButton*			MakeButton(int theId, ButtonListener* theListener, const SexyString& theText);
 NewLawnButton*				MakeNewButton(int theId, ButtonListener* theListener, const SexyString& theText, _Font* theFont, Image* theImageNormal, Image* theImageOver, Image* theImageDown);
-void						DrawStoneButton(Graphics* g, int x, int y, int theWidth, int theHeight, bool isDown, bool isHighLighted, const SexyString& theLabel);
+void						DrawStoneButton(Graphics* g, int x, int y, int theWidth, int theHeight, bool isDown, bool isHighLighted, const SexyString& theLabel, bool theGoldLabel = false);
 
 #endif

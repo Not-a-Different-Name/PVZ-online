@@ -11,7 +11,7 @@
 static Color gGameButtonColors[6] = { Color(0, 0, 0), Color(0, 0, 0), Color(0, 0, 0), Color(255, 255, 255), Color(132, 132, 132), Color(212, 212, 212) };
 
 //0x447B00
-void DrawStoneButton(Graphics* g, int x, int y, int theWidth, int theHeight, bool isDown, bool isHighLighted, const SexyString& theLabel)
+void DrawStoneButton(Graphics* g, int x, int y, int theWidth, int theHeight, bool isDown, bool isHighLighted, const SexyString& theLabel, bool theGoldLabel)
 {
 	Image* aLeftImage = Sexy::IMAGE_BUTTON_LEFT;
 	Image* aMiddleImage = Sexy::IMAGE_BUTTON_MIDDLE;
@@ -43,7 +43,8 @@ void DrawStoneButton(Graphics* g, int x, int y, int theWidth, int theHeight, boo
 	g->SetFont(isHighLighted ? Sexy::FONT_DWARVENTODCRAFT18BRIGHTGREENINSET : Sexy::FONT_DWARVENTODCRAFT18GREENINSET);
 	aFontX += (theWidth - Sexy::FONT_DWARVENTODCRAFT18GREENINSET->StringWidth(theLabel)) / 2 + 1;
 	aFontY += (theHeight - Sexy::FONT_DWARVENTODCRAFT18GREENINSET->GetAscent() / 6 - 1 + Sexy::FONT_DWARVENTODCRAFT18GREENINSET->GetAscent()) / 2 - 4;
-	g->SetColor(Color::White);
+	// 金色字（权重批 2026-10-09）：3★ 增益按钮标签；白→金只换染色，字模不变。
+	g->SetColor(theGoldLabel ? Color(255, 200, 40) : Color::White);
 	g->DrawString(theLabel, aFontX, aFontY);
 }
 
@@ -280,7 +281,7 @@ void LawnStoneButton::Draw(Graphics* g)
 		return;
 
 	bool isDown = (mIsDown && mIsOver && !mDisabled) ^ mInverted;
-	DrawStoneButton(g, 0, 0, mWidth, mHeight, isDown, mIsOver, mLabel);
+	DrawStoneButton(g, 0, 0, mWidth, mHeight, isDown, mIsOver, mLabel, mGoldLabel);
 }
 
 //0x448620

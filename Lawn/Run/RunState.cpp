@@ -234,15 +234,25 @@ void RunState::RollChoices()
 		// 这株"的（设计文档：只对已拥有的植物出）。同名跨屏可以再来（叠层，见 BuffStack）；
 		// 但叠到 mMaxStacks 的条目不再进候选（0 = 无限，方案 §2.2）——到顶就抽不中你。
 		int aCandidates[RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT];
+		int aWeights[RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT];		// 同下标抽取权重（§8.7）
 		int aCount = 0;
+		int aTotalW = 0;
 		int aGlobals[RUN_BUFF_COUNT];
+		int aGlobalWeights[RUN_BUFF_COUNT];
 		int aGlobalCount = 0;
+		int aGlobalWeightTotal = 0;
 		for (int i = 0; i < RUN_BUFF_COUNT; i++)
 		{
 			int aCap = GetRunChoiceMaxStacks(i);
 			if (aCap > 0 && GetBuffCount(i) >= aCap) continue;
-			aCandidates[aCount++] = i;
-			aGlobals[aGlobalCount++] = i;
+			aCandidates[aCount] = i;
+			aWeights[aCount] = GetRunChoiceWeight(i);
+			aTotalW += aWeights[aCount];
+			aCount++;
+			aGlobals[aGlobalCount] = i;
+			aGlobalWeights[aGlobalCount] = aWeights[aCount - 1];
+			aGlobalWeightTotal += aGlobalWeights[aGlobalCount];
+			aGlobalCount++;
 		}
 		for (int i = 0; i < RUN_PLANT_UPGRADE_COUNT; i++)
 		{
@@ -250,7 +260,10 @@ void RunState::RollChoices()
 			if (!HasPlant(GetRunPlantUpgradeDef(i).mPlant)) continue;
 			int aCap = GetRunChoiceMaxStacks(aId);
 			if (aCap > 0 && GetBuffCount(aId) >= aCap) continue;
-			aCandidates[aCount++] = aId;
+			aCandidates[aCount] = aId;
+			aWeights[aCount] = GetRunChoiceWeight(aId);
+			aTotalW += aWeights[aCount];
+			aCount++;
 		}
 
 		// 防御守卫（方案 §2.4）：无限条目兜底，池子正常恒 ≥ 3 条；真抽干时缺格填哨兵、
@@ -264,21 +277,34 @@ void RunState::RollChoices()
 		}
 
 		// 第 1 格保底一条全局；抽中后从混池里摘掉，三条仍然互不重复。
+		// 保底格内也按权重抽（全局条相互之间）；暂留保底 = §8.4 步骤 2/3 分两批的约定。
 		int aSlot = 0;
 		if (aGlobalCount > 0)
 		{
-			int aPick = (int)aRNG.Next((unsigned long)aGlobalCount);
+			int aPickW = (int)aRNG.Next((unsigned long)aGlobalWeightTotal);
+			int aPick = 0;
+			for (int i = 0; i < aGlobalCount; i++)
+			{
+				aPickW -= aGlobalWeights[i];
+				if (aPickW < 0) { aPick = i; break; }
+			}
 			unsigned short aGlobalId = (unsigned short)aGlobals[aPick];
 			mBuffChoices[aSlot++] = aGlobalId;
 			for (int i = 0; i < aCount; i++)
 			{
 				if (aCandidates[i] == (int)aGlobalId)
 				{
-					aCandidates[i] = aCandidates[--aCount];
+					aTotalW -= aWeights[i];
+					aCandidates[i] = aCandidates[aCount - 1];
+					aWeights[i] = aWeights[aCount - 1];
+					aCount--;
 					break;
 				}
 			}
 		}
+		// 加权无放回抽剩下的格。权重批（docs/06 §8.7）：未定档条目权重恒 1，本步零行为；
+		// #179 填档后档位基值生效。矛盾对互斥（§8.6.1）在第二 buff 条目落地（#179）时接：
+		// 抽中一条后把同株另一条从 aCandidates/aWeights 摘除、aTotalW 同步减。
 		for (; aSlot < RUN_CHOICES; aSlot++)
 		{
 			if (aCount <= 0)
@@ -286,9 +312,18 @@ void RunState::RollChoices()
 				mBuffChoices[aSlot] = RUN_BUFF_CHOICE_NONE;
 				continue;
 			}
-			int aPick = (int)aRNG.Next((unsigned long)aCount);
+			int aPickW = (int)aRNG.Next((unsigned long)aTotalW);
+			int aPick = 0;
+			for (int i = 0; i < aCount; i++)
+			{
+				aPickW -= aWeights[i];
+				if (aPickW < 0) { aPick = i; break; }
+			}
 			mBuffChoices[aSlot] = (unsigned short)aCandidates[aPick];
-			aCandidates[aPick] = aCandidates[--aCount];
+			aTotalW -= aWeights[aPick];
+			aCandidates[aPick] = aCandidates[aCount - 1];
+			aWeights[aPick] = aWeights[aCount - 1];
+			aCount--;
 		}
 	}
 }

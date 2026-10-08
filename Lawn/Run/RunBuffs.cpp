@@ -277,6 +277,34 @@ int GetRunChoiceMaxStacks(int theId)
 	return GetRunBuffDef(theId).mMaxStacks;
 }
 
+// 稀有度档位（权重批 2026-10-09，docs/06 §8.7）：全局/单株两类都查 mRarity。
+// 目前两张表都还没填档（全 0）——#179 数值对齐批按 §8.2/§8.6 终稿填。
+int GetRunChoiceRarity(int theId)
+{
+	if (theId < 0) return 0;
+	if (theId >= RUN_BUFF_COUNT)
+	{
+		int aIdx = theId - RUN_BUFF_COUNT;
+		if (aIdx >= RUN_PLANT_UPGRADE_COUNT) return 0;
+		return GetRunPlantUpgradeDef(aIdx).mRarity;
+	}
+	return GetRunBuffDef(theId).mRarity;
+}
+
+// 抽取权重：未定档恒 1（零行为）；定档后 = 档位基值 1★6/2★3/3★1，全局条再乘 k
+// （千分比四舍五入）。RunState::RollChoices 按它做同屏加权无放回抽取。
+int GetRunChoiceWeight(int theId)
+{
+	static const int aBase[4] = { 1, 6, 3, 1 };		// 未标 / 1★ / 2★ / 3★
+	int aRarity = GetRunChoiceRarity(theId);
+	if (aRarity < 0 || aRarity > 3) aRarity = 0;
+	int aW = aBase[aRarity];
+	if (aRarity > 0 && theId >= 0 && theId < RUN_BUFF_COUNT)
+		aW = (aW * RUN_GLOBAL_WEIGHT_K_PERMILLE + 500) / 1000;
+	if (aW < 1) aW = 1;
+	return aW;
+}
+
 // 单株升级列顶那行【植物名】（2026-10-03 玩家反馈）：按钮名字是英文位图字体塞不下中文，
 // 说明文案批 2 起多数也不含植物名（「射击间隔逐层 ×0.75」这种）——不单独标出来，
 // 屏上分不清这条 buff 是哪株的。按 SeedType 查（表里一株最多一条）；新批次往表里
