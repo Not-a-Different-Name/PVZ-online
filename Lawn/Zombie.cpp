@@ -7356,6 +7356,26 @@ void Zombie::EatPlant(Plant* thePlant)
                 }
             }
         }
+        // @pvz-online: 第二 buff 批 4「亡语孢子」（小喷菇 #8 / 海蘑菇 #24，docs/06 §8.6）：
+        // 被啃掉时原地爆炸——900 直伤/层（土豆雷式半径 60，走非燃烧直伤通道照毁灭菇先例）。
+        // 「遗泽」（双子向日葵 #41）：被吃掉时补产 1 轮阳光（2 枚 = 双子标准单轮产量）。
+        int aDeathBoomStacks = mApp->RunPlantBuff2Count(thePlant->mSeedType);
+        if (aDeathBoomStacks > 0 &&
+            (thePlant->mSeedType == SeedType::SEED_PUFFSHROOM || thePlant->mSeedType == SeedType::SEED_SEASHROOM))
+        {
+            int aBoomX = thePlant->mX + thePlant->mWidth / 2 - 20;
+            int aBoomY = thePlant->mY + thePlant->mHeight / 2;
+            int aBoomFlags = thePlant->GetDamageRangeFlags(PlantWeapon::WEAPON_PRIMARY);
+            mBoard->KillAllZombiesInRadius(thePlant->mRow, aBoomX, aBoomY, 60, 0, false, aBoomFlags, 900 * aDeathBoomStacks);
+            int aBoomRender = Board::MakeRenderOrder(RenderLayer::RENDER_LAYER_PARTICLE, thePlant->mRow, 0);
+            mApp->AddTodParticle(aBoomX + 20.0f, aBoomY, aBoomRender, ParticleEffect::PARTICLE_POTATO_MINE);
+            mBoard->ShakeBoard(3, -4);
+        }
+        else if (thePlant->mSeedType == SeedType::SEED_TWINSUNFLOWER && mApp->RunPlantBuff2Count(SeedType::SEED_TWINSUNFLOWER) > 0)
+        {
+            mBoard->AddCoin(thePlant->mX, thePlant->mY, CoinType::COIN_SUN, CoinMotion::COIN_MOTION_FROM_PLANT);
+            mBoard->AddCoin(thePlant->mX, thePlant->mY, CoinType::COIN_SUN, CoinMotion::COIN_MOTION_FROM_PLANT);
+        }
         thePlant->Die();
         mBoard->mChallenge->ZombieAtePlant(thePlant);
 

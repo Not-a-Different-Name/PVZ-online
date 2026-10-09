@@ -383,6 +383,10 @@ bool RunPlantBuff2InPool(int theIndex)
 	case RUN_BUFF2_ROCKFLESH:	// 忧郁菇 1000 + 每击固定 200（啃咬/巨人砸分支）
 	case RUN_BUFF2_GUIDE:		// 大蒜 20 血 + 被吃全行换道（EatPlant → SwitchLanes）
 		return true;
+	case RUN_BUFF2_DEATHSPORE:	// 批 4 死亡触发族：小喷菇被啃掉爆炸 900/层（EatPlant 死亡点）
+	case RUN_BUFF2_DEATHBRINE:	// 海蘑菇同款（同挂点）
+	case RUN_BUFF2_LEGACY:		// 双子向日葵被吃掉补产 1 轮阳光（同挂点）
+		return true;
 	default:
 		return false;
 	}
