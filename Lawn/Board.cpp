@@ -782,6 +782,12 @@ void Board::PickZombieWaves()
 			{
 				aSeatMult = aSeatMult * RunState::DiffPermilleFor(mApp->GetRunState()->mDiff) / 1000;
 				if (aSeatMult < 1) aSeatMult = 1;
+
+				// @pvz-online: 高级选项·规模档（批 C，MOD_BUILD 35）：难度档之后再乘一档
+				// 出怪规模（少 ×0.5 / 多 ×2 / 海量 ×4），乘后向下取整、保底 1——与难度档
+				// 同一条纪律（每波数量封顶在下面 aWaveZombieCap 随同一倍率放大后钳硬顶）。
+				aSeatMult = aSeatMult * RunState::ScalePermilleFor(mApp->GetRunState()->mScale) / 1000;
+				if (aSeatMult < 1) aSeatMult = 1;
 			}
 
 			aZombiePoints *= aSeatMult;
@@ -920,6 +926,10 @@ void Board::PickZombieWaves()
 		// 20×32 = 640 只、高压再 ×2.0 → 1280 只（仍小于数组上限）；非闯关 50×32 = 1600 = 数组上限，正好兜住）；
 		// 非闯关基准 = 原版 50，数组上限 MAX_ZOMBIES_IN_WAVE 按基准×32 留量。
 		int aWaveZombieCap = (mApp->IsRunMode() ? RunState::RUN_WAVE_ZOMBIE_CAP : WAVE_ZOMBIE_CAP_BASE) * aSeatMult;
+		// @pvz-online: 高级选项·规模档（批 C）把顺位乘数顶到 ×128（×32 顺位 × ×4 规模）：
+		// 非闯关 50×128 = 6400 会撞 MAX_ZOMBIES_IN_WAVE 的数组上限并触发断言——钳回硬顶
+		// 减一。原基准 50×32 本来就正好贴着上限，这里只是把"贴着"变成"钳着"。
+		if (aWaveZombieCap > MAX_ZOMBIES_IN_WAVE - 1) aWaveZombieCap = MAX_ZOMBIES_IN_WAVE - 1;
 		while (aZombiePoints > 0 && aZombiePicker.mZombieCount < aWaveZombieCap)
 		{
 			ZombieType aZombieType = PickZombieType(aZombiePoints, aWave, &aZombiePicker);
@@ -6064,6 +6074,14 @@ void Board::UpdateZombieSpawning()
 			else
 			{
 				mZombieCountDown = ZOMBIE_COUNTDOWN + Rand(ZOMBIE_COUNTDOWN_RANGE);
+				// @pvz-online: 高级选项·节奏档（批 C，MOD_BUILD 35）：乘在默认波间隔上
+				// （快 ×0.6 / 慢 ×1.6），下限 400 帧——别让快档把波距压没了。只在闯关局
+				// 生效；抢跑/旗前的特殊倒计时（上面各分支）不参与缩放，闯关局走不到。
+				if (mApp->IsRunMode() && mApp->GetRunState() != nullptr)
+				{
+					mZombieCountDown = mZombieCountDown * RunState::TempoPermilleFor(mApp->GetRunState()->mTempo) / 1000;
+					if (mZombieCountDown < 400) mZombieCountDown = 400;
+				}
 			}
 		}
 		mZombieCountDownStart = mZombieCountDown;
