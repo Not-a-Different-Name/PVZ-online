@@ -772,26 +772,27 @@ void Board::PickZombieWaves()
 		// 同一倍率也放大每波数量封顶（下面 aWaveZombieCap）：1 号位 32 倍时 20 → 640 只。
 		// 2026-10-06：公式抽到 LawnApp::OnlineSeatMultiplier（顺位开局阳光同用）。
 		int aSeatMult = mApp->OnlineSeatMultiplier();
-		if (aSeatMult > 1)
+
+		// @pvz-online: 出怪难度档（2026-10-03 用户定案）：房主开局前选的全局旋钮，
+		// 直接乘在顺位乘数上——轻松 ×0.5 / 高压 ×2.0，乘后向下取整、保底 1 倍
+		// （末位 2×0.5 保底 1；顺位形状 32:16:8:4:2:2 在高压下翻倍变 64:32:16:8:4:4）。
+		// 只在闯关局生效；非闯关局这两个值恒为标准档，乘出来还是原值。
+		// MOD_BUILD 37 起这段不再躲在 if (aSeatMult > 1) 里：单机（×1）的无尽局也要吃
+		// 难度/规模档（无尽选项页对单机就摆这一行）。普通单机局档位恒为标准（×1 恒等）、
+		// 行为逐位不变。
+		if (mApp->IsRunMode() && mApp->GetRunState() != nullptr)
 		{
-			// @pvz-online: 出怪难度档（2026-10-03 用户定案）：房主开局前选的全局旋钮，
-			// 直接乘在顺位乘数上——轻松 ×0.5 / 高压 ×2.0，乘后向下取整、保底 1 倍
-			// （末位 2×0.5 保底 1；顺位形状 32:16:8:4:2:2 在高压下翻倍变 64:32:16:8:4:4）。
-			// 只在闯关局生效；非闯关 / 单机局档位恒为标准（也是恒等 ×1）。
-			if (mApp->IsRunMode() && mApp->GetRunState() != nullptr)
-			{
-				aSeatMult = aSeatMult * RunState::DiffPermilleFor(mApp->GetRunState()->mDiff) / 1000;
-				if (aSeatMult < 1) aSeatMult = 1;
+			aSeatMult = aSeatMult * RunState::DiffPermilleFor(mApp->GetRunState()->mDiff) / 1000;
+			if (aSeatMult < 1) aSeatMult = 1;
 
-				// @pvz-online: 高级选项·规模档（批 C，MOD_BUILD 35）：难度档之后再乘一档
-				// 出怪规模（少 ×0.5 / 多 ×2 / 海量 ×4），乘后向下取整、保底 1——与难度档
-				// 同一条纪律（每波数量封顶在下面 aWaveZombieCap 随同一倍率放大后钳硬顶）。
-				aSeatMult = aSeatMult * RunState::ScalePermilleFor(mApp->GetRunState()->mScale) / 1000;
-				if (aSeatMult < 1) aSeatMult = 1;
-			}
-
-			aZombiePoints *= aSeatMult;
+			// @pvz-online: 高级选项·规模档（批 C，MOD_BUILD 35）：难度档之后再乘一档
+			// 出怪规模（少 ×0.5 / 多 ×2 / 海量 ×4），乘后向下取整、保底 1——与难度档
+			// 同一条纪律（每波数量封顶在下面 aWaveZombieCap 随同一倍率放大后钳硬顶）。
+			aSeatMult = aSeatMult * RunState::ScalePermilleFor(mApp->GetRunState()->mScale) / 1000;
+			if (aSeatMult < 1) aSeatMult = 1;
 		}
+
+		aZombiePoints *= aSeatMult;
 
 		// 旗帜波的特殊调整
 		if (aIsFlagWave)

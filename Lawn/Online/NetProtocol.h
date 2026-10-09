@@ -129,7 +129,15 @@ const uint16_t	PROTOCOL_VERSION	= 1;
 //        闯关变体再带三个字节（载荷 19→22）：规模/节奏乘在出怪算式上、开关改出怪名单——
 //        混搭时一边 ×4 一边 ×1，出怪量与怪种都对不上，必须两边同版本。旧长度的
 //        START_LEVEL 会被当串包拒掉。植物僵尸战斗侧（ZomBotany 五种）随同版投放。
-const uint16_t	MOD_BUILD			= 36;
+// 35 → 36：第二 buff 批 0（2026-10-09）：buff 候选池扩出第二单株表（id 区块 57..95）——
+//        buff id 的解义两边必须同版，旧构建会把第二表 id 当老单株解出错误条目（载荷没变，
+//        但语义变了，故抬代次；补记于此，原提交只动了常量）。检查点同版升 v11。
+// 36 → 37：多人无尽（2026-10-10 用户定案）：新增第四档 RUN_MODE_ENDLESS（锁场景无限循环、
+//        难度走对数阶曲线）——START_LEVEL 闯关变体的 runLevelIndex 由 u8 扩到 u16（无尽
+//        关序号能过 255）、尾部再带一个 runEndlessScene 场景字节（载荷 22→24）；关序号或
+//        场景对不上会开出别的关，混搭必须两边同版本。旧长度（22 字节）的 START_LEVEL 按
+//        串包拒掉；非无尽档场景恒 0，其余语义一字不变。检查点同版升 v12。
+const uint16_t	MOD_BUILD			= 37;
 
 const uint16_t	DEFAULT_PORT		= 27777;
 
@@ -347,8 +355,8 @@ struct MsgHelloAck
 };
 
 // START_LEVEL：{ srcSeat, dstSeat, u8 gameMode, u32 level, i32 levelSeed,
-//                u8 isRun, i32 runSeed, u8 runLevelIndex, u8 runMode, u8 runDiff,
-//                u8 runScale, u8 runTempo, u8 runZombotany }
+//                u8 isRun, i32 runSeed, u16 runLevelIndex, u8 runMode, u8 runDiff,
+//                u8 runScale, u8 runTempo, u8 runZombotany, u8 runEndlessScene }
 // levelSeed 是主机 GetLevelRandSeed() 的完整返回值（它含主机存档 ID，客户端必须整体覆盖）。
 // 闯关局（isRun=1）多带"这一局是谁的局、打到第几关"：队友拿它对上自己的检查点，
 // 没检查点 / 对不上就从这一局的起点摆起、把欠下的三选一补回来（补做的屏和真打过的一模一样，
@@ -358,8 +366,11 @@ struct MsgHelloAck
 // 对不上同样按"检查点不匹配"重建。runScale/runTempo/runZombotany（MOD_BUILD 35）是房主
 // 「高级选项」里的出怪规模档 / 节奏档 / 植物僵尸混入开关（RunState::RUN_SCALE_* /
 // RUN_TEMPO_*，开关 0 关 1 开）：乘在出怪算式上 / 改出怪名单，队友按同一组建局。
+// runLevelIndex 由 u8 扩到 u16（MOD_BUILD 37）：无尽档的关序号会过 255，u8 会静默截断；
+// runEndlessScene（MOD_BUILD 37）是无尽档锁定的场景 0..4（RunState::RUN_MODE_ENDLESS 专用，
+// 其余档恒 0）——队友按同一场景建局，对不上同样重建。
 // 单关局 isRun=0：runSeed/runLevelIndex/runMode 全是 0，runDiff 记标准档（1，单关局
-// 不参与难度缩放），高级选项三格记 标准/标准/关，其余语义一字不变。
+// 不参与难度缩放），高级选项三格记 标准/标准/关，场景记 0，其余语义一字不变。
 struct MsgStartLevel
 {
 	uint8_t			mSrcSeat;
@@ -369,12 +380,13 @@ struct MsgStartLevel
 	int32_t			mLevelSeed;
 	uint8_t			mIsRun;
 	int32_t			mRunSeed;
-	uint8_t			mRunLevelIndex;
+	uint16_t		mRunLevelIndex;
 	uint8_t			mRunMode;
 	uint8_t			mRunDiff;
 	uint8_t			mRunScale;
 	uint8_t			mRunTempo;
 	uint8_t			mRunZombotany;
+	uint8_t			mRunEndlessScene;
 };
 
 // LEVEL_DONE：{ srcSeat, dstSeat, u8 done }（1 = 我这块草坪清完了，0 = 又不清净了）
@@ -689,12 +701,13 @@ inline int EncodeStartLevel(uint8_t* theBuffer, int theCapacity, const MsgStartL
 	aWriter.I32(theMsg.mLevelSeed);
 	aWriter.U8(theMsg.mIsRun);
 	aWriter.I32(theMsg.mRunSeed);
-	aWriter.U8(theMsg.mRunLevelIndex);
+	aWriter.U16(theMsg.mRunLevelIndex);
 	aWriter.U8(theMsg.mRunMode);
 	aWriter.U8(theMsg.mRunDiff);
 	aWriter.U8(theMsg.mRunScale);
 	aWriter.U8(theMsg.mRunTempo);
 	aWriter.U8(theMsg.mRunZombotany);
+	aWriter.U8(theMsg.mRunEndlessScene);
 	return aWriter.Overflowed() ? -1 : aWriter.Size();
 }
 
@@ -708,12 +721,13 @@ inline bool DecodeStartLevel(const uint8_t* theData, int theSize, MsgStartLevel&
 	theMsg.mLevelSeed = aReader.I32();
 	theMsg.mIsRun = aReader.U8();
 	theMsg.mRunSeed = aReader.I32();
-	theMsg.mRunLevelIndex = aReader.U8();
+	theMsg.mRunLevelIndex = aReader.U16();
 	theMsg.mRunMode = aReader.U8();
 	theMsg.mRunDiff = aReader.U8();
 	theMsg.mRunScale = aReader.U8();
 	theMsg.mRunTempo = aReader.U8();
 	theMsg.mRunZombotany = aReader.U8();
+	theMsg.mRunEndlessScene = aReader.U8();
 	return !aReader.Overflowed();
 }
 

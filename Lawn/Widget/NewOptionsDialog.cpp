@@ -787,12 +787,22 @@ void NewOptionsDialog::DrawRunInfo(Sexy::Graphics* g)
     aY += aLineHeight;
 
     const char* aModeName = (aRun->mMode == RunState::RUN_MODE_NORMAL) ? ModText::Tr("普通版", "Normal")
-        : (aRun->mMode == RunState::RUN_MODE_QUICK) ? ModText::Tr("快速版", "Quick") : ModText::Tr("完整版", "Full");
+        : (aRun->mMode == RunState::RUN_MODE_QUICK) ? ModText::Tr("快速版", "Quick")
+        : (aRun->mMode == RunState::RUN_MODE_ENDLESS) ? ModText::Tr("无尽", "Endless") : ModText::Tr("完整版", "Full");
     const char* aDiffName = (aRun->mDiff == RunState::RUN_DIFF_EASY) ? ModText::Tr("轻松", "Easy")
         : (aRun->mDiff == RunState::RUN_DIFF_HIGH) ? ModText::Tr("高压", "High") : ModText::Tr("标准", "Standard");
     char aSubLine[160];
-    snprintf(aSubLine, sizeof(aSubLine), ModText::Tr("%s · 第 %d/%d 关 · 出怪：%s", "%s · Level %d/%d · Spawns: %s"),
-        aModeName, aRun->GetPlayingLevelIndex() + 1, aRun->GetLevelCount(), aDiffName);
+    if (aRun->mMode == RunState::RUN_MODE_ENDLESS)
+    {
+        // 无尽档没有分母（软上限 60000，实际不可达）：格式换成只报当前关号。
+        snprintf(aSubLine, sizeof(aSubLine), ModText::Tr("%s · 第 %d 关 · 出怪：%s", "%s · Level %d · Spawns: %s"),
+            aModeName, aRun->GetPlayingLevelIndex() + 1, aDiffName);
+    }
+    else
+    {
+        snprintf(aSubLine, sizeof(aSubLine), ModText::Tr("%s · 第 %d/%d 关 · 出怪：%s", "%s · Level %d/%d · Spawns: %s"),
+            aModeName, aRun->GetPlayingLevelIndex() + 1, aRun->GetLevelCount(), aDiffName);
+    }
     NewOptionsDrawCjkCentered(g, aFont, aCenterX, aY, aSubLine, Sexy::Color(200, 200, 200));
     aY += aLineHeight + 8;
 

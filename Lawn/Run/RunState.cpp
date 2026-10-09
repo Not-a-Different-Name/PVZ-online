@@ -13,6 +13,7 @@
 //   i32 runSeed + i32 levelIndex + u16 failCounts[25]
 //   u16 卡池数 + 每株 u16 SeedType
 //   u16 buff 数 + 每条 (u16 id, u16 层数)
+//   u16 推车记账（v5） + u16 高级选项位包（v10） + u16 无尽场景档（v12）
 // 版本不符 / 越界一律当"没有检查点"——宁可从头开新局，也不带着半截数据进场。
 // v2：一局从 5 关扩到 25 关，failCounts 数组跟着变长——v1 的档一律按"没有"处理。
 // v3：加时长档（M4-b 三档时长）——旧版的保留位恒 0，恰好就是"完整版"，所以 v2 的档
@@ -40,9 +41,13 @@
 //     RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT + 表下标（57..95）。buff 列表仍是
 //     通用 id+count、载荷长度没变，但老版本会把第二表 id 当老单株解出错误条目，
 //     故抬版本让老构建直接拒档；v10 及更老档没有这类 id，读平即可（迁移链不动）。
+// v12：2026-10-10 多人无尽——新增第四档 RUN_MODE_ENDLESS（锁场景无限循环、难度走对数阶
+//     曲线）与其场景字段 mEndlessScene（0..4）；载荷尾追加 u16 场景档。v11 及更老的档
+//     不可能真是无尽档（mode 3 是 v12 才写的），读到 mode==ENDLESS 的一律拒档（伪造/错位）；
+//     其余档读平，场景按 0 续。关数校验按 LevelCountForMode(3)=60000 封口（软上限）。
 
 static const unsigned int RUN_CHECKPOINT_MAGIC = 0x314E5552;	// 'RUN1'
-static const unsigned short RUN_CHECKPOINT_VERSION = 11;
+static const unsigned short RUN_CHECKPOINT_VERSION = 12;
 
 static std::vector<unsigned char>& AppendU16(std::vector<unsigned char>& theData, unsigned int theValue)
 {
@@ -100,11 +105,14 @@ RunState::RunState()
 	StartNew(0);
 }
 
-void RunState::StartNew(int theRunSeed, int theRunMode, int theRunDiff, int theRunScale, int theRunTempo, int theZombotany)
+void RunState::StartNew(int theRunSeed, int theRunMode, int theRunDiff, int theRunScale, int theRunTempo, int theZombotany, int theEndlessScene)
 {
 	mRunSeed = theRunSeed;
 	mMode = theRunMode;
 	mDiff = theRunDiff;
+	// 无尽档锁定的场景（0..4）：入口链/线传/读档三处都过了闸，这里再夹一次兜底——
+	// 坏场景会让 GetLevel 取出越界引擎关号。
+	mEndlessScene = (theEndlessScene >= 0 && theEndlessScene < RUN_SCENE_COUNT) ? theEndlessScene : 0;
 	mScale = theRunScale;
 	mTempo = theRunTempo;
 	mZombotany = theZombotany;
@@ -451,7 +459,7 @@ int RunState::LevelForIndex(int theIndex)
 }
 
 // 时长档的每场景关数（完整 5 / 普通 2 / 快速 1）。模式非法按完整版——检查点、联机包
-// 里来的值都过这道闸，越界值永远到不了下面的表。
+// 里来的值都过这道闸，越界值永远到不了下面的表。无尽档取完整版值（5），仅作静态表尺寸用。
 int RunState::LevelsPerScene(int theRunMode)
 {
 	static const int aPerScene[] = { 5, 2, 1 };
@@ -459,8 +467,10 @@ int RunState::LevelsPerScene(int theRunMode)
 	return aPerScene[theRunMode];
 }
 
+// 无尽档没有"关数"这回事（软上限 RUN_ENDLESS_LEVEL_COUNT，见头文件）；其余档 = 场景数 × 每场景关数。
 int RunState::LevelCountForMode(int theRunMode)
 {
+	if (theRunMode == RUN_MODE_ENDLESS) return RUN_ENDLESS_LEVEL_COUNT;
 	return RUN_SCENE_COUNT * LevelsPerScene(theRunMode);
 }
 
@@ -516,26 +526,59 @@ int RunState::GetPlayingLevelIndex() const
 
 // 场景档 0..4。mLevelIndex 会短暂停在"已通关"（== 关数）这种空档上：
 // 夹进范围里，别让越界值把难度表读穿。每场景关数按时长档（5/2/1）。
+// 无尽档的场景进场就锁死了（建档/线传/读档三处都验过 0..4），不随关序号走。
 int RunState::GetSceneIndex() const
 {
+	if (mMode == RUN_MODE_ENDLESS) return mEndlessScene;
 	int aIndex = GetPlayingLevelIndex();
 	if (aIndex < 0) aIndex = 0;
 	if (aIndex > GetLevelCount() - 1) aIndex = GetLevelCount() - 1;
 	return aIndex / LevelsPerScene(mMode);
 }
 
+// @pvz-online: 无尽档的难度增量（2026-10-10 用户定案"对数阶曲线"，前期涨得动、后期趋缓）：
+// 600·ln(1 + 关序号) 的千分比。ln 用整数近似——t = floor(log2(n+1))、frac = 小数部分千分比，
+// lnMilli = 693·t + 693·frac/1000（ln2 ≈ 0.693）；全程整数乘除，联机两端逐位一致。
+// 样例（n → 增量）：0→0、1→415、3→831、7→1247、15→1663、24→1896、100→2734、255→3326、
+// 1023→4158；n=59999（软上限）→ 6582。初值待实机验收调，见 docs/07。
+static int EndlessGrowthPermille(int theLevelIndex)
+{
+	if (theLevelIndex <= 0) return 0;
+	unsigned int aN = (unsigned int)theLevelIndex + 1;	// n+1
+	int aT = 0;
+	while ((1u << (aT + 1)) <= aN) aT++;
+	unsigned int aPow = 1u << aT;
+	int aFrac = (int)(((aN - aPow) * 1000) / aPow);
+	int aLnMilli = 693 * aT + 693 * aFrac / 1000;
+	return 600 * aLnMilli / 1000;
+}
+
 // 难度阶梯（M4-a，用户定案）：每过一个场景血量与数量同乘 ×1.33 → 1.0/1.33/1.77/2.35/3.13
 //（2026-10-04 按玩家反馈"后期难度不足"由 ×1.2 上调、2026-10-05 回调为 ×1.33，见 docs/07 批六/批九；截尾口径同旧表）。
 // 写成整数千分比表：两边全靠整数乘除，逐位一致——浮点乘的 0.000001 之差就可能让同一只
 // 僵尸在两台机器上一个剩 1 点血、一个已经死了。
+// 无尽档：场景基准 + 对数阶增量（见 EndlessGrowthPermille）。
 int RunState::GetDifficultyPermille() const
 {
 	static const int aPermille[RUN_SCENE_COUNT] = { 1000, 1330, 1768, 2352, 3129 };
+	if (mMode == RUN_MODE_ENDLESS)
+	{
+		int aLevel = GetPlayingLevelIndex();
+		if (aLevel < 0) aLevel = 0;
+		return aPermille[mEndlessScene] + EndlessGrowthPermille(aLevel);
+	}
 	return aPermille[GetSceneIndex()];
 }
 
+// 无尽档的关卡映射：锁定场景内的 5 个原型循环——关序号 % 5 取行（场景锁死，不再随序号换景）。
 int RunState::GetLevel() const
 {
+	if (mMode == RUN_MODE_ENDLESS)
+	{
+		int aIndex = GetPlayingLevelIndex();
+		if (aIndex < 0) return -1;
+		return LevelForIndex(mEndlessScene * RUN_LEVELS_PER_SCENE + aIndex % RUN_LEVELS_PER_SCENE);
+	}
 	return LevelForModeIndex(mMode, GetPlayingLevelIndex());
 }
 
@@ -551,10 +594,11 @@ int RunState::GetLevelSeed() const
 }
 
 // 本关失败一次。序号越界只会出现在"已通关 / 空局"这种不该有人报失败的时候，直接不理。
+// 无尽档的关序号会一直往上走：计数按 25 取模落格（首版只存不再惩罚，循环叠用无妨）。
 void RunState::NoteLevelFailed()
 {
 	if (mLevelIndex < 0 || mLevelIndex >= GetLevelCount()) return;
-	mFailCounts[mLevelIndex]++;
+	mFailCounts[mLevelIndex % RUN_LEVEL_COUNT]++;
 }
 
 std::string RunState::GetCheckpointName(int theProfileId)
@@ -570,6 +614,17 @@ bool RunState::HasCheckpoint(int theProfileId)
 void RunState::DeleteCheckpoint(int theProfileId)
 {
 	if (gSexyAppBase) gSexyAppBase->EraseFile(GetCheckpointName(theProfileId));
+}
+
+// @pvz-online: 探读（2026-10-10）：完整做一遍 Load 才回填，失败一律返回 false——
+// 调用方（两处「续不续」问句）靠它分辨盘上这份档属于哪一档，别再自己看文件在不在。
+bool RunState::PeekCheckpoint(int theProfileId, int& theRunMode, int& theEndlessScene)
+{
+	RunState aTemp;
+	if (!aTemp.Load(theProfileId)) return false;
+	theRunMode = aTemp.mMode;
+	theEndlessScene = aTemp.mEndlessScene;
+	return true;
 }
 
 bool RunState::Save(int theProfileId) const
@@ -603,6 +658,7 @@ bool RunState::Save(int theProfileId) const
 	// v11（第二 buff 批 0）：buff 列表格式不变（BuffStack 通用 id+count），但 mBuffs 里
 	// 从此可能出现第二表 id（57..95）。老版本读到会当老单株解出错误条目，故抬版本号让
 	// 老构建直接拒档；v10 及更老档没有这类 id，读平即可，不需要迁移链。
+	AppendU16(aData, (unsigned int)mEndlessScene);	// v12：无尽档锁定的场景（非无尽档恒 0）
 
 	MkDir(GetAppDataFolder() + "userdata");
 	if (!gSexyAppBase->WriteBytesToFile(GetCheckpointName(theProfileId), aData.data(), (unsigned long)aData.size()))
@@ -636,9 +692,11 @@ bool RunState::Load(int theProfileId)
 	// v10 才有高级选项位包；v9 及更老的档读不到，按 标准/标准/关 续。
 	// v11 起buff 列表可能有第二表 id（57..95，第二 buff 批 0）；v10 及更老档天然没有，
 	// buff 循环与迁移链照旧（迁移条件全是 aVersion < N，对新 id 不触发）。
+	// v12 起才有无尽档与场景字段：v11 及更老档读到 mode==ENDLESS 一律拒档（伪造/错位）；
+	// 非无尽档的场景恒 0。
 	int aMode = RUN_MODE_FULL;
 	int aDiff = RUN_DIFF_STD;
-	if (aMagic != RUN_CHECKPOINT_MAGIC || (aVersion != RUN_CHECKPOINT_VERSION && aVersion != 10 && aVersion != 9 && aVersion != 8 && aVersion != 7 && aVersion != 6 && aVersion != 5 && aVersion != 4 && aVersion != 3 && aVersion != 2))
+	if (aMagic != RUN_CHECKPOINT_MAGIC || (aVersion != RUN_CHECKPOINT_VERSION && aVersion != 11 && aVersion != 10 && aVersion != 9 && aVersion != 8 && aVersion != 7 && aVersion != 6 && aVersion != 5 && aVersion != 4 && aVersion != 3 && aVersion != 2))
 	{
 		TodLog("[run] checkpoint magic/version mismatch, ignored");
 		return false;
@@ -646,8 +704,13 @@ bool RunState::Load(int theProfileId)
 	if (aVersion >= 3)
 	{
 		aMode = (int)(aReserved & 0xFF);
-		if (aMode < RUN_MODE_FULL || aMode > RUN_MODE_QUICK)
+		if (aMode < RUN_MODE_FULL || aMode > RUN_MODE_ENDLESS)
 		{
+			return false;
+		}
+		if (aMode == RUN_MODE_ENDLESS && aVersion < 12)
+		{
+			TodLog("[run] pre-v12 checkpoint claims the endless mode, ignored");
 			return false;
 		}
 		if (aVersion < 7 && aMode != RUN_MODE_FULL)
@@ -760,9 +823,30 @@ bool RunState::Load(int theProfileId)
 		return false;
 	}
 
+	// v12 才有场景字段。无尽档的场景必须真落在 0..4——GetLevel 的取模救不了坏场景
+	//（坏场景会取出越界引擎关号），只能在这里拒档；非无尽档的场景恒 0。
+	unsigned int aEndlessScene = 0;
+	if (aVersion >= 12 && !aReader.ReadU16(aEndlessScene))
+	{
+		return false;
+	}
+	if (aMode == RUN_MODE_ENDLESS)
+	{
+		if (aEndlessScene >= (unsigned int)RUN_SCENE_COUNT)
+		{
+			TodLog("[run] endless checkpoint with a bad scene, ignored");
+			return false;
+		}
+	}
+	else
+	{
+		aEndlessScene = 0;
+	}
+
 	mRunSeed = aRunSeed;
 	mMode = aMode;
 	mDiff = aDiff;
+	mEndlessScene = (int)aEndlessScene;
 	mScale = (int)(aOptions & 3);
 	mTempo = (int)((aOptions >> 2) & 3);
 	mZombotany = (int)((aOptions >> 4) & 1);

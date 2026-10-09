@@ -169,6 +169,7 @@ LawnApp::LawnApp()
 	mOnlineWaitingAdviceOn = false;
 	mRunState = nullptr;
 	mPendingAdventure = false;
+	mPendingEndlessScene = -1;
 	mShowedStartupAnnounce = false;
 	mOnlineRunStartHeld = false;
 	mOnlineRunGo = false;
@@ -841,7 +842,8 @@ void LawnApp::UpdateOnlineStart()
 		TodLog("[run] the host calls us into level index %u (run seed %d)",
 			(unsigned)aStart.mRunLevelIndex, (int)aStart.mRunSeed);
 		AlignRunToHost((int)aStart.mRunSeed, (int)aStart.mRunLevelIndex, (int)aStart.mRunMode, (int)aStart.mRunDiff,
-			(int)aStart.mRunScale, (int)aStart.mRunTempo, (int)aStart.mRunZombotany);
+			(int)aStart.mRunScale, (int)aStart.mRunTempo, (int)aStart.mRunZombotany,
+			(int)aStart.mRunEndlessScene);
 		mOnlineRunStartHeld = true;
 		mOnlineRunGo = false;		// 这条是新命令：上一次的放行作废
 		mOnlineSession->SendStartAck();
@@ -960,7 +962,8 @@ void LawnApp::OnlineStartPromptAnswer(bool theAccepted)
 		TodLog("[run] the host calls us into level index %u (run seed %d, answered)",
 			(unsigned)aMsg.mRunLevelIndex, (int)aMsg.mRunSeed);
 		AlignRunToHost((int)aMsg.mRunSeed, (int)aMsg.mRunLevelIndex, (int)aMsg.mRunMode, (int)aMsg.mRunDiff,
-			(int)aMsg.mRunScale, (int)aMsg.mRunTempo, (int)aMsg.mRunZombotany);
+			(int)aMsg.mRunScale, (int)aMsg.mRunTempo, (int)aMsg.mRunZombotany,
+			(int)aMsg.mRunEndlessScene);
 		mOnlineRunStartHeld = true;
 		mOnlineRunGo = false;
 		mOnlineSession->SendStartAck();
@@ -1216,9 +1219,10 @@ void LawnApp::UpdateOnlineEvents()
 				// 那是 M4-b 加 mode 字节时留下的传参错位，普通/快速档会把命令发给错误席位）。
 				mOnlineSession->SendStartLevel((uint8_t)GameMode::GAMEMODE_ADVENTURE,
 					(uint32_t)mRunState->GetLevel(), mRunState->GetLevelSeed(),
-					true, mRunState->mRunSeed, (uint8_t)mRunState->mLevelIndex,
+					true, mRunState->mRunSeed, (uint16_t)mRunState->mLevelIndex,
 					NetProto::SEAT_UNSET, (uint8_t)mRunState->mMode, (uint8_t)mRunState->mDiff,
-					(uint8_t)mRunState->mScale, (uint8_t)mRunState->mTempo, (uint8_t)mRunState->mZombotany);
+					(uint8_t)mRunState->mScale, (uint8_t)mRunState->mTempo, (uint8_t)mRunState->mZombotany,
+					(uint8_t)mRunState->mEndlessScene);
 			}
 			break;
 
@@ -1277,9 +1281,10 @@ void LawnApp::UpdateOnlineEvents()
 					(unsigned)anEvent.mSeat, mRunState->GetLevel(), mRunState->mLevelIndex);
 				mOnlineSession->SendStartLevel((uint8_t)GameMode::GAMEMODE_ADVENTURE,
 					(uint32_t)mRunState->GetLevel(), mRunState->GetLevelSeed(),
-					true, mRunState->mRunSeed, (uint8_t)mRunState->mLevelIndex,
+					true, mRunState->mRunSeed, (uint16_t)mRunState->mLevelIndex,
 					anEvent.mSeat, (uint8_t)mRunState->mMode, (uint8_t)mRunState->mDiff,
-					(uint8_t)mRunState->mScale, (uint8_t)mRunState->mTempo, (uint8_t)mRunState->mZombotany);
+					(uint8_t)mRunState->mScale, (uint8_t)mRunState->mTempo, (uint8_t)mRunState->mZombotany,
+					(uint8_t)mRunState->mEndlessScene);
 			}
 			break;
 
@@ -1449,9 +1454,10 @@ void LawnApp::RetryOnlineLevel()
 		mOnlineStartWaitFrames = 0;
 		// 同 UPDATE 拉人：广播要显式 SEAT_UNSET（见 UpdateOnlineEvents 的拉人注释）。
 		mOnlineSession->SendStartLevel((uint8_t)GameMode::GAMEMODE_ADVENTURE, (uint32_t)aRunLevel, aRunSeed,
-			true, mRunState->mRunSeed, (uint8_t)mRunState->mLevelIndex,
+			true, mRunState->mRunSeed, (uint16_t)mRunState->mLevelIndex,
 			NetProto::SEAT_UNSET, (uint8_t)mRunState->mMode, (uint8_t)mRunState->mDiff,
-			(uint8_t)mRunState->mScale, (uint8_t)mRunState->mTempo, (uint8_t)mRunState->mZombotany);
+			(uint8_t)mRunState->mScale, (uint8_t)mRunState->mTempo, (uint8_t)mRunState->mZombotany,
+			(uint8_t)mRunState->mEndlessScene);
 		return;
 	}
 
@@ -1512,6 +1518,7 @@ bool LawnApp::RequestAdventure()
 	if (aSession->GetState() == NetSession::State::LISTENING)
 	{
 		TodTrace("adventure: a team of one, the run is queued");
+		mPendingEndlessScene = -1;	// 大墓碑排队 = 明确不是无尽（清掉可能滞留的场景号）
 		mPendingAdventure = true;
 		return true;
 	}
@@ -1531,6 +1538,7 @@ bool LawnApp::RequestAdventure()
 			return true;
 		}
 		TodTrace("adventure: the team is here, the run is queued");
+		mPendingEndlessScene = -1;	// 同上：大墓碑路径不吃无尽场景号
 		mPendingAdventure = true;
 		return true;
 	}
@@ -1538,7 +1546,53 @@ bool LawnApp::RequestAdventure()
 	return false;
 }
 
-// 主循环里消费上面那个请求。队伍在这两帧之间可能已经变了（有人正好连进来、
+// @pvz-online: 无尽入口（MOD_BUILD 37）：挑战页生存子页点那张 Endless 卡 = 开一局
+// 锁死该环境的无尽。受理口径与 RequestAdventure 逐条相同（没队伍开面板、单人监听/
+// 队友连着的主机排队、客户端返 false 让调用方落回面板等主机）；区别只在排队时多记一个
+// 场景号（mPendingEndlessScene），主循环里的分流见 UpdateAdventureRequest 的无尽分支。
+bool LawnApp::RequestEndlessRun(int theEndlessScene)
+{
+	// 越界值当 0（白天）：宁可开一局能走的，也不排队一局必坏的（检查点校验也认 0..4）。
+	if (theEndlessScene < 0 || theEndlessScene >= RunState::RUN_SCENE_COUNT) theEndlessScene = 0;
+
+	NetSession* aSession = mOnlineSession;
+	bool aTeam = aSession != nullptr && aSession->IsActive()
+		&& aSession->GetState() != NetSession::State::DEAD;
+
+	if (!aTeam)
+	{
+		TodTrace("endless: no team yet, opening the team panel");
+		DoOnlineDialog();
+		return true;
+	}
+
+	if (aSession->GetState() == NetSession::State::LISTENING)
+	{
+		TodTrace("endless: a team of one, the run for scene %d is queued", theEndlessScene);
+		mPendingEndlessScene = theEndlessScene;
+		mPendingAdventure = true;
+		return true;
+	}
+
+	if (aSession->GetState() == NetSession::State::CONNECTED
+		&& aSession->GetRole() == NetSession::Role::HOST)
+	{
+		if (mOnlineWaitingStartAck)
+		{
+			TodTrace("endless: already waiting for the teammate, the click is dropped");
+			return true;
+		}
+		TodTrace("endless: the team is here, the run for scene %d is queued", theEndlessScene);
+		mPendingEndlessScene = theEndlessScene;
+		mPendingAdventure = true;
+		return true;
+	}
+
+	return false;
+}
+
+// 主循环里消费上面那个请求（闯关与无尽同一个队列，mPendingEndlessScene 分流）。
+// 队伍在这两帧之间可能已经变了（有人正好连进来、
 // 或者会话刚断），所以条件再核一遍：必须是"主机 + 队伍里没有会漏掉的人"。
 // 队友连着的局面（R5）是合法的：上面的入口已经把命令广播出去，队友会被拉进同一关；
 // 不核的话会开出"只有我在打"的棋盘去等一个没进关的队友，谁也结束不了这一关。
@@ -1546,6 +1600,9 @@ void LawnApp::UpdateAdventureRequest()
 {
 	if (!mPendingAdventure) return;
 	mPendingAdventure = false;
+	// 无尽排队带的一次性场景号：摘走就清——后面任何分支都不该再看得见它。
+	int aEndlessScene = mPendingEndlessScene;
+	mPendingEndlessScene = -1;
 
 	NetSession* aSession = mOnlineSession;
 	bool aTeamed = aSession == nullptr
@@ -1558,11 +1615,65 @@ void LawnApp::UpdateAdventureRequest()
 		return;
 	}
 
+	// 出怪难度（MOD_BUILD 27）那一行只在"队伍"里摆（判据同 RequestAdventure：会话活着、
+	// 不是掉线）——单机局档位恒为标准，摆了也是死控件。无尽变体例外（弹窗自己会把
+	// 这一行对单机也摆上，无尽单机同样吃这些档）。
+	bool aShowDiff = mOnlineSession != nullptr && mOnlineSession->IsActive()
+		&& mOnlineSession->GetState() != NetSession::State::DEAD;
+
+	// @pvz-online: 无尽分支（MOD_BUILD 37）。场景号 >= 0 = 这一次排队来自挑战页的无尽卡。
+	if (aEndlessScene >= 0)
+	{
+		// 盘上同卡的检查点先问一句。探测按严格口径（探读成功 + mode/scene 都对得上这张卡）
+		// ——ContinueRun 读不出时会兜底开完整档新局，探错就是从这张卡悄悄开成别的局。
+		int aPeekMode = -1;
+		int aPeekScene = -1;
+		if (RunState::PeekCheckpoint(mPlayerInfo->mId, aPeekMode, aPeekScene)
+			&& aPeekMode == RunState::RUN_MODE_ENDLESS && aPeekScene == aEndlessScene)
+		{
+			OnlineStartDialog* aDialog = new OnlineStartDialog(this,
+				ModText::Tr("继续无尽？", "Continue the endless run?"),
+				ModText::Tr("这张环境上有一局没有打完。", "You have an unfinished run on this field."),
+				ModText::Tr("继续", "Continue"), ModText::Tr("新开一局", "New Run"),
+				OnlineStartDialog::NOTIFY_NONE);
+			CenterDialog(aDialog, aDialog->mWidth, aDialog->mHeight);
+			AddDialog(Dialogs::DIALOG_ONLINE_START, aDialog);
+			if (aDialog->WaitForResult() == Dialog::ID_YES)
+			{
+				ContinueRun();
+				return;
+			}
+		}
+
+		// 「无尽设置」变体（三张时长卡撤掉，环境锁死；结果是「开始」）：难度/规模/节奏/
+		// 植物僵尸照选，随 START_LEVEL 带动队友。读 mDiffSel 等同普通页（WaitForResult
+		// 的自动收摊是 SafeDeleteList 延迟删，对象还活着）。
+		RunModeDialog* aModeDialog = new RunModeDialog(this, aShowDiff, aEndlessScene);
+		CenterDialog(aModeDialog, aModeDialog->mWidth, aModeDialog->mHeight);
+		AddDialog(Dialogs::DIALOG_ONLINE_START, aModeDialog);
+		int aEndlessResult = aModeDialog->WaitForResult();
+		if (aEndlessResult != RunModeDialog::RunModeDialog_Start)
+		{
+			TodTrace("endless: the setup dialog was cancelled, no run starts");
+			return;
+		}
+		StartRun(RunState::RUN_MODE_ENDLESS, aModeDialog->mDiffSel,
+			aModeDialog->mScaleSel, aModeDialog->mTempoSel, aModeDialog->mZombotanySel, aEndlessScene);
+		return;
+	}
+
 	// 盘上有打到一半的检查点：先问一句续不续。打完的那一局收尾时检查点就删了
 	// （见 UpdateRunEnd），所以这儿问的一定是"还有得打"的那一局。
 	// @pvz-online: 这一问换成中文框（OnlineStartDialog）——"房主开始 → 是否继续存档"，
 	// 开局流程的第一问。阻塞式（WaitForResult 泵主循环），联机等待照常跑。
-	if (RunState::HasCheckpoint(mPlayerInfo->mId))
+	// MOD_BUILD 37 起还带一道探读：只认"读得出来 + 不是无尽档"的检查点（无尽档在盘上时
+	// 点大墓碑不弹——要接着打回挑战页点同一张卡）；坏档也不问，直接走选档重开，
+	// 比"问了、点了继续、又悄悄从头开"诚实。
+	int aPeekMode = -1;
+	int aPeekScene = -1;
+	bool aResumable = RunState::PeekCheckpoint(mPlayerInfo->mId, aPeekMode, aPeekScene)
+		&& aPeekMode != RunState::RUN_MODE_ENDLESS;
+	if (aResumable)
 	{
 		OnlineStartDialog* aDialog = new OnlineStartDialog(this,
 			ModText::Tr("继续闯关？", "Continue the run?"),
@@ -1581,11 +1692,6 @@ void LawnApp::UpdateAdventureRequest()
 	// 新局（无检查点，或上面选了"新开一局"）：先选时长档再开局。同样阻塞式；返回值是
 	// 卡片按钮编号（Mode0 = 完整版，依序普通/快速），取消 = 关弹窗不开局。
 	// 联机不另问：只有主机走到这儿，选完由 START_LEVEL 的模式字节 + 难度字节带动队友对齐。
-	// 出怪难度（MOD_BUILD 27）那一行只在"队伍"里摆（判据同 RequestAdventure：会话活着、
-	// 不是掉线）——单机局档位恒为标准，摆了也是死控件。读 mDiffSel 在 WaitForResult
-	// 之后做：它的自动收摊进 SafeDeleteList 是延迟删，对象还活着（框架自己就这么读 mResult）。
-	bool aShowDiff = mOnlineSession != nullptr && mOnlineSession->IsActive()
-		&& mOnlineSession->GetState() != NetSession::State::DEAD;
 	RunModeDialog* aModeDialog = new RunModeDialog(this, aShowDiff);
 	CenterDialog(aModeDialog, aModeDialog->mWidth, aModeDialog->mHeight);
 	AddDialog(Dialogs::DIALOG_ONLINE_START, aModeDialog);
@@ -1656,14 +1762,14 @@ void LawnApp::UpdateStartupAnnounce()
 	aDialog->WaitForResult();
 }
 
-void LawnApp::StartRun(int theRunMode, int theRunDiff, int theRunScale, int theRunTempo, int theZombotany)
+void LawnApp::StartRun(int theRunMode, int theRunDiff, int theRunScale, int theRunTempo, int theZombotany, int theEndlessScene)
 {
 	delete mRunState;
 	mRunState = new RunState();
-	mRunState->StartNew(MakeRunSeed(mAppCounter), theRunMode, theRunDiff, theRunScale, theRunTempo, theZombotany);
-	TodLog("[run] a new run starts (seed %d, mode %d, diff %d, scale %d, tempo %d, zombotany %d)",
+	mRunState->StartNew(MakeRunSeed(mAppCounter), theRunMode, theRunDiff, theRunScale, theRunTempo, theZombotany, theEndlessScene);
+	TodLog("[run] a new run starts (seed %d, mode %d, diff %d, scale %d, tempo %d, zombotany %d, endless scene %d)",
 		mRunState->mRunSeed, mRunState->mMode, mRunState->mDiff,
-		mRunState->mScale, mRunState->mTempo, mRunState->mZombotany);
+		mRunState->mScale, mRunState->mTempo, mRunState->mZombotany, mRunState->mEndlessScene);
 	// 手里的两株不够开局：先挑四株 + 两个增益（共六次三选一），选完 RunPickChosen 才进第 1 关。
 	mRunState->BeginStartPicks();
 }
@@ -1713,9 +1819,10 @@ void LawnApp::EnterRunLevel()
 		mOnlineStartWaitFrames = 0;
 		if (mGameSelector) mGameSelector->SetMenuButtonsDisabled(true);
 		mOnlineSession->SendStartLevel((uint8_t)mGameMode, (uint32_t)aLevel, aSeed,
-			true, mRunState->mRunSeed, (uint8_t)mRunState->mLevelIndex,
+			true, mRunState->mRunSeed, (uint16_t)mRunState->mLevelIndex,
 			NetProto::SEAT_UNSET, (uint8_t)mRunState->mMode, (uint8_t)mRunState->mDiff,
-			(uint8_t)mRunState->mScale, (uint8_t)mRunState->mTempo, (uint8_t)mRunState->mZombotany);
+			(uint8_t)mRunState->mScale, (uint8_t)mRunState->mTempo, (uint8_t)mRunState->mZombotany,
+			(uint8_t)mRunState->mEndlessScene);
 		return;
 	}
 
@@ -1748,17 +1855,27 @@ void LawnApp::EnterRunLevel()
 // 就丢掉重来；盘上的检查点能用（同一局种子、同一档、序号不超过主机）就接着走，否则从这一局
 // 的起点摆一局、把欠下的三选一补上。补做的屏和真打过的一模一样：候选由 runSeed + 关序号
 // 推导，各抽各的。时长档（theRunMode，M4-b）必须和主机同一个档：档决定关卡表与奖励屏数，
-// 档不对的检查点续了也是错的关表。
+// 档不对的检查点续了也是错的关表。无尽档（MOD_BUILD 37）还要对上锁定的场景
+// （theEndlessScene）：同一局种子换张卡就是另一个场景的无尽，对不上同样按重建处理。
 void LawnApp::AlignRunToHost(int theRunSeed, int theTargetIndex, int theRunMode, int theRunDiff,
-	int theRunScale, int theRunTempo, int theZombotany)
+	int theRunScale, int theRunTempo, int theZombotany, int theEndlessScene)
 {
 	// 时长档来自对端（构建代次不同只提示、不拒连）：非法值按完整版处理，别让它把
-	// 越界模式一路带进关卡表。
-	if (theRunMode < RunState::RUN_MODE_FULL || theRunMode > RunState::RUN_MODE_QUICK)
+	// 越界模式一路带进关卡表。无尽档（3）是合法档，得放行——钳成完整版会让客户端
+	// 对着无尽局建出普通局，两边必岔。
+	if (theRunMode < RunState::RUN_MODE_FULL || theRunMode > RunState::RUN_MODE_ENDLESS)
 	{
 		TodLog("[run] the host named an unknown run mode %d - treating it as the full run", theRunMode);
 		theRunMode = RunState::RUN_MODE_FULL;
 	}
+
+	// 无尽场景同理（MOD_BUILD 37）：非法值按 0（白天）；非无尽档一律归 0（与检查点读档同口径）。
+	if (theEndlessScene < 0 || theEndlessScene >= RunState::RUN_SCENE_COUNT)
+	{
+		TodLog("[run] the host named an unknown endless scene %d - treating it as the day scene", theEndlessScene);
+		theEndlessScene = 0;
+	}
+	if (theRunMode != RunState::RUN_MODE_ENDLESS) theEndlessScene = 0;
 
 	// 出怪难度档同理（MOD_BUILD 27）：非法值按标准，别让它一路带进出怪算式。
 	if (theRunDiff < RunState::RUN_DIFF_EASY || theRunDiff > RunState::RUN_DIFF_HIGH)
@@ -1796,11 +1913,12 @@ void LawnApp::AlignRunToHost(int theRunSeed, int theTargetIndex, int theRunMode,
 	if (mRunState != nullptr
 		&& (mRunState->mRunSeed != theRunSeed || mRunState->mMode != theRunMode
 			|| mRunState->mDiff != theRunDiff
+			|| mRunState->mEndlessScene != theEndlessScene
 			|| mRunState->mLevelIndex > theTargetIndex))
 	{
-		TodLog("[run] the local run does not match the host (seed %d vs %d, mode %d vs %d, diff %d vs %d, index %d vs %d) - rebuilding",
+		TodLog("[run] the local run does not match the host (seed %d vs %d, mode %d vs %d, diff %d vs %d, scene %d vs %d, index %d vs %d) - rebuilding",
 			mRunState->mRunSeed, theRunSeed, mRunState->mMode, theRunMode, mRunState->mDiff, theRunDiff,
-			mRunState->mLevelIndex, theTargetIndex);
+			mRunState->mEndlessScene, theEndlessScene, mRunState->mLevelIndex, theTargetIndex);
 		delete mRunState;
 		mRunState = nullptr;
 	}
@@ -1812,12 +1930,14 @@ void LawnApp::AlignRunToHost(int theRunSeed, int theTargetIndex, int theRunMode,
 			|| mRunState->mRunSeed != theRunSeed
 			|| mRunState->mMode != theRunMode
 			|| mRunState->mDiff != theRunDiff
+			|| mRunState->mEndlessScene != theEndlessScene
 			|| mRunState->mLevelIndex > theTargetIndex)
 		{
-			mRunState->StartNew(theRunSeed, theRunMode, theRunDiff);
+			mRunState->StartNew(theRunSeed, theRunMode, theRunDiff,
+				RunState::RUN_SCALE_STD, RunState::RUN_TEMPO_STD, 0, theEndlessScene);
 			mRunState->BeginStartPicks();
-			TodLog("[run] aligning to the host: a fresh run at seed %d (mode %d, diff %d), catching up to index %d",
-				theRunSeed, theRunMode, theRunDiff, theTargetIndex);
+			TodLog("[run] aligning to the host: a fresh run at seed %d (mode %d, diff %d, scene %d), catching up to index %d",
+				theRunSeed, theRunMode, theRunDiff, theEndlessScene, theTargetIndex);
 		}
 		else
 		{
@@ -2066,7 +2186,7 @@ void LawnApp::RunNoteFailure()
 	mRunState->NoteLevelFailed();
 	mRunState->Save(mPlayerInfo->mId);
 	TodLog("[run] level %d failed (attempt %d)", mRunState->mLevelIndex,
-		mRunState->mFailCounts[mRunState->mLevelIndex]);
+		mRunState->mFailCounts[mRunState->mLevelIndex % RunState::RUN_LEVEL_COUNT]);
 }
 
 // R3 的 buff 数值：线性条目 = 1 + 每层修正 × 层数；叠乘条目（方案 §2.3，急袭/速种）=

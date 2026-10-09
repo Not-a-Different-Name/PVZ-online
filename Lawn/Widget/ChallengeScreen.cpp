@@ -629,6 +629,23 @@ void ChallengeScreen::ButtonDepress(int theId)
 	int aChallengeMode = theId - ChallengeScreen::ChallengeScreen_Mode;
 	if (aChallengeMode >= 0 && aChallengeMode < NUM_CHALLENGE_MODES)
 	{
+		// @pvz-online: 生存子页的五张 Endless 卡（MOD_BUILD 37）不再开原版无尽，改交接给
+		// 闯关骨架的无尽档：先拆挑战页、把主菜单摆回来当等待/弹窗底板（生存页是从已拆的
+		// 主菜单进的，只拆页面的话掉队/取消后只剩空屏），再排队开局——单机走单人队、
+		// 联机由主机定；客户端那台排不上队，落回组队面板等主机点名。
+		GameMode aMode = GetChallengeDefinition(aChallengeMode).mChallengeMode;
+		if (mApp->IsSurvivalEndless(aMode))
+		{
+			int aScene = (int)aMode - (int)GameMode::GAMEMODE_SURVIVAL_ENDLESS_STAGE_1;
+			mApp->KillChallengeScreen();
+			mApp->DoBackToMain();
+			TodLog("[endless] the card for scene %d is clicked", aScene);
+			if (!mApp->RequestEndlessRun(aScene))
+			{
+				mApp->DoOnlineDialog();
+			}
+			return;
+		}
 		mApp->KillChallengeScreen();
 		mApp->PreNewGame((GameMode)(aChallengeMode + 1), true);
 	}

@@ -161,6 +161,10 @@ public:
 	// 真开局全在主循环：要拆面板、拆主菜单、建棋盘，还可能先弹一个"续不续"的询问框
 	// （询问框是 WaitForResult，只能从主循环里调）。见 LawnApp::RequestAdventure。
 	bool							mPendingAdventure;
+	// @pvz-online: 无尽入口（MOD_BUILD 37）：挑战页生存子页那张 Endless 卡锁定的场景
+	// 0..4；-1 = 这轮排队不是无尽局。和 mPendingAdventure 一起排队、由
+	// UpdateAdventureRequest 消费即清（不带着它去走大墓碑那条路）。
+	int								mPendingEndlessScene;
 	// @pvz-online: 进入游戏后的玩法公告（2026-10-03 用户要的）：启动后第一次落到主菜单
 	// 弹一次，讲联机玩法和功能。每进程只弹一次，故意不落盘——每次进游戏都该看得到。
 	bool							mShowedStartupAnnounce;
@@ -289,12 +293,19 @@ public:
 	RunState*						GetRunState() { return mRunState; }
 	// "冒险"牌按下：true = 已经受理（开面板或排队等开局），false = 落回原来的单关联机流程。
 	bool							RequestAdventure();
+	// @pvz-online: 无尽卡按下（MOD_BUILD 37）：theEndlessScene = 卡上锁定的场景 0..4。
+	// 受理口径与 RequestAdventure 相同——没队伍 → 组队面板（返回 true）；单人监听 /
+	// 队友连着的主机 → 排进队列（mPendingEndlessScene + mPendingAdventure，返回 true）；
+	// 客户端那台返回 false，调用方落回组队面板等主机开局。
+	bool							RequestEndlessRun(int theEndlessScene);
 	void							UpdateAdventureRequest();
 	void							UpdateStartupAnnounce();
 	// theRunScale/theRunTempo/theZombotany（批 C，MOD_BUILD 35）：「高级选项」三值——
 	// 出怪规模档 / 节奏档（RunState::RUN_SCALE_*/RUN_TEMPO_*）与植物僵尸混入开关；
 	// 默认 标准/标准/关（头里对 RunState 只有前置声明，默认参用字面量）。
-	void							StartRun(int theRunMode, int theRunDiff, int theRunScale = 1, int theRunTempo = 1, int theZombotany = 0);	// theRunMode = RunState::RUN_MODE_*（时长档）、theRunDiff = RunState::RUN_DIFF_*（出怪难度档）
+	// theEndlessScene（MOD_BUILD 37）：无尽档锁定的场景 0..4（时长档恒传 RUN_MODE_ENDLESS）；
+	// 非无尽档一律 0。
+	void							StartRun(int theRunMode, int theRunDiff, int theRunScale = 1, int theRunTempo = 1, int theZombotany = 0, int theEndlessScene = 0);	// theRunMode = RunState::RUN_MODE_*（时长档）、theRunDiff = RunState::RUN_DIFF_*（出怪难度档）
 	void							ContinueRun();
 	void							EnterRunLevel();
 	// @pvz-online: 联机闯关（R5）：把本机进度对齐到主机点名的这一关。同一局种子就接着走
@@ -302,9 +313,12 @@ public:
 	// 出怪难度档不同 = 从这一局的起点摆一局，同样把欠下的三选一补上——补做的屏与真打过的一模一样。
 	// 高级选项三参数（批 C，MOD_BUILD 35）：出怪规模档 / 节奏档 / 植物僵尸开关——对齐完
 	// 无条件按房主的值覆盖（房间级设置、不参与重建判等）；非法档在实现里钳回标准。
+	// theEndlessScene（MOD_BUILD 37）：无尽档锁定的场景 0..4——参与重建判等（同种子换卡
+	// = 另一个场景的无尽，续了就是错的局）；非无尽档一律归 0。
 	// （默认参用字面量：头里对 RunState 只有前置声明。）
 	void							AlignRunToHost(int theRunSeed, int theTargetIndex, int theRunMode, int theRunDiff,
-							int theRunScale = 1, int theRunTempo = 1, int theZombotany = 0);
+							int theRunScale = 1, int theRunTempo = 1, int theZombotany = 0,
+							int theEndlessScene = 0);
 	void							UpdateRunEnd();
 	// @pvz-online: 闯关的三选一屏（R2）。该选而屏不在（刚开局、刚过完一关、或者被「换一批」
 	// 重开）就按已抽好的候选开一张；玩家点了卡由 RunPickChosen 接着办：把卡收进局里，选够了

@@ -7,11 +7,13 @@
 
 // @pvz-online: 全流程闯关（肉鸽）的本地状态 + 检查点文件。
 //
-// 一局分三档时长（M4-b 定案；批十 2026-10-05 按玩家反馈改版）：完整版 = 5 场景 × 5 关 = 25 关；
-// 普通版 = 每场景第 1/5 关 = 10 关（即原快速版）；快速版 = 每场景第 5 关 = 5 关（短局取每场景
-// 收尾的难关；短一局用更密的奖励屏补内容量，倍乘见 BeginLevelEndPicks）。三档共用同一张 25 关
-// 号表（完整版全取、普通/快速抽行，见 LevelForModeIndex），首关仍是 10 波带旗；场景（白天 →
-// 夜 → 泳池 → 迷雾 → 屋顶）与难度阶梯只看第几关落在哪个场景，三档不差一个字。
+// 一局分四档（M4-b 定案；批十 2026-10-05 按玩家反馈改版；无尽档 2026-10-10 定案）：
+// 三档时长——完整版 = 5 场景 × 5 关 = 25 关；普通版 = 每场景第 1/5 关 = 10 关（即原快速版）；
+// 快速版 = 每场景第 5 关 = 5 关（短局取每场景收尾的难关；短一局用更密的奖励屏补内容量，
+// 倍乘见 BeginLevelEndPicks）。三档共用同一张 25 关号表（完整版全取、普通/快速抽行，见
+// LevelForModeIndex），首关仍是 10 波带旗；场景（白天 → 夜 → 泳池 → 迷雾 → 屋顶）与难度阶梯
+// 只看第几关落在哪个场景，三档不差一个字。第四档无尽：进场锁死一个场景（mEndlessScene），
+// 在该场景 5 个原型里按关序号 % 5 无限循环，难度走专属对数阶曲线（见 GetDifficultyPermille）。
 // 卡池随三选一逐关变大、buff 跟着这一局走——检查点把这两样一起带走。
 //
 // 检查点写在 userdata/run%d.dat，和 user%d.dat（本机档案进度）完全分开：
@@ -25,7 +27,9 @@ class RunState
 public:
 	// @pvz-online: 时长档（M4-b）。完整版一局 25 关；普通版抽每场景第 1/5 关（10 关，=原快速表）、
 	// 快速版抽第 5 关（5 关）——短一局用更密的奖励屏补内容量（倍乘见 BeginLevelEndPicks）。
-	enum	{ RUN_MODE_FULL = 0, RUN_MODE_NORMAL = 1, RUN_MODE_QUICK = 2 };
+	// 无尽档（2026-10-10 用户定案）：多人无尽的第四档——锁一个场景、在该场景 5 个原型里无限
+	// 循环（关序号 % 5），无奖杯/结算屏（IsComplete 恒假），难度走专属对数阶曲线。
+	enum	{ RUN_MODE_FULL = 0, RUN_MODE_NORMAL = 1, RUN_MODE_QUICK = 2, RUN_MODE_ENDLESS = 3 };
 
 	// @pvz-online: 出怪难度档（2026-10-03 用户定案）：房主开局前在选模式页选的全局出怪
 	// 旋钮。轻松 ×0.5 / 标准 ×1.0 / 高压 ×2.0（2026-10-04 由 ×1.5 上调）——直接乘在全队的顺位乘数上（乘后向下取整、
@@ -44,6 +48,9 @@ public:
 	static const int	RUN_LEVEL_COUNT		= 25;	// 完整版总关数 = 5 场景 × 5 关（数组/静态表的尺寸上限）
 	static const int	RUN_SCENE_COUNT		= 5;	// 白天 → 夜 → 泳池 → 迷雾 → 屋顶
 	static const int	RUN_LEVELS_PER_SCENE = RUN_LEVEL_COUNT / RUN_SCENE_COUNT;
+	// 无尽档的"总关数"：软上限，实际不可达——u16 线传（START_LEVEL 的关序号）与检查点
+	// 校验都按它封口，让 mLevelIndex 永远合法（IsComplete 对无尽档恒假，见下）。
+	static const int	RUN_ENDLESS_LEVEL_COUNT	= 60000;
 	static const int	RUN_SEED_SLOTS		= 8;	// 种子槽固定 8 格（覆盖原版 mPurchases+6 规则）
 	static const int	RUN_POOL_MAX		= 48;	// 卡池上限 = 全部植物
 	static const int	RUN_CHOICES			= 3;	// 一屏摆几张卡
@@ -91,6 +98,9 @@ public:
 	int							mRunSeed;		// 这一局的种子：每关波表的种子由它推导，重开同一关不变
 	int							mMode;			// 时长档（RUN_MODE_*）：决定关卡表抽行与每关后的奖励屏数
 	int							mDiff;			// 出怪难度档（RUN_DIFF_*）：全队出怪总旋钮，乘在顺位乘数上
+	// @pvz-online: 无尽档锁定的场景（0..4，仅 RUN_MODE_ENDLESS 用；其余档恒 0）。入口链定死，
+	// 随 START_LEVEL 广播（MOD_BUILD 37）与检查点 v12 走；三条进路（建档/线传/读档）都验 0..4。
+	int							mEndlessScene;
 	int							mLevelIndex;	// 0..(关数-1) = 当前（或待打的）关序号；>= 关数 = 已通关（关数见 GetLevelCount）
 	std::vector<SeedType>		mPool;			// 这一局的卡池（按加入顺序；起始 = 向日葵 + 豌豆射手）
 	std::vector<BuffStack>		mBuffs;			// 这一局拿到的 buff（同名可叠加）
@@ -114,10 +124,14 @@ public:
 	RunState();
 
 	// 全新一局：卡池回到两株、失败计数清零、从第 1 关开打。
+	// 无尽档（theRunMode == RUN_MODE_ENDLESS）：theEndlessScene 锁场景（0..4，越界钳 0）。
 	void				StartNew(int theRunSeed, int theRunMode = RUN_MODE_FULL, int theRunDiff = RUN_DIFF_STD,
-							int theRunScale = RUN_SCALE_STD, int theRunTempo = RUN_TEMPO_STD, int theZombotany = 0);
+							int theRunScale = RUN_SCALE_STD, int theRunTempo = RUN_TEMPO_STD, int theZombotany = 0,
+							int theEndlessScene = 0);
 
 	// 时长档的关数口径：每场景关数（5/2/1）与总关数（25/10/5）。模式非法按完整版。
+	// 无尽档的 LevelCountForMode = RUN_ENDLESS_LEVEL_COUNT（软上限）；LevelsPerScene 对
+	// 无尽档返回完整版值（5），只作静态表尺寸用——无尽档的关卡映射在 GetLevel 另有分支。
 	static int			LevelsPerScene(int theRunMode);
 	static int			LevelCountForMode(int theRunMode);
 	int					GetLevelCount() const { return LevelCountForMode(mMode); }
@@ -170,12 +184,18 @@ public:
 	bool				Load(int theProfileId);
 	bool				Save(int theProfileId) const;
 	static bool			HasCheckpoint(int theProfileId);
+	// @pvz-online: 探读检查点（2026-10-10）：完整走一遍 Load（含全部校验），成功才回填
+	// 时长档与无尽场景，返回 true。两处「续不续」的问句先用它甄别——HasCheckpoint 只看
+	// 文件在不在，而 ContinueRun 的兜底是 StartNew 完整档，探错会悄悄开成普通局。
+	static bool			PeekCheckpoint(int theProfileId, int& theRunMode, int& theEndlessScene);
 	// 一局打完了就删掉：那份检查点代表的那一局已经结束，留着只会让下次开局多问一句
 	// "续不续"（续了也是从头开）。
 	static void			DeleteCheckpoint(int theProfileId);
 	static std::string	GetCheckpointName(int theProfileId);
 
-	bool				IsComplete() const { return mLevelIndex >= GetLevelCount(); }
+	// 无尽档没有"打完"这回事（2026-10-10 用户定案：无奖杯/结算屏，关序号只涨不封）；其余档
+	// 在关序号走到关数时收场。
+	bool				IsComplete() const { return mMode != RUN_MODE_ENDLESS && mLevelIndex >= GetLevelCount(); }
 	void				AdvanceLevel() { mLevelIndex++; }
 
 	// @pvz-online: 补发追赶（R5）。开始补：目标关序号存下，先把当前这关的奖励屏选完
@@ -194,6 +214,7 @@ public:
 	void				NoteLevelFailed();
 
 	// 当前关：mLevel 值的映射（关号表见 LevelForIndex）与波表种子。序号越界返回 -1 / 0。
+	// 无尽档 = 锁定场景内的 5 原型循环（GetLevel/GetLevelSeed 都按关序号 % 5 取行）。
 	int					GetLevel() const;
 	int					GetLevelSeed() const;
 	// 完整版 25 关号表（表内序号 → 引擎关号）。普通/快速档的关号都是它的子集，所以
@@ -205,6 +226,7 @@ public:
 	// @pvz-online: 难度阶梯（M4-a）取用口。正在打的那一关的序号，口径与 GetLevel /
 	// GetLevelSeed 一致（追赶期间 = 目标关）；场景档 0..4；难度 = 千分比表
 	// {1000,1330,1768,2352,3129}——每过一个场景血量与数量同乘 ×1.33（2026-10-05 由 ×1.5 回调）。
+	// 无尽档：场景恒为 mEndlessScene，难度 = 该场景基准 + 600·ln(1+关序号) 的对数阶增量。
 	// 全整数运算，联机两端逐位一致（见 GetDifficultyPermille 实现处的说明）。
 	int					GetPlayingLevelIndex() const;
 	int					GetSceneIndex() const;

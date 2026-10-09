@@ -21,6 +21,11 @@ class CjkStoneButton;
 // 联机不另问：只有主机走到这一页，选完由 START_LEVEL 的模式字节 + 难度字节带动队友。
 // MOD_BUILD 35 起底行多一枚「高级选项…」（仅 mShowDiff 同判据）：点开 RunOptionsDialog
 // （嵌套阻塞，见那边的头注释）回填 mScaleSel/mTempoSel/mZombotanySel，随 START_LEVEL 带动队友。
+// @pvz-online: 无尽变体（MOD_BUILD 37，2026-10-10）：theEndlessScene >= 0 时本页改当
+// 「无尽设置」——三张时长卡整行撤掉，原位摆一行锁定的环境名（白天/夜晚/泳池/浓雾/屋顶，
+// 由点的那张 Endless 卡定死）；出怪难度行与「高级选项…」对单机也摆（无尽单机同样吃这些档）；
+// 底行多一枚「开始」按钮（RunModeDialog_Start）——结果 id 换成它，取消照旧。时长档固定
+// 为 RunState::RUN_MODE_ENDLESS，由 LawnApp 一侧的 StartRun 带走场景号。
 class RunModeDialog : public LawnDialog
 {
 public:
@@ -32,12 +37,14 @@ public:
 		RunModeDialog_Diff0 = 110,	// 出怪难度三档（值同 RunState::RUN_DIFF_EASY/STD/HIGH 的顺序）
 		RunModeDialog_Diff1,
 		RunModeDialog_Diff2,
-		RunModeDialog_Options = 115	// 「高级选项…」按钮（MOD_BUILD 35）：开 RunOptionsDialog
+		RunModeDialog_Options = 115,	// 「高级选项…」按钮（MOD_BUILD 35）：开 RunOptionsDialog
+		RunModeDialog_Start = 120	// 无尽变体的「开始」（MOD_BUILD 37）
 	};
 
-	ButtonWidget*		mCardButtons[3];	// 三张模式卡（隐形占位收点击，画在 Dialog::Draw 里）
+	ButtonWidget*		mCardButtons[3];	// 三张模式卡（隐形占位收点击，画在 Dialog::Draw 里）；无尽变体不收、不画
 	ButtonWidget*		mDiffButtons[3];	// 出怪难度三枚（mShowDiff 为假时全 nullptr）；选中 = mInverted
-	bool				mShowDiff;			// 联机主机才有难度行与「高级选项…」
+	bool				mShowDiff;			// 联机主机（或无尽变体）才有难度行与「高级选项…」
+	int					mEndlessScene;		// >= 0 = 无尽变体（锁定的场景 0..4）；-1 = 普通选模式页
 	int					mDiffSel;			// 选中的难度档（值 = RunState::RUN_DIFF_*）：LawnApp 在 WaitForResult 之后读
 	// 高级选项三值（批 C）：由弹出的 RunOptionsDialog 回填（取消不改），LawnApp 在
 	// WaitForResult 之后与 mDiffSel 一起读走、传进 StartRun。
@@ -45,19 +52,23 @@ public:
 	int					mTempoSel;			// RunState::RUN_TEMPO_*（默认标准）
 	int					mZombotanySel;		// 植物僵尸混入开关（0 关 1 开，默认关）
 	CjkStoneButton*	mCancelButton;		// 取消 = 关弹窗不开局
+	CjkStoneButton*	mStartButton;		// 无尽变体的「开始」（普通页 nullptr）
 	ButtonWidget*		mOptionsButton;		// 「高级选项…」（mShowDiff 为假时 nullptr）
 	int					mCancelWidth;		// 构造时按标签量好（石材贴图整段），Resize 直接用
+	int					mStartWidth;
 	int					mOptionsWidth;
 	int					mDiffWidths[3];		// 三枚难度按钮的宽度（等宽，取最长标签量好）
 	int					mDiffCaptionY;		// "出怪难度"一行的顶部（ModText 顶对齐口径）
 	std::string			mTitle;				// UTF-8 原样（绘制走 ModText::WideFromUtf8）
 	std::string			mCardNames[3];		// 卡上名字（UTF-8 原样）
+	std::string			mSceneLine;			// 无尽变体锁定的环境名（UTF-8 原样，摆在三卡原位）
 	std::string			mDiffLabels[3];		// 难度按钮标签（UTF-8 原样）
 	std::string			mDiffCaption;		// 难度行的小标题（UTF-8 原样）
 	int					mTitleY;			// 标题顶部（ModText 顶对齐口径）
+	int					mSceneY;			// 环境名一行顶部（无尽变体）
 
 public:
-	RunModeDialog(LawnApp* theApp, bool theShowDiff);
+	RunModeDialog(LawnApp* theApp, bool theShowDiff, int theEndlessScene = -1);
 	virtual ~RunModeDialog();
 
 	virtual void		Draw(Graphics* g);
