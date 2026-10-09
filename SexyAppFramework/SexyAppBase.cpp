@@ -2567,7 +2567,15 @@ static void UpdateScreenSaverInfo(DWORD theTick)
 		}
 	}
 	else if (anIdleTime > aScreenSaverTimeout)
-		gScreenSaverActive = true;
+	{
+		// @pvz-online: 空闲超时不能直接等同「屏保在跑」。不少机器屏保配置了但从不真触发
+		//（策略/驱动/无输入设备场景），此时若仅凭 idle 置位，DrawDirtyStuff/DoUpdateFrames
+		// 会拒绝工作：主线程全速空转、窗口假死、首帧永不出（2026-10-09 实锤的黑屏卡死根因，
+		// 见 docs/03 §5.50）。只有系统回报屏保真的在运行才暂停更新。
+		BOOL aRunning = FALSE;
+		if (!SystemParametersInfo(SPI_GETSCREENSAVERRUNNING, 0, &aRunning, 0) || aRunning)
+			gScreenSaverActive = true;
+	}
 }
 
 bool SexyAppBase::DrawDirtyStuff()
@@ -5594,6 +5602,12 @@ void SexyAppBase::DoMainLoop()
 
 bool SexyAppBase::UpdateAppStep(bool* updated)
 {
+	// @pvz-online: gScreenSaverActive 置位期间 DoUpdateFrames/DrawDirtyStuff 全部拒绝工作，
+	// 而这里的循环没有节流——历史行为是全速空转（实测 50 万次/秒）烧核 + 窗口假死。
+	// 真屏保运行时小睡让出 CPU，输入回来后 ssi 清标志即自动恢复。
+	if (gScreenSaverActive && !mShutdown)
+		Sleep(50);
+
 	if (updated != NULL)
 		*updated = false;
 
