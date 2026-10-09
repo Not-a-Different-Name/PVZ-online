@@ -797,7 +797,10 @@ TodParticleSystem* Plant::AddAttachedParticle(int thePosX, int thePosY, int theR
 bool Plant::FindTargetAndFire(int theRow, PlantWeapon thePlantWeapon)
 {
     Zombie* aZombie = FindTargetZombie(theRow, thePlantWeapon);
-    if (aZombie == nullptr)
+    // @pvz-online: 忧郁菇（用户 2026-10-09 令）：无论有没有敌人都一直攻击——光环不设目标门，
+    // 空场也照常走 anim_shooting 四连喷（UpdateShooting → Fire → DoRowAreaDamage，
+    // 没怪时白喷、无副作用）。
+    if (aZombie == nullptr && mSeedType != SeedType::SEED_GLOOMSHROOM)
         return false;
 
     float aSpeed = PlantShootSpeed(mApp, mSeedType);
