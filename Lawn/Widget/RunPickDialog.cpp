@@ -364,27 +364,46 @@ void RunPickDialog::Draw(Graphics* g)
 			// 中文走 ModText 宽字符直绘，按列宽断行、逐行居中。
 			ModText::Font* aFont = RunPickCjkFont();
 			int aLineHeight = ModText::LineHeight(aFont) + 3;
-			// 单株升级在列顶加一行【植物名】（2026-10-03 玩家反馈）：按钮名字是英文位图
-			// 字体、说明文案多数也不含植物名——不标出来分不清这条 buff 是哪株的。
+			// 列顶一行：单株升级的【植物名】（2026-10-03 玩家反馈——按钮名字是英文位图
+			// 字体、说明文案多数也不含植物名，不标出来分不清这条 buff 是哪株的）+ 稀有度
+			// 星标（2026-10-09 晚实机反馈：全档可见，3★ 金色、1★/2★ 灰色，同图鉴
+			// Almanac::DrawRarityStars 口径；旧口径「三选一屏只标 3★」作废）。全局条
+			// 没有植物名，就只画星。
 			const char* aPlantName = GetRunChoicePlantName(aBuffId);
-			bool aHasHead = (aPlantName != NULL);
-			// 说明区：顶边整行让给【植物名】（aRect 往下挪一行再居中——让出的行不参与
-			// 居中，说明就不会往上顶到标题上）、底边整行让给「已有 x/N」。列高在构造时
-			// 按真实折行数算过，正常放得下；真到尺寸上限也只会往下压「已有」一行，
-			// 2026-10-03 那种标题/说明/已有三头叠字不会再出现。
-			Rect aRect(mColumnX[i] + 2, mAreaTop + (aHasHead ? aLineHeight : 0), mColumnWidth - 4,
-				mAreaHeight - aLineHeight - 4 - (aHasHead ? aLineHeight : 0));
-			if (aHasHead)
+			std::wstring aHead;
+			if (aPlantName != NULL)
 			{
 				// 括号也随语言：【植物名】 / [Plant Name]
 				std::string aHeadUtf8 = ModText::IsChinese()
 					? std::string("【") + aPlantName + "】"
 					: std::string("[") + aPlantName + "]";
-				std::wstring aHead = ModText::WideFromUtf8(aHeadUtf8.c_str());
-				int aHeadX = mColumnX[i] + (mColumnWidth - ModText::TextWidth(aFont, aHead)) / 2;
-				if (aHeadX < mColumnX[i]) aHeadX = mColumnX[i];
-				ModText::DrawTextWide(g, aFont, aHeadX, mAreaTop, aHead,
-					mColors[Dialog::COLOR_LINES], g->mClipRect);
+				aHead = ModText::WideFromUtf8(aHeadUtf8.c_str());
+			}
+			int aRarity = GetRunChoiceRarity(aBuffId);
+			std::wstring aStars = (aRarity > 0)
+				? std::wstring((size_t)aRarity, (wchar_t)0x2605) : std::wstring();
+			// 说明区：顶边整行让给名字/星标行、底边整行让给「已有 x/N」。列高在构造时
+			// 按真实折行数算过（预算的 +2 行就是这两行），正常放得下；真到尺寸上限也
+			// 只会往下压「已有」一行，2026-10-03 那种标题/说明/已有三头叠字不会再出现。
+			Rect aRect(mColumnX[i] + 2, mAreaTop + aLineHeight, mColumnWidth - 4,
+				mAreaHeight - 2 * aLineHeight - 4);
+			{
+				int aHeadW = aHead.empty() ? 0 : ModText::TextWidth(aFont, aHead);
+				int aStarsW = aStars.empty() ? 0 : ModText::TextWidth(aFont, aStars);
+				int aTopX = mColumnX[i] + (mColumnWidth - aHeadW - aStarsW
+					- ((aHeadW > 0 && aStarsW > 0) ? 6 : 0)) / 2;
+				if (aTopX < mColumnX[i]) aTopX = mColumnX[i];
+				if (aHeadW > 0)
+				{
+					ModText::DrawTextWide(g, aFont, aTopX, mAreaTop, aHead,
+						mColors[Dialog::COLOR_LINES], g->mClipRect);
+					aTopX += aHeadW + 6;
+				}
+				if (aStarsW > 0)
+				{
+					ModText::DrawTextWide(g, aFont, aTopX, mAreaTop, aStars,
+						aRarity >= 3 ? Sexy::Color(255, 200, 60) : Sexy::Color(150, 140, 130), g->mClipRect);
+				}
 			}
 			RunPickDrawCjkLines(g, aFont, aRect, GetRunChoiceDesc(aBuffId), mColors[Dialog::COLOR_LINES]);
 

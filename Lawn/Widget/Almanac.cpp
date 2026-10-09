@@ -92,7 +92,8 @@ static void AlmanacWrapEntry(ModText::Font* theFont, const std::wstring& theText
 #define ALMANAC_STAR_GAP 6
 
 // 稀有度星标（2026-10-09 用户定案：图鉴只补星标、布局不动）：条名右缘画 mRarity 颗 ★，
-// 3★ 金色、1★/2★ 灰色（三选一屏只标 3★，图鉴是静态参考，低档也画出来）。放不下不画。
+// 3★ 金色、1★/2★ 灰色（三选一屏 2026-10-09 晚起列顶同样全档画，见 RunPickDialog::Draw）。
+// 放不下不画。
 // 返回画完后的右缘 x（没画 = 原样返回，档 3 的冒号/正文起点用它保持连贯）。
 static int DrawRarityStars(Graphics* g, ModText::Font* theFont, int theRarity, int theNameEndX, int theY)
 {
