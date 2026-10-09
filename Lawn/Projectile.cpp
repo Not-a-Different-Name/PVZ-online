@@ -153,7 +153,7 @@ Plant* Projectile::FindCollisionTargetPlant()
 				aPlant->mSeedType == SeedType::SEED_POTATOMINE ||
 				aPlant->mSeedType == SeedType::SEED_SPIKEWEED ||
 				aPlant->mSeedType == SeedType::SEED_SPIKEROCK ||
-				aPlant->mSeedType == SeedType::SEED_LILYPAD)  // ��ʬ�㶹���ܻ��еͰ�ֲ��
+				aPlant->mSeedType == SeedType::SEED_LILYPAD)  // 地刺族/睡莲是低矮植物，僵尸碰撞判定跳过它们
 				continue;
 		}
 
@@ -205,7 +205,7 @@ bool Projectile::PeaAboutToHitTorchwood()
 //0x46CD40
 Zombie* Projectile::FindCollisionTarget()
 {
-	if (PeaAboutToHitTorchwood())  // ������桱��ԭ������δ����������ڲ���о�������
+	if (PeaAboutToHitTorchwood())  // 豌豆即将被火炬树桩吸收：交给原版逻辑，这里不算命中僵尸
 		return nullptr;
 
 	Rect aProjectileRect = GetProjectileRect();
@@ -779,7 +779,7 @@ void Projectile::UpdateMotion()
 #ifdef DO_FIX_BUGS
 	if (mProjectileType == ProjectileType::PROJECTILE_COBBIG)
 	{
-		aSlopeHeightChange = 0.0f;  // �޸����Ͻ�֮�硱
+		aSlopeHeightChange = 0.0f;  // 修复玉米加农炮的玉米在屋顶坡面转折处下沉
 	}
 #endif
 	if (mMotionType == ProjectileMotion::MOTION_FLOAT_OVER)
