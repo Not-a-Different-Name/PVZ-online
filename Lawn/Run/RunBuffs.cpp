@@ -63,6 +63,15 @@
 //   ④-⑥ 降档：扎根 2★→1★（+75%/层 广而慢，够不着中档）、爆破 2★→1★（只影响
 //      一次性植物一族，场景窄）、精准 2★→1★（与火力同轴、只有一半效力）。
 //   未动：火力/速种（数值与档位）、天降档位。
+// 2026-10-09 经济批（用户逐条过堂定案，见 docs/07 同日条目）：经济线 8 条——
+//   ① 向日葵「丰收」重做：种下立即产 1 次阳光 + 每轮 50% 概率多产 1 阳光（只可选 1 层）。
+//      「种下即产」= PlantInitialize 把首轮计时压 0（下一帧裁决即落币）；50% 落币在
+//      UpdateProductionPlant 向阳花分支；概率是「每轮掷一次」口径（不是每枚各掷）。
+//   ② 阳光菇由概率多产改速度轴：产阳光间隔 ×0.75/层（至多 2 层叠乘）——初始等待与
+//      周期重置两处都乘（口径同丰饶，「间隔型」漏一处首轮就不缩短）。
+//   ③ 双子向日葵由概率多产改加量轴：每轮固定多产 2 阳光/层（至多 2 层），无条件落币。
+//   ④ 墓碑吞噬者删条不进池（效用窄，用户令删）——表行与挂点保留供存量档。
+//   未动：咖啡豆（+25/层）、卷心菜（0 费）、金盏花/吸金磁（钱无用途继续冻结，§8.3）。
 static const RunBuffDef gRunBuffDefs[RUN_BUFF_COUNT] =
 {
 	// 末列 = 稀有度档位（权重批 2026-10-09 填档，docs/06 §8.2.1/§8.7；
@@ -188,8 +197,9 @@ static const RunPlantUpgradeDef gRunPlantUpgradeDefs[RUN_PLANT_UPGRADE_COUNT] =
 	//     + 路灯花25（审计批 2026-10-09 降档：雾关外死格）
 	// 审计批 2026-10-09 删条不进池：睡莲16/花盆33（血量行对 300 血底子 ≈ 无感，见
 	// RunPlantUpgradeInPool）——表行保留供存量档，池 56→54。
+	// 经济批 2026-10-09 同日删条：墓碑11（效用窄，用户令删）——池 54→53。
 	{ SeedType::SEED_PEASHOOTER,   "Pea Volley",   "豌豆射手每次多发 1 颗\n（每层）",   "Peashooter fires 1 extra pea per shot\n(per stack)", 0.00f, 0, false, RUN_UPGRADE_KIND_SHOTCOUNT, 3 },
-	{ SeedType::SEED_SUNFLOWER,    "Harvest",      "每轮 25% 概率多产 1 阳光\n（每层）", "25% chance of 1 extra sun per cycle\n(per stack)",   0.00f, 2, false, RUN_UPGRADE_KIND_EFFECT, 2 },
+	{ SeedType::SEED_SUNFLOWER,    "Harvest",      "种下立即产 1 次阳光\n每轮 50% 概率多产 1 阳光", "Yields sun once when planted\n50% chance of 1 extra sun per cycle", 0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
 	{ SeedType::SEED_CHERRYBOMB,   "Wide Blast",   "樱桃炸弹爆炸范围 +50%\n（每层）",   "Cherry Bomb blast radius +50%\n(per stack)",        0.50f, 0, false, RUN_UPGRADE_KIND_EFFECT, 2 },
 	{ SeedType::SEED_WALLNUT,      "Thick Shell",  "巨人砸击时像地刺王一样耐砸\n（每次 -200 血）", "Survives Gargantuar smashes like a Spikerock\n(-200 HP per smash)", 0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
 	{ SeedType::SEED_POTATOMINE,   "Seismic Mine", "爆炸眩晕半径内僵尸 2 秒\n（每层）", "Blast stuns zombies in radius 2 sec\n(per stack)",   0.00f, 2, false, RUN_UPGRADE_KIND_EFFECT, 2 },
@@ -197,7 +207,7 @@ static const RunPlantUpgradeDef gRunPlantUpgradeDefs[RUN_PLANT_UPGRADE_COUNT] =
 	{ SeedType::SEED_CHOMPER,      "Ravenous",     "咀嚼时间减半",                      "Chew time halved",                                   -0.50f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
 	{ SeedType::SEED_REPEATER,     "Pea Barrage",  "每次射击多发 2 颗\n（每层）",       "Fires 2 extra peas per shot\n(per stack)",           0.00f, 0, false, RUN_UPGRADE_KIND_SHOTCOUNT, 3 },
 	{ SeedType::SEED_PUFFSHROOM,   "Spore Volley", "每次多发 1 颗\n（每层）",           "Fires 1 extra spore per shot\n(per stack)",        0.00f, 0, false, RUN_UPGRADE_KIND_SHOTCOUNT, 3 },
-	{ SeedType::SEED_SUNSHROOM,    "Bright Cap",   "每轮 25% 概率多产 1 阳光\n（每层）", "25% chance of 1 extra sun per cycle\n(per stack)",   0.00f, 2, false, RUN_UPGRADE_KIND_EFFECT, 2 },
+	{ SeedType::SEED_SUNSHROOM,    "Bright Cap",   "产阳光间隔逐层 ×0.75",              "Sun production interval ×0.75/stack",                -0.25f, 2, true, RUN_UPGRADE_KIND_EFFECT, 2 },
 	{ SeedType::SEED_FUMESHROOM,   "Fume Rush",    "攻击间隔 ×0.5",                     "Attack interval ×0.5",                               -0.50f, 1, false, RUN_UPGRADE_KIND_RHYTHM, 3 },
 	{ SeedType::SEED_GRAVEBUSTER,  "Quick Dig",    "吞掉墓碑额外产 25 阳光\n（每层）",  "Grave eaten yields +25 sun\n(per stack)",            0.00f, 2, false, RUN_UPGRADE_KIND_EFFECT, 1 },
 	{ SeedType::SEED_HYPNOSHROOM,  "Devotion",     "被魅惑僵尸咬到的僵尸也变友军",      "Zombies bitten by a hypnotized zombie turn friendly", 0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
@@ -229,7 +239,7 @@ static const RunPlantUpgradeDef gRunPlantUpgradeDefs[RUN_PLANT_UPGRADE_COUNT] =
 	{ SeedType::SEED_MARIGOLD,     "Golden Bloom", "每次多产 1 枚\n（每层）",           "1 extra coin per cycle\n(per stack)",                0.00f, 3, false, RUN_UPGRADE_KIND_EFFECT, 1 },
 	{ SeedType::SEED_MELONPULT,    "Melon Barrage","每次多发 1 个西瓜\n（每层）",       "Fires 1 extra melon per volley\n(per stack)",        0.00f, 0, false, RUN_UPGRADE_KIND_EFFECT, 3 },
 	{ SeedType::SEED_GATLINGPEA,   "Overclock",    "攻击间隔 ×0.5",                     "Attack interval ×0.5",                               -0.50f, 1, false, RUN_UPGRADE_KIND_RHYTHM, 3 },
-	{ SeedType::SEED_TWINSUNFLOWER, "Twin Bloom",  "每轮 25% 概率多产 1 阳光\n（每层）", "25% chance of 1 extra sun per cycle\n(per stack)",   0.00f, 2, false, RUN_UPGRADE_KIND_EFFECT, 2 },
+	{ SeedType::SEED_TWINSUNFLOWER, "Twin Bloom",  "每轮固定多产 2 阳光\n（每层）",       "2 extra sun every cycle\n(per stack)",               0.00f, 2, false, RUN_UPGRADE_KIND_EFFECT, 2 },
 	{ SeedType::SEED_GLOOMSHROOM,  "Gloom",        "光环范围 +1 格",                    "Aura radius +1 tile",                                0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
 	{ SeedType::SEED_CATTAIL,      "Quick Claw",   "攻击目标 +1 个\n（每层）",          "Targets +1 zombie\n(per stack)",                     0.00f, 2, false, RUN_UPGRADE_KIND_EFFECT, 2 },
 	{ SeedType::SEED_WINTERMELON,  "Deep Splash",  "溅射半径 +50%\n（每层）",           "Splash radius +50%\n(per stack)",                    0.50f, 0, false, RUN_UPGRADE_KIND_EFFECT, 2 },
@@ -306,9 +316,12 @@ int GetRunChoiceMaxStacks(int theId)
 // 弱词条删条（审计批 2026-10-09，docs/07 同日条目）：花盆/睡莲的血量行对 300 血底子 ≈ 无感
 // （§8.6 第二 buff 评审同口径先例：这两株的新条已删）。表行与挂点保留——老档里已叠的
 // 层数照常生效、id 空间与检查点一字不动——只是不再进抽取池。
+// 经济批 2026-10-09 追加：墓碑吞噬者「Quick Dig」删条（效用窄，用户令删）——处置同上，
+// 挂点（Plant.cpp::UpdateGraveBuster）保留供存量档。
 bool RunPlantUpgradeInPool(SeedType thePlant)
 {
-	return thePlant != SeedType::SEED_FLOWERPOT && thePlant != SeedType::SEED_LILYPAD;
+	return thePlant != SeedType::SEED_FLOWERPOT && thePlant != SeedType::SEED_LILYPAD
+		&& thePlant != SeedType::SEED_GRAVEBUSTER;
 }
 
 // 稀有度档位（权重批 2026-10-09，docs/06 §8.7）：全局/单株两类都查 mRarity。

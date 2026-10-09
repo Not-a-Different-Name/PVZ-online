@@ -73,7 +73,7 @@ const RunBuffDef& GetRunBuffDef(int theId);
 enum RunPlantUpgradeId
 {
 	RUN_UPGRADE_PEASHOOTER,		// 豌豆射手：每次多打 1 发（每层）
-	RUN_UPGRADE_SUNFLOWER,		// 向日葵：丰收——25% 概率多产 1 阳光/层（至多 2 层；2026-10-09 权重批由「每轮 +1」重做）
+	RUN_UPGRADE_SUNFLOWER,		// 向日葵：丰收——种下立即产 1 次阳光 + 每轮 50% 概率多产 1 阳光（只可选 1 层；2026-10-09 经济批重做）
 	RUN_UPGRADE_CHERRYBOMB,		// 樱桃炸弹：爆炸半径 +50%/层（2026-10-05 批八由 +25% 上调）
 	RUN_UPGRADE_WALLNUT,		// 坚果墙：巨人砸击时像地刺王一样耐砸（每次 -200 血；只可选 1 层；2026-10-04 批七由血量族整条换掉）
 	RUN_UPGRADE_POTATOMINE,		// 土豆雷：震雷——爆炸眩晕半径内僵尸 2 秒/层（至多 2 层；2026-10-09 权重批由半径族整条换掉）
@@ -81,9 +81,9 @@ enum RunPlantUpgradeId
 	RUN_UPGRADE_CHOMPER,		// 大嘴花：咀嚼时间减半（只可选 1 层）
 	RUN_UPGRADE_REPEATER,		// 双发：每次射击多发 2 颗（无上限；2026-10-04 批 18 由射击间隔族整条换掉）
 	RUN_UPGRADE_PUFFSHROOM,		// 小喷菇：每次多发 2 颗/层（无上限；2026-10-04 由「射程变为无限」改，射程挂点已还原）
-	RUN_UPGRADE_SUNSHROOM,		// 阳光菇：丰收——25% 概率多产 1 阳光/层（至多 2 层；2026-10-09 权重批由「每轮 +1」重做）
+	RUN_UPGRADE_SUNSHROOM,		// 阳光菇：亮顶——产阳光间隔 ×0.75/层 叠乘（至多 2 层；2026-10-09 经济批由概率多产改速度轴）
 	RUN_UPGRADE_FUMESHROOM,		// 大喷菇：攻击间隔 ×0.5（只可选 1 层；2026-10-04 批 18 由射程族整条换掉，2026-10-09 权重批 ×0.25→×0.5）
-	RUN_UPGRADE_GRAVEBUSTER,	// 墓碑吞噬者：吞掉墓碑额外产 25 阳光（每层，至多 2 层）
+	RUN_UPGRADE_GRAVEBUSTER,	// 墓碑吞噬者：吞掉墓碑额外产 25 阳光（每层，至多 2 层；经济批 2026-10-09 删条不进池，表行保留供存量档）
 	RUN_UPGRADE_HYPNOSHROOM,	// 魅惑菇：被魅惑僵尸咬到的僵尸也变友军（只可选 1 层）
 	RUN_UPGRADE_SCAREDYSHROOM,	// 胆小菇：敌人贴近时不再缩头（只可选 1 层）
 	RUN_UPGRADE_ICESHROOM,		// 寒冰菇：全场冰冻 +4 秒/层（至多 2 层；2026-10-05 批八由 +2 秒上调）
@@ -113,7 +113,7 @@ enum RunPlantUpgradeId
 	RUN_UPGRADE_MARIGOLD,		// 金盏花：每次多产 1 枚（每层，至多 3 层）
 	RUN_UPGRADE_MELONPULT,		// 西瓜投手：每次多发 1 个西瓜（无上限；2026-10-04 批 18 由溅射范围族整条换掉）
 	RUN_UPGRADE_GATLINGPEA,		// 机枪射手：攻击间隔 ×0.5（只可选 1 层；2026-10-04 批 18 由射击间隔族整条换掉）
-	RUN_UPGRADE_TWINSUNFLOWER,	// 双子向日葵：丰收——25% 概率多产 1 阳光/层（至多 2 层；2026-10-09 权重批由「每轮 +1」重做）
+	RUN_UPGRADE_TWINSUNFLOWER,	// 双子向日葵：绽放——每轮固定多产 2 阳光/层（至多 2 层；2026-10-09 经济批由概率多产改加量轴）
 	RUN_UPGRADE_GLOOMSHROOM,	// 忧郁菇：光环范围 +1 格（只可选 1 层；2026-10-04 上限 2→1）
 	RUN_UPGRADE_CATTAIL,		// 猫尾草：攻击目标 +1 个/层（至多 2 层）
 	RUN_UPGRADE_WINTERMELON,	// 冰西瓜：溅射半径 +50%/层（无上限；2026-10-04 批 18 由减速时长族整条换掉）
@@ -171,8 +171,8 @@ const char* GetRunChoiceName(int theId);
 const char* GetRunChoiceDesc(int theId);
 // 这条条目封顶几层（0 = 无限）；抽取过滤（RunState::RollChoices）与屏上「已有 x/N」用它。
 int GetRunChoiceMaxStacks(int theId);
-// 这株的单株条目是否进抽取池（审计批 2026-10-09 弱词条删条：花盆/睡莲不进池；表行
-// 保留供存量档生效）。RunState::RollChoices 过滤用。
+// 这株的单株条目是否进抽取池（审计批 2026-10-09 弱词条删条：花盆/睡莲不进池；经济批
+// 同日追加墓碑吞噬者。表行保留供存量档生效）。RunState::RollChoices 过滤用。
 bool RunPlantUpgradeInPool(SeedType thePlant);
 
 // @pvz-online: 稀有度/权重（权重批 2026-10-09，docs/06 §8.7）：这条条目的稀有度档位

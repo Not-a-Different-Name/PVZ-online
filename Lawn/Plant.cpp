@@ -211,10 +211,21 @@ void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, Se
 
     if (mLaunchRate > 0)
     {
-        // @pvz-online: 闯关 buff「丰饶」：产阳光间隔 ×(1−20%/层)——初始等待与每次
-        // 重置都要乘，所以两处一起改（另一处在产阳光的重置那行）。
+        // @pvz-online: 闯关 buff「丰饶」：产阳光间隔表内叠乘（2026-10-09 全局批起 ×0.75/层）——
+        // 初始等待与每次重置都要乘，所以两处一起改（另一处在产阳光的重置那行）。
         if (MakesSun())
-            mLaunchCounter = (int)(RandRangeInt(300, mLaunchRate / 2) * mApp->RunBuffMul(RUN_BUFF_ABUNDANCE) + 0.5f);
+        {
+            float aSunIntervalMul = mApp->RunBuffMul(RUN_BUFF_ABUNDANCE);
+            // @pvz-online: 经济批 2026-10-09：阳光菇「亮顶」改速度轴——产阳光间隔 ×0.75/层叠乘，
+            // 初始等待同乘（口径同丰饶：「间隔型」两处都要乘，漏一处首轮就不缩短）。
+            if (mSeedType == SeedType::SEED_SUNSHROOM)
+                aSunIntervalMul *= mApp->RunPlantUpgradeMul(SeedType::SEED_SUNSHROOM);
+            mLaunchCounter = (int)(RandRangeInt(300, mLaunchRate / 2) * aSunIntervalMul + 0.5f);
+            // @pvz-online: 经济批 2026-10-09：向日葵「丰收」重做——「种下立即产 1 次阳光」把
+            // 首轮计时压 0（下一次 UpdateProductionPlant 即落币，随后回正常节奏）。
+            if (mSeedType == SeedType::SEED_SUNFLOWER && mApp->RunPlantUpgradeCount(SeedType::SEED_SUNFLOWER) > 0)
+                mLaunchCounter = 0;
+        }
         else
         {
             // @pvz-online: 闯关 buff「急袭」：射手首发等待也缩短（稳态周期那处在 UpdateShooter）。
@@ -1186,35 +1197,37 @@ void Plant::UpdateProductionPlant()
     }
     if (mLaunchCounter <= 0)
     {
-        mLaunchCounter = (int)(RandRangeInt(mLaunchRate - 150, mLaunchRate) * mApp->RunBuffMul(RUN_BUFF_ABUNDANCE) + 0.5f);
+        // @pvz-online: 经济批 2026-10-09：阳光菇「亮顶」产阳光间隔 ×0.75/层叠乘也在周期重置这行
+        // 乘（另一处在 PlantInitialize 初始等待；小形态也走本函数，口径一致）。
+        float aSunIntervalMul = mApp->RunBuffMul(RUN_BUFF_ABUNDANCE);
+        if (mSeedType == SeedType::SEED_SUNSHROOM)
+            aSunIntervalMul *= mApp->RunPlantUpgradeMul(SeedType::SEED_SUNSHROOM);
+        mLaunchCounter = (int)(RandRangeInt(mLaunchRate - 150, mLaunchRate) * aSunIntervalMul + 0.5f);
         mApp->PlayFoley(FoleyType::FOLEY_SPAWN_SUN);
 
         if (mSeedType == SeedType::SEED_SUNSHROOM)
         {
-            // @pvz-online: 丰收族（2026-10-09 数值对齐，docs/06 §8.2.4）：由「每层必多落一枚」
-            // 改为「每轮 25%×层 概率多产 1 阳光」（cap2）——真值口径 +25%/层（+1 枚/轮对 25 基
-            // 只有 +4%），概率落币沿用金盏花的金银独立摇先例；小阳光阶段多落的还是小阳光。
+            // @pvz-online: 经济批 2026-10-09（用户定案）：丰收重做——概率多产撤掉，改速度轴
+            // 「产阳光间隔 ×0.75/层 叠乘」（乘算见本函数开头重置行与 PlantInitialize 初始等待）；
+            // 这里只落常规那枚（小阳光阶段落的还是小阳光）。
             CoinType aSunType = (mState == PlantState::STATE_SUNSHROOM_SMALL) ? CoinType::COIN_SMALLSUN : CoinType::COIN_SUN;
             mBoard->AddCoin(mX, mY, aSunType, CoinMotion::COIN_MOTION_FROM_PLANT);
-            int aHarvestStacks = mApp->RunPlantUpgradeCount(SeedType::SEED_SUNSHROOM);
-            if (aHarvestStacks > 0 && (int)Sexy::Rand(100) < 25 * aHarvestStacks)
-                mBoard->AddCoin(mX, mY, aSunType, CoinMotion::COIN_MOTION_FROM_PLANT);
         }
         else if (mSeedType == SeedType::SEED_SUNFLOWER)
         {
             mBoard->AddCoin(mX, mY, CoinType::COIN_SUN, CoinMotion::COIN_MOTION_FROM_PLANT);
-            // @pvz-online: 丰收族「Harvest」：每轮 25%×层 概率多产 1 阳光（同上）
-            int aHarvestStacks = mApp->RunPlantUpgradeCount(SeedType::SEED_SUNFLOWER);
-            if (aHarvestStacks > 0 && (int)Sexy::Rand(100) < 25 * aHarvestStacks)
+            // @pvz-online: 经济批 2026-10-09（用户定案）：丰收重做——每轮 50% 概率多产 1 阳光
+            // （只可选 1 层、每轮掷一次；「种下立即产 1 次」在 PlantInitialize 压首轮计时）。
+            if (mApp->RunPlantUpgradeCount(SeedType::SEED_SUNFLOWER) > 0 && (int)Sexy::Rand(100) < 50)
                 mBoard->AddCoin(mX, mY, CoinType::COIN_SUN, CoinMotion::COIN_MOTION_FROM_PLANT);
         }
         else if (mSeedType == SeedType::SEED_TWINSUNFLOWER)
         {
             mBoard->AddCoin(mX, mY, CoinType::COIN_SUN, CoinMotion::COIN_MOTION_FROM_PLANT);
             mBoard->AddCoin(mX, mY, CoinType::COIN_SUN, CoinMotion::COIN_MOTION_FROM_PLANT);
-            // @pvz-online: 丰收族「Twin Bloom」：口径 = 每轮掷一次（不是两枚各掷），25%×层 概率 +1
-            int aHarvestStacks = mApp->RunPlantUpgradeCount(SeedType::SEED_TWINSUNFLOWER);
-            if (aHarvestStacks > 0 && (int)Sexy::Rand(100) < 25 * aHarvestStacks)
+            // @pvz-online: 经济批 2026-10-09（用户定案）：Twin Bloom 改加量轴——每轮固定多产
+            // 2 阳光/层（至多 2 层），无条件落币（原「每轮掷一次 25%×层」概率口径撤掉）。
+            for (int i = 0, aExtra = 2 * mApp->RunPlantUpgradeCount(SeedType::SEED_TWINSUNFLOWER); i < aExtra; i++)
                 mBoard->AddCoin(mX, mY, CoinType::COIN_SUN, CoinMotion::COIN_MOTION_FROM_PLANT);
         }
         else if (mSeedType == SeedType::SEED_MARIGOLD)
@@ -1290,6 +1303,7 @@ void Plant::UpdateGraveBuster()
             mBoard->mGravesCleared++;
             // @pvz-online: 单株升级「Quick Dig」（墓碑吞噬者，表行 SEED_GRAVEBUSTER）：吞掉
             // 墓碑成功额外落 25 阳光/层（计数型、至多 2 层）——真吞到才给，落币法同咖啡豆。
+            // 经济批 2026-10-09：本行已删条不进抽取池（用户令删），挂点保留供存量档生效。
             int aSunCoins = mApp->RunPlantUpgradeCount(SeedType::SEED_GRAVEBUSTER);
             for (int i = 0; i < aSunCoins; i++)
             {
