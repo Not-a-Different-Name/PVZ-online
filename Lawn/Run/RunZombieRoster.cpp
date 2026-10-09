@@ -65,7 +65,7 @@ static const unsigned long long RUN_ZOMBIE_ROSTER[RunState::RUN_SCENE_COUNT][Run
 	},
 };
 
-bool RunZombieAllowedOnLevel(ZombieType theZombieType, int theRunLevelIndex)
+bool RunZombieAllowedOnLevel(ZombieType theZombieType, int theRunLevelIndex, bool theZombotany)
 {
 	int aType = (int)theZombieType;
 	if (aType < 0 || aType >= 64) return false;
@@ -75,6 +75,17 @@ bool RunZombieAllowedOnLevel(ZombieType theZombieType, int theRunLevelIndex)
 	if (aIndex >= RunState::RUN_LEVEL_COUNT) aIndex = RunState::RUN_LEVEL_COUNT - 1;
 
 	unsigned long long aMask = RUN_ZOMBIE_ROSTER[aIndex / RunState::RUN_LEVELS_PER_SCENE][aIndex % RunState::RUN_LEVELS_PER_SCENE];
+
+	// @pvz-online: 植物僵尸开关（2026-10-09，批 C 的 mZombotany 在这里消费，MOD_BUILD 35）：
+	// 开了就把五种 ZomBotany OR 进当关名单——查询层放行、表本体不动，关 = 逐位复原
+	//（波表与关前一致）。五种 def pickWeight 全 >0；原版 ZomBotany 关卡已裁、它们
+	// startingLevel=99，除这里外没有入口。行/场硬约束照旧在名单之外生效（ZomBotany
+	// 用普僵身体、无水生属性，天然只落陆行）。
+	if (theZombotany)
+	{
+		aMask |= RZ(ZOMBIE_PEA_HEAD) | RZ(ZOMBIE_WALLNUT_HEAD) | RZ(ZOMBIE_JALAPENO_HEAD) | RZ(ZOMBIE_GATLING_HEAD) | RZ(ZOMBIE_SQUASH_HEAD);
+	}
+
 	return (aMask & (1ULL << aType)) != 0ULL;
 }
 
@@ -98,6 +109,13 @@ static const int RUN_ZOMBIE_PAIL_DOOR_WEIGHT = 500;
 static const int RUN_ZOMBIE_CONE_NEWSPAPER_WEIGHT = 500;
 static const int RUN_ZOMBIE_PAIL_NEWSPAPER_WEIGHT = 500;
 
+// @pvz-online: 植物僵尸权重特例（2026-10-09 植物僵尸批，MOD_BUILD 35 开关投放）：
+// 豌豆头 = 平铺档（def pickWeight 4000 压回平铺口径，不写特例靠 default 落点）；
+// 坚果头半档（肉盾，性价比高）；辣椒/机枪/窝瓜四分之一档——行为烈度高
+//（自爆/四连射/扑压秒种），频率要压住。五样合计约占池 10%。
+static const int RUN_ZOMBIE_WALLNUT_HEAD_WEIGHT = 500;
+static const int RUN_ZOMBIE_PLANT_HEAD_LOW_WEIGHT = 250;
+
 int RunZombieWeight(ZombieType theZombieType)
 {
 	if (GetZombieDefinition(theZombieType).mPickWeight <= 0)
@@ -119,6 +137,15 @@ int RunZombieWeight(ZombieType theZombieType)
 	if (theZombieType == ZombieType::ZOMBIE_PAIL_NEWSPAPER)
 	{
 		return RUN_ZOMBIE_PAIL_NEWSPAPER_WEIGHT;
+	}
+	if (theZombieType == ZombieType::ZOMBIE_WALLNUT_HEAD)
+	{
+		return RUN_ZOMBIE_WALLNUT_HEAD_WEIGHT;
+	}
+	if (theZombieType == ZombieType::ZOMBIE_JALAPENO_HEAD || theZombieType == ZombieType::ZOMBIE_GATLING_HEAD ||
+		theZombieType == ZombieType::ZOMBIE_SQUASH_HEAD)
+	{
+		return RUN_ZOMBIE_PLANT_HEAD_LOW_WEIGHT;
 	}
 	return RUN_ZOMBIE_PICK_WEIGHT;
 }

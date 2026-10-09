@@ -13,7 +13,10 @@
 // 这是 Board::CanZombieSpawnOnLevel 的闯关分支查的表——名单只回答"这个子关允许
 // 哪些类型"；行/场硬约束（水路只收会下水的、雪橇要有冰道、0 行禁巨人、舞王要
 // 左右两行空地）在名单之外照旧自动生效。名单本体在 RunZombieRoster.cpp。
-bool RunZombieAllowedOnLevel(ZombieType theZombieType, int theRunLevelIndex);
+// theZombotany = 植物僵尸开关（2026-10-09，MOD_BUILD 35 高级选项）：开了把五种
+// ZomBotany OR 进当关名单——查询层放行、表本体不动；关 = 逐位复原。缺省 false，
+// 单关局与旧调用（无 RunState）天然走关。
+bool RunZombieAllowedOnLevel(ZombieType theZombieType, int theRunLevelIndex, bool theZombotany = false);
 
 // @pvz-online: 闯关的抽怪权重（2026-10-03 用户定案"丰富僵尸种类"）：原版 pickWeight 里
 // 普僵/路障各 4000、其余 1000-3500，抽出来近半个战场都是这两样。这里对名单内的类型给

@@ -48,9 +48,14 @@ ZombieDefinition gZombieDefs[NUM_ZOMBIE_TYPES] = {  //0x69DA80
     { ZOMBIE_BOSS,              REANIM_BOSS,                10,     50,     1,      0,      _S("BOSS") },
     { ZOMBIE_PEA_HEAD,          REANIM_ZOMBIE,              1,      99,     1,      4000,   _S("ZOMBIE") },
     { ZOMBIE_WALLNUT_HEAD,      REANIM_ZOMBIE,              4,      99,     1,      3000,   _S("ZOMBIE") },
-    { ZOMBIE_JALAPENO_HEAD,     REANIM_ZOMBIE,              3,      99,     10,     1000,   _S("ZOMBIE") },
-    { ZOMBIE_GATLING_HEAD,      REANIM_ZOMBIE,              3,      99,     10,     2000,   _S("ZOMBIE") },
-    { ZOMBIE_SQUASH_HEAD,       REANIM_ZOMBIE,              3,      99,     10,     2000,   _S("ZOMBIE") },
+    // @pvz-online: 辣椒/机枪/窝瓜头点数 3→6（2026-10-09 植物僵尸批，MOD_BUILD 35 开关投放）：
+    // 原值 3 过不了"点数≥RUN_HEAVY_POINTS 只出强僵尸"闸（价值门槛 4）——高波点数富余时
+    // 三样权重全被清零、从来抽不中。抬到 6 = 铁桶/铁门档：行为烈度高（自爆/四连射/扑压），
+    // 扣点与判强都读这张表，一处改全自洽；豌豆头 1 / 坚果头 4 沿用原版。原版 ZomBotany
+    // 关卡已裁、五种只有闯关开关放行，改 def 点数不外溢任何其他模式。
+    { ZOMBIE_JALAPENO_HEAD,     REANIM_ZOMBIE,              6,      99,     10,     1000,   _S("ZOMBIE") },
+    { ZOMBIE_GATLING_HEAD,      REANIM_ZOMBIE,              6,      99,     10,     2000,   _S("ZOMBIE") },
+    { ZOMBIE_SQUASH_HEAD,       REANIM_ZOMBIE,              6,      99,     10,     2000,   _S("ZOMBIE") },
     { ZOMBIE_TALLNUT_HEAD,      REANIM_ZOMBIE,              4,      99,     10,     2000,   _S("ZOMBIE") },
     { ZOMBIE_REDEYE_GARGANTUAR, REANIM_GARGANTUAR,          10,     48,     15,     6000,   _S("REDEYED_GARGANTUAR") },
     { ZOMBIE_ZOMBATAR,          REANIM_ZOMBIE,              1,      1,      1,      0,      _S("ZOMBATAR_FLAG_ZOMBIE")},

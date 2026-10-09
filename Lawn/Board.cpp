@@ -2660,7 +2660,11 @@ bool Board::CanZombieSpawnOnLevel(ZombieType theZombieType, int theLevel)
 	// 行/场硬约束（水路只收会水的、雪橇要有冰道、0 行禁巨人）在名单之外照旧自动生效。
 	if (gLawnApp->IsRunMode())
 	{
-		return RunZombieAllowedOnLevel(theZombieType, RunLevelIndexForEngineLevel(theLevel));
+		// @pvz-online: 植物僵尸开关（2026-10-09，MOD_BUILD 35 高级选项）：随 RunState 走，
+		// 房主设、全员对齐（AlignRunToHost 无条件覆盖）——各客户端建场时在这里读到同值。
+		RunState* aRunState = gLawnApp->GetRunState();
+		bool aZombotany = aRunState != nullptr && aRunState->mZombotany != 0;
+		return RunZombieAllowedOnLevel(theZombieType, RunLevelIndexForEngineLevel(theLevel), aZombotany);
 	}
 
 	const ZombieDefinition& aZombieDef = GetZombieDefinition(theZombieType);
