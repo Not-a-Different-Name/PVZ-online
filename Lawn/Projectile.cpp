@@ -1010,14 +1010,21 @@ void Projectile::DoImpact(Zombie* theZombie)
 	//（80px）并再炸一次——二次爆走直伤通道（KillAllZombiesInRadius 半径 50，伤害 = 弹
 	// 基数 ×火力放大，无溅射递减），两个落点各放一片西瓜溅射粒子。只认 MELON 本体弹
 	//（冰西瓜不走这条）；词条未抽取时短路。
+	// 2026-10-10 实机修复（报「后面爆的一次没伤害」）两处：①判定旗标必须用弹体自己的
+	// mDamageRangeFlags——旧写 GetDamageFlags() 塞来的是 TakeDamage 空间的位（西瓜 = 2，
+	// 位 1），进 EffectedByDamage 等于只点亮 DAMAGES_FLYING、缺 DAMAGES_GROUND（位 0），
+	// 收尾判定 TestBit(GROUND) 恒假 → 地面僵尸全被过滤，只有气球挨得着；土豆雷 77 /
+	// 亡语 9 / 加农炮 127 都带位 0，唯独这处没有。②圆心 Y 从粒子锚（上一帧弹顶）挪到
+	// 弹体身体中心（+mHeight/2 = +20）——旧值离被命中者矩形顶只剩 ~3.5px 裕量，中心化
+	// 后 ~30px，与溅射粒子画在身体中心的视觉一致。
 	if (mProjectileType == ProjectileType::PROJECTILE_MELON && mApp->RunPlantBuff2Count(SeedType::SEED_MELONPULT) > 0)
 	{
 		int aRollX = (int)(mPosX + 80.0f);
-		int aRollY = (int)(mPosY + mPosZ - mVelY - mVelZ);
-		int aRollFlags = GetDamageFlags(theZombie);
+		int aRollY = (int)(mPosY + mPosZ) + mHeight / 2;
+		int aRollFlags = mDamageRangeFlags;
 		int aRollDamage = (int)(GetProjectileDef().mDamage * mApp->RunBuffMul(RUN_BUFF_FIREPOWER) + 0.5f);
 		mBoard->KillAllZombiesInRadius(mRow, aRollX, aRollY, 50, 0, false, aRollFlags, aRollDamage);
-		mApp->AddTodParticle(aRollX + 30.0f, aRollY + 30.0f, mRenderOrder + 1, ParticleEffect::PARTICLE_MELONSPLASH);
+		mApp->AddTodParticle(aRollX + 30.0f, mPosY + mPosZ - mVelY - mVelZ + 30.0f, mRenderOrder + 1, ParticleEffect::PARTICLE_MELONSPLASH);
 	}
 
 	Die();
