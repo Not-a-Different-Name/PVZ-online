@@ -230,8 +230,9 @@ void RunState::RollChoices()
 	{
 		// 增益：全局 8 条 + 单株升级混池抽 3 条互不重复，全部按权重（§8.7：档位基值
 		// 1★6/2★3/3★1，全局条 ×k）。单株的只收"卡池里已经有这株"的（设计文档：只对已
-		// 拥有的植物出）。同名跨屏可以再来（叠层，见 BuffStack）；但叠到 mMaxStacks 的
-		// 条目不再进候选（0 = 无限，方案 §2.2）——到顶就抽不中你。
+		// 拥有的植物出；花盆/睡莲词条删条不进池，见 RunPlantUpgradeInPool）。同名跨屏
+		// 可以再来（叠层，见 BuffStack）；但叠到 mMaxStacks 的条目不再进候选
+		//（0 = 无限，方案 §2.2）——到顶就抽不中你。
 		// （2026-10-09 权重批撤保底：旧「第 1 格保底一条全局」随权重落地撤除——保底是
 		// 无权重时代防全局被挤成小概率的手段，§8.7 定案后由 k 与真实候选池密度保证，
 		// docs/06 §8.4 步骤 3。）
@@ -251,6 +252,7 @@ void RunState::RollChoices()
 		for (int i = 0; i < RUN_PLANT_UPGRADE_COUNT; i++)
 		{
 			int aId = RUN_BUFF_COUNT + i;
+			if (!RunPlantUpgradeInPool(GetRunPlantUpgradeDef(i).mPlant)) continue;
 			if (!HasPlant(GetRunPlantUpgradeDef(i).mPlant)) continue;
 			int aCap = GetRunChoiceMaxStacks(aId);
 			if (aCap > 0 && GetBuffCount(aId) >= aCap) continue;

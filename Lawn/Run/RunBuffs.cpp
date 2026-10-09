@@ -46,6 +46,15 @@
 // 2026-10-06（用户指令，见 docs/07 同日条目）：「储备」（全局原 id 5）删除——全局表 9→8 条，
 //   单株 id 由「9 + 下标」全体左移 1 变「8 + 下标」（检查点 v8 迁移，RunState::Load）；
 //   开局阳光改按上座顺位给（LawnApp::OnlineStartSunBonus，挂点 Board::InitLevel），不再走本表。
+// 2026-10-09 权重批（docs/07 同日条目）：两表加稀有度档位（末列，§8.2/§8.7 定稿）；
+//   数值对齐八处 + 两条整条重做——丰饶 −20%→−15%、小喷菇 +2→+1 颗/层、大喷菇 ×0.25→×0.5、
+//   三线 cap2→cap1、南瓜头/保护伞 cap3→cap2、地刺王 +200% cap3→+150% cap2（血量族统一，
+//   覆盖批七③）、×0.75 冷却族五条（辣椒/海蘑菇/磁力菇/吸金磁/加农炮）统一 ×0.8、
+//   向日葵/阳光菇/双子整条重做「丰收：25% 概率多产 1 阳光/层 cap2」、土豆雷整条重做
+//   「震雷：爆炸眩晕 2 秒/层 cap2」。金盏花/吸金磁 1★ 冻结（钱无用途，§8.3）。
+// 2026-10-09 审计批（docs/07 同日条目）：花盆/睡莲血量行删条——不进抽取池（300 血底子
+//   ≈ 无感，§8.6 评审同口径先例），表行与挂点保留供存量档生效（id 空间/检查点不动，
+//   见 RunPlantUpgradeInPool）；路灯花「照亮 +1 格」2★→1★（雾关外死格不配中档）。
 static const RunBuffDef gRunBuffDefs[RUN_BUFF_COUNT] =
 {
 	// 末列 = 稀有度档位（权重批 2026-10-09 填档，docs/06 §8.2.1/§8.7）：
@@ -167,6 +176,9 @@ static const RunPlantUpgradeDef gRunPlantUpgradeDefs[RUN_PLANT_UPGRADE_COUNT] =
 	// 末列 = 稀有度档位（权重批 2026-10-09 填档，docs/06 §8.2.2/§8.7）。
 	// 3★：豌豆0/寒冰射手5/双发7/小喷菇8/大喷菇10/寒冰菇14/毁灭菇15/三线18/玉米投手34/西瓜39/机枪40
 	// 1★：墓碑11/卷心菜32/咖啡豆35/金盏花38/吸金磁45（金盏花/吸金磁冻结——钱无用途，§8.3）
+	//     + 路灯花25（审计批 2026-10-09 降档：雾关外死格）
+	// 审计批 2026-10-09 删条不进池：睡莲16/花盆33（血量行对 300 血底子 ≈ 无感，见
+	// RunPlantUpgradeInPool）——表行保留供存量档，池 56→54。
 	{ SeedType::SEED_PEASHOOTER,   "Pea Volley",   "豌豆射手每次多发 1 颗\n（每层）",   "Peashooter fires 1 extra pea per shot\n(per stack)", 0.00f, 0, false, RUN_UPGRADE_KIND_SHOTCOUNT, 3 },
 	{ SeedType::SEED_SUNFLOWER,    "Harvest",      "每轮 25% 概率多产 1 阳光\n（每层）", "25% chance of 1 extra sun per cycle\n(per stack)",   0.00f, 2, false, RUN_UPGRADE_KIND_EFFECT, 2 },
 	{ SeedType::SEED_CHERRYBOMB,   "Wide Blast",   "樱桃炸弹爆炸范围 +50%\n（每层）",   "Cherry Bomb blast radius +50%\n(per stack)",        0.50f, 0, false, RUN_UPGRADE_KIND_EFFECT, 2 },
@@ -192,7 +204,7 @@ static const RunPlantUpgradeDef gRunPlantUpgradeDefs[RUN_PLANT_UPGRADE_COUNT] =
 	{ SeedType::SEED_TORCHWOOD,    "Kindling",     "火弹伤害加成 +50%\n（每层）",       "Fire pea damage +50%\n(per stack)",                  0.50f, 2, false, RUN_UPGRADE_KIND_EFFECT, 2 },
 	{ SeedType::SEED_TALLNUT,      "Iron Shell",   "巨人砸击时像地刺王一样耐砸\n（每次 -200 血）", "Survives Gargantuar smashes like a Spikerock\n(-200 HP per smash)", 0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
 	{ SeedType::SEED_SEASHROOM,    "Brine Spore",  "种植冷却逐层 ×0.8\n（每层）",       "Planting cooldown ×0.8/stack",                       -0.20f, 3, true, RUN_UPGRADE_KIND_COOLDOWN, 2 },
-	{ SeedType::SEED_PLANTERN,     "Lantern Light", "照亮范围 +1 格\n（每层）",         "Illumination radius +1 tile\n(per stack)",           0.00f, 2, false, RUN_UPGRADE_KIND_EFFECT, 2 },
+	{ SeedType::SEED_PLANTERN,     "Lantern Light", "照亮范围 +1 格\n（每层）",         "Illumination radius +1 tile\n(per stack)",           0.00f, 2, false, RUN_UPGRADE_KIND_EFFECT, 1 },
 	{ SeedType::SEED_CACTUS,       "Prickly",      "尖刺穿透 +1 只\n（每层）",          "Spikes pierce +1 zombie\n(per stack)",               0.00f, 2, false, RUN_UPGRADE_KIND_EFFECT, 2 },
 	{ SeedType::SEED_BLOVER,       "Gale",         "吹风后全场僵尸减速 5 秒\n（每层）", "Slows all zombies 5 sec after blowing\n(per stack)", 0.00f, 2, false, RUN_UPGRADE_KIND_EFFECT, 2 },
 	{ SeedType::SEED_SPLITPEA,     "Backspike",    "背向豌豆每次 +1 颗\n（每层）",      "1 extra backward pea per shot\n(per stack)",         0.00f, 2, false, RUN_UPGRADE_KIND_EFFECT, 2 },
@@ -280,6 +292,14 @@ int GetRunChoiceMaxStacks(int theId)
 {
 	if (theId >= RUN_BUFF_COUNT) return GetRunPlantUpgradeDef(theId - RUN_BUFF_COUNT).mMaxStacks;
 	return GetRunBuffDef(theId).mMaxStacks;
+}
+
+// 弱词条删条（审计批 2026-10-09，docs/07 同日条目）：花盆/睡莲的血量行对 300 血底子 ≈ 无感
+// （§8.6 第二 buff 评审同口径先例：这两株的新条已删）。表行与挂点保留——老档里已叠的
+// 层数照常生效、id 空间与检查点一字不动——只是不再进抽取池。
+bool RunPlantUpgradeInPool(SeedType thePlant)
+{
+	return thePlant != SeedType::SEED_FLOWERPOT && thePlant != SeedType::SEED_LILYPAD;
 }
 
 // 稀有度档位（权重批 2026-10-09，docs/06 §8.7）：全局/单株两类都查 mRarity。
