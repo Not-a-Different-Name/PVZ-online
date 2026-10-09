@@ -617,7 +617,9 @@ void NewOptionsDialog::ButtonDepress(int theId)
 // ── 局内词条查看器（2026-10-03 用户定案）──────────────────────────────
 // 入口画在按钮列右侧的空白竖带，点开是整屏覆盖层：模式/关卡/出怪档 + 全局增益 + 单株强化，
 // 单击任意处或按任意键关闭。数据全来自 mApp->mRunState；全局增益 id < RUN_BUFF_COUNT，
-// 单株升级 id − RUN_BUFF_COUNT 是单株表下标（表满编后 == SeedType，仍按表查，别写死）。
+// 单株升级 id − RUN_BUFF_COUNT 是老单株表下标（表满编后 == SeedType，仍按表查，别写死）；
+// 第二 buff id（≥ RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT）按第二表查——绘制行统一走
+// GetRunChoicePlant。
 
 bool NewOptionsDialog::RunInfoAvailable()
 {
@@ -854,8 +856,9 @@ void NewOptionsDialog::DrawRunInfo(Sexy::Graphics* g)
     {
         if (aRun->mBuffs[i].mId < RUN_BUFF_COUNT || aRun->mBuffs[i].mCount == 0) continue;
         if (aSeen++ < aFirst) continue;
-        const RunPlantUpgradeDef& aDef = GetRunPlantUpgradeDef(aRun->mBuffs[i].mId - RUN_BUFF_COUNT);
-        const char* aPlantName = GetRunPlantName(aDef.mPlant);
+        // 第二 buff 批 0：id 可能落在第二表（≥ RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT），
+        // GetRunChoicePlant 两表各查各的 mPlant——直接查所属植物，别按老表下标解。
+        const char* aPlantName = GetRunPlantName(GetRunChoicePlant(aRun->mBuffs[i].mId));
         char aText[128];
         char aSuffix[16];
         snprintf(aText, sizeof(aText), "%s %s", aPlantName != NULL ? aPlantName : "?",

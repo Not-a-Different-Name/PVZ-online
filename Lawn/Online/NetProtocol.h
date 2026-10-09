@@ -129,7 +129,7 @@ const uint16_t	PROTOCOL_VERSION	= 1;
 //        闯关变体再带三个字节（载荷 19→22）：规模/节奏乘在出怪算式上、开关改出怪名单——
 //        混搭时一边 ×4 一边 ×1，出怪量与怪种都对不上，必须两边同版本。旧长度的
 //        START_LEVEL 会被当串包拒掉。植物僵尸战斗侧（ZomBotany 五种）随同版投放。
-const uint16_t	MOD_BUILD			= 35;
+const uint16_t	MOD_BUILD			= 36;
 
 const uint16_t	DEFAULT_PORT		= 27777;
 

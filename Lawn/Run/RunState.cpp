@@ -36,9 +36,13 @@
 // v10：2026-10-09 批 C「高级选项」——尾追加一个 u16 位包：bit0..1 = 出怪规模档
 //     （RUN_SCALE_*）、bit2..3 = 节奏档（RUN_TEMPO_*）、bit4 = 植物僵尸混入开关。
 //     v9 及更老的档读不到，按 标准/标准/关 续（与 v3/v4 的保留位缺省同口径）。
+// v11：2026-10-09 第二 buff 批 0（docs/06 §8.5）——新增第二单株表，id 区块
+//     RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT + 表下标（57..95）。buff 列表仍是
+//     通用 id+count、载荷长度没变，但老版本会把第二表 id 当老单株解出错误条目，
+//     故抬版本让老构建直接拒档；v10 及更老档没有这类 id，读平即可（迁移链不动）。
 
 static const unsigned int RUN_CHECKPOINT_MAGIC = 0x314E5552;	// 'RUN1'
-static const unsigned short RUN_CHECKPOINT_VERSION = 10;
+static const unsigned short RUN_CHECKPOINT_VERSION = 11;
 
 static std::vector<unsigned char>& AppendU16(std::vector<unsigned char>& theData, unsigned int theValue)
 {
@@ -237,16 +241,17 @@ void RunState::RollChoices()
 	}
 	else
 	{
-		// 增益：全局 8 条 + 单株升级混池抽 3 条互不重复，全部按权重（§8.7：档位基值
-		// 1★6/2★3/3★1，全局条 ×k）。单株的只收"卡池里已经有这株"的（设计文档：只对已
-		// 拥有的植物出；花盆/睡莲词条删条不进池，见 RunPlantUpgradeInPool）。同名跨屏
-		// 可以再来（叠层，见 BuffStack）；但叠到 mMaxStacks 的条目不再进候选
+		// 增益：全局 9 条 + 单株升级 + 第二 buff（docs/06 §8.5，同株第二条词条）混池抽
+		// 3 条互不重复，全部按权重（§8.7：档位基值 1★12/2★6/3★2，全局条 ×k）。单株两表
+		// 的只收"卡池里已经有这株"的（设计文档：只对已拥有的植物出；老表花盆/睡莲/墓碑
+		// 删条不进池见 RunPlantUpgradeInPool，第二表删条与未落消费端条目见 RunPlantBuff2InPool）。
+		// 同名跨屏可以再来（叠层，见 BuffStack）；但叠到 mMaxStacks 的条目不再进候选
 		//（0 = 无限，方案 §2.2）——到顶就抽不中你。
 		// （2026-10-09 权重批撤保底：旧「第 1 格保底一条全局」随权重落地撤除——保底是
 		// 无权重时代防全局被挤成小概率的手段，§8.7 定案后由 k 与真实候选池密度保证，
 		// docs/06 §8.4 步骤 3。）
-		int aCandidates[RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT];
-		int aWeights[RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT];		// 同下标抽取权重（§8.7）
+		int aCandidates[RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT + RUN_PLANT_BUFF2_COUNT];
+		int aWeights[RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT + RUN_PLANT_BUFF2_COUNT];	// 同下标抽取权重（§8.7）
 		int aCount = 0;
 		int aTotalW = 0;
 		for (int i = 0; i < RUN_BUFF_COUNT; i++)
@@ -270,6 +275,20 @@ void RunState::RollChoices()
 			aTotalW += aWeights[aCount];
 			aCount++;
 		}
+		// 第二 buff（同株第二条词条，docs/06 §8.5）：进池开关/删条/未落消费端全在
+		// RunPlantBuff2InPool（批 0 全 false，纯结构批）；拥有过滤与封顶过滤同老表。
+		for (int i = 0; i < RUN_PLANT_BUFF2_COUNT; i++)
+		{
+			int aId = RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT + i;
+			if (!RunPlantBuff2InPool(i)) continue;
+			if (!HasPlant(GetRunPlantBuff2Def(i).mPlant)) continue;
+			int aCap = GetRunChoiceMaxStacks(aId);
+			if (aCap > 0 && GetBuffCount(aId) >= aCap) continue;
+			aCandidates[aCount] = aId;
+			aWeights[aCount] = GetRunChoiceWeight(aId);
+			aTotalW += aWeights[aCount];
+			aCount++;
+		}
 
 		// 防御守卫（方案 §2.4）：无限条目兜底，池子正常恒 ≥ 3 条；真抽干时缺格填哨兵、
 		// 一条不剩就把这次欠的增益屏作废——空池进 MTRand::Next(0) 是整数除零，直接崩。
@@ -281,8 +300,11 @@ void RunState::RollChoices()
 			return;
 		}
 
-		// 加权无放回抽三格。矛盾对互斥（§8.6.1）在第二 buff 条目落地（后续批）时接：
-		// 抽中一条后把同株另一条从 aCandidates/aWeights 摘除、aTotalW 同步减。
+		// 加权无放回抽三格。抽中单株条（老表/第二表都算）后把同株的其余条目从候选
+		// 摘除（§8.5/§8.6.1，第二 buff 批 0 落地）：一屏三张里同一株至多出现 1 条，
+		// 矛盾对（寒冰射手「冰西瓜化」↔「寒冰贯通」、玉米投手「加农炮转化」↔「黄油盛宴」）
+		// 都是同株两条，被这条规则一并互斥。跨屏不拦：老条+新条可以先后都拿（存量层叠
+		// 各自按 cap 管）。全局条 GetRunChoicePlant 返 SEED_NONE，不触发。
 		for (int aSlot = 0; aSlot < RUN_CHOICES; aSlot++)
 		{
 			if (aCount <= 0)
@@ -298,10 +320,24 @@ void RunState::RollChoices()
 				if (aPickW < 0) { aPick = i; break; }
 			}
 			mBuffChoices[aSlot] = (unsigned short)aCandidates[aPick];
+			SeedType aChoicePlant = GetRunChoicePlant(mBuffChoices[aSlot]);
 			aTotalW -= aWeights[aPick];
 			aCandidates[aPick] = aCandidates[aCount - 1];
 			aWeights[aPick] = aWeights[aCount - 1];
 			aCount--;
+			if (aChoicePlant != SeedType::SEED_NONE)
+			{
+				for (int i = aCount - 1; i >= 0; i--)
+				{
+					if (GetRunChoicePlant(aCandidates[i]) == aChoicePlant)
+					{
+						aTotalW -= aWeights[i];
+						aCandidates[i] = aCandidates[aCount - 1];
+						aWeights[i] = aWeights[aCount - 1];
+						aCount--;
+					}
+				}
+			}
 		}
 	}
 }
@@ -564,6 +600,9 @@ bool RunState::Save(int theProfileId) const
 
 	AppendU16(aData, mMowerUsedRows);	// v5：末位推车记账（bit = 行号）
 	AppendU16(aData, (unsigned int)((mScale & 3) | ((mTempo & 3) << 2) | ((mZombotany & 1) << 4)));	// v10：高级选项位包
+	// v11（第二 buff 批 0）：buff 列表格式不变（BuffStack 通用 id+count），但 mBuffs 里
+	// 从此可能出现第二表 id（57..95）。老版本读到会当老单株解出错误条目，故抬版本号让
+	// 老构建直接拒档；v10 及更老档没有这类 id，读平即可，不需要迁移链。
 
 	MkDir(GetAppDataFolder() + "userdata");
 	if (!gSexyAppBase->WriteBytesToFile(GetCheckpointName(theProfileId), aData.data(), (unsigned long)aData.size()))
@@ -595,9 +634,11 @@ bool RunState::Load(int theProfileId)
 	// 字段后直接作废；完整档表没动，照续。
 	// v8 起删了「储备」（见文件头 v8 条目）：旧档 buff id 按下面 buff 循环里的链迁移。
 	// v10 才有高级选项位包；v9 及更老的档读不到，按 标准/标准/关 续。
+	// v11 起buff 列表可能有第二表 id（57..95，第二 buff 批 0）；v10 及更老档天然没有，
+	// buff 循环与迁移链照旧（迁移条件全是 aVersion < N，对新 id 不触发）。
 	int aMode = RUN_MODE_FULL;
 	int aDiff = RUN_DIFF_STD;
-	if (aMagic != RUN_CHECKPOINT_MAGIC || (aVersion != RUN_CHECKPOINT_VERSION && aVersion != 9 && aVersion != 8 && aVersion != 7 && aVersion != 6 && aVersion != 5 && aVersion != 4 && aVersion != 3 && aVersion != 2))
+	if (aMagic != RUN_CHECKPOINT_MAGIC || (aVersion != RUN_CHECKPOINT_VERSION && aVersion != 10 && aVersion != 9 && aVersion != 8 && aVersion != 7 && aVersion != 6 && aVersion != 5 && aVersion != 4 && aVersion != 3 && aVersion != 2))
 	{
 		TodLog("[run] checkpoint magic/version mismatch, ignored");
 		return false;

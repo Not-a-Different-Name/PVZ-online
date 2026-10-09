@@ -216,8 +216,11 @@ RunPickDialog::RunPickDialog(LawnApp* theApp, RunState* theRun) : LawnDialog(
 	}
 	else
 	{
-		for (int i = 0; i < RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT; i++)
+		// 全池静态测量（增益屏列宽按全池最长说明）：三段 id 都测，第二表里未进池的
+		// 条目跳过（不会上屏，不参与定宽）。
+		for (int i = 0; i < RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT + RUN_PLANT_BUFF2_COUNT; i++)
 		{
+			if (i >= RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT && !RunPlantBuff2InPool(i - RUN_BUFF_COUNT - RUN_PLANT_UPGRADE_COUNT)) continue;
 			int aWidth = RunPickDescWidth(aCjkFont, GetRunChoiceDesc(i));
 			if (aWidth > aTargetColumn) aTargetColumn = aWidth;
 		}
@@ -251,8 +254,9 @@ RunPickDialog::RunPickDialog(LawnApp* theApp, RunState* theRun) : LawnDialog(
 		else
 		{
 			int aMaxLines = 1;
-			for (int j = 0; j < RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT; j++)
+			for (int j = 0; j < RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT + RUN_PLANT_BUFF2_COUNT; j++)
 			{
+				if (j >= RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT && !RunPlantBuff2InPool(j - RUN_BUFF_COUNT - RUN_PLANT_UPGRADE_COUNT)) continue;
 				int aLines = RunPickCountLines(aCjkFont, GetRunChoiceDesc(j), mColumnWidth - 4);
 				if (aLines > aMaxLines) aMaxLines = aLines;
 			}

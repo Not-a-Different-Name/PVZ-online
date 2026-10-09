@@ -48,7 +48,8 @@ public:
 	static const int	RUN_POOL_MAX		= 48;	// 卡池上限 = 全部植物
 	static const int	RUN_CHOICES			= 3;	// 一屏摆几张卡
 	// @pvz-online: mBuffChoices 的空缺哨兵（方案 §2.4 的防御守卫）：候选不足三条时多出来的
-	// 格子填它——不是合法 id（全局 8 + 单株 48 都够不到），选择函数与屏上按钮一律忽略。
+	// 格子填它——不是合法 id（全局 9 + 单株 48 + 第二 buff 39 都够不到），选择函数与
+	// 屏上按钮一律忽略。
 	static const unsigned short RUN_BUFF_CHOICE_NONE = 0xFFFF;
 
 	// @pvz-online: 出怪编排旋钮（M4-a，用户定案）：点数不封顶、数量封顶；点数多就出强僵尸。

@@ -298,8 +298,86 @@ int RunPlantUpgradeIndexFor(SeedType thePlant)
 	return -1;
 }
 
+// ── 第二 buff 表（docs/06 §8.6 评审终稿，2026-10-09 批 0 结构落地）──────────────
+// 每株植物的第二条单株词条。39 条有效行按 SeedType 升序紧凑排列；9 株删条不占行：
+// 睡莲16 / 缠绕海草19 / 高坚果23 / 杨桃29 / 花盆33 / 咖啡豆35 / 保护伞37 / 猫尾草43 /
+// 地刺王46（评审口径「弱词条直接删、株可以没有第二 buff」）。结构复用 RunPlantUpgradeDef。
+// id = RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT + 表内下标 = 57..95（老 id 0..56 不动）。
+// ⚠ 进池开关不在这张表上：RunPlantBuff2InPool 按下标白名单——条目要在**消费端落地批**
+// 才翻真（批 0 全不进池，纯结构批）。
+static const RunPlantUpgradeDef gRunPlantBuff2Defs[RUN_PLANT_BUFF2_COUNT] =
+{
+	{ SeedType::SEED_PEASHOOTER,    "Piercing Pea",  "豌豆无限穿透",                        "Peas pierce all zombies",                            0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
+	{ SeedType::SEED_SUNFLOWER,     "First Light",   "种下立即产 1 次阳光",                  "Yields sun once when planted",                        0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
+	{ SeedType::SEED_CHERRYBOMB,    "Scorched Earth","被炸中的僵尸持续燃烧\n每秒 300 伤害，共 3 秒（每层）", "Hit zombies keep burning\n300 damage/sec for 3 sec (per stack)", 0.00f, 2, false, RUN_UPGRADE_KIND_EFFECT, 2 },
+	{ SeedType::SEED_WALLNUT,       "Thorn Wall",    "啃食者每秒受 40 伤害\n（每层）",        "Biters take 40 damage/sec\n(per stack)",              0.00f, 2, false, RUN_UPGRADE_KIND_EFFECT, 2 },
+	{ SeedType::SEED_POTATOMINE,    "Mine Regrow",   "引爆后 3 秒原位重新埋雷\n每层可多补 1 次", "Re-buries itself 3 sec after blast\n+1 regrow per stack", 0.00f, 2, false, RUN_UPGRADE_KIND_EFFECT, 2 },
+	{ SeedType::SEED_SNOWPEA,       "Frost Pierce",  "雪豆无限穿透",                        "Frost peas pierce all zombies",                       0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
+	{ SeedType::SEED_CHOMPER,       "Chain Bite",    "吞完后范围内仍有僵尸立即再咬\n（每层多连锁 1 次）", "Bites again if zombies remain\n+1 chain per stack",   0.00f, 2, false, RUN_UPGRADE_KIND_EFFECT, 2 },
+	{ SeedType::SEED_REPEATER,      "Suppress Fire", "攻击间隔 ×0.7\n（每层）",              "Attack interval ×0.7\n(per stack)",                   -0.30f, 2, true, RUN_UPGRADE_KIND_RHYTHM, 2 },
+	{ SeedType::SEED_PUFFSHROOM,    "Death Spore",   "被啃掉时原地爆炸\n900 伤害（每层）",     "Explodes when eaten\n900 damage (per stack)",         0.00f, 2, false, RUN_UPGRADE_KIND_EFFECT, 2 },
+	{ SeedType::SEED_SUNSHROOM,     "Boosted Grow",  "种下后第二次产阳光前长大\n（首产 15、此后 25）", "Grows up before 2nd sun cycle\n(15 first, 25 after)", 0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
+	{ SeedType::SEED_FUMESHROOM,    "Fetid Breath",  "命中减速 20%，持续 3 秒",              "Hits slow zombies 20% for 3 sec",                     0.00f, 2, false, RUN_UPGRADE_KIND_EFFECT, 2 },
+	{ SeedType::SEED_GRAVEBUSTER,   "Swift Dig",     "吞噬速度 ×0.5",                       "Dig speed ×0.5",                                      -0.50f, 2, true, RUN_UPGRADE_KIND_EFFECT, 1 },
+	{ SeedType::SEED_HYPNOSHROOM,   "Fragrance",     "被魅惑僵尸的伤害 ×2\n（每层）",         "Hypnotized zombies deal ×2 damage\n(per stack)",      1.00f, 2, true, RUN_UPGRADE_KIND_EFFECT, 2 },
+	{ SeedType::SEED_SCAREDYSHROOM, "Bedrock",       "血量变为 4000",                       "Health becomes 4000",                                 0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 1 },
+	{ SeedType::SEED_ICESHROOM,     "Frost Armor",   "冰冻结束后全场减速 35%\n持续 20 秒",    "After freeze: all zombies slowed 35%\nfor 20 sec",    0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 3 },
+	{ SeedType::SEED_DOOMSHROOM,    "Doom Radius",   "爆炸半径 +50%\n（每层）",              "Blast radius +50%\n(per stack)",                      0.50f, 2, false, RUN_UPGRADE_KIND_EFFECT, 2 },
+	{ SeedType::SEED_SQUASH,        "Leap Shock",    "砸击次数 ×2（每层）\n并可跳砸上下行",    "Smashes ×2 (per stack)\nCan leap to adjacent rows",   1.00f, 2, true, RUN_UPGRADE_KIND_EFFECT, 2 },
+	{ SeedType::SEED_THREEPEATER,   "Trident",       "三线子弹无限穿透",                     "Peas pierce all zombies",                             0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
+	{ SeedType::SEED_JALAPENO,      "Chain Burn",    "爆炸次数 +1\n（间隔 1 秒）",            "Burns 1 extra time\n(1 sec apart)",                   0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
+	{ SeedType::SEED_SPIKEWEED,     "Open Wound",    "被扎的僵尸受全伤害 +30%",              "Pricked zombies take +30% damage",                    0.00f, 2, false, RUN_UPGRADE_KIND_EFFECT, 2 },
+	{ SeedType::SEED_TORCHWOOD,     "Flame Splash",  "过火子弹命中溅射\n造成原伤 1/3",        "Fire peas splash for 1/3 damage",                     0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
+	{ SeedType::SEED_SEASHROOM,     "Death Brine",   "被啃掉时原地爆炸\n900 伤害（每层）",     "Explodes when eaten\n900 damage (per stack)",         0.00f, 2, false, RUN_UPGRADE_KIND_EFFECT, 2 },
+	{ SeedType::SEED_PLANTERN,      "Twilight",      "照亮格内植物攻速 ×0.75",               "Plants in light attack ×0.75 speed",                  -0.25f, 2, true, RUN_UPGRADE_KIND_EFFECT, 2 },
+	{ SeedType::SEED_CACTUS,        "Tri-Spike",     "改为三行发射\n（本行与上下各一行）",     "Fires in 3 rows\n(own row ± 1)",                      0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
+	{ SeedType::SEED_BLOVER,        "Gale Force",    "吹风把全场僵尸推离 1 格\n（每层）",      "Blowing pushes all zombies back 1 tile\n(per stack)", 0.00f, 2, false, RUN_UPGRADE_KIND_EFFECT, 2 },
+	{ SeedType::SEED_SPLITPEA,      "Free Plant",    "种植费用变为 0",                       "Planting cost becomes 0",                             0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 1 },
+	{ SeedType::SEED_PUMPKINSHELL,  "Regrow",        "每 15 秒回复 10% 血量",                "Heals 10% HP every 15 sec",                           0.00f, 2, false, RUN_UPGRADE_KIND_EFFECT, 2 },
+	{ SeedType::SEED_MAGNETSHROOM,  "Magnet Throw",  "吸到的防具就地掷回\n1200 伤害（每层）",  "Throws stolen armor back\n1200 damage (per stack)",   0.00f, 2, false, RUN_UPGRADE_KIND_EFFECT, 2 },
+	{ SeedType::SEED_CABBAGEPULT,   "Heavy Toss",    "伤害 +50%",                           "Damage +50%",                                         0.00f, 3, false, RUN_UPGRADE_KIND_EFFECT, 1 },
+	{ SeedType::SEED_KERNELPULT,    "Butter Feast",  "黄油概率 +25%\n黄油时长 +1 秒（每层）",  "Butter chance +25%\nButter duration +1 sec (per stack)", 0.00f, 2, false, RUN_UPGRADE_KIND_EFFECT, 2 },
+	{ SeedType::SEED_GARLIC,        "Guide Garlic",  "血量仅 20\n被吃时全行僵尸换道",         "Only 20 HP\nZombies in the row switch lanes when bitten", 0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
+	{ SeedType::SEED_MARIGOLD,      "Fortune",       "+10% 概率产金币/钻石\n（每层）",        "+10% chance of gold/diamond\n(per stack)",            0.00f, 3, false, RUN_UPGRADE_KIND_EFFECT, 1 },
+	{ SeedType::SEED_MELONPULT,     "Rolling Burst", "落地后向前滚 1 格\n并再炸一次",         "Rolls 1 tile and bursts again",                       0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 1 },
+	{ SeedType::SEED_GATLINGPEA,    "Fire Peas",     "子弹变火豆：伤害 +50%\n命中解除冰冻减速", "Peas become fire peas: +50% damage\nRemoves chill on hit", 0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
+	{ SeedType::SEED_TWINSUNFLOWER, "Legacy",        "被吃掉时产 1 次阳光",                  "Yields sun once when eaten",                          0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
+	{ SeedType::SEED_GLOOMSHROOM,   "Rock Flesh",    "血量变为 1000\n每次被击固定扣 200",     "Health becomes 1000\nTakes flat 200 per hit",         0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 1 },
+	{ SeedType::SEED_WINTERMELON,   "Deep Freeze",   "+20% 概率冻结命中者 2 秒\n（每层）",    "+20% chance to freeze on hit\nfor 2 sec (per stack)", 0.00f, 3, false, RUN_UPGRADE_KIND_EFFECT, 3 },
+	{ SeedType::SEED_GOLD_MAGNET,   "Gold Touch",    "+25% 概率银币升金币\n（每层）",         "+25% chance silver becomes gold\n(per stack)",        0.00f, 3, false, RUN_UPGRADE_KIND_EFFECT, 1 },
+	{ SeedType::SEED_COBCANNON,     "Twin Cob",      "每轮多发 1 枚",                        "Fires 1 extra cob per volley",                        0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 1 },
+};
+
+const RunPlantUpgradeDef& GetRunPlantBuff2Def(int theIndex)
+{
+	if (theIndex < 0 || theIndex >= RUN_PLANT_BUFF2_COUNT) return gRunPlantBuff2Defs[0];
+	return gRunPlantBuff2Defs[theIndex];
+}
+
+int RunPlantBuff2IndexFor(SeedType thePlant)
+{
+	for (int i = 0; i < RUN_PLANT_BUFF2_COUNT; i++)
+	{
+		if (gRunPlantBuff2Defs[i].mPlant == thePlant) return i;
+	}
+	return -1;
+}
+
+// 进池白名单：条目在**消费端落地批**才加 case（「抽到了没效果」比「抽不到」更伤）。
+// 批 0 全不进池——纯结构批，行为零变化。#1 向日葵（FIRSTLIGHT）与老条「丰收」同轴，
+// 待用户定案前永不进池（docs/06 §8.6 ⚠）。
+bool RunPlantBuff2InPool(int theIndex)
+{
+	switch (theIndex)
+	{
+	default:
+		return false;
+	}
+}
+
 const char* GetRunChoiceName(int theId)
 {
+	if (theId >= RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT) return GetRunPlantBuff2Def(theId - RUN_BUFF_COUNT - RUN_PLANT_UPGRADE_COUNT).mName;
 	if (theId >= RUN_BUFF_COUNT) return GetRunPlantUpgradeDef(theId - RUN_BUFF_COUNT).mName;
 	return GetRunBuffDef(theId).mName;
 }
@@ -310,7 +388,13 @@ const char* GetRunChoiceDesc(int theId)
 {
 	const char* aDesc;
 	int aMaxStacks;
-	if (theId >= RUN_BUFF_COUNT)
+	if (theId >= RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT)
+	{
+		const RunPlantUpgradeDef& aDef = GetRunPlantBuff2Def(theId - RUN_BUFF_COUNT - RUN_PLANT_UPGRADE_COUNT);
+		aDesc = ModText::IsChinese() ? aDef.mDesc : aDef.mDescEn;
+		aMaxStacks = aDef.mMaxStacks;
+	}
+	else if (theId >= RUN_BUFF_COUNT)
 	{
 		const RunPlantUpgradeDef& aDef = GetRunPlantUpgradeDef(theId - RUN_BUFF_COUNT);
 		aDesc = ModText::IsChinese() ? aDef.mDesc : aDef.mDescEn;
@@ -344,6 +428,7 @@ const char* GetRunChoiceDesc(int theId)
 // 这条条目封顶几层（0 = 无限）。抽取过滤与屏上「已有 x/N」都走它。
 int GetRunChoiceMaxStacks(int theId)
 {
+	if (theId >= RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT) return GetRunPlantBuff2Def(theId - RUN_BUFF_COUNT - RUN_PLANT_UPGRADE_COUNT).mMaxStacks;
 	if (theId >= RUN_BUFF_COUNT) return GetRunPlantUpgradeDef(theId - RUN_BUFF_COUNT).mMaxStacks;
 	return GetRunBuffDef(theId).mMaxStacks;
 }
@@ -364,6 +449,12 @@ bool RunPlantUpgradeInPool(SeedType thePlant)
 int GetRunChoiceRarity(int theId)
 {
 	if (theId < 0) return 0;
+	if (theId >= RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT)
+	{
+		int aIdx = theId - RUN_BUFF_COUNT - RUN_PLANT_UPGRADE_COUNT;
+		if (aIdx >= RUN_PLANT_BUFF2_COUNT) return 0;
+		return GetRunPlantBuff2Def(aIdx).mRarity;
+	}
 	if (theId >= RUN_BUFF_COUNT)
 	{
 		int aIdx = theId - RUN_BUFF_COUNT;
@@ -371,6 +462,19 @@ int GetRunChoiceRarity(int theId)
 		return GetRunPlantUpgradeDef(aIdx).mRarity;
 	}
 	return GetRunBuffDef(theId).mRarity;
+}
+
+// id → 所属植物（批 0 结构）：全局 → SEED_NONE；两张单株表各查各的 mPlant。
+// RunState::RollChoices 抽中一条单株条后按它把同株其余条目从候选摘除——
+// 一屏三张里同一株的老/新条至多出现 1 条（§8.6.1 矛盾对互斥：寒冰射手/玉米投手
+// 的新旧两条都是同株关系，被这条规则一并管住）。
+SeedType GetRunChoicePlant(int theId)
+{
+	if (theId >= RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT)
+		return GetRunPlantBuff2Def(theId - RUN_BUFF_COUNT - RUN_PLANT_UPGRADE_COUNT).mPlant;
+	if (theId >= RUN_BUFF_COUNT)
+		return GetRunPlantUpgradeDef(theId - RUN_BUFF_COUNT).mPlant;
+	return SeedType::SEED_NONE;
 }
 
 // 经济条清单（经济权重批 2026-10-09，用户拍板）：享受经济系数 e 的 8 条——产阳光三件套
@@ -384,7 +488,7 @@ static bool IsEconomyRunChoice(int theId)
 		return theId == RUN_BUFF_ABUNDANCE || theId == RUN_BUFF_FASTSEED || theId == RUN_BUFF_SKYFALL;
 	}
 	int aIdx = theId - RUN_BUFF_COUNT;
-	if (aIdx >= RUN_PLANT_UPGRADE_COUNT) return false;
+	if (aIdx >= RUN_PLANT_UPGRADE_COUNT) return false;	// 第二表段：经济向新条（#38/#45 待钱用途定案）在批 6 落地时再补
 	switch (GetRunPlantUpgradeDef(aIdx).mPlant)
 	{
 	case SeedType::SEED_SUNFLOWER:
@@ -488,6 +592,7 @@ const char* GetRunPlantName(SeedType thePlant)
 
 const char* GetRunChoicePlantName(int theId)
 {
-	if (theId < RUN_BUFF_COUNT) return NULL;
-	return GetRunPlantName(GetRunPlantUpgradeDef(theId - RUN_BUFF_COUNT).mPlant);
+	SeedType aPlant = GetRunChoicePlant(theId);
+	if (aPlant == SeedType::SEED_NONE) return NULL;
+	return GetRunPlantName(aPlant);
 }

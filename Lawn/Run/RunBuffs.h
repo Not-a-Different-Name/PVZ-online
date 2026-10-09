@@ -11,6 +11,8 @@
 //
 // 两类共用同一个 id 空间：id < RUN_BUFF_COUNT 是全局，否则 id − RUN_BUFF_COUNT
 // 是单株表下标。存储（RunState 的 BuffStack）与检查点格式因此不用区分两类。
+// 2026-10-09 批 0 起追加第二 buff 表（docs/06 §8.5）：id ≥ RUN_BUFF_COUNT +
+// RUN_PLANT_UPGRADE_COUNT 是第二表下标——同株的第二条词条，id = 两表计数 + 下标。
 // 2026-10-03 起条目多了两个维度（方案 docs/06 §2）：层数上限（mMaxStacks，叠满不再
 // 进候选）与叠乘模式（mMultiplicative，(1+每层)^层数）——都是表内静态属性，不进检查点。
 
@@ -194,5 +196,69 @@ int GetRunChoiceWeight(int theId);
 const char* GetRunChoicePlantName(int theId);
 // 同一张名字表按 SeedType 直查（局内词条查看器手里只有 SeedType + 层数）；表里没有 → NULL。
 const char* GetRunPlantName(SeedType thePlant);
+
+// ── 第二 buff 表（docs/06 §8.5-§8.7 评审终稿，2026-10-09 批 0 结构）────────────
+// 每株植物的第二条单株词条（39 条有效 + 9 株删条不进表）。表按 SeedType 升序紧凑
+// 维护（删条株不占行——与老表「表行保留供存量档」不同：第二表没有历史存量，直接删）。
+// id = RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT + 表内下标（老 id 0..56 一字不动，
+// 老检查点天然读平；新 id 只在新构建出现，检查点 v11 起才可能有）。
+// 复用 RunPlantUpgradeDef 结构（字段语义相同）；mKind 同样只标能吃通用挂点的条目，
+// 专属挂点条目用 EFFECT + 各自落地批的专属取用。
+enum RunPlantBuff2Id
+{
+	RUN_BUFF2_PIERCE,		// #0 豌豆射手：穿刺豌豆——豌豆无限穿透（cap1，2★）
+	RUN_BUFF2_FIRSTLIGHT,	// #1 向日葵：初阳——种下立即产 1 次阳光（cap1，2★；⚠与老条「丰收」同轴，暂不进池待定案）
+	RUN_BUFF2_SCORCHED,		// #2 樱桃炸弹：焦土——被炸者每秒 300 伤燃烧 3 秒，火随人（cap2，2★）
+	RUN_BUFF2_THORNS,		// #3 坚果墙：荆棘之壁——啃食者每秒受 40 伤（cap2，2★）
+	RUN_BUFF2_MINEREGROW,	// #4 土豆雷：自动补雷——引爆后 3 秒原位重埋，每层多补 1 次（cap2，2★）
+	RUN_BUFF2_FROSTPIERCE,	// #5 寒冰射手：寒冰贯通——雪豆无限穿透（cap1，2★；与老条「冰西瓜化」同株互斥）
+	RUN_BUFF2_CHAINBITE,	// #6 大嘴花：连锁吞——吞完范围内仍有僵尸立即再咬，每层多连锁 1 次（cap2，2★）
+	RUN_BUFF2_SUPPRESS,		// #7 双发射手：火力压制——攻击间隔 ×0.7/层（cap2，2★；走通用 RHYTHM 挂点）
+	RUN_BUFF2_DEATHSPORE,	// #8 小喷菇：亡语孢子——被啃掉时原地爆炸 900 伤/层（cap2，2★）
+	RUN_BUFF2_BOOSTGROW,	// #9 阳光菇：催长——种下后第二次产阳光前长大（首产 15、次产起 25）（cap1，2★）
+	RUN_BUFF2_FETID,		// #10 大喷菇：腐臭之息——命中减速 20% 持续 3 秒（cap2，2★）
+	RUN_BUFF2_SWIFTDIG,		// #11 墓碑吞噬者：疾掘——吞噬速度 ×0.5（cap2，1★）
+	RUN_BUFF2_FRAGRANCE,	// #12 魅惑菇：迷魂香——被魅惑僵尸伤害 ×2/层（cap2，2★）
+	RUN_BUFF2_BEDROCK,		// #13 胆小菇：磐石——血量变为 4000（cap1，1★）
+	RUN_BUFF2_FROSTARMOR,	// #14 寒冰菇：霜甲——冰冻结束后全场减速 35% 持续 20 秒（cap1，3★）
+	RUN_BUFF2_DOOMRADIUS,	// #15 毁灭菇：灭世半径——爆炸半径 +50%/层（cap2，2★）
+	RUN_BUFF2_LEAP,			// #17 窝瓜：飞跃震击——砸击数 ×2/层 + 解锁上下行跳砸（cap2，2★）
+	RUN_BUFF2_TRIDENT,		// #18 三线射手：贯穿——三线子弹无限穿透（cap1，2★）
+	RUN_BUFF2_CHAINBURN,	// #20 火爆辣椒：连烧——爆炸次数 +1，间隔 1 秒（cap1，2★）
+	RUN_BUFF2_OPENWOUND,	// #21 地刺：伤口加深——被扎者受全伤 +30%（cap2，2★）
+	RUN_BUFF2_FLAMESPLASH,	// #22 火炬树桩：烈焰溅射——过火子弹带小溅射（原伤 1/3）（cap1，2★）
+	RUN_BUFF2_DEATHBRINE,	// #24 海蘑菇：亡语孢子——被啃掉时原地爆炸 900 伤/层（cap2，2★）
+	RUN_BUFF2_TWILIGHT,		// #25 路灯花：暮光——照亮格内植物攻速 ×0.75（cap2，2★）
+	RUN_BUFF2_TRISPIKE,		// #26 仙人掌：三向尖刺——改为三行发射（本行 ±1）（cap1，2★）
+	RUN_BUFF2_GALE,			// #27 三叶草：狂风——吹风把全场僵尸推离 1 格/层（cap2，2★）
+	RUN_BUFF2_FREEPLANT,	// #28 分裂豌豆：免植——种下 0 费（cap1，1★）
+	RUN_BUFF2_REGROW,		// #30 南瓜头：再生——每 15 秒回复 10% 血（cap2，2★）
+	RUN_BUFF2_MAGNETTHROW,	// #31 磁力菇：卸甲飞掷——吸到的防具掷回，1200 伤/层（cap2，2★）
+	RUN_BUFF2_HEAVYTOSS,	// #32 卷心菜投手：重投——伤害 +50%（cap3，1★）
+	RUN_BUFF2_BUTTERFEAST,	// #34 玉米投手：黄油盛宴——黄油率 +25% 且时长 +1 秒/层（cap2，2★；与老条「加农炮转化」同株互斥）
+	RUN_BUFF2_GUIDE,		// #36 大蒜：引路蒜——血量仅 20，被吃时全行僵尸换道（cap1，2★；矛盾设计原型）
+	RUN_BUFF2_FORTUNE,		// #38 金盏花：富贵——+10%/层 概率产金/钻石币（cap3，1★；产币端可实现照落，钱用途待定）
+	RUN_BUFF2_ROLLING,		// #39 西瓜投手：滚爆——落地后向前滚 1 格并再炸一次（cap1，1★）
+	RUN_BUFF2_FIREPEA,		// #40 机枪射手：火豆——子弹变火豆：火系伤害 +50%、命中解除冰缓（cap1，2★）
+	RUN_BUFF2_LEGACY,		// #41 双子向日葵：遗泽——被吃掉时产 1 次阳光（cap1，2★）
+	RUN_BUFF2_ROCKFLESH,	// #42 忧郁菇：耐砸——血量变为 1000、每次被击固定扣 200（cap1，1★）
+	RUN_BUFF2_DEEPFREEZE,	// #44 冰西瓜：冰封——+20%/层 概率冻结命中者 2 秒（cap3，3★）
+	RUN_BUFF2_GOLDTOUCH,	// #45 吸金磁：金石——+25%/层 概率银币升金币（cap3，1★；钱用途待定）
+	RUN_BUFF2_TWINCOB,		// #47 玉米加农炮：双联装——每轮多发 1 枚（cap1，1★）
+	RUN_PLANT_BUFF2_COUNT
+};
+
+// 第二表的表行查询（结构同老表）；下标越界 → gRunPlantBuff2Defs[0]。
+const RunPlantUpgradeDef& GetRunPlantBuff2Def(int theIndex);
+// 这株植物在第二表里的下标；表里没有（含 9 株删条）→ −1。
+int RunPlantBuff2IndexFor(SeedType thePlant);
+// 第二表条目是否进抽取池：9 株删条天然不进；其余条目在各自消费端落地批才翻真
+//（未落消费端的条目不出——「抽到了没效果」比「抽不到」更伤）。RunState::RollChoices 过滤用。
+bool RunPlantBuff2InPool(int theIndex);
+
+// id → 所属植物：全局增益 → SEED_NONE；老单株/第二表条目 → 查各自表的 mPlant。
+// 同屏同株去重（一屏三张里同一株的老/新条至多出现 1 条，§8.6.1 矛盾对互斥同此）
+// 在 RunState::RollChoices 抽中后摘除时用。
+SeedType GetRunChoicePlant(int theId);
 
 #endif
