@@ -986,12 +986,11 @@ bool Plant::FindStarFruitTarget()
 //0x45F6E0
 void Plant::LaunchStarFruit()
 {
-    if (FindStarFruitTarget())
-    {
-        float aSpeed = PlantShootSpeed(mApp, mSeedType);
-        PlayBodyReanim("anim_shoot", ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD, 20, 28.0f * aSpeed);
-        mShootingCounter = PlantShootTicks(40, aSpeed);
-    }
+    // @pvz-online: 用户 2026-10-09 令：无论有没有敌人都一直攻击——删 FindStarFruitTarget 门，
+    // 空场也照常转 anim_shoot 并出五向星弹（StarFruitFire 本就无条件五发，没怪时飞出屏即可）。
+    float aSpeed = PlantShootSpeed(mApp, mSeedType);
+    PlayBodyReanim("anim_shoot", ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD, 20, 28.0f * aSpeed);
+    mShootingCounter = PlantShootTicks(40, aSpeed);
 }
 
 // @pvz-online: 追踪星弹的选敌（单株升级「Homing Stars」，杨桃，表行 SEED_STARFRUIT）：
