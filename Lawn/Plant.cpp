@@ -5168,12 +5168,14 @@ void Plant::Fire(Zombie* theTargetZombie, int theRow, PlantWeapon thePlantWeapon
     Projectile* aProjectile = mBoard->AddProjectile(aOriginX, aOriginY, mRenderOrder - 1, theRow, aProjectileType);
     aProjectile->mDamageRangeFlags = GetDamageRangeFlags(thePlantWeapon);
 
-    // @pvz-online: 单株升级「Prickly」（仙人掌，表行 SEED_CACTUS）：给仙人掌的尖刺预置穿透
-    // 点数（每层 +1 只，至多 2 层）——只有仙人掌的弹带这个数（猫尾草的同型尖刺是追踪弹，
-    // 不受影响）；0 层与原版一致。命中后的扣点在 Projectile::DoImpact 末尾。
-    if (mSeedType == SeedType::SEED_CACTUS)
+    // @pvz-online: 单株升级「Prickly」（仙人掌，表行 SEED_CACTUS）：有该条就给尖刺预置
+    // 无限穿透标记 -1（2026-10-09 晚实机反馈：由 +1 只/层、cap 2 改为无限穿透、cap 1）——
+    // 只有仙人掌的弹带这个数（猫尾草的同型尖刺是追踪弹，不受影响）；无条与原版一致。
+    // 命中后的判定/扣点在 Projectile::DoImpact 末尾（-1 永不扣）。
+    if (mSeedType == SeedType::SEED_CACTUS
+        && mApp->RunPlantUpgradeCount(SeedType::SEED_CACTUS) > 0)
     {
-        aProjectile->mPricklyHitsLeft = mApp->RunPlantUpgradeCount(SeedType::SEED_CACTUS);
+        aProjectile->mPricklyHitsLeft = -1;
     }
 
     // @pvz-online: 单株升级「多发」：每层多打一发（RunBuffs 单株表）。

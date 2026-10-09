@@ -77,6 +77,11 @@
 //   作用清单 8 条（IsEconomyRunChoice）：产阳光三件套（向日葵/阳光菇/双子）+ 丰饶/速种/天降
 //   + 咖啡豆/卷心菜；金盏花/吸金磁不列（冻结条保持照旧，用户令）。三件套每屏出现率
 //   7.7% → ~17%、一局期望 ~2.3 → ~5.4 张（普通档 29 屏口径，§8.7 静态表同步重算）。
+// 2026-10-09 晚实机反馈批（用户三条，见 docs/07 同日条目、docs/03 §5.56）：
+//   ① 三选一屏列顶画稀有度星标（全档；3★ 金、1★/2★ 灰，同图鉴口径，旧「只标 3★」作废）
+//      ——纯 UI，RunPickDialog.cpp（本表不动）。
+//   ② 仙人掌「Prickly」：+1 只/层、cap 2 → 尖刺无限穿透、cap 1（弹体标记 -1，Fire 预置）。
+//   ③ 天降：降阳光速率 ×3 → ×2（消费端 LawnApp::RunSkySunIntervalMul 常量 1/3 → 1/2）。
 static const RunBuffDef gRunBuffDefs[RUN_BUFF_COUNT] =
 {
 	// 末列 = 稀有度档位（权重批 2026-10-09 填档，docs/06 §8.2.1/§8.7；
@@ -139,8 +144,9 @@ const RunBuffDef& GetRunBuffDef(int theId)
 // 2026-10-03 平调三版：基座维持 100、每层 +25——用户定的 100/125/150；
 // 种植冷却加长到 12 秒）。
 // 批 12 2026-10-03：弹道/索敌族 3 条（仙人掌 26 / 分裂豌豆 28 / 猫尾草 43）——
-// 仙人掌：尖刺穿透（弹体 mPricklyHitsLeft 由 Fire 按层数预置、只有仙人掌的弹带；命中扣
-// 一点继续飞，并把弹体推到该僵尸身后免重撞——Projectile::DoImpact 末尾）；分裂豌豆：
+// 仙人掌：尖刺穿透（弹体 mPricklyHitsLeft 由 Fire 预置、只有仙人掌的弹带；命中继续飞，
+// 并把弹体推到该僵尸身后免重撞——Projectile::DoImpact 末尾；2026-10-09 晚实机反馈由
+// +1 只/层、cap 2 改为无限穿透、cap 1——-1 标记）；分裂豌豆：
 // 背向弹每次 +1 颗（Fire 的 SECONDARY 分支多发循环，镜像正面 21px 错位）；猫尾草：攻击
 // 目标 +1 个/层（FindTargetZombie 加排除参数，同一轮依次找第 2/3 个目标各发一颗追踪刺）。
 // 表内下标随插入右移补充：批 9 档里 id 36、批 10 档里 id 14 及以后、批 11 档里 id 30 及以后、
@@ -229,7 +235,7 @@ static const RunPlantUpgradeDef gRunPlantUpgradeDefs[RUN_PLANT_UPGRADE_COUNT] =
 	{ SeedType::SEED_TALLNUT,      "Iron Shell",   "巨人砸击时像地刺王一样耐砸\n（每次 -200 血）", "Survives Gargantuar smashes like a Spikerock\n(-200 HP per smash)", 0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
 	{ SeedType::SEED_SEASHROOM,    "Brine Spore",  "种植冷却逐层 ×0.8\n（每层）",       "Planting cooldown ×0.8/stack",                       -0.20f, 3, true, RUN_UPGRADE_KIND_COOLDOWN, 2 },
 	{ SeedType::SEED_PLANTERN,     "Lantern Light", "照亮范围 +1 格\n（每层）",         "Illumination radius +1 tile\n(per stack)",           0.00f, 2, false, RUN_UPGRADE_KIND_EFFECT, 1 },
-	{ SeedType::SEED_CACTUS,       "Prickly",      "尖刺穿透 +1 只\n（每层）",          "Spikes pierce +1 zombie\n(per stack)",               0.00f, 2, false, RUN_UPGRADE_KIND_EFFECT, 2 },
+	{ SeedType::SEED_CACTUS,       "Prickly",      "尖刺无限穿透",                       "Spikes pierce all zombies",                          0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
 	{ SeedType::SEED_BLOVER,       "Gale",         "吹风后全场僵尸减速 5 秒\n（每层）", "Slows all zombies 5 sec after blowing\n(per stack)", 0.00f, 2, false, RUN_UPGRADE_KIND_EFFECT, 2 },
 	{ SeedType::SEED_SPLITPEA,     "Backspike",    "背向豌豆每次 +1 颗\n（每层）",      "1 extra backward pea per shot\n(per stack)",         0.00f, 2, false, RUN_UPGRADE_KIND_EFFECT, 2 },
 	{ SeedType::SEED_STARFRUIT,    "Homing Stars", "子弹变为追踪弹",                    "Shots become homing",                                0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
