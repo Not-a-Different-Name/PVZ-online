@@ -134,6 +134,7 @@ void Zombie::ZombieInitialize(int theRow, ZombieType theType, bool theVariant, Z
     mChilledCounter = 0;
     mIceTrapCounter = 0;
     mButteredCounter = 0;
+    mFetidSlowCounter = 0;
     mMindControlled = false;
     mBlowingAway = false;
     mHasHead = true;
@@ -4782,6 +4783,14 @@ void Zombie::UpdatePlaying()
             UpdateAnimSpeed();
         }
     }
+    if (mFetidSlowCounter > 0)
+    {
+        mFetidSlowCounter--;
+        if (mFetidSlowCounter == 0)
+        {
+            UpdateAnimSpeed();
+        }
+    }
     if (mButteredCounter > 0)
     {
         mButteredCounter--;
@@ -6848,7 +6857,14 @@ void Zombie::ApplyAnimRate(float theAnimRate)
     Reanimation* aBodyReanim = mApp->ReanimationTryToGet(mBodyReanimID);
     if (aBodyReanim)
     {
-        aBodyReanim->mAnimRate = IsMovingAtChilledSpeed() ? theAnimRate * 0.5f : theAnimRate;
+        // @pvz-online: 第二 buff「腐臭之息」（大喷菇，docs/06 §8.6 #10）：软减速 20%/层
+        // （cap2 = 至多 -40%）——与 chill 固定半速异轴并存，chill 优先（不叠乘）。
+        float aRate = theAnimRate;
+        if (IsMovingAtChilledSpeed())
+            aRate *= 0.5f;
+        else if (mFetidSlowCounter > 0)
+            aRate *= 1.0f - 0.2f * mApp->RunPlantBuff2Count(SeedType::SEED_FUMESHROOM);
+        aBodyReanim->mAnimRate = aRate;
     }
 }
 
@@ -8303,6 +8319,22 @@ void Zombie::TakeDamage(int theDamage, unsigned int theDamageFlags)
     // 各分支（护盾/头盔/本体的依次分配、HITS_SHIELD_AND_BODY 的重置全吃放大值）。
     // 火力（Firepower）在弹种基数上先乘，这里末梢再乘，两条全局乘性叠加；非闯关自动 1.0。
     theDamage = (int)(theDamage * mApp->RunBuffMul(RUN_BUFF_PRECISION) + 0.5f);
+
+    // @pvz-online: 第二 buff「伤口加深」（地刺 #21，docs/06 §8.6）：被扎者——脚下格
+    // 正踩着地刺的僵尸——受全伤害 ×(1+30%/层)（站上去才开始生效、离开即止，无需状态位；
+    // 只认地刺本体格，南瓜/花盆不算）。词条未抽取时短路，高频入口零开销。
+    if (mApp->RunPlantBuff2Count(SeedType::SEED_SPIKEWEED) > 0)
+    {
+        Rect aZombieRect = GetZombieRect();
+        Plant* aUnderPlant = mBoard->GetTopPlantAt(
+            mBoard->PixelToGridX(aZombieRect.mX + aZombieRect.mWidth / 2, aZombieRect.mY + aZombieRect.mHeight / 2),
+            mBoard->PixelToGridY(aZombieRect.mX + aZombieRect.mWidth / 2, aZombieRect.mY + aZombieRect.mHeight / 2),
+            PlantPriority::TOPPLANT_ONLY_NORMAL_POSITION);
+        if (aUnderPlant != nullptr && aUnderPlant->mSeedType == SeedType::SEED_SPIKEWEED)
+        {
+            theDamage = (int)(theDamage * (1.0f + 0.3f * mApp->RunPlantBuff2Count(SeedType::SEED_SPIKEWEED)) + 0.5f);
+        }
+    }
 
     int aDamageRemaining = theDamage;
 

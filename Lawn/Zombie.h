@@ -120,6 +120,9 @@ public:
     int                             mChilledCounter;                            //+0xAC
     int                             mButteredCounter;                           //+0xB0
     int                             mIceTrapCounter;                            //+0xB4
+    // @pvz-online: 第二 buff「腐臭之息」（大喷菇，docs/06 §8.6 #10）：软减速剩余帧——
+    // 与 chill（固定半速）不同轴，幅度 = 20%/层（ApplyAnimRate 乘 (1-0.2×层)）。
+    int                             mFetidSlowCounter;
     bool                            mMindControlled;                            //+0xB8
     bool                            mBlowingAway;                               //+0xB9
     bool                            mHasHead;                                   //+0xBA

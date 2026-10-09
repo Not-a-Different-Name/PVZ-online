@@ -796,6 +796,18 @@ void Plant::DoRowAreaDamage(int theDamage, unsigned int theDamageFlags)
                         aZombie->UpdateAnimSpeed();
                     }
                 }
+
+                // @pvz-online: 第二 buff「腐臭之息」（大喷菇 #10，docs/06 §8.6）：命中软减速
+                // 3 秒（mFetidSlowCounter=300，幅度 20%/层在 ApplyAnimRate 乘）。只认大喷菇
+                // 本体（忧郁菇是另一株、词条不共享）；软减速刷到 300 封顶、不缩短已有窗口。
+                if (mSeedType == SeedType::SEED_FUMESHROOM && mApp->RunPlantBuff2Count(SeedType::SEED_FUMESHROOM) > 0)
+                {
+                    if (aZombie->mFetidSlowCounter < 300)
+                    {
+                        aZombie->mFetidSlowCounter = 300;
+                        aZombie->UpdateAnimSpeed();
+                    }
+                }
             }
         }
     }

@@ -387,6 +387,10 @@ bool RunPlantBuff2InPool(int theIndex)
 	case RUN_BUFF2_DEATHBRINE:	// 海蘑菇同款（同挂点）
 	case RUN_BUFF2_LEGACY:		// 双子向日葵被吃掉补产 1 轮阳光（同挂点）
 		return true;
+	case RUN_BUFF2_FETID:		// 批 5 命中附加族：大喷菇命中软减速 20%/层 3 秒（DoRowAreaDamage）
+	case RUN_BUFF2_OPENWOUND:	// 地刺：被扎者受全伤 +30%/层（Zombie::TakeDamage 查脚下格）
+	case RUN_BUFF2_DEEPFREEZE:	// 冰西瓜：命中 20%/层 概率冻 2 秒（Projectile::DoImpact）
+		return true;
 	default:
 		return false;
 	}

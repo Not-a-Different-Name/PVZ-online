@@ -848,6 +848,21 @@ void Projectile::DoImpact(Zombie* theZombie)
 {
 	PlayImpactSound(theZombie);
 
+	// @pvz-online: 第二 buff「冰封」（冰西瓜 #44，docs/06 §8.6）：冰西瓜弹命中主目标时
+	// +20%/层 概率完全冻住 2 秒（mIceTrapCounter=200，照 HitIceTrap 直赋先例；CanBeFrozen
+	// 挡下的不硬塞）。只认冰西瓜弹（雪豆弹也带 DAMAGE_FREEZE 但不走这条）；溅射目标不 roll
+	//（口径=「命中者」）。词条未抽取时短路。
+	if (mProjectileType == ProjectileType::PROJECTILE_WINTERMELON && theZombie != nullptr &&
+		mApp->RunPlantBuff2Count(SeedType::SEED_WINTERMELON) > 0)
+	{
+		int aFreezeChance = 20 * mApp->RunPlantBuff2Count(SeedType::SEED_WINTERMELON);
+		if ((int)Rand(100) < aFreezeChance && theZombie->CanBeFrozen())
+		{
+			theZombie->mIceTrapCounter = std::max(theZombie->mIceTrapCounter, 200);
+			theZombie->UpdateAnimSpeed();
+		}
+	}
+
 	if (IsSplashDamage(theZombie))
 	{
 		if (mProjectileType == ProjectileType::PROJECTILE_FIREBALL && theZombie)
