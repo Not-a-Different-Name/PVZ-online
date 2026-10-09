@@ -1468,6 +1468,41 @@ void Board::InitSurvivalStage()
 	}
 }
 
+// @pvz-online: 无尽局原地续关（无尽续草坪批，MOD_BUILD 37）：过关不清草坪——植物、阳光、
+// 推车和格子上的一切原样续到下一关，只把"下一关"的东西排上。草坪不用重建：无尽锁场景，
+// 关在 5 个原型里轮转，背景 / 行数 / 格位都一样（PickBackground 按背景定行数）。
+// 和原版生存的 InitSurvivalStage 是兄弟函数：那边换的是"阶段"（连选卡带开场都重来一遍），
+// 这边换的是"关"——选卡与开场由 LawnApp 一侧收尾（ReleaseRunIntro / TryKeepEndlessLawn），
+// 这里只管波次那一摊。调用点都在"三选一做完、开场放开之前"的那一刻，和建新场的节奏对齐。
+void Board::InitEndlessRunStage()
+{
+	RunState* aRun = mApp->GetRunState();
+	if (aRun == nullptr) return;
+
+	// 关序号 / 种子的覆盖值跟着新一关换：选卡候选、墓碑这类"关级随机"读的就是它
+	// （建新场时这一步在 EnterRunLevel，这条路上没人替它做）。
+	mApp->SetOnlineStartOverride(aRun->GetLevel(), aRun->GetLevelSeed());
+	mLevel = aRun->GetLevel();
+
+	RefreshSeedPacketFromCursor();
+	mLevelComplete = false;
+	// 联机局的草坪在等待期一直开着：棋盘上可能留着队友漏过来、还没走完的怪。
+	// 新一关各就各位，这些上一关的尾巴不能接着走——它们会啃新关的植物，
+	// 摸到房子那一边还会把推车误碰掉。单机局的怪在过关时已经清完，这儿是空转。
+	RemoveAllZombies();
+	InitZombieWaves();
+	mBoardFadeOutCounter = -1;	// 单机过关的白幕倒计时在这一刻才真正落定
+
+	if (StageHasFog())
+	{
+		mFogBlownCountDown = FOG_BLOW_RETURN_TIME;
+	}
+	for (int i = 0; i < MAX_GRID_SIZE_Y; i++)
+	{
+		mWaveRowGotLawnMowered[i] = -100;
+	}
+}
+
 //0x40AE70
 Rect Board::GetShovelButtonRect()
 {
@@ -2046,7 +2081,9 @@ void Board::UpdateLevelEndSequence()
 		}
 	}
 
-	if (CanDropLoot() && !IsSurvivalStageWithRepick())
+	// @pvz-online: 无尽局原地续关（无尽续草坪批）：和 FadeOutLevel 一处口径——推车留到下一关。
+	bool aEndlessRun = mApp->IsRunMode() && mApp->GetRunState()->IsEndless();
+	if (CanDropLoot() && !IsSurvivalStageWithRepick() && !aEndlessRun)
 	{
 		mScoreNextMowerCounter = 40;
 		LawnMower* aLawnMower = GetBottomLawnMower();
@@ -2188,7 +2225,10 @@ void Board::FadeOutLevel()
 			mBoardFadeOutCounter = 500;
 		}
 
-		if (CanDropLoot())
+		// @pvz-online: 无尽局原地续关（无尽续草坪批）：推车跟着草坪续到下一关，不折金币
+		//（原版"用不上就换钱"的奖赏在无尽里等于把保命的家伙收走）。
+		bool aEndlessRun = mApp->IsRunMode() && mApp->GetRunState()->IsEndless();
+		if (CanDropLoot() && !aEndlessRun)
 		{
 			mScoreNextMowerCounter = 200;
 		}

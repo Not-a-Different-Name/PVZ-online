@@ -729,10 +729,14 @@ void LawnApp::UpdateOnlineStart()
 			TodTrace("online start: the whole team is in, entering the level");
 			KillDialog(Dialogs::DIALOG_ONLINE);
 			KillGameSelector();
-			NewGame();
+			// @pvz-online: 无尽局原地续关（无尽续草坪批）：全队在等这条 ACK 的换关里，
+			// 本机的草坪是"刚打赢的那块"——留着当下一关的地，别建新场（房里没别人时
+			// 走的是 EnterRunLevel 的收口，那儿挂的是同一句判断）。
+			if (!TryKeepEndlessLawn()) NewGame();
 			// @pvz-online: 联机闯关（R6）：全队都回话了才算人齐——广播放行，各席位
-			// 在自己的新草坪上开始做三选一（自己那块草坪上面那句 NewGame 已经建好，
-			// 欠下的选项屏由 UpdateRunPick 摆上去）。单关局没有选项要等，不发。
+			// 在自己的草坪上开始做三选一（新建的草坪上面那句 NewGame 已经建好，无尽局
+			// 留下的草坪由 TryKeepEndlessLawn 压住开场，欠下的选项屏都由 UpdateRunPick
+			// 摆上去）。单关局没有选项要等，不发。
 			if (IsRunMode()) mOnlineSession->SendRunGo();
 			return;
 		}
@@ -1070,8 +1074,8 @@ void LawnApp::UpdateOnlineSeeds()
 	}
 	else if (mBoard != nullptr && mRunIntroHeld)
 	{
-		mRunIntroHeld = false;
-		mBoard->mCutScene->StartLevelIntro();
+		// @pvz-online: 放开走统一收口（无尽局在这儿就地续排下一关的波次；见函数注释）。
+		ReleaseRunIntro();
 	}
 }
 
@@ -1847,7 +1851,9 @@ void LawnApp::EnterRunLevel()
 	{
 		mOnlineSession->DiscardLevelPackets();
 	}
-	NewGame();
+	// @pvz-online: 无尽局原地续关（无尽续草坪批）：这块草坪刚打赢（单机 mLevelComplete /
+	// 联机 mLevelAwardSpawned），留着当地——下一关的波次与三选一收尾都在放开开场那一刻。
+	if (!TryKeepEndlessLawn()) NewGame();
 }
 
 // @pvz-online: 联机闯关（R5）：把本机进度对齐到主机点名的那一关。规则（§5.1 定案）：
@@ -1964,6 +1970,24 @@ void LawnApp::AlignRunToHost(int theRunSeed, int theTargetIndex, int theRunMode,
 // 而不是再问一遍"续不续"。
 void LawnApp::UpdateRunEnd()
 {
+	// @pvz-online: 无尽局原地续关（无尽续草坪批，MOD_BUILD 37）：过关不清草坪——棋盘留着
+	// 当下一关的地，人站在老草坪上把欠下的三选一做完（下一帧由 UpdateRunPick 的 ① 摆上头）。
+	// 这一函数每帧都被 CheckForGameEnd 敲（mLevelComplete 一直立着），翻页只翻一次：翻完
+	// mRunIntroHeld 挡门，直到 ReleaseRunIntro 收尾、重排波次后 mLevelComplete 归零。
+	if (mRunState->IsEndless())
+	{
+		if (mRunIntroHeld || mRunState->HasPendingPick()) return;
+		mRunState->AdvanceLevel();
+		mBoardResult = BoardResult::BOARDRESULT_NONE;
+		mGameScene = GameScenes::SCENE_LEVEL_INTRO;
+		mBoard->mBoardFadeOutCounter = -1;	// 过关白幕到头了：草坪不换，幕先撤，别盖着三选一
+		mRunState->BeginLevelEndPicks();
+		mRunIntroHeld = true;
+		TodLog("[run] endless: the level is clear - the lawn stays for the next one (now at index %d)",
+			mRunState->mLevelIndex);
+		return;
+	}
+
 	KillBoard();
 	mRunState->AdvanceLevel();
 
@@ -1980,6 +2004,58 @@ void LawnApp::UpdateRunEnd()
 		// 过关奖：两株新植物 + 一个增益（三屏，各选一张），选完才进下一关。
 		mRunState->BeginLevelEndPicks();
 	}
+}
+
+// @pvz-online: 无尽局原地续关（无尽续草坪批，MOD_BUILD 37）：该建新草坪的地方先问一句
+// "这块草坪能不能留着"——无尽局过关不清草坪，植物、阳光、推车原地续到下一关。
+// 能留的判据：无尽档、棋盘在、这一关是**打赢**的（单机 mLevelComplete；联机 FadeOutLevel
+// 早退、mLevelComplete 恒假，看 mLevelAwardSpawned），并且不是输掉的残局（LOST——那是
+// 重打本关，新草坪才对）。留下的棋盘先冻着做三选一（mRunIntroHeld，和建新场的压开场
+// 同一套），波次重排在 ReleaseRunIntro；这关没有三选一要摆（全 cap 抽干）时没人会来放开
+// 开场，直接收尾——等效 NewGame 的直落路径（选卡 + 开场两步照旧）。
+bool LawnApp::TryKeepEndlessLawn()
+{
+	if (mRunState == nullptr || !mRunState->IsEndless() || mBoard == nullptr) return false;
+	if (mBoardResult == BoardResult::BOARDRESULT_LOST) return false;
+	if (!mBoard->mLevelComplete && !mBoard->mLevelAwardSpawned) return false;
+
+	// 草坪接着用：本关的胜负记号翻篇，先报"我还没选好"（和 NewGame 一处口径）。
+	mBoardResult = BoardResult::BOARDRESULT_NONE;
+	mGameScene = GameScenes::SCENE_LEVEL_INTRO;
+	if (IsOnlineGame()) mOnlineSession->SendSeedsReady(false);
+
+	mRunIntroHeld = false;
+	if (mRunState->HasPendingPick() || mRunState->IsCatchingUp())
+	{
+		TodLog("[run] endless: the lawn stays for level %d (index %d) - the picks come first",
+			mRunState->GetLevel(), mRunState->mLevelIndex);
+		mRunIntroHeld = true;
+		return true;
+	}
+
+	TodLog("[run] endless: the lawn stays for level %d (index %d) - nothing to pick, straight in",
+		mRunState->GetLevel(), mRunState->mLevelIndex);
+	mBoard->InitEndlessRunStage();
+	ShowSeedChooserScreen();
+	mBoard->mCutScene->StartLevelIntro();
+	return true;
+}
+
+// @pvz-online: 无尽局原地续关（无尽续草坪批）：把"欠着三选一 / 等队友"的草坪正式放开。
+// 收尾前先看一眼这块草坪是不是"上一关留下来的"（没拆过、刚打赢）——是就地把下一关的波次
+// 排上去（建新场时这一步在 InitLevel 里做过）；新建的草坪进来时里面全排好了，跳过。
+// 放开开场有两个口子（UpdateRunPick 的 ① 收尾、UpdateOnlineSeeds 等齐队友的放行），
+// 都得从这儿走，别漏——漏一处就是一场一个字都不刷的关。
+void LawnApp::ReleaseRunIntro()
+{
+	if (mBoard != nullptr && mRunState != nullptr && mRunState->IsEndless()
+		&& mBoardResult != BoardResult::BOARDRESULT_LOST
+		&& (mBoard->mLevelComplete || mBoard->mLevelAwardSpawned))
+	{
+		mBoard->InitEndlessRunStage();
+	}
+	mRunIntroHeld = false;
+	mBoard->mCutScene->StartLevelIntro();
 }
 
 // 三选一屏：该选而屏不在就开一张；卡都选完了就在这儿把下一关开起来。
@@ -2077,8 +2153,8 @@ void LawnApp::UpdateRunPick()
 			return;
 		}
 
-		mRunIntroHeld = false;
-		mBoard->mCutScene->StartLevelIntro();
+		// @pvz-online: 放开走统一收口（无尽局在这儿就地续排下一关的波次；见函数注释）。
+		ReleaseRunIntro();
 		return;
 	}
 

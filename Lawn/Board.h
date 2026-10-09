@@ -380,6 +380,11 @@ public:
 	void							PickBackground();
 	void							InitZombieWaves();
 	void							InitSurvivalStage();
+	// @pvz-online: 无尽局原地续关（无尽续草坪批，MOD_BUILD 37）：过关不清草坪——老棋盘
+	// 直接当下一关的地，这一步只把"下一关"的排上（波次表、雾、推车记账）。原版生存的
+	// InitSurvivalStage 是兄弟函数：那边连选卡带开场都重来，这边的选卡 / 开场由
+	// LawnApp 一侧在放开开场之前收尾（见 LawnApp::ReleaseRunIntro）。
+	void							InitEndlessRunStage();
 	static /*inline*/ int			MakeRenderOrder(RenderLayer theRenderLayer, int theRow, int theLayerOffset);
 	void							UpdateGame();
 	void							InitZombieWavesForLevel(int theForLevel);

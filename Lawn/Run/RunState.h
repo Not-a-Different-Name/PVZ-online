@@ -196,6 +196,8 @@ public:
 	// 无尽档没有"打完"这回事（2026-10-10 用户定案：无奖杯/结算屏，关序号只涨不封）；其余档
 	// 在关序号走到关数时收场。
 	bool				IsComplete() const { return mMode != RUN_MODE_ENDLESS && mLevelIndex >= GetLevelCount(); }
+	// @pvz-online: 无尽档判定（无尽续草坪批）：草坪原地续关的几个分叉口都问这一句。
+	bool				IsEndless() const { return mMode == RUN_MODE_ENDLESS; }
 	void				AdvanceLevel() { mLevelIndex++; }
 
 	// @pvz-online: 补发追赶（R5）。开始补：目标关序号存下，先把当前这关的奖励屏选完

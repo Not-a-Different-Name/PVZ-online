@@ -320,6 +320,11 @@ public:
 							int theRunScale = 1, int theRunTempo = 1, int theZombotany = 0,
 							int theEndlessScene = 0);
 	void							UpdateRunEnd();
+	// @pvz-online: 无尽局原地续关（无尽续草坪批）的两个分叉口：建新草坪前先问一句"这块
+	// 草坪能不能留着"（无尽局过关不清草坪，留则连波次重排一起安排）；放开开场（三选一
+	// 做完 / 队友到齐）时若草坪是留下的，就地续排下一关的波次。细节见 LawnApp.cpp。
+	bool							TryKeepEndlessLawn();
+	void							ReleaseRunIntro();
 	// @pvz-online: 闯关的三选一屏（R2）。该选而屏不在（刚开局、刚过完一关、或者被「换一批」
 	// 重开）就按已抽好的候选开一张；玩家点了卡由 RunPickChosen 接着办：把卡收进局里，选够了
 	// 就进下一关；点「放弃」由 RunPickSkipped 接着办（2026-10-03 用户定案）：这一屏不选也不要，
