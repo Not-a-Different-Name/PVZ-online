@@ -524,9 +524,10 @@ SeedType GetRunChoicePlant(int theId)
 	return SeedType::SEED_NONE;
 }
 
-// 经济条清单（经济权重批 2026-10-09，用户拍板）：享受经济系数 e 的 8 条——产阳光三件套
+// 经济条清单（经济权重批 2026-10-09，用户拍板）：享受经济系数 e 的条目——产阳光三件套
 // （向日葵/阳光菇/双子）+ 丰饶/速种/天降 + 咖啡豆/卷心菜。金盏花/吸金磁不列（冻结条保持
-// 照旧——照常进池、不吃 e）。第二 buff 批的经济向新条落地时在此同步补。
+// 照旧——照常进池、不吃 e）。第二 buff 批 9（同日）：第二表段补「免植」（分裂豌豆 #28——
+// 对齐老表卷心菜 0 费先例）与「遗泽」（双子向日葵 #41——对齐老表双子产阳先例）。
 static bool IsEconomyRunChoice(int theId)
 {
 	if (theId < 0) return false;
@@ -537,10 +538,11 @@ static bool IsEconomyRunChoice(int theId)
 	int aIdx = theId - RUN_BUFF_COUNT;
 	if (aIdx >= RUN_PLANT_UPGRADE_COUNT)
 	{
-		// 第二表段（批 6 经济族起）：只认局内阳光产能向——「催长」（阳光菇 #9）。
-		// 「富贵」/「金石」产的是玩家档案金币（非局内阳光，用途待定），不占经济权重。
+		// 第二表段（批 6 经济族起）：只认局内阳光产能/费用向——「催长」（阳光菇 #9）、
+		// 「免植」（分裂豌豆 #28）、「遗泽」（双子向日葵 #41）。「富贵」/「金石」产的是
+		// 玩家档案金币（非局内阳光，用途待定），不占经济权重。
 		int aIdx2 = aIdx - RUN_PLANT_UPGRADE_COUNT;
-		return aIdx2 == RUN_BUFF2_BOOSTGROW;
+		return aIdx2 == RUN_BUFF2_BOOSTGROW || aIdx2 == RUN_BUFF2_FREEPLANT || aIdx2 == RUN_BUFF2_LEGACY;
 	}
 	switch (GetRunPlantUpgradeDef(aIdx).mPlant)
 	{

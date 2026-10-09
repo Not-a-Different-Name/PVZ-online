@@ -107,8 +107,74 @@ static int DrawRarityStars(Graphics* g, ModText::Font* theFont, int theRarity, i
 	return anEnd;
 }
 
+// 单株词条翻页（第二 buff 批 9，2026-10-09）：一株同时有老条与第二 buff 条时，植物卡
+// 名字行右端摆一组「◀ 1/2 ▶」翻页。为什么挂名字行：词条块本身三档自适应、底缘顶着费用行
+// （519），没有固定位可放控件；名字行右端（743 起往左）常年空着——名字居中于 617。
+// 两枚实心三角用 PolyFill 画（不借「◀▶」字形：宽字体不保证有——同局内词条查看器），
+// 命中区各 20 宽、比三角宽一圈好点；翻页钳在首末页之间、不回绕（同查看器口径）。
+#define ALMANAC_PAGER_Y 288			// 与名字行同排（TodDrawString(617, 288) 的顶）
+#define ALMANAC_PAGER_HIT_W 20
+
+// 这株是否可翻页（两表都有行）——绘制、命中、手型光标三处共用
+static bool AlmanacPagerActive(SeedType theSeed)
+{
+	return RunPlantUpgradeIndexFor(theSeed) >= 0 && RunPlantBuff2IndexFor(theSeed) >= 0;
+}
+
+// 页码文本「n/2」的量宽（"1/2" 与 "2/2" 等宽：同为 3 个 ASCII）
+static int AlmanacPagerTextW(ModText::Font* theFont)
+{
+	return ModText::TextWidth(theFont, std::wstring(L"9/9"));
+}
+
+// 翻页组右对齐在词条块右缘（= 卡面右缘 743）：[◀ 命中区 20][2px][页码][2px][▶ 命中区 20]。
+// 本算式是绘制、命中判定、光标三处的唯一几何来源。
+static Rect AlmanacPagerArrowRect(ModText::Font* theFont, bool theRight)
+{
+	int aTextW = AlmanacPagerTextW(theFont);
+	int aGroupX = ALMANAC_ENTRY_X + ALMANAC_ENTRY_W - (ALMANAC_PAGER_HIT_W * 2 + aTextW + 4);
+	int aX = theRight ? (aGroupX + ALMANAC_PAGER_HIT_W + aTextW + 4) : aGroupX;
+	return Rect(aX, ALMANAC_PAGER_Y - 4, ALMANAC_PAGER_HIT_W, ModText::LineHeight(theFont) + 8);
+}
+
+static void DrawAlmanacPager(Graphics* g, int thePage)
+{
+	ModText::Font* aFont = ModText::GetFont(AlmanacCjkPointSize(), true);
+	int aTextW = AlmanacPagerTextW(aFont);
+	int aGroupX = ALMANAC_ENTRY_X + ALMANAC_ENTRY_W - (ALMANAC_PAGER_HIT_W * 2 + aTextW + 4);
+
+	std::wstring aPageStr = std::to_wstring(thePage + 1) + L"/2";
+	ModText::DrawTextWide(g, aFont, aGroupX + ALMANAC_PAGER_HIT_W + 2, ALMANAC_PAGER_Y,
+		aPageStr, Color(160, 75, 15), g->mClipRect);
+
+	for (int aSide = 0; aSide < 2; aSide++)
+	{
+		bool aRight = (aSide == 1);
+		Rect aHit = AlmanacPagerArrowRect(aFont, aRight);
+		int aMidX = aHit.mX + aHit.mWidth / 2;
+		int aMidY = aHit.mY + aHit.mHeight / 2;
+		Sexy::Point aPts[3];
+		if (aRight)
+		{
+			aPts[0] = Sexy::Point(aMidX - 5, aMidY - 8);
+			aPts[1] = Sexy::Point(aMidX + 7, aMidY);
+			aPts[2] = Sexy::Point(aMidX - 5, aMidY + 8);
+		}
+		else
+		{
+			aPts[0] = Sexy::Point(aMidX + 5, aMidY - 8);
+			aPts[1] = Sexy::Point(aMidX - 7, aMidY);
+			aPts[2] = Sexy::Point(aMidX + 5, aMidY + 8);
+		}
+		g->SetColor(Color(200, 130, 20, 255));
+		g->PolyFill(aPts, 3, true);
+	}
+}
+
 // 画词条附录：标题「闯关词条 · <英文条名>」+ 中文说明（与局内三选一屏文案同源，
 // 封顶条目自带「，至多 N 层」尾注）。theDescBottom = 介绍正文画完的底高（调用方实测）。
+// theId：两类 id 通吃（老条 = RUN_BUFF_COUNT + 下标；第二 buff 条 = 再加单株表计数）；
+// theRarity：这条的稀有度（老表/第二表各自的星标口径）。
 // 三级结构自适应（2026-10-03 实机验收两轮后定案）：死线 519（费用行从 520 起画）
 // 减去实测底高决定形态——12px 下 标题行 19、正文行距 20：
 //   1) 底高 ≤455：标题 + 表里 \n 分行的两行说明（59px，同三选一屏的形）；
@@ -116,15 +182,14 @@ static int DrawRarityStars(Graphics* g, ModText::Font* theFont, int theRarity, i
 //   3) 否则   ：连标题行也放不下（机枪豌豆实测底高 495，只剩 24px）→ 单行式：条名内联
 //      在说明前面（宽度放得下才带），整块就一行（20px）。
 // 任何一档都套「越死线整块上提」兜底；实测最长简介（13 行）在 3) 下不越线。
-static void DrawAlmanacRunEntry(Graphics* g, int theEntryIndex, int theDescBottom)
+static void DrawAlmanacRunEntry(Graphics* g, int theId, int theRarity, int theDescBottom)
 {
 	ModText::Font* aHeadFont = ModText::GetFont(AlmanacCjkPointSize(), true);
 	ModText::Font* aBodyFont = ModText::GetFont(AlmanacCjkPointSize(), false);
 
-	int aId = RUN_BUFF_COUNT + theEntryIndex;
 	// 词条文案与三选一屏同源（UTF-8），折行/量宽/绘制全走宽字符；
 	// DrawTextWide 收顶对齐（原 DrawString 是基线口径，这里换算成 y 即顶）
-	std::wstring aDesc = ModText::WideFromUtf8(GetRunChoiceDesc(aId));
+	std::wstring aDesc = ModText::WideFromUtf8(GetRunChoiceDesc(theId));
 	std::wstring aJoined = aDesc;
 	for (size_t aPos = aJoined.find(L'\n'); aPos != std::wstring::npos; aPos = aJoined.find(L'\n', aPos))
 		aJoined.erase(aPos, 1);
@@ -146,9 +211,9 @@ static void DrawAlmanacRunEntry(Graphics* g, int theEntryIndex, int theDescBotto
 	{
 		int aY = theDescBottom + (aFitsSplit ? 5 : 3);
 		std::wstring aHead = ModText::WideFromUtf8(ModText::Tr("闯关词条 · ", "Run Modifier · "));
-		aHead += ModText::WideFromUtf8(GetRunChoiceName(aId));		// 英文条名与三选一屏按钮同字
+		aHead += ModText::WideFromUtf8(GetRunChoiceName(theId));		// 英文条名与三选一屏按钮同字
 		ModText::DrawTextWide(g, aHeadFont, ALMANAC_ENTRY_X, aY, aHead, Color(160, 75, 15), g->mClipRect);
-		DrawRarityStars(g, aHeadFont, GetRunPlantUpgradeDef(theEntryIndex).mRarity,
+		DrawRarityStars(g, aHeadFont, theRarity,
 			ALMANAC_ENTRY_X + ModText::TextWidth(aHeadFont, aHead), aY);
 		aY += aHeadStep;
 
@@ -166,9 +231,9 @@ static void DrawAlmanacRunEntry(Graphics* g, int theEntryIndex, int theDescBotto
 	int aY = theDescBottom + 3;
 	if (aY + aBlock > ALMANAC_ENTRY_BOTTOM) aY = ALMANAC_ENTRY_BOTTOM - aBlock;
 
-	std::wstring aName = ModText::WideFromUtf8(GetRunChoiceName(aId));
+	std::wstring aName = ModText::WideFromUtf8(GetRunChoiceName(theId));
 	std::wstring aColon = ModText::WideFromUtf8(ModText::Tr("：", ": "));
-	int aRarity = GetRunPlantUpgradeDef(theEntryIndex).mRarity;
+	int aRarity = theRarity;
 	std::wstring aStars = (aRarity > 0) ? std::wstring((size_t)aRarity, (wchar_t)0x2605) : L"";
 	// 星标画在名字与冒号之间（超右限不画时起点差一颗星的缝——兜底档可接受）
 	int aPrefixW = ModText::TextWidth(aHeadFont, aName + aColon);
@@ -202,6 +267,7 @@ AlmanacDialog::AlmanacDialog(LawnApp* theApp) : LawnDialog(theApp, DIALOG_ALMANA
 	mZombie = nullptr;
 	mPlant = nullptr;
 	mDrawStandardBack = false;
+	mRunEntryPage = 0;
 	TodLoadResources("DelayLoad_Almanac");
 	for (size_t i = 0; i < LENGTH(mZombiePerfTest); i++) mZombiePerfTest[i] = nullptr;
 	LawnDialog::Resize(0, 0, BOARD_WIDTH, BOARD_HEIGHT);
@@ -307,6 +373,7 @@ void AlmanacDialog::RemovedFromManager(WidgetManager* theWidgetManager)
 void AlmanacDialog::SetupPlant()
 {
 	ClearPlantsAndZombies();
+	mRunEntryPage = 0;		// 第二 buff 批 9：换株回到老条页
 
 	float aPosX = ALMANAC_PLANT_POSITION_X;
 	float aPosY = ALMANAC_PLANT_POSITION_Y;
@@ -407,7 +474,15 @@ void AlmanacDialog::Update()
 
 	int aMouseX = mApp->mWidgetManager->mLastMouseX;
 	int aMouseY = mApp->mWidgetManager->mLastMouseY;
-	if (SeedHitTest(aMouseX, aMouseY) != SeedType::SEED_NONE || ZombieHitTest(aMouseX, aMouseY) != ZombieType::ZOMBIE_INVALID || 
+	// 第二 buff 批 9：单株词条翻页组同吃手型光标
+	bool aOnPager = false;
+	if (mOpenPage == AlmanacPage::ALMANAC_PAGE_PLANTS && AlmanacPagerActive(mSelectedSeed))
+	{
+		ModText::Font* aPagerFont = ModText::GetFont(AlmanacCjkPointSize(), true);
+		aOnPager = AlmanacPagerArrowRect(aPagerFont, true).Contains(aMouseX, aMouseY)
+			|| AlmanacPagerArrowRect(aPagerFont, false).Contains(aMouseX, aMouseY);
+	}
+	if (aOnPager || SeedHitTest(aMouseX, aMouseY) != SeedType::SEED_NONE || ZombieHitTest(aMouseX, aMouseY) != ZombieType::ZOMBIE_INVALID ||
 		mCloseButton->IsMouseOver() || mIndexButton->IsMouseOver() || mPlantButton->IsMouseOver() || mZombieButton->IsMouseOver())
 	{
 		mApp->SetCursor(CURSOR_HAND);
@@ -513,11 +588,23 @@ void AlmanacDialog::DrawPlants(Graphics* g)
 
 	// 词条附录（2026-10-03 用户定案）：介绍正文下方附这株在闯关里的单株词条
 	// （名字 + 中文说明，与局内三选一屏同源）。模仿者没有单株条目 → 没有附录。
+	// 第二 buff 批 9（2026-10-09）：一株可能两表都有行——名字行右端出「◀ 1/2 ▶」
+	// 翻页组（几何见 AlmanacPagerArrowRect），块内只画当前页；单条的株与旧版一字不差。
 	int aRunEntryIndex = RunPlantUpgradeIndexFor(mSelectedSeed);
-	if (aRunEntryIndex >= 0)
+	int aRunEntry2Index = RunPlantBuff2IndexFor(mSelectedSeed);
+	if (aRunEntryIndex >= 0 || aRunEntry2Index >= 0)
 	{
 		int aDescHeight = TodDrawStringWrappedHelper(g, TodStringTranslate(aDescriptionName), Rect(485, 309, 258, 230), Sexy::FONT_BRIANNETOD12, Color(40, 50, 90), DS_ALIGN_LEFT, false);
-		DrawAlmanacRunEntry(g, aRunEntryIndex, 309 + aDescHeight);
+		bool aTwoPages = aRunEntryIndex >= 0 && aRunEntry2Index >= 0;
+		int aPage = (aRunEntryIndex < 0) ? 1 : ((aTwoPages && mRunEntryPage == 1) ? 1 : 0);
+		if (aTwoPages) DrawAlmanacPager(g, aPage);
+		int aEntryId = aPage == 1
+			? (RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT + aRunEntry2Index)
+			: (RUN_BUFF_COUNT + aRunEntryIndex);
+		int aEntryRarity = aPage == 1
+			? GetRunPlantBuff2Def(aRunEntry2Index).mRarity
+			: GetRunPlantUpgradeDef(aRunEntryIndex).mRarity;
+		DrawAlmanacRunEntry(g, aEntryId, aEntryRarity, 309 + aDescHeight);
 	}
 
 	if (mSelectedSeed != SeedType::SEED_IMITATER)
@@ -807,6 +894,24 @@ void AlmanacDialog::MouseDown(int x, int y, int theClickCount)
 		mApp->PlaySample(Sexy::SOUND_TAP);
 	if (mZombieButton->IsMouseOver())
 		mApp->PlaySample(Sexy::SOUND_GRAVEBUTTON);
+
+	// 第二 buff 批 9：名字行右端「◀ 1/2 ▶」翻页（两表都有行的株才出现）——命中区几何
+	// 与绘制共用（AlmanacPagerArrowRect）；钳在首末页、不回绕（同局内词条查看器口径）。
+	if (mOpenPage == AlmanacPage::ALMANAC_PAGE_PLANTS && AlmanacPagerActive(mSelectedSeed))
+	{
+		ModText::Font* aPagerFont = ModText::GetFont(AlmanacCjkPointSize(), true);
+		bool aRight = AlmanacPagerArrowRect(aPagerFont, true).Contains(x, y);
+		bool aLeft = !aRight && AlmanacPagerArrowRect(aPagerFont, false).Contains(x, y);
+		if (aRight || aLeft)
+		{
+			int aPage = mRunEntryPage + (aRight ? 1 : -1);
+			if (aPage < 0) aPage = 0;
+			if (aPage > 1) aPage = 1;
+			mRunEntryPage = aPage;
+			mApp->PlaySample(Sexy::SOUND_GRAVEBUTTON);
+			return;
+		}
+	}
 
 	SeedType aSeedType = SeedHitTest(x, y);
 	if (aSeedType != SeedType::SEED_NONE && aSeedType != mSelectedSeed)

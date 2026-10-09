@@ -187,7 +187,8 @@ bool RunPlantUpgradeInPool(SeedType thePlant);
 // 同屏加权无放回、抽中即从候选摘除。
 enum { RUN_GLOBAL_WEIGHT_K_PERMILLE = 2500 };	// 全局条权重系数 k，千分比（初值 2.5）
 enum { RUN_ECON_WEIGHT_K_PERMILLE = 3000 };		// 经济条权重系数 e，千分比（经济权重批 2026-10-09 用户定案 e=3；
-												// 作用清单 8 条见 RunBuffs.cpp::IsEconomyRunChoice）
+												// 作用清单 11 条见 RunBuffs.cpp::IsEconomyRunChoice，
+												// 批 9 同日补第二表「免植」/「遗泽」）
 int GetRunChoiceRarity(int theId);
 int GetRunChoiceWeight(int theId);
 

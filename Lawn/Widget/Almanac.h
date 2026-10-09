@@ -44,7 +44,10 @@ public:
 	Plant*						mPlant;					//+0x19C
 	Zombie*						mZombie;				//+0x1A0
 	Zombie*						mZombiePerfTest[400];	//+0x1A4
-	
+	// @pvz-online: 单株词条翻页（第二 buff 批 9，2026-10-09）：0 = 老条、1 = 第二 buff 条。
+	// 只有两表都有行的株可翻（名字行右端「◀ 1/2 ▶」，几何见 Almanac.cpp 的
+	// AlmanacPagerArrowRect）；换株（SetupPlant）回第 0 页。
+	int							mRunEntryPage;
 public:
 	AlmanacDialog(LawnApp* theApp);
 	virtual ~AlmanacDialog();
