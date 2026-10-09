@@ -52,7 +52,7 @@ struct RunBuffDef
 	bool		mMultiplicative;
 	// @pvz-online: 稀有度档位（docs/06 §8.7，权重批）：1/2/3★；0 = 未定档（中性权重，
 	// 管线零行为）。档位基值 1★=12 / 2★=6 / 3★=1（2026-10-09 批 A：其余档翻倍、3★ 不动
-	// = 3★ 相对出率减半），全局条再乘 k、经济条再乘 e（常量见下）。
+	// = 3★ 相对出率减半），全局条再乘 k、经济条再乘 e、1★/2★ 全局条再减半（常量见下）。
 	int			mRarity;
 };
 
@@ -183,12 +183,14 @@ bool RunPlantUpgradeInPool(SeedType thePlant);
 
 // @pvz-online: 稀有度/权重（权重批 2026-10-09，docs/06 §8.7）：这条条目的稀有度档位
 // （0 = 未定档 / 1 / 2 / 3★）与抽取权重。未定档条目权重恒 1；两表已全量填档（75efd06），
-// 档位基值 1★=6 / 2★=3 / 3★=1 生效，全局条再乘 k、经济条再乘 e（两个独立旋钮）。
-// 同屏加权无放回、抽中即从候选摘除。
+// 档位基值 1★=12 / 2★=6 / 3★=1（批 A 翻倍口径）生效，全局条再乘 k、经济条再乘 e、
+// 1★/2★ 全局条最后减半（三个独立旋钮）。同屏加权无放回、抽中即从候选摘除。
 enum { RUN_GLOBAL_WEIGHT_K_PERMILLE = 2500 };	// 全局条权重系数 k，千分比（初值 2.5）
 enum { RUN_ECON_WEIGHT_K_PERMILLE = 3000 };		// 经济条权重系数 e，千分比（经济权重批 2026-10-09 用户定案 e=3；
 												// 作用清单 11 条见 RunBuffs.cpp::IsEconomyRunChoice，
 												// 批 9 同日补第二表「免植」/「遗泽」）
+enum { RUN_GLOBAL_LOWTIER_HALF_PERMILLE = 500 };// 1★/2★ 全局条最终减半，千分比（2026-10-10 用户令
+												// 「1 2星全局buff权重降低至原来一半」；3★ 全局不动）
 int GetRunChoiceRarity(int theId);
 int GetRunChoiceWeight(int theId);
 

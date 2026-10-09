@@ -102,6 +102,9 @@
 //      全体右移 1，旧档按检查点 v9 迁移读平。
 //   ② 抽取权重基值 {1,6,3,1} → {2,12,6,1}——1★/2★ 翻倍、3★ 不动 = 3★ 相对出率减半
 //      （3★ 直接降基值会撞 aW<1 地板，见 GetRunChoiceWeight；k/e 两旋钮不动）。
+// 2026-10-10 全局降权（用户令「1 2星全局buff权重降低至原来一半」，见 docs/07 条目）：
+//   1★/2★ 全局条在 k/e 之后再乘 0.5（新常量 RUN_GLOBAL_LOWTIER_HALF_PERMILLE = 500，
+//   作用在最终权重上）；3★「排山倒海」不动。全局 9 条权重和 303 → 155（当前基值口径）。
 static const RunBuffDef gRunBuffDefs[RUN_BUFF_COUNT] =
 {
 	// 末列 = 稀有度档位（权重批 2026-10-09 填档，docs/06 §8.2.1/§8.7；
@@ -559,7 +562,8 @@ static bool IsEconomyRunChoice(int theId)
 
 // 抽取权重：未定档恒 1（零行为）；定档后 = 档位基值 1★12/2★6/3★1（2026-10-09 批 A：
 // 其余档翻倍、3★ 不动 = 3★ 相对出率减半；直接降 3★ 会撞下面的 aW<1 地板），全局条再乘
-// k、经济条再乘 e（千分比四舍五入；k 与 e 是两个独立旋钮）。
+// k、经济条再乘 e、1★/2★ 全局条最后减半（千分比四舍五入；三个独立旋钮，减半为用户令
+// 「1 2星全局buff权重降低至原来一半」，2026-10-10）。
 // RunState::RollChoices 按它做同屏加权无放回抽取。
 int GetRunChoiceWeight(int theId)
 {
@@ -571,6 +575,9 @@ int GetRunChoiceWeight(int theId)
 		aW = (aW * RUN_GLOBAL_WEIGHT_K_PERMILLE + 500) / 1000;
 	if (aRarity > 0 && IsEconomyRunChoice(theId))
 		aW = (aW * RUN_ECON_WEIGHT_K_PERMILLE + 500) / 1000;
+	// 2026-10-10（用户令）：1★/2★ 全局条按最终权重再减半；3★ 全局（排山倒海）不动。
+	if (aRarity > 0 && aRarity <= 2 && theId >= 0 && theId < RUN_BUFF_COUNT)
+		aW = (aW * RUN_GLOBAL_LOWTIER_HALF_PERMILLE + 500) / 1000;
 	if (aW < 1) aW = 1;
 	return aW;
 }
