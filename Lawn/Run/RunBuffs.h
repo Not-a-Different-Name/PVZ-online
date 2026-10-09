@@ -73,16 +73,16 @@ const RunBuffDef& GetRunBuffDef(int theId);
 enum RunPlantUpgradeId
 {
 	RUN_UPGRADE_PEASHOOTER,		// 豌豆射手：每次多打 1 发（每层）
-	RUN_UPGRADE_SUNFLOWER,		// 向日葵：每次多产 1 阳光（每层，至多 3 层）
+	RUN_UPGRADE_SUNFLOWER,		// 向日葵：丰收——25% 概率多产 1 阳光/层（至多 2 层；2026-10-09 权重批由「每轮 +1」重做）
 	RUN_UPGRADE_CHERRYBOMB,		// 樱桃炸弹：爆炸半径 +50%/层（2026-10-05 批八由 +25% 上调）
 	RUN_UPGRADE_WALLNUT,		// 坚果墙：巨人砸击时像地刺王一样耐砸（每次 -200 血；只可选 1 层；2026-10-04 批七由血量族整条换掉）
-	RUN_UPGRADE_POTATOMINE,		// 土豆雷：爆炸半径 +50%/层（2026-10-05 批八由 +25% 上调）
+	RUN_UPGRADE_POTATOMINE,		// 土豆雷：震雷——爆炸眩晕半径内僵尸 2 秒/层（至多 2 层；2026-10-09 权重批由半径族整条换掉）
 	RUN_UPGRADE_SNOWPEA,		// 寒冰射手：发射冰西瓜（只可选 1 层；2026-10-04 批 18 由减速时长族整条换掉）
 	RUN_UPGRADE_CHOMPER,		// 大嘴花：咀嚼时间减半（只可选 1 层）
 	RUN_UPGRADE_REPEATER,		// 双发：每次射击多发 2 颗（无上限；2026-10-04 批 18 由射击间隔族整条换掉）
 	RUN_UPGRADE_PUFFSHROOM,		// 小喷菇：每次多发 2 颗/层（无上限；2026-10-04 由「射程变为无限」改，射程挂点已还原）
-	RUN_UPGRADE_SUNSHROOM,		// 阳光菇：每次多产 1 阳光（每层，至多 3 层）
-	RUN_UPGRADE_FUMESHROOM,		// 大喷菇：攻击间隔 ×0.25（只可选 1 层；2026-10-04 批 18 由射程族整条换掉）
+	RUN_UPGRADE_SUNSHROOM,		// 阳光菇：丰收——25% 概率多产 1 阳光/层（至多 2 层；2026-10-09 权重批由「每轮 +1」重做）
+	RUN_UPGRADE_FUMESHROOM,		// 大喷菇：攻击间隔 ×0.5（只可选 1 层；2026-10-04 批 18 由射程族整条换掉，2026-10-09 权重批 ×0.25→×0.5）
 	RUN_UPGRADE_GRAVEBUSTER,	// 墓碑吞噬者：吞掉墓碑额外产 25 阳光（每层，至多 2 层）
 	RUN_UPGRADE_HYPNOSHROOM,	// 魅惑菇：被魅惑僵尸咬到的僵尸也变友军（只可选 1 层）
 	RUN_UPGRADE_SCAREDYSHROOM,	// 胆小菇：敌人贴近时不再缩头（只可选 1 层）
@@ -90,36 +90,36 @@ enum RunPlantUpgradeId
 	RUN_UPGRADE_DOOMSHROOM,		// 毁灭菇：爆炸直伤 50000（只可选 1 层；2026-10-05 批八b 由半径族整条换掉）
 	RUN_UPGRADE_LILYPAD,		// 睡莲：血量 +150%/层（至多 2 层）
 	RUN_UPGRADE_SQUASH,			// 窝瓜：砸击次数 +2/层（至多 2 层；2026-10-05 批八由眩晕族整条换掉，UpdateSquash 多段砸击）
-	RUN_UPGRADE_THREEPEATER,	// 三线射手：每条道多发 1 颗/层（至多 2 层）
+	RUN_UPGRADE_THREEPEATER,	// 三线射手：每条道多发 1 颗（只可选 1 层；2026-10-09 权重批 cap2→cap1）
 	RUN_UPGRADE_TANGLEKELP,		// 缠绕海草：每层多缠 1 只僵尸（至多 2 层）
-	RUN_UPGRADE_JALAPENO,		// 火爆辣椒：种植冷却 ×0.75/层（至多 3 层）
+	RUN_UPGRADE_JALAPENO,		// 火爆辣椒：种植冷却 ×0.8/层（至多 3 层；2026-10-09 权重批 ×0.75→×0.8）
 	RUN_UPGRADE_SPIKEWEED,		// 地刺：扎过的僵尸减速 +3 秒/层（至多 2 层）
 	RUN_UPGRADE_TORCHWOOD,		// 火炬树桩：火弹伤害 +50%/层（至多 2 层）
 	RUN_UPGRADE_TALLNUT,		// 高坚果：巨人砸击时像地刺王一样耐砸（每次 -200 血；只可选 1 层；2026-10-04 批七由血量族整条换掉）
-	RUN_UPGRADE_SEASHROOM,		// 海蘑菇：种植冷却 ×0.75/层（至多 3 层）
+	RUN_UPGRADE_SEASHROOM,		// 海蘑菇：种植冷却 ×0.8/层（至多 3 层；2026-10-09 权重批 ×0.75→×0.8）
 	RUN_UPGRADE_PLANTERN,		// 路灯花：照亮范围 +1 格/层（至多 2 层）
 	RUN_UPGRADE_CACTUS,			// 仙人掌：尖刺穿透 +1 只/层（至多 2 层）
 	RUN_UPGRADE_BLOVER,			// 三叶草：吹风后全场僵尸减速 +5 秒/层（至多 2 层）
 	RUN_UPGRADE_SPLITPEA,		// 分裂豌豆：背向豌豆每次 +1 颗/层（至多 2 层）
 	RUN_UPGRADE_STARFRUIT,		// 杨桃：子弹变为追踪弹（只可选 1 层；2026-10-04 由射速族整条换掉）
-	RUN_UPGRADE_PUMPKINSHELL,	// 南瓜头：血量 +150%/层（至多 3 层）
-	RUN_UPGRADE_MAGNETSHROOM,	// 磁力菇：吸取间隔 ×0.75/层（至多 3 层）
+	RUN_UPGRADE_PUMPKINSHELL,	// 南瓜头：血量 +150%/层（至多 2 层；2026-10-09 权重批 cap3→cap2）
+	RUN_UPGRADE_MAGNETSHROOM,	// 磁力菇：吸取间隔 ×0.8/层（至多 3 层；2026-10-09 权重批 ×0.75→×0.8）
 	RUN_UPGRADE_CABBAGEPULT,	// 卷心菜投手：种植费用变为 0（只可选 1 层；2026-10-04 批 18 由投掷间隔族整条换掉）
 	RUN_UPGRADE_FLOWERPOT,		// 花盆：血量 +150%/层（至多 2 层）
 	RUN_UPGRADE_KERNELPULT,		// 玉米投手：种下后变成玉米加农炮（只可选 1 层；2026-10-04 批 18 由黄油率族整条换掉）
 	RUN_UPGRADE_INSTANT_COFFEE,	// 咖啡豆：唤醒产阳光 +25/层（至多 2 层）
 	RUN_UPGRADE_GARLIC,			// 大蒜：巨人砸击时像地刺王一样耐砸（只可选 1 层；2026-10-04 批 18 由减速族整条换掉）
-	RUN_UPGRADE_UMBRELLA,		// 保护伞：血量 +150%/层（至多 3 层）
+	RUN_UPGRADE_UMBRELLA,		// 保护伞：血量 +150%/层（至多 2 层；2026-10-09 权重批 cap3→cap2）
 	RUN_UPGRADE_MARIGOLD,		// 金盏花：每次多产 1 枚（每层，至多 3 层）
 	RUN_UPGRADE_MELONPULT,		// 西瓜投手：每次多发 1 个西瓜（无上限；2026-10-04 批 18 由溅射范围族整条换掉）
 	RUN_UPGRADE_GATLINGPEA,		// 机枪射手：攻击间隔 ×0.5（只可选 1 层；2026-10-04 批 18 由射击间隔族整条换掉）
-	RUN_UPGRADE_TWINSUNFLOWER,	// 双子向日葵：每轮多产 1 阳光（每层，至多 3 层）
+	RUN_UPGRADE_TWINSUNFLOWER,	// 双子向日葵：丰收——25% 概率多产 1 阳光/层（至多 2 层；2026-10-09 权重批由「每轮 +1」重做）
 	RUN_UPGRADE_GLOOMSHROOM,	// 忧郁菇：光环范围 +1 格（只可选 1 层；2026-10-04 上限 2→1）
 	RUN_UPGRADE_CATTAIL,		// 猫尾草：攻击目标 +1 个/层（至多 2 层）
 	RUN_UPGRADE_WINTERMELON,	// 冰西瓜：溅射半径 +50%/层（无上限；2026-10-04 批 18 由减速时长族整条换掉）
-	RUN_UPGRADE_GOLDMAGNET,		// 吸金磁：吸取间隔 ×0.75/层（至多 3 层）
-	RUN_UPGRADE_SPIKEROCK,		// 地刺王：血量 +200%/层（至多 3 层；2026-10-04 批七由攻击间隔族整条换掉）
-	RUN_UPGRADE_COBCANNON,		// 玉米加农炮：装填时间 ×0.75/层（至多 3 层）
+	RUN_UPGRADE_GOLDMAGNET,		// 吸金磁：吸取间隔 ×0.8/层（至多 3 层；2026-10-09 权重批 ×0.75→×0.8）
+	RUN_UPGRADE_SPIKEROCK,		// 地刺王：血量 +150%/层（至多 2 层；2026-10-04 批七换血量 +200% cap3，2026-10-09 权重批血量族统一回调）
+	RUN_UPGRADE_COBCANNON,		// 玉米加农炮：装填时间 ×0.8/层（至多 3 层；2026-10-09 权重批 ×0.75→×0.8）
 	RUN_PLANT_UPGRADE_COUNT
 };
 
@@ -173,7 +173,7 @@ const char* GetRunChoiceDesc(int theId);
 int GetRunChoiceMaxStacks(int theId);
 
 // @pvz-online: 稀有度/权重（权重批 2026-10-09，docs/06 §8.7）：这条条目的稀有度档位
-// （0 = 未定档 / 1 / 2 / 3★）与抽取权重。未定档条目权重恒 1（管线零行为）；#179 填档后
+// （0 = 未定档 / 1 / 2 / 3★）与抽取权重。未定档条目权重恒 1；两表已全量填档（75efd06），
 // 档位基值 1★=6 / 2★=3 / 3★=1 生效，全局条再乘 k。同屏加权无放回、抽中即从候选摘除。
 enum { RUN_GLOBAL_WEIGHT_K_PERMILLE = 2500 };	// 全局条权重系数 k，千分比（初值 2.5）
 int GetRunChoiceRarity(int theId);

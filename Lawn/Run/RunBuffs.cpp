@@ -283,7 +283,7 @@ int GetRunChoiceMaxStacks(int theId)
 }
 
 // 稀有度档位（权重批 2026-10-09，docs/06 §8.7）：全局/单株两类都查 mRarity。
-// 目前两张表都还没填档（全 0）——#179 数值对齐批按 §8.2/§8.6 终稿填。
+// 两表已全量填档（75efd06，3★14/2★36/1★6，分布见 §8.2）。
 int GetRunChoiceRarity(int theId)
 {
 	if (theId < 0) return 0;
