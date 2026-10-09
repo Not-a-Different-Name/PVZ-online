@@ -83,7 +83,8 @@
 //   ② 仙人掌「Prickly」：+1 只/层、cap 2 → 尖刺无限穿透、cap 1（弹体标记 -1，Fire 预置）。
 //   ③ 天降：降阳光速率 ×3 → ×2（消费端 LawnApp::RunSkySunIntervalMul 常量 1/3 → 1/2）。
 // 2026-10-09 夜（用户续令，同上见证）：小喷菇「Spore Volley」+1 → +2 颗/层（层数 ×2
-//   特判，见 Plant.cpp Fire 多发段）、档位 3★ → 2★（用户：「三星词条过弱」）。
+//   特判，见 Plant.cpp Fire 多发段）、档位 3★ → 2★（用户：「三星词条过弱」）；窝瓜
+//   「Heavy Squash」层数上限 2 → 无限（cap 0，消费端 2×层数 余额预置无需改动）。
 static const RunBuffDef gRunBuffDefs[RUN_BUFF_COUNT] =
 {
 	// 末列 = 稀有度档位（权重批 2026-10-09 填档，docs/06 §8.2.1/§8.7；
@@ -228,7 +229,7 @@ static const RunPlantUpgradeDef gRunPlantUpgradeDefs[RUN_PLANT_UPGRADE_COUNT] =
 	{ SeedType::SEED_ICESHROOM,    "Deep Freeze",  "全场冰冻 +4 秒\n（每层）",          "Board freeze +4 sec\n(per stack)",                   0.00f, 2, false, RUN_UPGRADE_KIND_EFFECT, 3 },
 	{ SeedType::SEED_DOOMSHROOM,   "Annihilation", "爆炸造成 50000 伤害",               "Blast deals 50000 damage",                           0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 3 },
 	{ SeedType::SEED_LILYPAD,      "Tough Pad",    "血量 +150%\n（每层）",              "Health +150%\n(per stack)",                          1.50f, 2, false, RUN_UPGRADE_KIND_HEALTH, 2 },
-	{ SeedType::SEED_SQUASH,       "Heavy Squash", "砸击次数 +2\n（每层）",             "Smashes 2 extra times\n(per stack)",                 0.00f, 2, false, RUN_UPGRADE_KIND_EFFECT, 2 },
+	{ SeedType::SEED_SQUASH,       "Heavy Squash", "砸击次数 +2\n（每层）",             "Smashes 2 extra times\n(per stack)",                 0.00f, 0, false, RUN_UPGRADE_KIND_EFFECT, 2 },
 	{ SeedType::SEED_THREEPEATER,  "Triple Volley", "每条道多发 1 颗",                  "1 extra pea per lane",                               0.00f, 1, false, RUN_UPGRADE_KIND_SHOTCOUNT, 3 },
 	{ SeedType::SEED_TANGLEKELP,   "Entangle",     "多缠 1 只僵尸\n（每层）",           "Grabs 1 extra zombie\n(per stack)",                  0.00f, 2, false, RUN_UPGRADE_KIND_EFFECT, 2 },
 	{ SeedType::SEED_JALAPENO,     "Inferno",      "种植冷却逐层 ×0.8\n（每层）",       "Planting cooldown ×0.8/stack",                       -0.20f, 3, true, RUN_UPGRADE_KIND_COOLDOWN, 2 },
