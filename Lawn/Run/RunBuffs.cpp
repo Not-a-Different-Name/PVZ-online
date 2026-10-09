@@ -72,6 +72,11 @@
 //   ③ 双子向日葵由概率多产改加量轴：每轮固定多产 2 阳光/层（至多 2 层），无条件落币。
 //   ④ 墓碑吞噬者删条不进池（效用窄，用户令删）——表行与挂点保留供存量档。
 //   未动：咖啡豆（+25/层）、卷心菜（0 费）、金盏花/吸金磁（钱无用途继续冻结，§8.3）。
+// 2026-10-09 经济权重批（用户拍板，见 docs/07 同日条目）：加经济系数 e=3——与全局 k 同构的
+//   独立旋钮，权重 = 档位基值 × (全局 ? k : 1) × (经济条 ? e : 1)（见 GetRunChoiceWeight）。
+//   作用清单 8 条（IsEconomyRunChoice）：产阳光三件套（向日葵/阳光菇/双子）+ 丰饶/速种/天降
+//   + 咖啡豆/卷心菜；金盏花/吸金磁不列（冻结条保持照旧，用户令）。三件套每屏出现率
+//   7.7% → ~17%、一局期望 ~2.4 → ~5.6 张（普通档 29 屏口径，§8.7 静态表同步重算）。
 static const RunBuffDef gRunBuffDefs[RUN_BUFF_COUNT] =
 {
 	// 末列 = 稀有度档位（权重批 2026-10-09 填档，docs/06 §8.2.1/§8.7；
@@ -338,8 +343,34 @@ int GetRunChoiceRarity(int theId)
 	return GetRunBuffDef(theId).mRarity;
 }
 
-// 抽取权重：未定档恒 1（零行为）；定档后 = 档位基值 1★6/2★3/3★1，全局条再乘 k
-// （千分比四舍五入）。RunState::RollChoices 按它做同屏加权无放回抽取。
+// 经济条清单（经济权重批 2026-10-09，用户拍板）：享受经济系数 e 的 8 条——产阳光三件套
+// （向日葵/阳光菇/双子）+ 丰饶/速种/天降 + 咖啡豆/卷心菜。金盏花/吸金磁不列（冻结条保持
+// 照旧——照常进池、不吃 e）。第二 buff 批的经济向新条落地时在此同步补。
+static bool IsEconomyRunChoice(int theId)
+{
+	if (theId < 0) return false;
+	if (theId < RUN_BUFF_COUNT)
+	{
+		return theId == RUN_BUFF_ABUNDANCE || theId == RUN_BUFF_FASTSEED || theId == RUN_BUFF_SKYFALL;
+	}
+	int aIdx = theId - RUN_BUFF_COUNT;
+	if (aIdx >= RUN_PLANT_UPGRADE_COUNT) return false;
+	switch (GetRunPlantUpgradeDef(aIdx).mPlant)
+	{
+	case SeedType::SEED_SUNFLOWER:
+	case SeedType::SEED_SUNSHROOM:
+	case SeedType::SEED_TWINSUNFLOWER:
+	case SeedType::SEED_INSTANT_COFFEE:
+	case SeedType::SEED_CABBAGEPULT:
+		return true;
+	default:
+		return false;
+	}
+}
+
+// 抽取权重：未定档恒 1（零行为）；定档后 = 档位基值 1★6/2★3/3★1，全局条再乘 k、
+// 经济条再乘 e（千分比四舍五入；k 与 e 是两个独立旋钮）。
+// RunState::RollChoices 按它做同屏加权无放回抽取。
 int GetRunChoiceWeight(int theId)
 {
 	static const int aBase[4] = { 1, 6, 3, 1 };		// 未标 / 1★ / 2★ / 3★
@@ -348,6 +379,8 @@ int GetRunChoiceWeight(int theId)
 	int aW = aBase[aRarity];
 	if (aRarity > 0 && theId >= 0 && theId < RUN_BUFF_COUNT)
 		aW = (aW * RUN_GLOBAL_WEIGHT_K_PERMILLE + 500) / 1000;
+	if (aRarity > 0 && IsEconomyRunChoice(theId))
+		aW = (aW * RUN_ECON_WEIGHT_K_PERMILLE + 500) / 1000;
 	if (aW < 1) aW = 1;
 	return aW;
 }
