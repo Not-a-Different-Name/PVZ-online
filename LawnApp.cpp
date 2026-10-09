@@ -1715,7 +1715,7 @@ void LawnApp::UpdateAdventureRequest()
 // 框支持整屏拖动且无边缘回夹（2026-10-04 用户要求）：框大了可以拖出去，把被边缘挡住的部分看全。
 // 2026-10-08 起做两页翻页（用户要的）：第 1 页 = 本版更新速览、第 2 页 = 玩法速览（原一屏
 // 正文）。页间用 '\f' 分隔，翻页按钮/页码指示由 OnlineStartDialog 自己摆；第 1 页随每次
-// 发布更新（当前 = Build 34b，2026-10-09 用户令：权重/换一批等五批进公告）。
+// 发布更新（当前 = Build 37，2026-10-10 用户令：35-37 三代重点进公告——无尽/高级选项+植物僵尸/第二 buff 批/平衡与修复）。
 void LawnApp::UpdateStartupAnnounce()
 {
 	if (mShowedStartupAnnounce) return;
@@ -1726,12 +1726,13 @@ void LawnApp::UpdateStartupAnnounce()
 	OnlineStartDialog* aDialog = new OnlineStartDialog(this,
 		ModText::Tr("欢迎来到 PvZ 联机合作版", "Welcome to PvZ Online Co-op"),
 		ModText::Tr(
-			"【本版更新 · Build 34b】\n"
-			"· 增益三选一可「换一批」（每屏限一次）\n"
-			"· 词条稀有度上线：3★ 金色字、按权重抽取\n"
-			"· 每关植物奖励：普通 3 株、快速 3-4-5-5\n"
-			"· 忧郁菇 / 杨桃无敌人也持续攻击\n"
-			"· 修复长时间挂机黑屏；删两条弱词条\n"
+			"【本版更新 · Build 37】\n"
+			"· 新模式「无尽」：生存页 5 张卡，锁场景无限循环\n"
+			"· 高级选项：出怪规模/节奏可调、可混入植物僵尸\n"
+			"· 38 条新增益进池；3★ 重定为「质变」级\n"
+			"· 「换一批」升级：刷掉的立即换新、下屏不回头\n"
+			"· 平衡：经济增益增强、天降 ×2；1/2★ 全局减半\n"
+			"· 修复：西瓜二段爆无伤害\n"
 			"\f"
 			"【玩法速览】\n"
 			"· 2~6 人各守一块草坪，漏怪传给下一位队友\n"
@@ -1741,12 +1742,13 @@ void LawnApp::UpdateStartupAnnounce()
 			"· 主位大墓碑 = 组队 / 加入房间（主机可发起\n"
 			"  闯关）；第三槽 PUZZLE 石板 = 打单关。\n"
 			"· 局内：ESC 暂停、V 看队友场地、T / E 短语与表情",
-			"[Update - Build 34b]\n"
-			"· Buff picks: reroll once per screen\n"
-			"· Rarity live: gold 3-star, weighted odds\n"
-			"· Plant rewards: Normal 3, Quick 3-4-5-5\n"
-			"· Fume-shroom / Starfruit always fire\n"
-			"· Fixed idle black-screen; trimmed weak buffs\n"
+			"[Update - Build 37]\n"
+			"· New \"Endless\" mode: 5 locked-scene cards\n"
+			"· Advanced options: scale / tempo; Zombotany\n"
+			"· 38 new buffs; 3-stars now game-changers\n"
+			"· Reroll upgrade: discarded picks stay away\n"
+			"· Balance: economy up, Skyfall x2; globals down\n"
+			"· Fixed: melon splash secondary hit\n"
 			"\f"
 			"[Basics]\n"
 			"· 2-6 players each hold one lawn; leaked\n"
