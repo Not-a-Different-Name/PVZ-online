@@ -33,6 +33,14 @@ public:
 	// 房间级设置：一局定一次，随 START_LEVEL 走、进检查点；单机局同样可选。
 	enum	{ RUN_DIFF_EASY = 0, RUN_DIFF_STD = 1, RUN_DIFF_HIGH = 2 };
 
+	// @pvz-online: 高级选项（批 C，2026-10-09 用户定案）：房主在选模式页「高级选项…」定的
+	// 房间级设置。出怪规模 ×0.5/×1/×2/×4——乘在顺位乘数链之后（乘后向下取整、保底 1，
+	// 每波数量上限随同一倍率放大后再钳回硬顶）；节奏 ×0.6/×1/×1.6——只乘波间隔倒计时。
+	// 千分比取数走 ScalePermilleFor / TempoPermilleFor（非法档按标准）。随 START_LEVEL 走、
+	// 进检查点（v10）；单机局同样可选。
+	enum	{ RUN_SCALE_HALF = 0, RUN_SCALE_STD = 1, RUN_SCALE_DOUBLE = 2, RUN_SCALE_QUAD = 3 };
+	enum	{ RUN_TEMPO_FAST = 0, RUN_TEMPO_STD = 1, RUN_TEMPO_SLOW = 2 };
+
 	static const int	RUN_LEVEL_COUNT		= 25;	// 完整版总关数 = 5 场景 × 5 关（数组/静态表的尺寸上限）
 	static const int	RUN_SCENE_COUNT		= 5;	// 白天 → 夜 → 泳池 → 迷雾 → 屋顶
 	static const int	RUN_LEVELS_PER_SCENE = RUN_LEVEL_COUNT / RUN_SCENE_COUNT;
@@ -89,6 +97,12 @@ public:
 	// @pvz-online: 末位推车的"整局一次性"记账：bit = 行号。联机闯关里末位玩家的哪几行推车
 	// 已经用了（触发或被压）；用过的行跨关不再补。随检查点持久（v5），联机两端各记各的。
 	unsigned int				mMowerUsedRows;
+	// @pvz-online: 高级选项三字段（批 C）：出怪规模档 / 节奏档 / 植物僵尸混入开关（0 关 1 开）。
+	// 房间级设置，随 START_LEVEL 广播（MOD_BUILD 35）、随检查点 v10 持久；联机各端无条件
+	// 按房主的值对齐（不参与重建判等）。开关的出怪消费见 RunZombieRoster。
+	int							mScale;			// RUN_SCALE_*：出怪规模倍率档
+	int							mTempo;			// RUN_TEMPO_*：波间隔倍率档
+	int							mZombotany;		// 植物僵尸混入开关
 	// @pvz-online: 补发追赶的目标关序号（R5）。队友没有检查点 / 检查点落后于主机时，
 	// 不是"跳到主机的关"，而是从这一局的起点一屏一屏地把欠下的三选一补齐——
 	// 补做的屏与真打过的一模一样（候选由 runSeed + 关序号推导）。开着的时候
@@ -99,7 +113,8 @@ public:
 	RunState();
 
 	// 全新一局：卡池回到两株、失败计数清零、从第 1 关开打。
-	void				StartNew(int theRunSeed, int theRunMode = RUN_MODE_FULL, int theRunDiff = RUN_DIFF_STD);
+	void				StartNew(int theRunSeed, int theRunMode = RUN_MODE_FULL, int theRunDiff = RUN_DIFF_STD,
+							int theRunScale = RUN_SCALE_STD, int theRunTempo = RUN_TEMPO_STD, int theZombotany = 0);
 
 	// 时长档的关数口径：每场景关数（5/2/1）与总关数（25/10/5）。模式非法按完整版。
 	static int			LevelsPerScene(int theRunMode);
@@ -109,6 +124,11 @@ public:
 	// 出怪难度档的千分比（500/1000/1500）。档位非法按标准 1000——盘上的档、线传的字节
 	// 都从这儿过一道，读数的地方不用再操心合法性。
 	static int			DiffPermilleFor(int theRunDiff);
+
+	// 高级选项两个倍率档的千分比（批 C）：规模 {500,1000,2000,4000}、节奏 {600,1000,1600}。
+	// 档位非法按标准 1000——与 DiffPermilleFor 同一套纪律，消费点不用再操心合法性。
+	static int			ScalePermilleFor(int theRunScale);
+	static int			TempoPermilleFor(int theRunTempo);
 
 	// 该选植物 / 该选 buff 了（一局开始时先挑四株 + 两个增益——进第 1 关前手里就有 6 株；
 	// 快速版开局加厚成六株 + 四个增益，批十 2026-10-05）。每过一关再挑一批：植物按时长档

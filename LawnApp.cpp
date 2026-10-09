@@ -840,7 +840,8 @@ void LawnApp::UpdateOnlineStart()
 
 		TodLog("[run] the host calls us into level index %u (run seed %d)",
 			(unsigned)aStart.mRunLevelIndex, (int)aStart.mRunSeed);
-		AlignRunToHost((int)aStart.mRunSeed, (int)aStart.mRunLevelIndex, (int)aStart.mRunMode, (int)aStart.mRunDiff);
+		AlignRunToHost((int)aStart.mRunSeed, (int)aStart.mRunLevelIndex, (int)aStart.mRunMode, (int)aStart.mRunDiff,
+			(int)aStart.mRunScale, (int)aStart.mRunTempo, (int)aStart.mRunZombotany);
 		mOnlineRunStartHeld = true;
 		mOnlineRunGo = false;		// 这条是新命令：上一次的放行作废
 		mOnlineSession->SendStartAck();
@@ -958,7 +959,8 @@ void LawnApp::OnlineStartPromptAnswer(bool theAccepted)
 		// 主机的 RUN_GO 放行（见 UpdateOnlineStart / UpdateRunPick）
 		TodLog("[run] the host calls us into level index %u (run seed %d, answered)",
 			(unsigned)aMsg.mRunLevelIndex, (int)aMsg.mRunSeed);
-		AlignRunToHost((int)aMsg.mRunSeed, (int)aMsg.mRunLevelIndex, (int)aMsg.mRunMode, (int)aMsg.mRunDiff);
+		AlignRunToHost((int)aMsg.mRunSeed, (int)aMsg.mRunLevelIndex, (int)aMsg.mRunMode, (int)aMsg.mRunDiff,
+			(int)aMsg.mRunScale, (int)aMsg.mRunTempo, (int)aMsg.mRunZombotany);
 		mOnlineRunStartHeld = true;
 		mOnlineRunGo = false;
 		mOnlineSession->SendStartAck();
@@ -1215,7 +1217,8 @@ void LawnApp::UpdateOnlineEvents()
 				mOnlineSession->SendStartLevel((uint8_t)GameMode::GAMEMODE_ADVENTURE,
 					(uint32_t)mRunState->GetLevel(), mRunState->GetLevelSeed(),
 					true, mRunState->mRunSeed, (uint8_t)mRunState->mLevelIndex,
-					NetProto::SEAT_UNSET, (uint8_t)mRunState->mMode, (uint8_t)mRunState->mDiff);
+					NetProto::SEAT_UNSET, (uint8_t)mRunState->mMode, (uint8_t)mRunState->mDiff,
+					(uint8_t)mRunState->mScale, (uint8_t)mRunState->mTempo, (uint8_t)mRunState->mZombotany);
 			}
 			break;
 
@@ -1275,7 +1278,8 @@ void LawnApp::UpdateOnlineEvents()
 				mOnlineSession->SendStartLevel((uint8_t)GameMode::GAMEMODE_ADVENTURE,
 					(uint32_t)mRunState->GetLevel(), mRunState->GetLevelSeed(),
 					true, mRunState->mRunSeed, (uint8_t)mRunState->mLevelIndex,
-					anEvent.mSeat, (uint8_t)mRunState->mMode, (uint8_t)mRunState->mDiff);
+					anEvent.mSeat, (uint8_t)mRunState->mMode, (uint8_t)mRunState->mDiff,
+					(uint8_t)mRunState->mScale, (uint8_t)mRunState->mTempo, (uint8_t)mRunState->mZombotany);
 			}
 			break;
 
@@ -1446,7 +1450,8 @@ void LawnApp::RetryOnlineLevel()
 		// 同 UPDATE 拉人：广播要显式 SEAT_UNSET（见 UpdateOnlineEvents 的拉人注释）。
 		mOnlineSession->SendStartLevel((uint8_t)GameMode::GAMEMODE_ADVENTURE, (uint32_t)aRunLevel, aRunSeed,
 			true, mRunState->mRunSeed, (uint8_t)mRunState->mLevelIndex,
-			NetProto::SEAT_UNSET, (uint8_t)mRunState->mMode, (uint8_t)mRunState->mDiff);
+			NetProto::SEAT_UNSET, (uint8_t)mRunState->mMode, (uint8_t)mRunState->mDiff,
+			(uint8_t)mRunState->mScale, (uint8_t)mRunState->mTempo, (uint8_t)mRunState->mZombotany);
 		return;
 	}
 
@@ -1706,7 +1711,8 @@ void LawnApp::EnterRunLevel()
 		if (mGameSelector) mGameSelector->SetMenuButtonsDisabled(true);
 		mOnlineSession->SendStartLevel((uint8_t)mGameMode, (uint32_t)aLevel, aSeed,
 			true, mRunState->mRunSeed, (uint8_t)mRunState->mLevelIndex,
-			NetProto::SEAT_UNSET, (uint8_t)mRunState->mMode, (uint8_t)mRunState->mDiff);
+			NetProto::SEAT_UNSET, (uint8_t)mRunState->mMode, (uint8_t)mRunState->mDiff,
+			(uint8_t)mRunState->mScale, (uint8_t)mRunState->mTempo, (uint8_t)mRunState->mZombotany);
 		return;
 	}
 
@@ -1740,7 +1746,8 @@ void LawnApp::EnterRunLevel()
 // 的起点摆一局、把欠下的三选一补上。补做的屏和真打过的一模一样：候选由 runSeed + 关序号
 // 推导，各抽各的。时长档（theRunMode，M4-b）必须和主机同一个档：档决定关卡表与奖励屏数，
 // 档不对的检查点续了也是错的关表。
-void LawnApp::AlignRunToHost(int theRunSeed, int theTargetIndex, int theRunMode, int theRunDiff)
+void LawnApp::AlignRunToHost(int theRunSeed, int theTargetIndex, int theRunMode, int theRunDiff,
+	int theRunScale, int theRunTempo, int theZombotany)
 {
 	// 时长档来自对端（构建代次不同只提示、不拒连）：非法值按完整版处理，别让它把
 	// 越界模式一路带进关卡表。
@@ -1755,6 +1762,23 @@ void LawnApp::AlignRunToHost(int theRunSeed, int theTargetIndex, int theRunMode,
 	{
 		TodLog("[run] the host named an unknown run difficulty %d - treating it as standard", theRunDiff);
 		theRunDiff = RunState::RUN_DIFF_STD;
+	}
+
+	// 高级选项三参数同理（MOD_BUILD 35）：非法值按 标准/标准/关。
+	if (theRunScale < RunState::RUN_SCALE_HALF || theRunScale > RunState::RUN_SCALE_QUAD)
+	{
+		TodLog("[run] the host named an unknown run scale %d - treating it as standard", theRunScale);
+		theRunScale = RunState::RUN_SCALE_STD;
+	}
+	if (theRunTempo < RunState::RUN_TEMPO_FAST || theRunTempo > RunState::RUN_TEMPO_SLOW)
+	{
+		TodLog("[run] the host named an unknown run tempo %d - treating it as standard", theRunTempo);
+		theRunTempo = RunState::RUN_TEMPO_STD;
+	}
+	if (theZombotany != 0 && theZombotany != 1)
+	{
+		TodLog("[run] the host named an unknown zombotany switch %d - treating it as off", theZombotany);
+		theZombotany = 0;
 	}
 
 	// 关序号来自对端（构建代次不同只提示、不拒连）：越界就按第 1 关处理——
@@ -1798,6 +1822,12 @@ void LawnApp::AlignRunToHost(int theRunSeed, int theTargetIndex, int theRunMode,
 				mRunState->mLevelIndex);
 		}
 	}
+
+	// 高级选项三字段（批 C）是房间级设置、房主权威：不管检查点续没续上，对齐完一律按
+	// 房主的值覆盖（不参与上面的重建判等——改这三样不该把队友手里的整局作废）。
+	mRunState->mScale = theRunScale;
+	mRunState->mTempo = theRunTempo;
+	mRunState->mZombotany = theZombotany;
 
 	if (mRunState->mLevelIndex < theTargetIndex)
 	{

@@ -33,9 +33,12 @@
 // v9：2026-10-09 全局表尾追加「排山倒海」（新 id 8）——全局 8→9 条，单株 id 由「8 + 下标」
 //     全体右移 1 变「9 + 下标」；v8 及更老的档读到 id >= 8 的全部 +1 读平（旧档里 id 8 是
 //     第一个单株、不是排山倒海，不会撞车）。载荷长度没变。
+// v10：2026-10-09 批 C「高级选项」——尾追加一个 u16 位包：bit0..1 = 出怪规模档
+//     （RUN_SCALE_*）、bit2..3 = 节奏档（RUN_TEMPO_*）、bit4 = 植物僵尸混入开关。
+//     v9 及更老的档读不到，按 标准/标准/关 续（与 v3/v4 的保留位缺省同口径）。
 
 static const unsigned int RUN_CHECKPOINT_MAGIC = 0x314E5552;	// 'RUN1'
-static const unsigned short RUN_CHECKPOINT_VERSION = 9;
+static const unsigned short RUN_CHECKPOINT_VERSION = 10;
 
 static std::vector<unsigned char>& AppendU16(std::vector<unsigned char>& theData, unsigned int theValue)
 {
@@ -93,11 +96,14 @@ RunState::RunState()
 	StartNew(0);
 }
 
-void RunState::StartNew(int theRunSeed, int theRunMode, int theRunDiff)
+void RunState::StartNew(int theRunSeed, int theRunMode, int theRunDiff, int theRunScale, int theRunTempo, int theZombotany)
 {
 	mRunSeed = theRunSeed;
 	mMode = theRunMode;
 	mDiff = theRunDiff;
+	mScale = theRunScale;
+	mTempo = theRunTempo;
+	mZombotany = theZombotany;
 	mLevelIndex = 0;
 	mPool.clear();
 	mPool.push_back(SeedType::SEED_SUNFLOWER);
@@ -431,6 +437,22 @@ int RunState::DiffPermilleFor(int theRunDiff)
 	return aPermille[theRunDiff];
 }
 
+// 高级选项两个倍率档的千分比（批 C，2026-10-09 用户定案）：规模 ×0.5/×1/×2/×4——乘在
+// 顺位乘数链之后；节奏 ×0.6/×1/×1.6——只乘波间隔倒计时。档位非法按标准 1000。
+int RunState::ScalePermilleFor(int theRunScale)
+{
+	static const int aPermille[] = { 500, 1000, 2000, 4000 };
+	if (theRunScale < RUN_SCALE_HALF || theRunScale > RUN_SCALE_QUAD) return aPermille[RUN_SCALE_STD];
+	return aPermille[theRunScale];
+}
+
+int RunState::TempoPermilleFor(int theRunTempo)
+{
+	static const int aPermille[] = { 600, 1000, 1600 };
+	if (theRunTempo < RUN_TEMPO_FAST || theRunTempo > RUN_TEMPO_SLOW) return aPermille[RUN_TEMPO_STD];
+	return aPermille[theRunTempo];
+}
+
 // 按时长档从同一张 25 关表里抽行（批十 2026-10-05 按玩家反馈改版）：普通版每场景取
 // 第 1/5 关（10 关，即原快速表）、快速版取第 5 关（5 关，每场景收尾的难关）。
 // 抽出来的还是这张表里的引擎关号——波数、出怪、种类名单都按引擎关走，
@@ -541,6 +563,7 @@ bool RunState::Save(int theProfileId) const
 	}
 
 	AppendU16(aData, mMowerUsedRows);	// v5：末位推车记账（bit = 行号）
+	AppendU16(aData, (unsigned int)((mScale & 3) | ((mTempo & 3) << 2) | ((mZombotany & 1) << 4)));	// v10：高级选项位包
 
 	MkDir(GetAppDataFolder() + "userdata");
 	if (!gSexyAppBase->WriteBytesToFile(GetCheckpointName(theProfileId), aData.data(), (unsigned long)aData.size()))
@@ -571,9 +594,10 @@ bool RunState::Load(int theProfileId)
 	// v7 起模式表改版（见文件头 v7 条目）：6 及更老的非完整档关序号对不上新表，读完模式
 	// 字段后直接作废；完整档表没动，照续。
 	// v8 起删了「储备」（见文件头 v8 条目）：旧档 buff id 按下面 buff 循环里的链迁移。
+	// v10 才有高级选项位包；v9 及更老的档读不到，按 标准/标准/关 续。
 	int aMode = RUN_MODE_FULL;
 	int aDiff = RUN_DIFF_STD;
-	if (aMagic != RUN_CHECKPOINT_MAGIC || (aVersion != RUN_CHECKPOINT_VERSION && aVersion != 8 && aVersion != 7 && aVersion != 6 && aVersion != 5 && aVersion != 4 && aVersion != 3 && aVersion != 2))
+	if (aMagic != RUN_CHECKPOINT_MAGIC || (aVersion != RUN_CHECKPOINT_VERSION && aVersion != 9 && aVersion != 8 && aVersion != 7 && aVersion != 6 && aVersion != 5 && aVersion != 4 && aVersion != 3 && aVersion != 2))
 	{
 		TodLog("[run] checkpoint magic/version mismatch, ignored");
 		return false;
@@ -688,9 +712,19 @@ bool RunState::Load(int theProfileId)
 		return false;
 	}
 
+	// v10 才有高级选项位包；v9 及更老的档读不到，按 标准/标准/关 续。位掩码天然合法。
+	unsigned int aOptions = 0;
+	if (aVersion >= 10 && !aReader.ReadU16(aOptions))
+	{
+		return false;
+	}
+
 	mRunSeed = aRunSeed;
 	mMode = aMode;
 	mDiff = aDiff;
+	mScale = (int)(aOptions & 3);
+	mTempo = (int)((aOptions >> 2) & 3);
+	mZombotany = (int)((aOptions >> 4) & 1);
 	mLevelIndex = aLevelIndex;
 	memcpy(mFailCounts, aFailCounts, sizeof(mFailCounts));
 	mMowerUsedRows = aMowerUsedRows;

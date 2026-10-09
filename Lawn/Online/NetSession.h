@@ -169,12 +169,16 @@ public:
 	// 奖励屏数，队友必须按同一个档建局；单关局默认 0。
 	// theRunDiff（MOD_BUILD 27）是房主选的出怪难度档（RunState::RUN_DIFF_*）：乘在全队
 	// 出怪上（见 Board::PickZombieWaves），队友必须按同一个档建局；单关局默认标准 1。
+	// theRunScale/theRunTempo/theRunZombotany（MOD_BUILD 35）是房主「高级选项」定的出怪
+	// 规模档 / 节奏档 / 植物僵尸混入开关（RunState::RUN_SCALE_*/RUN_TEMPO_*）：随开局
+	// 广播，队友按同一组建局；单关局默认 标准/标准/关。
 	// theTargetSeat 默认 SEAT_UNSET = 发给所有队友；中途拉一个人进关必须点名单发——
 	// 扇出会把已经在打的人重新点名一遍（那会重建棋盘）。
 	bool			SendStartLevel(uint8_t theGameMode, uint32_t theLevel, int32_t theLevelSeed,
 						bool theIsRun = false, int32_t theRunSeed = 0, uint8_t theRunLevelIndex = 0,
 						uint8_t theTargetSeat = NetProto::SEAT_UNSET, uint8_t theRunMode = 0,
-						uint8_t theRunDiff = 1);
+						uint8_t theRunDiff = 1, uint8_t theRunScale = 1,
+						uint8_t theRunTempo = 1, uint8_t theRunZombotany = 0);
 
 	// 客户端侧：取出主机发来的开局命令（同时清掉）。没有就返回 false。
 	// 单槽而不是队列：开局命令只有"最新那条"有意义，堆着旧的开局命令没有用处。

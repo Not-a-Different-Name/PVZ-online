@@ -297,7 +297,11 @@ public:
 	// @pvz-online: 联机闯关（R5）：把本机进度对齐到主机点名的这一关。同一局种子就接着走
 	// （落后 = 从本地检查点续，欠的关靠补发追赶补回来）；对不上 / 没检查点 / 时长档或
 	// 出怪难度档不同 = 从这一局的起点摆一局，同样把欠下的三选一补上——补做的屏与真打过的一模一样。
-	void							AlignRunToHost(int theRunSeed, int theTargetIndex, int theRunMode, int theRunDiff);
+	// 高级选项三参数（批 C，MOD_BUILD 35）：出怪规模档 / 节奏档 / 植物僵尸开关——对齐完
+	// 无条件按房主的值覆盖（房间级设置、不参与重建判等）；非法档在实现里钳回标准。
+	// （默认参用字面量：头里对 RunState 只有前置声明。）
+	void							AlignRunToHost(int theRunSeed, int theTargetIndex, int theRunMode, int theRunDiff,
+							int theRunScale = 1, int theRunTempo = 1, int theZombotany = 0);
 	void							UpdateRunEnd();
 	// @pvz-online: 闯关的三选一屏（R2）。该选而屏不在（刚开局、刚过完一关、或者被「换一批」
 	// 重开）就按已抽好的候选开一张；玩家点了卡由 RunPickChosen 接着办：把卡收进局里，选够了

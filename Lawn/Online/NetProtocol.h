@@ -124,7 +124,12 @@ const uint16_t	PROTOCOL_VERSION	= 1;
 //        index 语义变了，混搭必然开错关，必须两边同版本。奖励曲线（增益封顶 7、
 //        快速开局加厚）与全局保底只在本机抽屏，不影响一致性；检查点升 v7：旧的
 //        普通/快速档作废、完整档照续（见 docs/03-过程与问题.md §5.43）。
-const uint16_t	MOD_BUILD			= 34;
+// 34 → 35：高级选项三参数（2026-10-09 用户定案）：房主在选模式页「高级选项…」定的出怪
+//        规模（×0.5/×1/×2/×4）、节奏（×0.6/×1/×1.6）与植物僵尸混入开关随 START_LEVEL 的
+//        闯关变体再带三个字节（载荷 19→22）：规模/节奏乘在出怪算式上、开关改出怪名单——
+//        混搭时一边 ×4 一边 ×1，出怪量与怪种都对不上，必须两边同版本。旧长度的
+//        START_LEVEL 会被当串包拒掉。植物僵尸战斗侧（ZomBotany 五种）随同版投放。
+const uint16_t	MOD_BUILD			= 35;
 
 const uint16_t	DEFAULT_PORT		= 27777;
 
@@ -342,15 +347,19 @@ struct MsgHelloAck
 };
 
 // START_LEVEL：{ srcSeat, dstSeat, u8 gameMode, u32 level, i32 levelSeed,
-//                u8 isRun, i32 runSeed, u8 runLevelIndex, u8 runMode, u8 runDiff }
+//                u8 isRun, i32 runSeed, u8 runLevelIndex, u8 runMode, u8 runDiff,
+//                u8 runScale, u8 runTempo, u8 runZombotany }
 // levelSeed 是主机 GetLevelRandSeed() 的完整返回值（它含主机存档 ID，客户端必须整体覆盖）。
 // 闯关局（isRun=1）多带"这一局是谁的局、打到第几关"：队友拿它对上自己的检查点，
 // 没检查点 / 对不上就从这一局的起点摆起、把欠下的三选一补回来（补做的屏和真打过的一模一样，
 // 候选由 runSeed + 关序号推导）。runMode 是闯关的时长档（RunState::RUN_MODE_*，M4-b）：
 // 它决定关卡表抽行与每关后的奖励屏数，队友必须按同一个档建局。runDiff 是房主选的出怪
 // 难度档（RunState::RUN_DIFF_*，轻松/标准/高压）：乘在全队出怪上，队友按同一个档建局；
-// 对不上同样按"检查点不匹配"重建。单关局 isRun=0：runSeed/runLevelIndex/runMode 全是 0，
-// runDiff 记标准档（1，单关局不参与难度缩放），其余语义一字不变。
+// 对不上同样按"检查点不匹配"重建。runScale/runTempo/runZombotany（MOD_BUILD 35）是房主
+// 「高级选项」里的出怪规模档 / 节奏档 / 植物僵尸混入开关（RunState::RUN_SCALE_* /
+// RUN_TEMPO_*，开关 0 关 1 开）：乘在出怪算式上 / 改出怪名单，队友按同一组建局。
+// 单关局 isRun=0：runSeed/runLevelIndex/runMode 全是 0，runDiff 记标准档（1，单关局
+// 不参与难度缩放），高级选项三格记 标准/标准/关，其余语义一字不变。
 struct MsgStartLevel
 {
 	uint8_t			mSrcSeat;
@@ -363,6 +372,9 @@ struct MsgStartLevel
 	uint8_t			mRunLevelIndex;
 	uint8_t			mRunMode;
 	uint8_t			mRunDiff;
+	uint8_t			mRunScale;
+	uint8_t			mRunTempo;
+	uint8_t			mRunZombotany;
 };
 
 // LEVEL_DONE：{ srcSeat, dstSeat, u8 done }（1 = 我这块草坪清完了，0 = 又不清净了）
@@ -680,6 +692,9 @@ inline int EncodeStartLevel(uint8_t* theBuffer, int theCapacity, const MsgStartL
 	aWriter.U8(theMsg.mRunLevelIndex);
 	aWriter.U8(theMsg.mRunMode);
 	aWriter.U8(theMsg.mRunDiff);
+	aWriter.U8(theMsg.mRunScale);
+	aWriter.U8(theMsg.mRunTempo);
+	aWriter.U8(theMsg.mRunZombotany);
 	return aWriter.Overflowed() ? -1 : aWriter.Size();
 }
 
@@ -696,6 +711,9 @@ inline bool DecodeStartLevel(const uint8_t* theData, int theSize, MsgStartLevel&
 	theMsg.mRunLevelIndex = aReader.U8();
 	theMsg.mRunMode = aReader.U8();
 	theMsg.mRunDiff = aReader.U8();
+	theMsg.mRunScale = aReader.U8();
+	theMsg.mRunTempo = aReader.U8();
+	theMsg.mRunZombotany = aReader.U8();
 	return !aReader.Overflowed();
 }
 
