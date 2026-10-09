@@ -95,12 +95,19 @@
 //      层就会撞 0.1 地板）；
 //   ④ 全局同轨：火力/丰饶/急袭 3★→2★（全局 3★ 清空）。
 //   非表项：魅惑菇种植冷却 3000→750（「快」档，gPlantDefs 全模式生效；同三线成本先例）。
+// 2026-10-09 深夜·批 A「排山倒海」（用户拍板，见 docs/07 同日条目）：
+//   ① 全局表尾追加「Mirror Rows」id 8（3★、cap 1）——种下植物时上下相邻空格免费种同款
+//      （先试下格、被占/不可种试上格，只落 1 株；取用口 LawnApp::RunMirrorStacks，
+//      消费挂点 Board::MouseDownWithPlant 种植分支）。RUN_BUFF_COUNT 8→9，单株 id
+//      全体右移 1，旧档按检查点 v9 迁移读平。
+//   ② 抽取权重基值 {1,6,3,1} → {2,12,6,1}——1★/2★ 翻倍、3★ 不动 = 3★ 相对出率减半
+//      （3★ 直接降基值会撞 aW<1 地板，见 GetRunChoiceWeight；k/e 两旋钮不动）。
 static const RunBuffDef gRunBuffDefs[RUN_BUFF_COUNT] =
 {
 	// 末列 = 稀有度档位（权重批 2026-10-09 填档，docs/06 §8.2.1/§8.7；
 	// 全局批同日调整：扎根/爆破/精准降 1★；质变口径批 2026-10-09 深夜：火力/丰饶/急袭
 	// 3★→2★——全局 3★ 清空）：
-	// 2★ 火力/丰饶/急袭/速种 · 1★ 扎根/天降/爆破/精准
+	// 3★ 排山倒海（批 A 2026-10-09 追加） · 2★ 火力/丰饶/急袭/速种 · 1★ 扎根/天降/爆破/精准
 	{ "Firepower",    "所有子弹伤害 +30%",      "All projectile damage +30%",       0.30f,  0, 0, false, 2 },
 	{ "Deep Roots",   "所有植物血量 +75%",      "All plant health +75%",            0.75f,  0, 0, false, 1 },
 	{ "Abundance",    "产阳光间隔逐层 ×0.75",   "Sun production interval ×0.75/stack", -0.25f, 0, 4, true, 2 },
@@ -109,6 +116,7 @@ static const RunBuffDef gRunBuffDefs[RUN_BUFF_COUNT] =
 	{ "Skyfall",      "夜晚也降阳光，降阳光速率 ×2", "Sky sun also falls at night, 2x drop rate", -0.5f, 0, 1, false, 1 },
 	{ "Demolition",   "一次性植物伤害 +60%",    "Instant plant damage +60%",        0.60f,  0, 0, false, 1 },
 	{ "Precision",    "所有伤害 +15%",          "All damage +15%",                  0.15f,  0, 0, false, 1 },
+	{ "Mirror Rows",  "种下植物时，上下相邻的空格\n免费种上一株同款", "Planting also grows a free copy\nin the empty cell above/below", 0.0f, 0, 1, false, 3 },
 };
 
 const RunBuffDef& GetRunBuffDef(int theId)
@@ -390,12 +398,13 @@ static bool IsEconomyRunChoice(int theId)
 	}
 }
 
-// 抽取权重：未定档恒 1（零行为）；定档后 = 档位基值 1★6/2★3/3★1，全局条再乘 k、
-// 经济条再乘 e（千分比四舍五入；k 与 e 是两个独立旋钮）。
+// 抽取权重：未定档恒 1（零行为）；定档后 = 档位基值 1★12/2★6/3★1（2026-10-09 批 A：
+// 其余档翻倍、3★ 不动 = 3★ 相对出率减半；直接降 3★ 会撞下面的 aW<1 地板），全局条再乘
+// k、经济条再乘 e（千分比四舍五入；k 与 e 是两个独立旋钮）。
 // RunState::RollChoices 按它做同屏加权无放回抽取。
 int GetRunChoiceWeight(int theId)
 {
-	static const int aBase[4] = { 1, 6, 3, 1 };		// 未标 / 1★ / 2★ / 3★
+	static const int aBase[4] = { 2, 12, 6, 1 };	// 未标 / 1★ / 2★ / 3★（批 A 前是 {1,6,3,1}）
 	int aRarity = GetRunChoiceRarity(theId);
 	if (aRarity < 0 || aRarity > 3) aRarity = 0;
 	int aW = aBase[aRarity];

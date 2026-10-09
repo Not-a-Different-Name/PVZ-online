@@ -4379,6 +4379,35 @@ void Board::MouseDownWithPlant(int x, int y, int theClickCount)
 		}
 
 		mSeedBank->mSeedPackets[mCursorObject->mSeedBankIndex].WasPlanted();
+
+		// @pvz-online: 批 A「排山倒海」（2026-10-09）——种下后在上下相邻空格免费补种同款，
+		// 只落 1 株：先试下格、被占/不可种再试上格，都不行就算了。免阳光、不刷 CD、
+		// 不递归（本分支只由玩家点击进）。aSpawnType 用换装后的（Artillery 情境复制株
+		// 也是加农炮）；睡眠态随主株。
+		if (mApp->RunMirrorStacks() > 0)
+		{
+			int aMirrorRow = -1;
+			if (aGridY + 1 < MAX_GRID_SIZE_Y && CanPlantAt(aGridX, aGridY + 1, aSpawnType) == PlantingReason::PLANTING_OK)
+			{
+				aMirrorRow = aGridY + 1;
+			}
+			else if (aGridY - 1 >= 0 && CanPlantAt(aGridX, aGridY - 1, aSpawnType) == PlantingReason::PLANTING_OK)
+			{
+				aMirrorRow = aGridY - 1;
+			}
+			if (aMirrorRow >= 0)
+			{
+				Plant* aMirrorPlant = AddPlant(aGridX, aMirrorRow, aSpawnType, aSpawnImitater);
+				if (aIsAwake)
+				{
+					aMirrorPlant->SetSleeping(false);
+				}
+				else
+				{
+					aMirrorPlant->mWakeUpCounter = aWakeUpCounter;
+				}
+			}
+		}
 	}
 	else
 	{

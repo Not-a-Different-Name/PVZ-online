@@ -30,9 +30,12 @@
 // v8：2026-10-06 全局表删了「储备」（原 id 5）——全局 9→8 条，单株 id 由「9 + 下标」全体
 //     左移 1 变「8 + 下标」；v7 及更老的档读到 id 5（储备）的丢弃，id >= 6 的全部 −1 读平
 //     （v5 及更老的档链条：先按 v6 把 id >= 8 的 +1，再统一 −1）。载荷长度没变。
+// v9：2026-10-09 全局表尾追加「排山倒海」（新 id 8）——全局 8→9 条，单株 id 由「8 + 下标」
+//     全体右移 1 变「9 + 下标」；v8 及更老的档读到 id >= 8 的全部 +1 读平（旧档里 id 8 是
+//     第一个单株、不是排山倒海，不会撞车）。载荷长度没变。
 
 static const unsigned int RUN_CHECKPOINT_MAGIC = 0x314E5552;	// 'RUN1'
-static const unsigned short RUN_CHECKPOINT_VERSION = 8;
+static const unsigned short RUN_CHECKPOINT_VERSION = 9;
 
 static std::vector<unsigned char>& AppendU16(std::vector<unsigned char>& theData, unsigned int theValue)
 {
@@ -570,7 +573,7 @@ bool RunState::Load(int theProfileId)
 	// v8 起删了「储备」（见文件头 v8 条目）：旧档 buff id 按下面 buff 循环里的链迁移。
 	int aMode = RUN_MODE_FULL;
 	int aDiff = RUN_DIFF_STD;
-	if (aMagic != RUN_CHECKPOINT_MAGIC || (aVersion != RUN_CHECKPOINT_VERSION && aVersion != 7 && aVersion != 6 && aVersion != 5 && aVersion != 4 && aVersion != 3 && aVersion != 2))
+	if (aMagic != RUN_CHECKPOINT_MAGIC || (aVersion != RUN_CHECKPOINT_VERSION && aVersion != 8 && aVersion != 7 && aVersion != 6 && aVersion != 5 && aVersion != 4 && aVersion != 3 && aVersion != 2))
 	{
 		TodLog("[run] checkpoint magic/version mismatch, ignored");
 		return false;
@@ -667,6 +670,13 @@ bool RunState::Load(int theProfileId)
 			{
 				aStack.mId = (unsigned short)(aStack.mId - 1);
 			}
+		}
+		// @pvz-online: v9——全局表尾追加「排山倒海」（新 id 8）：单株 id 由「8 + 下标」全体
+		// 右移 1 变「9 + 下标」。链在 v6/v8 之后（v5 档：8 →+1= 9 →−1= 8 →+1= 9 回位）。
+		// 旧档的 id 8 是"第一个单株"，不是排山倒海，不会撞车。
+		if (aVersion < 9 && aStack.mId >= 8)
+		{
+			aStack.mId = (unsigned short)(aStack.mId + 1);
 		}
 		aBuffs.push_back(aStack);
 	}

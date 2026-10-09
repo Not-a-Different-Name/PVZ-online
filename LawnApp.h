@@ -337,6 +337,10 @@ public:
 	//（RunSkySunAtNight 为假、倍率 1.0）。挂点 = Board.cpp 的阳光倒计时两处与夜晚门。
 	bool							RunSkySunAtNight() const;
 	float							RunSkySunIntervalMul() const;
+	// @pvz-online: 闯关「排山倒海」的取用口（2026-10-09 批 A）：= 已拿到的层数（cap 1，
+	// 实际 0/1）。消费挂点 = Board::MouseDownWithPlant 种植分支——种下后上下相邻空格
+	// 免费补种同款（只落 1 株、不递归）。非闯关局 = 0。
+	int								RunMirrorStacks() const;
 	// @pvz-online: 上座顺位乘数（2026-10-06 从 Board::PickZombieWaves 抽出——出怪量与
 	// 顺位开局阳光共用）：联机且上座 ≥2 席时 = 末两席 ×2、再往前每位翻倍、封顶 ×32；
 	// 单机 / 单人 = 1。只算顺位本身，出怪难度旋钮由出怪消费点自己另乘。

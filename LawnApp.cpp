@@ -2074,6 +2074,15 @@ float LawnApp::RunSkySunIntervalMul() const
 	return RunSkySunAtNight() ? (1.0f / 2.0f) : 1.0f;
 }
 
+// @pvz-online: 闯关「排山倒海」的取用口（2026-10-09 批 A）：返回已拿到的层数（cap 1，
+// 实际 0/1）。消费挂点 Board::MouseDownWithPlant 种植分支——种下后在上下相邻空格免费
+// 补种同款（只落 1 株、不递归）。非闯关局 = 0。
+int LawnApp::RunMirrorStacks() const
+{
+	if (mRunState == nullptr) return 0;
+	return mRunState->GetBuffCount(RUN_BUFF_MIRROR);
+}
+
 // @pvz-online: 上座顺位乘数（2026-10-06 从 Board::PickZombieWaves 抽出，出怪量与顺位开局
 // 阳光两处共用；公式与口径同原处注释）：末两席同为 ×2、再往前每升一位翻倍、封顶 ×32；
 // 单机 / 单人（上座不足 2 席）= 1。各客户端只为自己的棋盘算，不涉协议。
