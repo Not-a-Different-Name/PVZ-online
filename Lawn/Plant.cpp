@@ -5179,6 +5179,17 @@ void Plant::Fire(Zombie* theTargetZombie, int theRow, PlantWeapon thePlantWeapon
         aProjectile->mPricklyHitsLeft = -1;
     }
 
+    // @pvz-online: 第二 buff 批 1「穿透族」（docs/06 §8.6 #0/#5/#18）：豌豆「穿刺豌豆」/
+    // 寒冰射手「寒冰贯通」（与老条「冰西瓜化」同株互斥，抽取端管）/ 三线射手「贯穿」——
+    // 直射弹带无限穿透标记 -1（复用仙人掌 Prickly 的标记与 DoImpact 推过语义，弹型无关）。
+    // 评审口径：基弱株穿透类直接无限穿透、cap 收 1。
+    if ((mSeedType == SeedType::SEED_PEASHOOTER || mSeedType == SeedType::SEED_SNOWPEA ||
+        mSeedType == SeedType::SEED_THREEPEATER)
+        && mApp->RunPlantBuff2Count(mSeedType) > 0)
+    {
+        aProjectile->mPricklyHitsLeft = -1;
+    }
+
     // @pvz-online: 单株升级「多发」：每层多打一发（RunBuffs 单株表）。
     // 表里进得了这段的是直射豌豆系（豌豆、三线——三线每道调一次 Fire，所以是每道各 +1 颗，
     // 不是每轮 +3）与小喷菇——多出来的子弹照主子弹的
@@ -5199,6 +5210,7 @@ void Plant::Fire(Zombie* theTargetZombie, int theRow, PlantWeapon thePlantWeapon
     {
         Projectile* aExtraProjectile = mBoard->AddProjectile(aOriginX + 21 * (i + 1), aOriginY, mRenderOrder - 1, theRow, aProjectileType);
         aExtraProjectile->mDamageRangeFlags = aProjectile->mDamageRangeFlags;
+        aExtraProjectile->mPricklyHitsLeft = aProjectile->mPricklyHitsLeft;	// 穿透族：多发复制的子弹同标记（第二 buff 批 1）
     }
 
     if (mSeedType == SeedType::SEED_CABBAGEPULT || mSeedType == SeedType::SEED_KERNELPULT ||

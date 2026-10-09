@@ -370,6 +370,10 @@ bool RunPlantBuff2InPool(int theIndex)
 {
 	switch (theIndex)
 	{
+	case RUN_BUFF2_PIERCE:		// 批 1 穿透族：豌豆/寒冰/三线直射弹无限穿透（挂点 Plant::Fire）
+	case RUN_BUFF2_FROSTPIERCE:
+	case RUN_BUFF2_TRIDENT:
+		return true;
 	default:
 		return false;
 	}

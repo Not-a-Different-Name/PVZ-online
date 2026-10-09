@@ -2235,6 +2235,69 @@ int LawnApp::RunPlantUpgradeCountKind(SeedType thePlant, RunPlantUpgradeKind the
 	return aStacks;
 }
 
+// @pvz-online: 第二 buff 表的四件套（2026-10-09 第二 buff 批 1 起）——实现照抄老表
+// 四件套，只换表与 id 段（RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT + 表下标）。
+// 层数上限按表截读；非闯关 / 表里没这株 / 没拿到 = 中性值。
+float LawnApp::RunPlantBuff2Mul(SeedType thePlant) const
+{
+	if (mRunState == nullptr) return 1.0f;
+	int aIndex = RunPlantBuff2IndexFor(thePlant);
+	if (aIndex < 0) return 1.0f;
+	const RunPlantUpgradeDef& aDef = GetRunPlantBuff2Def(aIndex);
+	int aStacks = mRunState->GetBuffCount(RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT + aIndex);
+	float aMul = 1.0f;
+	if (aDef.mMultiplicative)
+	{
+		for (int i = 0; i < aStacks; i++) aMul *= 1.0f + aDef.mPerStackMul;
+	}
+	else
+	{
+		aMul = 1.0f + aDef.mPerStackMul * (float)aStacks;
+	}
+	return aMul < 0.1f ? 0.1f : aMul;
+}
+
+int LawnApp::RunPlantBuff2Count(SeedType thePlant) const
+{
+	if (mRunState == nullptr) return 0;
+	int aIndex = RunPlantBuff2IndexFor(thePlant);
+	if (aIndex < 0) return 0;
+	return mRunState->GetBuffCount(RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT + aIndex);
+}
+
+float LawnApp::RunPlantBuff2MulKind(SeedType thePlant, RunPlantUpgradeKind theKind) const
+{
+	if (mRunState == nullptr) return 1.0f;
+	int aIndex = RunPlantBuff2IndexFor(thePlant);
+	if (aIndex < 0) return 1.0f;
+	const RunPlantUpgradeDef& aDef = GetRunPlantBuff2Def(aIndex);
+	if (aDef.mKind != theKind) return 1.0f;
+	int aStacks = mRunState->GetBuffCount(RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT + aIndex);
+	if (aDef.mMaxStacks > 0 && aStacks > aDef.mMaxStacks) aStacks = aDef.mMaxStacks;
+	float aMul = 1.0f;
+	if (aDef.mMultiplicative)
+	{
+		for (int i = 0; i < aStacks; i++) aMul *= 1.0f + aDef.mPerStackMul;
+	}
+	else
+	{
+		aMul = 1.0f + aDef.mPerStackMul * (float)aStacks;
+	}
+	return aMul < 0.1f ? 0.1f : aMul;
+}
+
+int LawnApp::RunPlantBuff2CountKind(SeedType thePlant, RunPlantUpgradeKind theKind) const
+{
+	if (mRunState == nullptr) return 0;
+	int aIndex = RunPlantBuff2IndexFor(thePlant);
+	if (aIndex < 0) return 0;
+	const RunPlantUpgradeDef& aDef = GetRunPlantBuff2Def(aIndex);
+	if (aDef.mKind != theKind) return 0;
+	int aStacks = mRunState->GetBuffCount(RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT + aIndex);
+	if (aDef.mMaxStacks > 0 && aStacks > aDef.mMaxStacks) aStacks = aDef.mMaxStacks;
+	return aStacks;
+}
+
 float LawnApp::RunCoffeeBeanRefreshMul(SeedType thePlant, SeedType theImitaterType) const
 {
 	if (mRunState == nullptr) return 1.0f;

@@ -334,6 +334,13 @@ public:
 	// RunPlantUpgradeKind 注释）。专门挂点（磁力菇充能等）继续用上面的通用版。
 	float							RunPlantUpgradeMulKind(SeedType thePlant, RunPlantUpgradeKind theKind) const;
 	int								RunPlantUpgradeCountKind(SeedType thePlant, RunPlantUpgradeKind theKind) const;
+	// @pvz-online: 第二 buff 表的取用口（2026-10-09 第二 buff 批 1 起）——口径同上面四个，
+	// 查的是第二单株表（id = RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT + 表下标）。表里
+	// 没这株 / 没拿到 / 不在闯关 = 中性值；层数上限同样按表截读。
+	float							RunPlantBuff2Mul(SeedType thePlant) const;
+	int								RunPlantBuff2Count(SeedType thePlant) const;
+	float							RunPlantBuff2MulKind(SeedType thePlant, RunPlantUpgradeKind theKind) const;
+	int								RunPlantBuff2CountKind(SeedType thePlant, RunPlantUpgradeKind theKind) const;
 	// @pvz-online: 闯关咖啡豆种植冷却系数（2026-10-03 用户定案：7.5 秒 → 12 秒），乘在
 	// SeedPacket::WasPlanted 的时长链上。非闯关 / 别的植物 = 1.0；模仿者解析同
 	// Plant::GetRefreshTime（SEED_IMITATER + 非空 mImitaterType 用后者）。
