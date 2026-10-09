@@ -55,18 +55,27 @@
 // 2026-10-09 审计批（docs/07 同日条目）：花盆/睡莲血量行删条——不进抽取池（300 血底子
 //   ≈ 无感，§8.6 评审同口径先例），表行与挂点保留供存量档生效（id 空间/检查点不动，
 //   见 RunPlantUpgradeInPool）；路灯花「照亮 +1 格」2★→1★（雾关外死格不配中档）。
+// 2026-10-09 全局批（用户逐条过堂定案，见 docs/07 同日条目）：全局 8 条六处——
+//   ① 丰饶：产阳光间隔 −15%/层线性 → ×0.75/层叠乘（cap4 不变）——叠乘口径天然安全
+//      （线性若给到 25%/层，4 层会推到 0）；4 层 = 产出速度 ×3.16，配得上 3★；
+//   ② 急袭：×0.8/层 → ×0.75/层（∞ 不变；每层等效 DPS +33%）——3★ 头部强度拉满；
+//   ③ 天降：降阳光速率 ×4 → ×3（消费端 LawnApp::RunSkySunIntervalMul 常量同步改）；
+//   ④-⑥ 降档：扎根 2★→1★（+75%/层 广而慢，够不着中档）、爆破 2★→1★（只影响
+//      一次性植物一族，场景窄）、精准 2★→1★（与火力同轴、只有一半效力）。
+//   未动：火力/速种（数值与档位）、天降档位。
 static const RunBuffDef gRunBuffDefs[RUN_BUFF_COUNT] =
 {
-	// 末列 = 稀有度档位（权重批 2026-10-09 填档，docs/06 §8.2.1/§8.7）：
-	// 3★ 火力/丰饶/急袭 · 2★ 扎根/速种/爆破/精准 · 1★ 天降
+	// 末列 = 稀有度档位（权重批 2026-10-09 填档，docs/06 §8.2.1/§8.7；
+	// 全局批同日调整：扎根/爆破/精准降 1★）：
+	// 3★ 火力/丰饶/急袭 · 2★ 速种 · 1★ 扎根/天降/爆破/精准
 	{ "Firepower",    "所有子弹伤害 +30%",      "All projectile damage +30%",       0.30f,  0, 0, false, 3 },
-	{ "Deep Roots",   "所有植物血量 +75%",      "All plant health +75%",            0.75f,  0, 0, false, 2 },
-	{ "Abundance",    "产阳光植物更快 15%",     "Sun plants 15% faster",           -0.15f,  0, 4, false, 3 },
-	{ "Swift Strikes","植物攻击间隔逐层 ×0.8",  "Plant attack interval ×0.8/stack",-0.20f,  0, 0, true, 3 },
+	{ "Deep Roots",   "所有植物血量 +75%",      "All plant health +75%",            0.75f,  0, 0, false, 1 },
+	{ "Abundance",    "产阳光间隔逐层 ×0.75",   "Sun production interval ×0.75/stack", -0.25f, 0, 4, true, 3 },
+	{ "Swift Strikes","植物攻击间隔逐层 ×0.75", "Plant attack interval ×0.75/stack",-0.25f,  0, 0, true, 3 },
 	{ "Quick Seeds",  "种植冷却逐层 ×0.8",      "Planting cooldown ×0.8/stack",    -0.20f,  0, 0, true, 2 },
-	{ "Skyfall",      "夜晚也降阳光，降阳光速率 ×4", "Sky sun also falls at night, 4x drop rate", -0.75f,  0, 1, false, 1 },
-	{ "Demolition",   "一次性植物伤害 +60%",    "Instant plant damage +60%",        0.60f,  0, 0, false, 2 },
-	{ "Precision",    "所有伤害 +15%",          "All damage +15%",                  0.15f,  0, 0, false, 2 },
+	{ "Skyfall",      "夜晚也降阳光，降阳光速率 ×3", "Sky sun also falls at night, 3x drop rate", -0.6667f, 0, 1, false, 1 },
+	{ "Demolition",   "一次性植物伤害 +60%",    "Instant plant damage +60%",        0.60f,  0, 0, false, 1 },
+	{ "Precision",    "所有伤害 +15%",          "All damage +15%",                  0.15f,  0, 0, false, 1 },
 };
 
 const RunBuffDef& GetRunBuffDef(int theId)
