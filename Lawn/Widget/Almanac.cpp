@@ -88,6 +88,24 @@ static void AlmanacWrapEntry(ModText::Font* theFont, const std::wstring& theText
 #define ALMANAC_ENTRY_W 258
 #define ALMANAC_ENTRY_BOTTOM 519
 
+// 条名与稀有度星标之间的间距（档 3 内联式量宽与绘制共用同一个数）
+#define ALMANAC_STAR_GAP 6
+
+// 稀有度星标（2026-10-09 用户定案：图鉴只补星标、布局不动）：条名右缘画 mRarity 颗 ★，
+// 3★ 金色、1★/2★ 灰色（三选一屏只标 3★，图鉴是静态参考，低档也画出来）。放不下不画。
+// 返回画完后的右缘 x（没画 = 原样返回，档 3 的冒号/正文起点用它保持连贯）。
+static int DrawRarityStars(Graphics* g, ModText::Font* theFont, int theRarity, int theNameEndX, int theY)
+{
+	if (theRarity <= 0) return theNameEndX;
+	std::wstring aStars((size_t)theRarity, (wchar_t)0x2605);
+	int aWidth = ModText::TextWidth(theFont, aStars);
+	int anEnd = theNameEndX + ALMANAC_STAR_GAP + aWidth;
+	if (anEnd > ALMANAC_ENTRY_X + ALMANAC_ENTRY_W) return theNameEndX;
+	ModText::DrawTextWide(g, theFont, theNameEndX + ALMANAC_STAR_GAP, theY, aStars,
+		theRarity >= 3 ? Color(255, 200, 60) : Color(150, 140, 130), g->mClipRect);
+	return anEnd;
+}
+
 // 画词条附录：标题「闯关词条 · <英文条名>」+ 中文说明（与局内三选一屏文案同源，
 // 封顶条目自带「，至多 N 层」尾注）。theDescBottom = 介绍正文画完的底高（调用方实测）。
 // 三级结构自适应（2026-10-03 实机验收两轮后定案）：死线 519（费用行从 520 起画）
@@ -129,6 +147,8 @@ static void DrawAlmanacRunEntry(Graphics* g, int theEntryIndex, int theDescBotto
 		std::wstring aHead = ModText::WideFromUtf8(ModText::Tr("闯关词条 · ", "Run Modifier · "));
 		aHead += ModText::WideFromUtf8(GetRunChoiceName(aId));		// 英文条名与三选一屏按钮同字
 		ModText::DrawTextWide(g, aHeadFont, ALMANAC_ENTRY_X, aY, aHead, Color(160, 75, 15), g->mClipRect);
+		DrawRarityStars(g, aHeadFont, GetRunPlantUpgradeDef(theEntryIndex).mRarity,
+			ALMANAC_ENTRY_X + ModText::TextWidth(aHeadFont, aHead), aY);
 		aY += aHeadStep;
 
 		const std::vector<std::wstring>& aLines = aFitsSplit ? aSplitLines : aJoinedLines;
@@ -147,13 +167,20 @@ static void DrawAlmanacRunEntry(Graphics* g, int theEntryIndex, int theDescBotto
 
 	std::wstring aName = ModText::WideFromUtf8(GetRunChoiceName(aId));
 	std::wstring aColon = ModText::WideFromUtf8(ModText::Tr("：", ": "));
+	int aRarity = GetRunPlantUpgradeDef(theEntryIndex).mRarity;
+	std::wstring aStars = (aRarity > 0) ? std::wstring((size_t)aRarity, (wchar_t)0x2605) : L"";
+	// 星标画在名字与冒号之间（超右限不画时起点差一颗星的缝——兜底档可接受）
 	int aPrefixW = ModText::TextWidth(aHeadFont, aName + aColon);
+	if (!aStars.empty()) aPrefixW += ALMANAC_STAR_GAP + ModText::TextWidth(aHeadFont, aStars);
 	bool aWithName = !aJoinedLines.empty() && aPrefixW + ModText::TextWidth(aBodyFont, aJoinedLines[0]) <= ALMANAC_ENTRY_W;
 
 	int aLineX = ALMANAC_ENTRY_X;
 	if (aWithName)
 	{
-		ModText::DrawTextWide(g, aHeadFont, ALMANAC_ENTRY_X, aY, aName + aColon, Color(160, 75, 15), g->mClipRect);
+		ModText::DrawTextWide(g, aHeadFont, ALMANAC_ENTRY_X, aY, aName, Color(160, 75, 15), g->mClipRect);
+		int aStarsEnd = DrawRarityStars(g, aHeadFont, aRarity,
+			ALMANAC_ENTRY_X + ModText::TextWidth(aHeadFont, aName), aY);
+		ModText::DrawTextWide(g, aHeadFont, aStarsEnd, aY, aColon, Color(160, 75, 15), g->mClipRect);
 		aLineX += aPrefixW;
 	}
 	for (int i = 0; i < (int)aJoinedLines.size(); i++)
