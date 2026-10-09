@@ -1595,7 +1595,8 @@ void LawnApp::UpdateAdventureRequest()
 		TodTrace("adventure: the mode picker was cancelled, no run starts");
 		return;
 	}
-	StartRun(aModeResult - RunModeDialog::RunModeDialog_Mode0, aModeDialog->mDiffSel);
+	StartRun(aModeResult - RunModeDialog::RunModeDialog_Mode0, aModeDialog->mDiffSel,
+		aModeDialog->mScaleSel, aModeDialog->mTempoSel, aModeDialog->mZombotanySel);
 }
 
 // @pvz-online: 进入游戏后的玩法公告（2026-10-03 用户要的）：启动后第一次落到主菜单时弹一次，
@@ -1655,12 +1656,14 @@ void LawnApp::UpdateStartupAnnounce()
 	aDialog->WaitForResult();
 }
 
-void LawnApp::StartRun(int theRunMode, int theRunDiff)
+void LawnApp::StartRun(int theRunMode, int theRunDiff, int theRunScale, int theRunTempo, int theZombotany)
 {
 	delete mRunState;
 	mRunState = new RunState();
-	mRunState->StartNew(MakeRunSeed(mAppCounter), theRunMode, theRunDiff);
-	TodLog("[run] a new run starts (seed %d, mode %d, diff %d)", mRunState->mRunSeed, mRunState->mMode, mRunState->mDiff);
+	mRunState->StartNew(MakeRunSeed(mAppCounter), theRunMode, theRunDiff, theRunScale, theRunTempo, theZombotany);
+	TodLog("[run] a new run starts (seed %d, mode %d, diff %d, scale %d, tempo %d, zombotany %d)",
+		mRunState->mRunSeed, mRunState->mMode, mRunState->mDiff,
+		mRunState->mScale, mRunState->mTempo, mRunState->mZombotany);
 	// 手里的两株不够开局：先挑四株 + 两个增益（共六次三选一），选完 RunPickChosen 才进第 1 关。
 	mRunState->BeginStartPicks();
 }

@@ -6,6 +6,7 @@
 // ButtonWidget 不用前向声明：LawnDialog.h → widget/Dialog.h 已在 namespace Sexy 里
 // 声明过，这里再来一份全局的会和 using namespace Sexy 撞成二义（C2872）。
 class LawnStoneButton;
+class CjkStoneButton;
 
 // @pvz-online: M4-b 选模式页。点大墓碑开新局时先问一句"这一局打多长"：
 // 三张卡片横排（画法照 ChallengeScreen 的小游戏卡：石板边框 + 缩略图标 + 卡上名字），
@@ -18,6 +19,8 @@ class LawnStoneButton;
 // 往后依序普通/快速）或 Dialog::ID_NO（取消）；换算回档位、读 mDiffSel 在 LawnApp 一侧做
 // （读成员安全：WaitForResult 的自动收摊是 SafeDeleteList 延迟删，框架自己也这么读 mResult）。
 // 联机不另问：只有主机走到这一页，选完由 START_LEVEL 的模式字节 + 难度字节带动队友。
+// MOD_BUILD 35 起底行多一枚「高级选项…」（仅 mShowDiff 同判据）：点开 RunOptionsDialog
+// （嵌套阻塞，见那边的头注释）回填 mScaleSel/mTempoSel/mZombotanySel，随 START_LEVEL 带动队友。
 class RunModeDialog : public LawnDialog
 {
 public:
@@ -28,15 +31,23 @@ public:
 		RunModeDialog_Mode2,
 		RunModeDialog_Diff0 = 110,	// 出怪难度三档（值同 RunState::RUN_DIFF_EASY/STD/HIGH 的顺序）
 		RunModeDialog_Diff1,
-		RunModeDialog_Diff2
+		RunModeDialog_Diff2,
+		RunModeDialog_Options = 115	// 「高级选项…」按钮（MOD_BUILD 35）：开 RunOptionsDialog
 	};
 
 	ButtonWidget*		mCardButtons[3];	// 三张模式卡（隐形占位收点击，画在 Dialog::Draw 里）
 	ButtonWidget*		mDiffButtons[3];	// 出怪难度三枚（mShowDiff 为假时全 nullptr）；选中 = mInverted
-	bool				mShowDiff;			// 联机主机才有这一行
+	bool				mShowDiff;			// 联机主机才有难度行与「高级选项…」
 	int					mDiffSel;			// 选中的难度档（值 = RunState::RUN_DIFF_*）：LawnApp 在 WaitForResult 之后读
-	LawnStoneButton*	mCancelButton;		// 取消 = 关弹窗不开局
+	// 高级选项三值（批 C）：由弹出的 RunOptionsDialog 回填（取消不改），LawnApp 在
+	// WaitForResult 之后与 mDiffSel 一起读走、传进 StartRun。
+	int					mScaleSel;			// RunState::RUN_SCALE_*（默认标准）
+	int					mTempoSel;			// RunState::RUN_TEMPO_*（默认标准）
+	int					mZombotanySel;		// 植物僵尸混入开关（0 关 1 开，默认关）
+	CjkStoneButton*	mCancelButton;		// 取消 = 关弹窗不开局
+	ButtonWidget*		mOptionsButton;		// 「高级选项…」（mShowDiff 为假时 nullptr）
 	int					mCancelWidth;		// 构造时按标签量好（石材贴图整段），Resize 直接用
+	int					mOptionsWidth;
 	int					mDiffWidths[3];		// 三枚难度按钮的宽度（等宽，取最长标签量好）
 	int					mDiffCaptionY;		// "出怪难度"一行的顶部（ModText 顶对齐口径）
 	std::string			mTitle;				// UTF-8 原样（绘制走 ModText::WideFromUtf8）

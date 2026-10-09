@@ -1,5 +1,6 @@
 #include "RunModeDialog.h"
 #include "CjkStoneButton.h"
+#include "RunOptionsDialog.h"
 #include "GameButton.h"
 #include "../../LawnApp.h"
 #include "../../Resources.h"
@@ -55,6 +56,11 @@ RunModeDialog::RunModeDialog(LawnApp* theApp, bool theShowDiff) : LawnDialog(
 	// 选中 = mInverted（CjkStoneButton::Draw 里 XOR 成按下态贴图）；点了只换选中、不关弹窗。
 	mShowDiff = theShowDiff;
 	mDiffSel = RunState::RUN_DIFF_STD;
+	mScaleSel = RunState::RUN_SCALE_STD;
+	mTempoSel = RunState::RUN_TEMPO_STD;
+	mZombotanySel = 0;
+	mOptionsButton = nullptr;
+	mOptionsWidth = 0;
 	mDiffCaptionY = 0;
 	for (int i = 0; i < 3; i++) mDiffButtons[i] = nullptr;
 	if (mShowDiff)
@@ -84,6 +90,15 @@ RunModeDialog::RunModeDialog(LawnApp* theApp, bool theShowDiff) : LawnDialog(
 			aButton->mInverted = (i == mDiffSel);	// 默认选中"标准"
 			mDiffButtons[i] = aButton;
 		}
+
+		// 「高级选项…」（MOD_BUILD 35）：与取消并排贴底，点开 RunOptionsDialog 回填三值。
+		CjkStoneButton* aOptions = new CjkStoneButton(RunModeDialog_Options, this);
+		aOptions->SetLabel(ModText::Tr("高级选项…", "Advanced Options..."));
+		aOptions->mHasAlpha = true;
+		aOptions->mHasTransparencies = true;
+		mOptionsButton = aOptions;
+		mOptionsWidth = CjkStoneButtonWidth(ModText::TextWidth(ModText::GetFont(CjkPointSize(CJK_BUTTON_LABEL_PX), false),
+			ModText::WideFromUtf8(aOptions->mLabel.c_str())) + 32, true);
 	}
 
 	mCancelButton = new CjkStoneButton(Dialog::ID_NO, this);
@@ -122,6 +137,7 @@ RunModeDialog::~RunModeDialog()
 	for (int i = 0; i < 3; i++) delete mCardButtons[i];
 	for (int i = 0; i < 3; i++) delete mDiffButtons[i];
 	delete mCancelButton;
+	delete mOptionsButton;
 }
 
 void RunModeDialog::Resize(int theX, int theY, int theWidth, int theHeight)
@@ -160,10 +176,22 @@ void RunModeDialog::Resize(int theX, int theY, int theWidth, int theHeight)
 		}
 	}
 
-	// 取消按钮贴底（ OnlineStartDialog 同一条算式）
+	// 底部按钮贴底（OnlineStartDialog 同一条算式）：「高级选项…」+ 取消并排居中（主机），
+	// 或只有取消居中（单机）。
 	int aButtonY = mHeight - mContentInsets.mBottom - mBackgroundInsets.mBottom - aButtonHeight + 2;
 	if (mTallBottom) aButtonY += 5;
-	mCancelButton->Resize((mWidth - mCancelWidth) / 2, aButtonY, mCancelWidth, aButtonHeight);
+	if (mOptionsButton)
+	{
+		static const int aBottomGapX = 20;
+		int aTotalW = mOptionsWidth + mCancelWidth + aBottomGapX;
+		int aLeft = (mWidth - aTotalW) / 2;
+		mOptionsButton->Resize(aLeft, aButtonY, mOptionsWidth, aButtonHeight);
+		mCancelButton->Resize(aLeft + mOptionsWidth + aBottomGapX, aButtonY, mCancelWidth, aButtonHeight);
+	}
+	else
+	{
+		mCancelButton->Resize((mWidth - mCancelWidth) / 2, aButtonY, mCancelWidth, aButtonHeight);
+	}
 }
 
 void RunModeDialog::AddedToManager(WidgetManager* theWidgetManager)
@@ -172,6 +200,7 @@ void RunModeDialog::AddedToManager(WidgetManager* theWidgetManager)
 	for (int i = 0; i < 3; i++) AddWidget(mCardButtons[i]);
 	for (int i = 0; i < 3; i++) if (mDiffButtons[i]) AddWidget(mDiffButtons[i]);
 	AddWidget(mCancelButton);
+	if (mOptionsButton) AddWidget(mOptionsButton);
 }
 
 void RunModeDialog::RemovedFromManager(WidgetManager* theWidgetManager)
@@ -180,6 +209,7 @@ void RunModeDialog::RemovedFromManager(WidgetManager* theWidgetManager)
 	for (int i = 0; i < 3; i++) RemoveWidget(mCardButtons[i]);
 	for (int i = 0; i < 3; i++) if (mDiffButtons[i]) RemoveWidget(mDiffButtons[i]);
 	RemoveWidget(mCancelButton);
+	if (mOptionsButton) RemoveWidget(mOptionsButton);
 }
 
 void RunModeDialog::Draw(Graphics* g)
@@ -270,6 +300,21 @@ void RunModeDialog::ButtonDepress(int theId)
 	if (theId == Dialog::ID_NO)
 	{
 		mResult = Dialog::ID_NO;	// 取消 = 关弹窗不开局（WaitForResult 自己收摊）
+		return;
+	}
+	// 「高级选项…」：嵌套阻塞开 RunOptionsDialog（见那边的头注释——WaitForResult 泵的就
+	// 是主循环）。确定才收值，取消保留原选择；不关本弹窗，选完模式一并带走。
+	if (theId == RunModeDialog_Options)
+	{
+		RunOptionsDialog* aDialog = new RunOptionsDialog(mApp, mScaleSel, mTempoSel, mZombotanySel);
+		mApp->CenterDialog(aDialog, aDialog->mWidth, aDialog->mHeight);
+		mApp->AddDialog(Dialogs::DIALOG_RUN_OPTIONS, aDialog);
+		if (aDialog->WaitForResult() == RunOptionsDialog::RunOptionsDialog_OK)
+		{
+			mScaleSel = aDialog->mScaleSel;
+			mTempoSel = aDialog->mTempoSel;
+			mZombotanySel = aDialog->mZombotanySel;
+		}
 		return;
 	}
 }

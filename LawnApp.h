@@ -291,7 +291,10 @@ public:
 	bool							RequestAdventure();
 	void							UpdateAdventureRequest();
 	void							UpdateStartupAnnounce();
-	void							StartRun(int theRunMode, int theRunDiff);	// theRunMode = RunState::RUN_MODE_*（时长档）、theRunDiff = RunState::RUN_DIFF_*（出怪难度档）
+	// theRunScale/theRunTempo/theZombotany（批 C，MOD_BUILD 35）：「高级选项」三值——
+	// 出怪规模档 / 节奏档（RunState::RUN_SCALE_*/RUN_TEMPO_*）与植物僵尸混入开关；
+	// 默认 标准/标准/关（头里对 RunState 只有前置声明，默认参用字面量）。
+	void							StartRun(int theRunMode, int theRunDiff, int theRunScale = 1, int theRunTempo = 1, int theZombotany = 0);	// theRunMode = RunState::RUN_MODE_*（时长档）、theRunDiff = RunState::RUN_DIFF_*（出怪难度档）
 	void							ContinueRun();
 	void							EnterRunLevel();
 	// @pvz-online: 联机闯关（R5）：把本机进度对齐到主机点名的这一关。同一局种子就接着走
