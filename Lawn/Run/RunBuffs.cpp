@@ -391,6 +391,10 @@ bool RunPlantBuff2InPool(int theIndex)
 	case RUN_BUFF2_OPENWOUND:	// 地刺：被扎者受全伤 +30%/层（Zombie::TakeDamage 查脚下格）
 	case RUN_BUFF2_DEEPFREEZE:	// 冰西瓜：命中 20%/层 概率冻 2 秒（Projectile::DoImpact）
 		return true;
+	case RUN_BUFF2_BOOSTGROW:	// 批 6 经济族：阳光菇首产后立即长大（UpdateProductionPlant）
+	case RUN_BUFF2_FORTUNE:		// 金盏花 +10%/层 概率产金/钻币（同函数 MARIGOLD 分支）
+	case RUN_BUFF2_GOLDTOUCH:	// 吸金磁 +25%/层 概率银币按金币入账（UpdateGoldMagnetShroom）
+		return true;
 	default:
 		return false;
 	}
@@ -509,7 +513,13 @@ static bool IsEconomyRunChoice(int theId)
 		return theId == RUN_BUFF_ABUNDANCE || theId == RUN_BUFF_FASTSEED || theId == RUN_BUFF_SKYFALL;
 	}
 	int aIdx = theId - RUN_BUFF_COUNT;
-	if (aIdx >= RUN_PLANT_UPGRADE_COUNT) return false;	// 第二表段：经济向新条（#38/#45 待钱用途定案）在批 6 落地时再补
+	if (aIdx >= RUN_PLANT_UPGRADE_COUNT)
+	{
+		// 第二表段（批 6 经济族起）：只认局内阳光产能向——「催长」（阳光菇 #9）。
+		// 「富贵」/「金石」产的是玩家档案金币（非局内阳光，用途待定），不占经济权重。
+		int aIdx2 = aIdx - RUN_PLANT_UPGRADE_COUNT;
+		return aIdx2 == RUN_BUFF2_BOOSTGROW;
+	}
 	switch (GetRunPlantUpgradeDef(aIdx).mPlant)
 	{
 	case SeedType::SEED_SUNFLOWER:

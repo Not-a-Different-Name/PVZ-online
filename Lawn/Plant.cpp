@@ -1235,6 +1235,13 @@ void Plant::UpdateProductionPlant()
             // 这里只落常规那枚（小阳光阶段落的还是小阳光）。
             CoinType aSunType = (mState == PlantState::STATE_SUNSHROOM_SMALL) ? CoinType::COIN_SMALLSUN : CoinType::COIN_SUN;
             mBoard->AddCoin(mX, mY, aSunType, CoinMotion::COIN_MOTION_FROM_PLANT);
+            // @pvz-online: 第二 buff「催长」（阳光菇 #9，docs/06 §8.6）：首产（小阳光 15）落地
+            // 后立即长大——第二次产出已是 25 大阳光。清掉长大倒计时，下一帧 UpdateSunShroom
+            // 的 SMALL 分支判 0 走长大流程；非闯关词条恒 0 不动。
+            if (mState == PlantState::STATE_SUNSHROOM_SMALL && mApp->RunPlantBuff2Count(SeedType::SEED_SUNSHROOM) > 0)
+            {
+                mStateCountdown = 0;
+            }
         }
         else if (mSeedType == SeedType::SEED_SUNFLOWER)
         {
@@ -1255,10 +1262,34 @@ void Plant::UpdateProductionPlant()
         }
         else if (mSeedType == SeedType::SEED_MARIGOLD)
         {
-            mBoard->AddCoin(mX, mY, (Sexy::Rand(100) < 10) ? CoinType::COIN_GOLD : CoinType::COIN_SILVER, CoinMotion::COIN_MOTION_COIN);
+            // @pvz-online: 第二 buff「富贵」（金盏花 #38，docs/06 §8.6）：+10%/层 概率产
+            // 高值币——命中时 25% 钻石 / 75% 金（贴词条「金/钻石币」），未命中走原版
+            // 10% 金 / 90% 银。常规枚与「多产」老条的加枚各自独立 roll。
+            int aRichChance = 10 * mApp->RunPlantBuff2Count(SeedType::SEED_MARIGOLD);
+            CoinType aMarigoldCoin;
+            if (aRichChance > 0 && (int)Sexy::Rand(100) < aRichChance)
+            {
+                aMarigoldCoin = ((int)Sexy::Rand(4) == 0) ? CoinType::COIN_DIAMOND : CoinType::COIN_GOLD;
+            }
+            else
+            {
+                aMarigoldCoin = ((int)Sexy::Rand(100) < 10) ? CoinType::COIN_GOLD : CoinType::COIN_SILVER;
+            }
+            mBoard->AddCoin(mX, mY, aMarigoldCoin, CoinMotion::COIN_MOTION_COIN);
             // @pvz-online: 单株升级「多产」：每层多落一枚（金/银按各自 10% 独立摇）
             for (int i = 0, aExtra = mApp->RunPlantUpgradeCount(SeedType::SEED_MARIGOLD); i < aExtra; i++)
-                mBoard->AddCoin(mX, mY, (Sexy::Rand(100) < 10) ? CoinType::COIN_GOLD : CoinType::COIN_SILVER, CoinMotion::COIN_MOTION_COIN);
+            {
+                CoinType aExtraCoin;
+                if (aRichChance > 0 && (int)Sexy::Rand(100) < aRichChance)
+                {
+                    aExtraCoin = ((int)Sexy::Rand(4) == 0) ? CoinType::COIN_DIAMOND : CoinType::COIN_GOLD;
+                }
+                else
+                {
+                    aExtraCoin = ((int)Sexy::Rand(100) < 10) ? CoinType::COIN_GOLD : CoinType::COIN_SILVER;
+                }
+                mBoard->AddCoin(mX, mY, aExtraCoin, CoinMotion::COIN_MOTION_COIN);
+            }
         }
 
         if (mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_BIG_TIME)
@@ -2626,6 +2657,14 @@ void Plant::UpdateGoldMagnetShroom()
                 case MagnetItemType::MAGNET_ITEM_GOLD_COIN:     aCoinType = CoinType::COIN_GOLD;        break;
                 case MagnetItemType::MAGNET_ITEM_DIAMOND:       aCoinType = CoinType::COIN_DIAMOND;     break;
                 default:                                        TOD_ASSERT();                           return;
+                }
+
+                // @pvz-online: 第二 buff「金石」（吸金磁 #45，docs/06 §8.6）：吸到银币入账时
+                // +25%/层 概率按金币计值（25→50）；金/钻石不重 roll，只改这一枚的入账值。
+                int aGoldChance = 25 * mApp->RunPlantBuff2Count(SeedType::SEED_GOLD_MAGNET);
+                if (aGoldChance > 0 && aCoinType == CoinType::COIN_SILVER && (int)Sexy::Rand(100) < aGoldChance)
+                {
+                    aCoinType = CoinType::COIN_GOLD;
                 }
 
                 int aValue = Coin::GetCoinValue(aCoinType);
