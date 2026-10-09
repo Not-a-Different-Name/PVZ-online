@@ -335,7 +335,7 @@ static const RunPlantUpgradeDef gRunPlantBuff2Defs[RUN_PLANT_BUFF2_COUNT] =
 	{ SeedType::SEED_SPLITPEA,      "Free Plant",    "种植费用变为 0",                       "Planting cost becomes 0",                             0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 1 },
 	{ SeedType::SEED_PUMPKINSHELL,  "Regrow",        "每 15 秒回复 10% 血量",                "Heals 10% HP every 15 sec",                           0.00f, 2, false, RUN_UPGRADE_KIND_EFFECT, 2 },
 	{ SeedType::SEED_MAGNETSHROOM,  "Magnet Throw",  "吸到的防具就地掷回\n1200 伤害（每层）",  "Throws stolen armor back\n1200 damage (per stack)",   0.00f, 2, false, RUN_UPGRADE_KIND_EFFECT, 2 },
-	{ SeedType::SEED_CABBAGEPULT,   "Heavy Toss",    "伤害 +50%",                           "Damage +50%",                                         0.00f, 3, false, RUN_UPGRADE_KIND_EFFECT, 1 },
+	{ SeedType::SEED_CABBAGEPULT,   "Heavy Toss",    "伤害 +50%",                           "Damage +50%",                                         0.50f, 3, false, RUN_UPGRADE_KIND_EFFECT, 1 },
 	{ SeedType::SEED_KERNELPULT,    "Butter Feast",  "黄油概率 +25%\n黄油时长 +1 秒（每层）",  "Butter chance +25%\nButter duration +1 sec (per stack)", 0.00f, 2, false, RUN_UPGRADE_KIND_EFFECT, 2 },
 	{ SeedType::SEED_GARLIC,        "Guide Garlic",  "血量仅 20\n被吃时全行僵尸换道",         "Only 20 HP\nZombies in the row switch lanes when bitten", 0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
 	{ SeedType::SEED_MARIGOLD,      "Fortune",       "+10% 概率产金币/钻石\n（每层）",        "+10% chance of gold/diamond\n(per stack)",            0.00f, 3, false, RUN_UPGRADE_KIND_EFFECT, 1 },
@@ -373,6 +373,11 @@ bool RunPlantBuff2InPool(int theIndex)
 	case RUN_BUFF2_PIERCE:		// 批 1 穿透族：豌豆/寒冰/三线直射弹无限穿透（挂点 Plant::Fire）
 	case RUN_BUFF2_FROSTPIERCE:
 	case RUN_BUFF2_TRIDENT:
+		return true;
+	case RUN_BUFF2_SUPPRESS:	// 批 2 节奏/费用/伤害族：双发攻速 ×0.7/层（通用 RHYTHM 挂点）
+	case RUN_BUFF2_SWIFTDIG:	// 墓碑吞噬 ×0.5/层（UpdateGraveBuster 计时）
+	case RUN_BUFF2_FREEPLANT:	// 分裂豌豆 0 费（GetCost）
+	case RUN_BUFF2_HEAVYTOSS:	// 卷心菜伤害 +50%/层（DoSplashDamage）
 		return true;
 	default:
 		return false;

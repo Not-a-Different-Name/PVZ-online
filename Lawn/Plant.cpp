@@ -105,7 +105,8 @@ static int CobCannonArmFrames(LawnApp* theApp, int theBaseFrames)
 // 乘法形式，它数学上就是 ÷k，全链同一因子。
 static float PlantShootSpeed(LawnApp* theApp, SeedType theSeedType)
 {
-    float aMul = theApp->RunBuffMul(RUN_BUFF_SWIFT) * theApp->RunPlantUpgradeMulKind(theSeedType, RUN_UPGRADE_KIND_RHYTHM);
+    float aMul = theApp->RunBuffMul(RUN_BUFF_SWIFT) * theApp->RunPlantUpgradeMulKind(theSeedType, RUN_UPGRADE_KIND_RHYTHM)
+        * theApp->RunPlantBuff2MulKind(theSeedType, RUN_UPGRADE_KIND_RHYTHM);	// 第二 buff：同 Kind 闸门口（双发「火力压制」×0.7/层）
     return 1.0f / aMul;
 }
 
@@ -1110,7 +1111,7 @@ void Plant::UpdateShooter()
         // 多段攻击动画（忧郁菇 4 连/香蒲双发/加特林 4 连/双发第二发被卡掉）；现在动画速率与
         // 全部检查点同比例提速，命中帧与多发间隔比例不变。Kind 闸门保留（2026-10-03 修正批：
         // 只有射速族条目进得来——此前任意行都乘，寒冰射手 +30% 行会把雪豆射速拉长）。
-        mLaunchCounter = (int)((mLaunchRate - Sexy::Rand(15)) * mApp->RunBuffMul(RUN_BUFF_SWIFT) * mApp->RunPlantUpgradeMulKind(mSeedType, RUN_UPGRADE_KIND_RHYTHM) + 0.5f);
+        mLaunchCounter = (int)((mLaunchRate - Sexy::Rand(15)) * mApp->RunBuffMul(RUN_BUFF_SWIFT) * mApp->RunPlantUpgradeMulKind(mSeedType, RUN_UPGRADE_KIND_RHYTHM) * mApp->RunPlantBuff2MulKind(mSeedType, RUN_UPGRADE_KIND_RHYTHM) + 0.5f);	// 第二 buff 批 2：同因子链（火力压制）
 
         if (mSeedType == SeedType::SEED_THREEPEATER)
         {
@@ -1289,7 +1290,9 @@ void Plant::UpdateGraveBuster()
         if (mApp->ReanimationGet(mBodyReanimID)->mLoopCount > 0)
         {
             PlayBodyReanim("anim_idle", ReanimLoopType::REANIM_LOOP, 10, 12.0f);
-            mStateCountdown = 400;
+            // @pvz-online: 第二 buff 批 2「疾掘」（墓碑吞噬者，docs/06 §8.6 #11）：吞噬速度
+            // ×0.5/层（1★）——400 帧吞碑计时按乘数缩，2 层 ×0.25。
+            mStateCountdown = (int)(400 * mApp->RunPlantBuff2Mul(SeedType::SEED_GRAVEBUSTER) + 0.5f);
             mState = PlantState::STATE_GRAVEBUSTER_EATING;
             AddAttachedParticle(mX + 40, mY + 40, mRenderOrder + 4, ParticleEffect::PARTICLE_GRAVE_BUSTER);
         }
@@ -5625,6 +5628,13 @@ int Plant::GetCost(SeedType theSeedType, SeedType theImitaterType)
             // @pvz-online: 批 18 卷心菜「Free Toss」——种植费用变为 0（1 层）。卡面显示、
             // 扣费、可用判定全走 GetCost 这一个口，所以自动一致；模仿者上面已解析到本株。
             if (aCostSeedType == SeedType::SEED_CABBAGEPULT && gLawnApp->RunPlantUpgradeCount(SeedType::SEED_CABBAGEPULT) > 0)
+            {
+                return 0;
+            }
+
+            // @pvz-online: 第二 buff 批 2「免植」（分裂豌豆，docs/06 §8.6 #28）：种下 0 费
+            //（1★，费用轴新原型同 Free Toss 先例）。卡面显示、扣费、可用判定同走 GetCost。
+            if (aCostSeedType == SeedType::SEED_SPLITPEA && gLawnApp->RunPlantBuff2Count(SeedType::SEED_SPLITPEA) > 0)
             {
                 return 0;
             }

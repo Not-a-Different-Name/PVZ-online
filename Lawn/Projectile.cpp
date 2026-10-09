@@ -153,7 +153,7 @@ Plant* Projectile::FindCollisionTargetPlant()
 				aPlant->mSeedType == SeedType::SEED_POTATOMINE ||
 				aPlant->mSeedType == SeedType::SEED_SPIKEWEED ||
 				aPlant->mSeedType == SeedType::SEED_SPIKEROCK ||
-				aPlant->mSeedType == SeedType::SEED_LILYPAD)  // ��ʬ�㶹���ܻ��еͰ�ֲ��
+				aPlant->mSeedType == SeedType::SEED_LILYPAD)  // ��ʬ�㶹���ܻ��еͰ�ֲ��
 				continue;
 		}
 
@@ -205,7 +205,7 @@ bool Projectile::PeaAboutToHitTorchwood()
 //0x46CD40
 Zombie* Projectile::FindCollisionTarget()
 {
-	if (PeaAboutToHitTorchwood())  // ������桱��ԭ������δ����������ڲ���о�������
+	if (PeaAboutToHitTorchwood())  // ������桱��ԭ������δ����������ڲ���о�������
 		return nullptr;
 
 	Rect aProjectileRect = GetProjectileRect();
@@ -482,6 +482,13 @@ void Projectile::DoSplashDamage(Zombie* theZombie)
 	// @pvz-online: 单株升级「Kindling」（火炬树桩）：火弹再乘单株乘数（helper 注释），
 	// 后面的溅射 1/3 递减与上限换算都从放大后的基数推，比例不变。
 	aOriginalDamage = KindlingFireballDamage(mApp, mProjectileType, aOriginalDamage);
+	// @pvz-online: 第二 buff 批 2「重投」（卷心菜投手，docs/06 §8.6 #32）：卷心菜弹伤害
+	// +50%/层（1★）——弹型即发射株（模仿者已解析），口径同火力 buff 的全局弹伤；溅射
+	// 1/3 递减与上限换算从放大后的基数推，比例不变。
+	if (mProjectileType == ProjectileType::PROJECTILE_CABBAGE)
+	{
+		aOriginalDamage = (int)(aOriginalDamage * mApp->RunPlantBuff2Mul(SeedType::SEED_CABBAGEPULT) + 0.5f);
+	}
 	int aSplashDamage = aOriginalDamage / 3;
 	int aMaxSplashDamageAmount = aSplashDamage * 7;
 	if (mProjectileType == ProjectileType::PROJECTILE_FIREBALL)
@@ -772,7 +779,7 @@ void Projectile::UpdateMotion()
 #ifdef DO_FIX_BUGS
 	if (mProjectileType == ProjectileType::PROJECTILE_COBBIG)
 	{
-		aSlopeHeightChange = 0.0f;  // �޸����Ͻ�֮�硱
+		aSlopeHeightChange = 0.0f;  // �޸����Ͻ�֮�硱
 	}
 #endif
 	if (mMotionType == ProjectileMotion::MOTION_FLOAT_OVER)
