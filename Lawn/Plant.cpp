@@ -156,6 +156,7 @@ void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, Se
     mSquashSmashesLeft = -1;
     mSquashFromX = 0.0f;
     mSquashFromY = 0.0f;
+    mMineregrowsLeft = 0;	// @pvz-online: 补雷（第二 buff 批 7）——非闯关/非种下路径恒 0
     mParticleID = ParticleSystemID::PARTICLESYSTEMID_NULL;
     mBodyReanimID = ReanimationID::REANIMATIONID_NULL;
     mHeadReanimID = ReanimationID::REANIMATIONID_NULL;
@@ -386,6 +387,8 @@ void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, Se
         {
             aBodyReanim->AssignRenderGroupToTrack("anim_glow", RENDER_GROUP_HIDDEN);
             mStateCountdown = 1500;
+            // @pvz-online: 第二 buff「补雷」（docs/06 §8.6 #4）：剩余重埋次数 = 词条层数。
+            mMineregrowsLeft = mApp->RunPlantBuff2Count(SeedType::SEED_POTATOMINE);
         }
         else
         {
@@ -4800,7 +4803,32 @@ void Plant::DoSpecial()
         // @pvz-online: 单株升级「扩爆」：半径 ×(1+50%/层)（RunBuffs 单株表；批八由 25% 上调）
         int aRadius = (int)(115 * mApp->RunPlantUpgradeMul(SeedType::SEED_CHERRYBOMB) + 0.5f);
         if (mBoard->KillAllZombiesInRadius(mRow, aPosX, aPosY, aRadius, 1, true, aDamageRangeFlags) >= 10)
-            ReportAchievement::GiveAchievement(mApp, Explodonator, true); // @Patoke: add achievement
+            ReportAchievement::GiveAchievement(mApp, Explodonator, true);
+
+        // @pvz-online: 第二 buff「焦土」（docs/06 §8.6 #2）：被炸中的僵尸继续燃烧——每秒
+        // 300×层、共 3 秒（Update 递减块扣血）。半径判定照 KillAllZombiesInRadius 的口径
+        // （同行、Boss 视作同行、圆-矩形相交，照土豆雷「震雷」循环）；厚血目标爆炸秒不掉、
+        // 焦土接力；僵尸已死则不挂（mScorchedCounter 挡在 EffectedByDamage 后）。
+        int aScorchStacks = mApp->RunPlantBuff2Count(SeedType::SEED_CHERRYBOMB);
+        if (aScorchStacks > 0)
+        {
+            Zombie* aScorchZombie = nullptr;
+            while (mBoard->IterateZombies(aScorchZombie))
+            {
+                if (!aScorchZombie->EffectedByDamage(aDamageRangeFlags))
+                    continue;
+                int aRowDist = aScorchZombie->mRow - mRow;
+                if (aScorchZombie->mZombieType == ZombieType::ZOMBIE_BOSS)
+                    aRowDist = 0;
+                if (aRowDist < -1 || aRowDist > 1)
+                    continue;
+                Rect aScorchRect = aScorchZombie->GetZombieRect();
+                if (GetCircleRectOverlap(aPosX, aPosY, aRadius, aScorchRect))
+                {
+                    aScorchZombie->mScorchedCounter = 300;
+                }
+            }
+        }
 
         mApp->AddTodParticle(aPosX, aPosY, (int)RenderLayer::RENDER_LAYER_TOP, ParticleEffect::PARTICLE_POWIE);
         mBoard->ShakeBoard(3, -4);
@@ -4821,7 +4849,10 @@ void Plant::DoSpecial()
         {
             aDirectDamage = 6000;
         }
-        mBoard->KillAllZombiesInRadius(mRow, aPosX, aPosY, 250, 3, true, aDamageRangeFlags, aDirectDamage);
+        // @pvz-online: 第二 buff「灭世半径」（docs/06 §8.6 #15）：爆炸半径 +50%/层
+        // （250 → 375/500）；波及格不变（KillAllPlantsNearDoom 只炸自身格）。
+        int aDoomRadius = (int)(250 * mApp->RunPlantBuff2Mul(SeedType::SEED_DOOMSHROOM) + 0.5f);
+        mBoard->KillAllZombiesInRadius(mRow, aPosX, aPosY, aDoomRadius, 3, true, aDamageRangeFlags, aDirectDamage);
         KillAllPlantsNearDoom();
 
         mApp->AddTodParticle(aPosX, aPosY, (int)RenderLayer::RENDER_LAYER_TOP, ParticleEffect::PARTICLE_DOOM);
@@ -4841,6 +4872,16 @@ void Plant::DoSpecial()
 
         BurnRow(mRow);
         mBoard->mIceTimer[mRow] = 20;
+
+        // @pvz-online: 第二 buff「连烧」（docs/06 §8.6 #20）：爆炸次数 +1（间隔 1 秒）——
+        // 首爆后不消失，重置自爆倒计时再烧一轮；STATE_DOINGSPECIAL 做「已连烧过」标记
+        //（辣椒原本不受 mState 管辖，该值在本株只有这里读），第二轮走完才真正 Die。
+        if (mApp->RunPlantBuff2Count(SeedType::SEED_JALAPENO) > 0 && mState != PlantState::STATE_DOINGSPECIAL)
+        {
+            mState = PlantState::STATE_DOINGSPECIAL;
+            mDoSpecialCountdown = 100;
+            break;
+        }
 
         Die();
         break;
@@ -4903,6 +4944,19 @@ void Plant::DoSpecial()
         int aRenderPosition = Board::MakeRenderOrder(RenderLayer::RENDER_LAYER_PARTICLE, mRow, 0);
         mApp->AddTodParticle(aPosX + 20.0f, aPosY, aRenderPosition, ParticleEffect::PARTICLE_POTATO_MINE);
         mBoard->ShakeBoard(3, -4);
+
+        // @pvz-online: 第二 buff「补雷」（docs/06 §8.6 #4）：还有剩余重埋次数时不消失——
+        // 摘掉红灯附件、转回埋土态，3 秒（300 帧）后走原版升起身流程（土粒 + anim_rise），
+        // 重埋不耗阳光不刷卡。每层可多补 1 次：初代带层数、每炸一次 -1，耗尽照常 Die。
+        if (mMineregrowsLeft > 0)
+        {
+            mMineregrowsLeft--;
+            mApp->RemoveReanimation(mLightReanimID);
+            mLightReanimID = ReanimationID::REANIMATIONID_NULL;
+            mState = PlantState::STATE_NOTREADY;
+            mStateCountdown = 300;
+            break;
+        }
 
         Die();
         break;

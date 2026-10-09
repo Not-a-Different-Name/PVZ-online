@@ -123,6 +123,9 @@ public:
     // @pvz-online: 第二 buff「腐臭之息」（大喷菇，docs/06 §8.6 #10）：软减速剩余帧——
     // 与 chill（固定半速）不同轴，幅度 = 20%/层（ApplyAnimRate 乘 (1-0.2×层)）。
     int                             mFetidSlowCounter;
+    // @pvz-online: 第二 buff「焦土」（樱桃炸弹 #2，docs/06 §8.6）：DoT 剩余帧（300 = 3 秒），
+    // 每 100 帧扣 300×层（火随人——附着在僵尸身上，不烧地皮）。
+    int                             mScorchedCounter;
     bool                            mMindControlled;                            //+0xB8
     bool                            mBlowingAway;                               //+0xB9
     bool                            mHasHead;                                   //+0xBA

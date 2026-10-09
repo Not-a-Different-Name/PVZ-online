@@ -135,6 +135,7 @@ void Zombie::ZombieInitialize(int theRow, ZombieType theType, bool theVariant, Z
     mIceTrapCounter = 0;
     mButteredCounter = 0;
     mFetidSlowCounter = 0;
+    mScorchedCounter = 0;
     mMindControlled = false;
     mBlowingAway = false;
     mHasHead = true;
@@ -4789,6 +4790,21 @@ void Zombie::UpdatePlaying()
         if (mFetidSlowCounter == 0)
         {
             UpdateAnimSpeed();
+        }
+    }
+    if (mScorchedCounter > 0)
+    {
+        // @pvz-online: 第二 buff「焦土」（樱桃炸弹 #2，docs/06 §8.6）：每 100 帧（1 秒）
+        // 扣 300×层，共 3 秒 3 跳；火随人——挂在僵尸身上随行，不烧地皮。扣血走 TakeDamage
+        // 自带闪白（0U 无特殊 flag）；烧死有正常死亡表现。
+        mScorchedCounter--;
+        if (mScorchedCounter % 100 == 0)
+        {
+            int aScorchStacks = mApp->RunPlantBuff2Count(SeedType::SEED_CHERRYBOMB);
+            if (aScorchStacks > 0)
+            {
+                TakeDamage(300 * aScorchStacks, 0U);
+            }
         }
     }
     if (mButteredCounter > 0)

@@ -199,6 +199,9 @@ public:
     int                     mSquashSmashesLeft;
     float                   mSquashFromX;
     float                   mSquashFromY;
+    // @pvz-online: 土豆雷「Mine Regrow」补雷（第二 buff 批 7，docs/06 §8.6 #4）：剩余重埋
+    // 次数（种下时按词条层数记入，每次爆炸转重埋态时 -1，耗尽照常消失）；词条未抽恒 0。
+    int                     mMineregrowsLeft;
 
 public:
     Plant();

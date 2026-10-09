@@ -395,6 +395,12 @@ bool RunPlantBuff2InPool(int theIndex)
 	case RUN_BUFF2_FORTUNE:		// 金盏花 +10%/层 概率产金/钻币（同函数 MARIGOLD 分支）
 	case RUN_BUFF2_GOLDTOUCH:	// 吸金磁 +25%/层 概率银币按金币入账（UpdateGoldMagnetShroom）
 		return true;
+	case RUN_BUFF2_SCORCHED:	// 批 7 灰烬/投掷族：樱桃焦土 DoT 300×层/秒 3 秒（DoSpecial+Zombie::Update）
+	case RUN_BUFF2_DOOMRADIUS:	// 毁灭菇爆炸半径 +50%/层（DoSpecial 半径乘）
+	case RUN_BUFF2_CHAINBURN:	// 辣椒爆炸次数 +1（DoSpecial 自爆倒计时重置）
+	case RUN_BUFF2_ROLLING:		// 西瓜落地前滚 1 格再炸（Projectile::DoImpact 二次直伤）
+	case RUN_BUFF2_MINEREGROW:	// 土豆雷引爆后 3 秒原位重埋（DoSpecial 转埋土态）
+		return true;
 	default:
 		return false;
 	}

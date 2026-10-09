@@ -997,6 +997,20 @@ void Projectile::DoImpact(Zombie* theZombie)
 		return;
 	}
 
+	// @pvz-online: 第二 buff「滚爆」（西瓜投手 #39，docs/06 §8.6）：落地后向前滚 1 格
+	//（80px）并再炸一次——二次爆走直伤通道（KillAllZombiesInRadius 半径 50，伤害 = 弹
+	// 基数 ×火力放大，无溅射递减），两个落点各放一片西瓜溅射粒子。只认 MELON 本体弹
+	//（冰西瓜不走这条）；词条未抽取时短路。
+	if (mProjectileType == ProjectileType::PROJECTILE_MELON && mApp->RunPlantBuff2Count(SeedType::SEED_MELONPULT) > 0)
+	{
+		int aRollX = (int)(mPosX + 80.0f);
+		int aRollY = (int)(mPosY + mPosZ - mVelY - mVelZ);
+		int aRollFlags = GetDamageFlags(theZombie);
+		int aRollDamage = (int)(GetProjectileDef().mDamage * mApp->RunBuffMul(RUN_BUFF_FIREPOWER) + 0.5f);
+		mBoard->KillAllZombiesInRadius(mRow, aRollX, aRollY, 50, 0, false, aRollFlags, aRollDamage);
+		mApp->AddTodParticle(aRollX + 30.0f, aRollY + 30.0f, mRenderOrder + 1, ParticleEffect::PARTICLE_MELONSPLASH);
+	}
+
 	Die();
 }
 
