@@ -127,6 +127,8 @@ void RunState::StartNew(int theRunSeed, int theRunMode, int theRunDiff, int theR
 	mPendingBuffPicks = 0;
 	mChoicesRolled = false;
 	mPickReRolled = false;
+	mPickSeenBuffCount = 0;		// 候选去重批：新局无露脸/冷却
+	mPickCooldownBuffCount = 0;
 	mPickCounter = 0;
 	// 本机随机盐（用户 2026-10-03 定案：各玩家的候选不共用一套随机数）。不进检查点、
 	// 不随联机命令走——pending 屏本来就不落盘，读档/追赶时重抽的屏用什么盐都合法。
@@ -149,6 +151,9 @@ void RunState::BeginStartPicks()
 	// 新一批屏从"还没抽"开始（抽干作废过之后又会发新屏，别被上一轮的抽好标志挡住重抽）。
 	mChoicesRolled = false;
 	mPickReRolled = false;
+	// 候选去重批：冷却集只在一批屏内滚动（上一屏 → 下一屏），换批即清。
+	mPickSeenBuffCount = 0;
+	mPickCooldownBuffCount = 0;
 	int aExtra = (mMode == RUN_MODE_QUICK) ? 2 : 0;
 	mPendingPlantPicks = CanOfferPlantPick() ? 4 + aExtra : 0;
 	mPendingBuffPicks = 2 + aExtra;
@@ -160,6 +165,9 @@ void RunState::BeginLevelEndPicks()
 	// 新一批屏从"还没抽"开始（同 BeginStartPicks；也覆盖补发追赶 AdvanceCatchUp 的路径）。
 	mChoicesRolled = false;
 	mPickReRolled = false;
+	// 候选去重批：冷却集只在一批屏内滚动（上一屏 → 下一屏），换批即清（同 BeginStartPicks）。
+	mPickSeenBuffCount = 0;
+	mPickCooldownBuffCount = 0;
 
 	// 每关后的植物奖励数（2026-10-09 定案）：完整 2 株/关不变、普通 6→3、快速 10→4——
 	// 大幅收紧让植物保持稀缺（一局拿不满 48 株），单株增益候选池不被一口气铺宽。
@@ -201,7 +209,7 @@ bool RunState::CanOfferPlantPick() const
 // 两屏不会抽出同一组；runSeed 之外还混了本机随机盐 mPickSalt（用户定案：联机里
 // 每个玩家的候选各不相同）。盐在进程内稳定，所以失败重打这一关时抽出来的
 // 还是同一组三条——重开不会变成"刷候选"；换进程/换机器才换盐。
-void RunState::RollChoices()
+void RunState::RollChoices(bool theReroll)
 {
 	// 这一屏的候选从这一刻就算抽好了（LawnApp::UpdateRunPick 的"还没抽才抽"守卫看它）；
 	// 每抽一次刷新机会回满——「换一批」自己会把它用掉（见 RerollChoices）。
@@ -235,6 +243,28 @@ void RunState::RollChoices()
 			if (i != (int)SeedType::SEED_IMITATER && !aOwned[i]) aCandidates[aCount++] = (SeedType)i;
 		}
 
+		// 候选去重批（2026-10-10）：「换一批」把本屏刚摆的三株从候选摘掉——池子够时重抽
+		// 必出全新三株；保底口径与增益屏一致（摘到只剩 min(池子, 3) 条为止，别让屏变秃）。
+		// 植物屏没有跨屏冷却：植物一次性入池，没"刷掉的株反复来"这回事。
+		if (theReroll)
+		{
+			int aFloor = (aCount < RUN_CHOICES) ? aCount : RUN_CHOICES;
+			for (int i = 0; i < RUN_CHOICES && aCount > aFloor; i++)
+			{
+				SeedType aOld = mPlantChoices[i];
+				if (aOld == SeedType::SEED_NONE) continue;
+				for (int j = 0; j < aCount; j++)
+				{
+					if (aCandidates[j] == aOld)
+					{
+						aCandidates[j] = aCandidates[aCount - 1];
+						aCount--;
+						break;
+					}
+				}
+			}
+		}
+
 		for (int i = 0; i < RUN_CHOICES; i++)
 		{
 			if (aCount <= 0)
@@ -249,8 +279,12 @@ void RunState::RollChoices()
 	}
 	else
 	{
+		// 候选去重批：本屏"露过脸"记账从零起（theReroll 时不清——「换一批」之后，
+		// 被刷掉的那批也算本屏露过脸，一并计入下一个冷却集）。
+		if (!theReroll) mPickSeenBuffCount = 0;
 		// 增益：全局 9 条 + 单株升级 + 第二 buff（docs/06 §8.5，同株第二条词条）混池抽
-		// 3 条互不重复，全部按权重（§8.7：档位基值 1★12/2★6/3★2，全局条 ×k）。单株两表
+		// 3 条互不重复，全部按权重（§8.7：档位基值 1★12/2★6/3★1，全局条 ×k、经济条 ×e、
+		// 1★/2★ 全局条再减半）。单株两表
 		// 的只收"卡池里已经有这株"的（设计文档：只对已拥有的植物出；老表花盆/睡莲/墓碑
 		// 删条不进池见 RunPlantUpgradeInPool，第二表删条与未落消费端条目见 RunPlantBuff2InPool）。
 		// 同名跨屏可以再来（叠层，见 BuffStack）；但叠到 mMaxStacks 的条目不再进候选
@@ -296,6 +330,41 @@ void RunState::RollChoices()
 			aWeights[aCount] = GetRunChoiceWeight(aId);
 			aTotalW += aWeights[aCount];
 			aCount++;
+		}
+
+		// 候选去重批（2026-10-10，用户令「刷掉的 buff 别反复出现」）：「换一批」要刷掉的本屏
+		// 现三条（theReroll）+ 上一屏露过脸没拿的（mPickCooldownBuffs，含上一屏被刷掉的那批）
+		// 从候选里摘掉；先摘现三条再摘冷却，摘到只剩 min(池子, 3) 条为止——池子小时自动放宽，
+		// 宁可又见到重复条目，也不让三选一屏变秃（哨兵格）。
+		{
+			unsigned short aExclude[RUN_CHOICES * 3];
+			int aExcludeCount = 0;
+			if (theReroll)
+			{
+				for (int i = 0; i < RUN_CHOICES; i++)
+				{
+					if (mBuffChoices[i] != RUN_BUFF_CHOICE_NONE) aExclude[aExcludeCount++] = mBuffChoices[i];
+				}
+			}
+			for (int i = 0; i < mPickCooldownBuffCount; i++)
+			{
+				aExclude[aExcludeCount++] = mPickCooldownBuffs[i];
+			}
+			int aFloor = (aCount < RUN_CHOICES) ? aCount : RUN_CHOICES;
+			for (int aE = 0; aE < aExcludeCount && aCount > aFloor; aE++)
+			{
+				for (int i = 0; i < aCount; i++)
+				{
+					if (aCandidates[i] == (int)aExclude[aE])
+					{
+						aTotalW -= aWeights[i];
+						aCandidates[i] = aCandidates[aCount - 1];
+						aWeights[i] = aWeights[aCount - 1];
+						aCount--;
+						break;
+					}
+				}
+			}
 		}
 
 		// 防御守卫（方案 §2.4）：无限条目兜底，池子正常恒 ≥ 3 条；真抽干时缺格填哨兵、
@@ -347,17 +416,35 @@ void RunState::RollChoices()
 				}
 			}
 		}
+
+		// 候选去重批的记账：本屏露过脸的全部（抽的当下就记，含「换一批」两批；去重合并
+		// 防溢）。消费时由 NoteBuffScreenConsumed 减去拿走的，生成下一屏冷却集。
+		for (int i = 0; i < RUN_CHOICES; i++)
+		{
+			if (mBuffChoices[i] == RUN_BUFF_CHOICE_NONE) continue;
+			bool aDup = false;
+			for (int j = 0; j < mPickSeenBuffCount; j++)
+			{
+				if (mPickSeenBuffs[j] == mBuffChoices[i]) { aDup = true; break; }
+			}
+			if (!aDup && mPickSeenBuffCount < RUN_CHOICES * 2)
+			{
+				mPickSeenBuffs[mPickSeenBuffCount++] = mBuffChoices[i];
+			}
+		}
 	}
 }
 
-// @pvz-online: 「换一批」（2026-10-08 玩家反馈定案）：把这一屏的三条候选重抽一遍。
-// 走的就是 RollChoices——mPickCounter 再推一步，重抽的那三条必然跟刚作废的那组不同；
-// 池子只剩一两株时空缺照旧留格，重抽只是把有的那几个换个位置。每屏限一次：用过的屏
+// @pvz-online: 「换一批」（2026-10-08 玩家反馈定案；2026-10-10 去重批补排除）：
+// 把这一屏的三条候选重抽一遍。走的就是 RollChoices(true)——mPickCounter 再推一步之外，
+// 本屏现三条（增益屏连同上一屏没拿的冷却集）在抽之前被整体摘出候选，所以池子够时重抽
+// 的三条必然跟刚作废的那组全不同；池子不够时按"保底 3 条"自动放宽。（旧注释声称"必然≠"，
+// 但旧实现只换种子、重抽跟作废组可能重合——去重批把它变成真的。）每屏限一次：用过的屏
 // （mPickReRolled）再点不动（屏上的按钮在重开时同时置为不可点）；下一屏 RollChoices 会把机会回满。
 void RunState::RerollChoices()
 {
 	if (mPickReRolled) return;
-	RollChoices();
+	RollChoices(true);
 	mPickReRolled = true;
 	TodLog("[run] the choices were refreshed (pick counter %u)", mPickCounter);
 }
@@ -393,6 +480,7 @@ void RunState::TakeBuffChoice(int theIndex)
 			mBuffs[i].mCount++;
 			mPendingBuffPicks--;
 			mChoicesRolled = false;		// 这一屏消费掉了，下一屏重新抽（同 TakePlantChoice）
+			NoteBuffScreenConsumed(aId);	// 去重批：本屏露过脸没拿的进下一屏冷却
 			return;
 		}
 	}
@@ -403,6 +491,7 @@ void RunState::TakeBuffChoice(int theIndex)
 	mBuffs.push_back(aStack);
 	mPendingBuffPicks--;
 	mChoicesRolled = false;		// 这一屏消费掉了，下一屏重新抽（同 TakePlantChoice）
+	NoteBuffScreenConsumed(aId);	// 去重批：本屏露过脸没拿的进下一屏冷却
 }
 
 // @pvz-online: 「放弃」的记账（2026-10-03 用户定案）：不落货、只消账。先后与
@@ -419,8 +508,22 @@ void RunState::SkipPendingPick()
 	{
 		mPendingBuffPicks--;
 		mChoicesRolled = false;		// 这一屏消费掉了，下一屏重新抽（同 TakePlantChoice）
+		NoteBuffScreenConsumed(RUN_BUFF_CHOICE_NONE);	// 去重批：放弃 = 本屏露过脸的全部进冷却
 		TodLog("[run] a buff pick was skipped (%d still owed)", mPendingBuffPicks);
 	}
+}
+
+// @pvz-online: 候选去重批的回执（2026-10-10）：「本屏露过脸的全部」减去拿走的那条 = 下一屏
+// 的冷却集。拿走的不进冷却（下一屏还能再来叠层——跨屏叠层是老设计，去重批只治"没拿的
+// 反复出现"）；放弃（theTakenId = RUN_BUFF_CHOICE_NONE）则整批进冷却。
+void RunState::NoteBuffScreenConsumed(unsigned short theTakenId)
+{
+	int aCount = 0;
+	for (int i = 0; i < mPickSeenBuffCount; i++)
+	{
+		if (mPickSeenBuffs[i] != theTakenId) mPickCooldownBuffs[aCount++] = mPickSeenBuffs[i];
+	}
+	mPickCooldownBuffCount = aCount;
 }
 
 int RunState::GetBuffCount(int theBuffId) const
@@ -859,5 +962,8 @@ bool RunState::Load(int theProfileId)
 	mCatchUpLevel = -1;
 	// 读档也换一次盐（与 StartNew 同口径）：待选屏不进检查点，读档后重抽用新盐。
 	mPickSalt = (unsigned int)Sexy::Rand() ^ ((unsigned int)Sexy::Rand() << 16);
+	// 候选去重批的内存记账同样不进检查点，读档清零（与 StartNew 同口径）。
+	mPickSeenBuffCount = 0;
+	mPickCooldownBuffCount = 0;
 	return true;
 }

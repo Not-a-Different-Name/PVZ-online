@@ -91,6 +91,16 @@ public:
 	// 也让「换一批」重开的那一屏不会被再抽一次）；mPickReRolled = 这一屏的刷新机会用掉没有。
 	bool						mChoicesRolled;
 	bool						mPickReRolled;
+	// @pvz-online: 候选去重批的记账（2026-10-10 用户定案「同屏排除+一屏冷却」，一屏/一批
+	// 生灭、纯内存不落检查点）。mPickSeenBuffs = 本屏露过脸的全部增益 id（含「换一批」
+	// 刷掉的那批，最多 3+3，抽的当下就记）；mPickCooldownBuffs = 上一屏露过脸又没拿的
+	// （= 本屏记账减去拿走的那条）——下一屏抽候选时整体摘掉，屏池不够时按"保底 3 条"
+	// 自动放宽（见 RollChoices）；拿走的不进冷却，跨屏叠层照旧。植物屏只做同屏排除
+	// （「换一批」必出全新三株），没有跨屏冷却。
+	unsigned short				mPickSeenBuffs[RUN_CHOICES * 2];
+	int							mPickSeenBuffCount;
+	unsigned short				mPickCooldownBuffs[RUN_CHOICES * 2];
+	int							mPickCooldownBuffCount;
 
 public:
 	// @pvz-online 内存态：这一局正在打（含"刚过关、正要进下一关"的空档）。
@@ -160,13 +170,16 @@ public:
 	// 这一屏发的是植物（true）还是 buff（false）。
 	bool				IsPlantPick() const { return mPendingPlantPicks > 0; }
 	// 抽当前这一屏的三条候选，摆在 mPlantChoices / mBuffChoices 里等玩家点。
-	// 增益屏的第 1 格保底一条全局增益（批十 2026-10-05；全局全封顶时自然让位）。
-	// 每抽一次 mPickCounter 推一步——「换一批」重抽也走这里，所以重抽的三条必然≠刚才那三条。
-	void				RollChoices();
+	// 增益屏无保底（2026-10-09 权重批撤「第 1 格保底全局」，全局密度由 §8.7 权重体系保证）。
+	// theReroll = true（「换一批」）时：本屏现三条先从候选整体摘掉——池子够时重抽必出全新
+	// 三条；增益屏另摘上一屏没拿的（mPickCooldownBuffs，含上一屏被刷掉的那批）；两者都在
+	// "池子不够"时按保底 min(池子, 3) 条自动放宽（宁可还有重复，不让三选一屏变秃）。
+	void				RollChoices(bool theReroll = false);
 	// @pvz-online: 当前屏的候选抽没抽（LawnApp::UpdateRunPick 靠它别把「换一批」重开的屏再抽一遍）。
 	bool				ChoicesRolled() const { return mChoicesRolled; }
-	// @pvz-online: 「换一批」（2026-10-08 玩家反馈定案）：这一屏重抽一次，玩家每屏多一次
-	// 刷新机会——每屏限一次，用过的屏再点也没效果（屏上的按钮同时置为不可点）。
+	// @pvz-online: 「换一批」（2026-10-08 玩家反馈定案；2026-10-10 去重批补排除）：
+	// 这一屏重抽一次，玩家每屏多一次刷新机会——重抽先摘掉本屏现三条（增益屏连同上一屏
+	// 冷却集），池子够时必出全新三条；每屏限一次，用过的屏再点也没效果（屏上的按钮同时置为不可点）。
 	void				RerollChoices();
 	// 玩家点了第 theIndex 张卡：植物进卡池、buff 叠一层，各欠的数减一。
 	void				TakePlantChoice(int theIndex);
@@ -174,6 +187,10 @@ public:
 	// @pvz-online: 玩家点了「放弃」（2026-10-03 用户定案）：这一屏不选也不要——欠的屏数
 	// 照减（先植物后增益，与 IsPlantPick 的先后一致），卡池 / buff 表原样不动。
 	void				SkipPendingPick();
+	// @pvz-online: 去重批的回执（2026-10-10）：这一屏增益消费掉了——把本屏露过脸的全部
+	// （含「换一批」刷掉的那批）减去拿走的那条，记成下一屏的冷却集。放弃传哨兵 = 整批进冷却；
+	// 拿走的那条不进冷却（下一屏还能再来叠层）。
+	void				NoteBuffScreenConsumed(unsigned short theTakenId);
 	// 这一局拿到某个 buff 的层数（R3 的数值层按它算加成）。
 	int					GetBuffCount(int theBuffId) const;
 	// 这株植物在不在这局的卡池里。选卡界面（卡池 > 8 格才弹）靠它决定哪些袋子
