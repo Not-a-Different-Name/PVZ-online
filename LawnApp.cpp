@@ -1597,9 +1597,9 @@ void LawnApp::UpdateAdventureRequest()
 // 简要说明联机玩法与功能（正文按 OnlineStartDialog 的 '\n' 手动分行）。每进程只弹一次；
 // 阻塞式（WaitForResult 泵主循环）——这时候会话要么还没建、要么在后台自己跑心跳，不受影响。
 // 框支持整屏拖动且无边缘回夹（2026-10-04 用户要求）：框大了可以拖出去，把被边缘挡住的部分看全。
-// 2026-10-08 起做两页翻页（用户要的）：第 1 页 = 本版更新速览（Build 34，相对上一测试包）、
-// 第 2 页 = 玩法速览（原一屏正文）。页间用 '\f' 分隔，翻页按钮/页码指示由 OnlineStartDialog
-// 自己摆；两页行数都压在原 9 行口径内——翻页后弹窗不该比原来更挤或更出屏。
+// 2026-10-08 起做两页翻页（用户要的）：第 1 页 = 本版更新速览、第 2 页 = 玩法速览（原一屏
+// 正文）。页间用 '\f' 分隔，翻页按钮/页码指示由 OnlineStartDialog 自己摆；第 1 页随每次
+// 发布更新（当前 = Build 34b，2026-10-09 用户令：权重/换一批等五批进公告）。
 void LawnApp::UpdateStartupAnnounce()
 {
 	if (mShowedStartupAnnounce) return;
@@ -1610,12 +1610,12 @@ void LawnApp::UpdateStartupAnnounce()
 	OnlineStartDialog* aDialog = new OnlineStartDialog(this,
 		ModText::Tr("欢迎来到 PvZ 联机合作版", "Welcome to PvZ Online Co-op"),
 		ModText::Tr(
-			"【本版更新 · Build 34】\n"
-			"· 时长档重排：普通版 10 关、快速版 5 关\n"
-			"· 奖励递增：增益逐关 +1（封顶 7）、植物 2/6/10 株\n"
-			"· 通关后亮奖杯屏并回主菜单（修复通关报错）\n"
-			"· 「天降」重做：夜晚也降阳光、速率 ×4\n"
-			"· 「储备」移除；开局阳光按席次增加、保底 50\n"
+			"【本版更新 · Build 34b】\n"
+			"· 增益三选一可「换一批」（每屏限一次）\n"
+			"· 词条稀有度上线：3★ 金色字、按权重抽取\n"
+			"· 每关植物奖励：普通 3 株、快速 3-4-5-5\n"
+			"· 忧郁菇 / 杨桃无敌人也持续攻击\n"
+			"· 修复长时间挂机黑屏；删两条弱词条\n"
 			"\f"
 			"【玩法速览】\n"
 			"· 2~6 人各守一块草坪，漏怪传给下一位队友\n"
@@ -1625,14 +1625,12 @@ void LawnApp::UpdateStartupAnnounce()
 			"· 主位大墓碑 = 组队 / 加入房间（主机可发起\n"
 			"  闯关）；第三槽 PUZZLE 石板 = 打单关。\n"
 			"· 局内：ESC 暂停、V 看队友场地、T / E 短语与表情",
-			"[Update - Build 34]\n"
-			"· Run modes: Normal 10 levels, Quick 5 levels\n"
-			"· Rewards grow per level: buffs +1 up to 7,\n"
-			"  plants 2/6/10 per level\n"
-			"· Trophy screen after the last level, then\n"
-			"  back to the menu (crash fix)\n"
-			"· Skyfall rework: sun falls at night too, 4x rate\n"
-			"· Reserves removed; start sun by seat order, min 50\n"
+			"[Update - Build 34b]\n"
+			"· Buff picks: reroll once per screen\n"
+			"· Rarity live: gold 3-star, weighted odds\n"
+			"· Plant rewards: Normal 3, Quick 3-4-5-5\n"
+			"· Fume-shroom / Starfruit always fire\n"
+			"· Fixed idle black-screen; trimmed weak buffs\n"
 			"\f"
 			"[Basics]\n"
 			"· 2-6 players each hold one lawn; leaked\n"
