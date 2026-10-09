@@ -401,6 +401,14 @@ bool RunPlantBuff2InPool(int theIndex)
 	case RUN_BUFF2_ROLLING:		// 西瓜落地前滚 1 格再炸（Projectile::DoImpact 二次直伤）
 	case RUN_BUFF2_MINEREGROW:	// 土豆雷引爆后 3 秒原位重埋（DoSpecial 转埋土态）
 		return true;
+	case RUN_BUFF2_THORNS:		// 批 8 机制杂项族：坚果啃食者 40×层/秒 反伤（Zombie::EatPlant）
+	case RUN_BUFF2_CHAINBITE:	// 大嘴花咬死后有目标就再咬 +1/层（UpdateChomper）
+	case RUN_BUFF2_FRAGRANCE:	// 魅惑僵尸啃咬伤害 ×2/层（Zombie::EatZombie）
+	case RUN_BUFF2_FROSTARMOR:	// 寒冰菇冰冻结束全场减速 35% 20 秒（Zombie 解冻点 + ApplyAnimRate）
+	case RUN_BUFF2_LEAP:		// 窝瓜砸击数 ×2/层 + 上下行跳砸（UpdateSquash/FindSquashTarget）
+	case RUN_BUFF2_FLAMESPLASH:	// 火弹溅射放行 ±1 行且不摊薄（Projectile 溅射两处）
+	case RUN_BUFF2_TWILIGHT:	// 路灯照亮格内植物攻速 ×0.75/层（PlantShootSpeed 灯照判定）
+		return true;
 	default:
 		return false;
 	}

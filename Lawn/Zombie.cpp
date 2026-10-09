@@ -136,6 +136,8 @@ void Zombie::ZombieInitialize(int theRow, ZombieType theType, bool theVariant, Z
     mButteredCounter = 0;
     mFetidSlowCounter = 0;
     mScorchedCounter = 0;
+    mFrostArmorCounter = 0;
+    mIceShroomTrap = false;
     mMindControlled = false;
     mBlowingAway = false;
     mHasHead = true;
@@ -4772,6 +4774,26 @@ void Zombie::UpdatePlaying()
         mIceTrapCounter--;
         if (mIceTrapCounter == 0)
         {
+            // @pvz-online: 第二 buff「霜甲」（寒冰菇 #14，docs/06 §8.6，3★ cap1）：寒冰菇冰冻
+            // 自然解冻瞬间，全场僵尸减速 35% 持续 20 秒（2000 帧）——只认寒冰菇冻
+            //（mIceShroomTrap 由 HitIceTrap 置位；冰西瓜深冻/死亡清冻结不触发）；逐只取
+            // max 刷新，多只同时解冻不叠时长。
+            if (mIceShroomTrap)
+            {
+                mIceShroomTrap = false;
+                if (mApp->RunPlantBuff2Count(SeedType::SEED_ICESHROOM) > 0)
+                {
+                    Zombie* aFrostZombie = nullptr;
+                    while (mBoard->IterateZombies(aFrostZombie))
+                    {
+                        if (!aFrostZombie->mDead && aFrostZombie->mFrostArmorCounter < 2000)
+                        {
+                            aFrostZombie->mFrostArmorCounter = 2000;
+                            aFrostZombie->UpdateAnimSpeed();
+                        }
+                    }
+                }
+            }
             RemoveIceTrap();
             AddAttachedParticle(75, 106, ParticleEffect::PARTICLE_ICE_TRAP_RELEASE);
         }
@@ -4788,6 +4810,15 @@ void Zombie::UpdatePlaying()
     {
         mFetidSlowCounter--;
         if (mFetidSlowCounter == 0)
+        {
+            UpdateAnimSpeed();
+        }
+    }
+    if (mFrostArmorCounter > 0)
+    {
+        // @pvz-online: 第二 buff「霜甲」（寒冰菇 #14）：软减速倒计时，归零恢复原速。
+        mFrostArmorCounter--;
+        if (mFrostArmorCounter == 0)
         {
             UpdateAnimSpeed();
         }
@@ -6875,11 +6906,19 @@ void Zombie::ApplyAnimRate(float theAnimRate)
     {
         // @pvz-online: 第二 buff「腐臭之息」（大喷菇，docs/06 §8.6 #10）：软减速 20%/层
         // （cap2 = 至多 -40%）——与 chill 固定半速异轴并存，chill 优先（不叠乘）。
+        // 「霜甲」（寒冰菇 #14）：软减速固定 35%，与腐臭之息叠乘（两条都持有时一起吃）。
         float aRate = theAnimRate;
         if (IsMovingAtChilledSpeed())
+        {
             aRate *= 0.5f;
-        else if (mFetidSlowCounter > 0)
-            aRate *= 1.0f - 0.2f * mApp->RunPlantBuff2Count(SeedType::SEED_FUMESHROOM);
+        }
+        else
+        {
+            if (mFetidSlowCounter > 0)
+                aRate *= 1.0f - 0.2f * mApp->RunPlantBuff2Count(SeedType::SEED_FUMESHROOM);
+            if (mFrostArmorCounter > 0)
+                aRate *= 0.65f;
+        }
         aBodyReanim->mAnimRate = aRate;
     }
 }
@@ -7361,6 +7400,18 @@ void Zombie::EatPlant(Plant* thePlant)
         thePlant->mPlantHealth -= (200 - DAMAGE_PER_EAT);	// 上面已扣 DAMAGE_PER_EAT，补差到固定 200
     }
     thePlant->mRecentlyEatenCountdown = 50;
+    // @pvz-online: 第二 buff「荆棘之壁」（坚果墙 #3，docs/06 §8.6，2★ cap2）：啃食者受
+    // 40/层·秒反伤——啃食节拍 4 帧/口（25 口 = 1 秒），每 25 口给啃食者自己反伤 40×层；
+    // 计数器借坚果的 mLaunchCounter（该株只在保龄球模式用它，与闯关词条不共存）。
+    // 冰冻慢啃（节拍翻倍）时反伤同步减半——反伤跟着啃食动作走。
+    if (thePlant->mSeedType == SeedType::SEED_WALLNUT)
+    {
+        int aThornStacks = mApp->RunPlantBuff2Count(SeedType::SEED_WALLNUT);
+        if (aThornStacks > 0 && ++thePlant->mLaunchCounter % 25 == 0)
+        {
+            TakeDamage(40 * aThornStacks, 0U);
+        }
+    }
     if (mApp->IsIZombieLevel() && mJustGotShotCounter < -500)
     {
         if (thePlant->mSeedType == SeedType::SEED_WALLNUT || thePlant->mSeedType == SeedType::SEED_TALLNUT || thePlant->mSeedType == SeedType::SEED_PUMPKINSHELL)
@@ -7436,7 +7487,15 @@ void Zombie::EatZombie(Zombie* theZombie)
         theZombie->TrySpawnLevelAward();
     }
 
-    theZombie->TakeDamage(DAMAGE_PER_EAT, 9U);
+    // @pvz-online: 第二 buff「迷魂香」（魅惑菇 #12，docs/06 §8.6，2★ cap2 叠乘）：被魅惑
+    // 僵尸的啃咬伤害 ×2^层（表行 mMultiplicative = (1+1.0)^n）——只加在魅惑僵尸出手这侧；
+    // 普通僵尸啃魅惑僵尸不变。
+    int aEatZombieDamage = DAMAGE_PER_EAT;
+    if (mMindControlled && mApp->RunPlantBuff2Count(SeedType::SEED_HYPNOSHROOM) > 0)
+    {
+        aEatZombieDamage = (int)(DAMAGE_PER_EAT * mApp->RunPlantBuff2Mul(SeedType::SEED_HYPNOSHROOM) + 0.5f);
+    }
+    theZombie->TakeDamage(aEatZombieDamage, 9U);
     StartEating();
     if (theZombie->mBodyHealth <= 0)
     {
@@ -8842,6 +8901,10 @@ void Zombie::HitIceTrap()
     // → 各档冻结时长再 +600 帧/层。HitIceTrap 的唯一调用者是寒冰菇的 Plant::IceZombies；
     // CanBeFrozen 挡下的僵尸在上面已早退，不硬塞。非闯关局 RunPlantUpgradeCount 恒 0，加 0 无副作用。
     mIceTrapCounter += 600 * mApp->RunPlantUpgradeCount(SeedType::SEED_ICESHROOM);
+
+    // @pvz-online: 第二 buff「霜甲」（寒冰菇 #14）：标记这次冻结来自寒冰菇——自然解冻时
+    // 触发的全场软减速只认它（见 Zombie::Update 的解冻点）。
+    mIceShroomTrap = true;
 
     StopZombieSound();
     if (mZombieType == ZombieType::ZOMBIE_BALLOON)

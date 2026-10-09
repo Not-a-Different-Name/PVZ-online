@@ -103,10 +103,41 @@ static int CobCannonArmFrames(LawnApp* theApp, int theBaseFrames)
 // 命中帧与「多发间隔 : 装填间隔」比例完全不变，只是整条链快 k 倍——多发不再被截断。
 // 注意：mLaunchCounter 的重置（UpdateShooter）仍写 ×RunBuffMul×RunPlantUpgradeMulKind 的
 // 乘法形式，它数学上就是 ÷k，全链同一因子。
-static float PlantShootSpeed(LawnApp* theApp, SeedType theSeedType)
+// @pvz-online: 第二 buff「Twilight」的判断口（路灯花 #25，docs/06 §8.6，2★ cap2）：该株
+// 植物是否站在「抽到了本条的」路灯花的照亮格内。照亮形状 = 路灯花的驱雾形状
+//（Board::ClearFogAroundPlant 同式：|dX|≤3、|dY|≤2、|dX|+|dY|≤5；老条「Lantern Light」
+// 每层各常量 +1/+1/+2），路灯花识别口径同 Board::UpdateFog（mSeedType == SEED_PLANTERN）。
+// 非闯关局取用口恒 0，整条判定天然为假。
+static bool PlantInLanternLight(LawnApp* theApp, Plant* thePlant)
+{
+    if (thePlant == nullptr || thePlant->mBoard == nullptr) return false;
+    if (theApp->RunPlantBuff2Count(SeedType::SEED_PLANTERN) <= 0) return false;
+
+    int aExtra = theApp->RunPlantUpgradeCount(SeedType::SEED_PLANTERN);
+    Plant* aLantern = nullptr;
+    while (thePlant->mBoard->IteratePlants(aLantern))
+    {
+        if (aLantern->mSeedType != SeedType::SEED_PLANTERN) continue;
+        int aDistX = aLantern->mPlantCol - thePlant->mPlantCol;
+        if (aDistX < 0) aDistX = -aDistX;
+        int aDistY = aLantern->mRow - thePlant->mRow;
+        if (aDistY < 0) aDistY = -aDistY;
+        if (aDistX <= 3 + aExtra && aDistY <= 2 + aExtra && aDistX + aDistY <= 5 + 2 * aExtra)
+            return true;
+    }
+    return false;
+}
+
+static float PlantShootSpeed(LawnApp* theApp, SeedType theSeedType, Plant* thePlant)
 {
     float aMul = theApp->RunBuffMul(RUN_BUFF_SWIFT) * theApp->RunPlantUpgradeMulKind(theSeedType, RUN_UPGRADE_KIND_RHYTHM)
         * theApp->RunPlantBuff2MulKind(theSeedType, RUN_UPGRADE_KIND_RHYTHM);	// 第二 buff：同 Kind 闸门口（双发「火力压制」×0.7/层）
+    // @pvz-online: 第二 buff「Twilight」（路灯花 #25，docs/06 §8.6）：照亮格内植物攻速
+    // ×0.75/层——间隔因子 0.75^n 乘进 aMul（值越小越快，与节奏族同向；未抽/不在照亮格恒 1）。
+    if (PlantInLanternLight(theApp, thePlant))
+    {
+        aMul *= theApp->RunPlantBuff2Mul(SeedType::SEED_PLANTERN);
+    }
     return 1.0f / aMul;
 }
 
@@ -157,6 +188,7 @@ void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, Se
     mSquashFromX = 0.0f;
     mSquashFromY = 0.0f;
     mMineregrowsLeft = 0;	// @pvz-online: 补雷（第二 buff 批 7）——非闯关/非种下路径恒 0
+    mChainBitesLeft = 0;	// @pvz-online: 连锁吞（第二 buff 批 8）——非闯关/非种下路径恒 0
     mParticleID = ParticleSystemID::PARTICLESYSTEMID_NULL;
     mBodyReanimID = ReanimationID::REANIMATIONID_NULL;
     mHeadReanimID = ReanimationID::REANIMATIONID_NULL;
@@ -840,7 +872,7 @@ bool Plant::FindTargetAndFire(int theRow, PlantWeapon thePlantWeapon)
     if (aZombie == nullptr && mSeedType != SeedType::SEED_GLOOMSHROOM)
         return false;
 
-    float aSpeed = PlantShootSpeed(mApp, mSeedType);
+    float aSpeed = PlantShootSpeed(mApp, mSeedType, this);
 
     EndBlink();
     Reanimation* aBodyReanim = mApp->ReanimationTryToGet(mBodyReanimID);
@@ -936,7 +968,7 @@ void Plant::LaunchThreepeater()
         (mBoard->RowCanHaveZombies(rowAbove) && FindTargetZombie(rowAbove, PlantWeapon::WEAPON_PRIMARY)) ||
         (mBoard->RowCanHaveZombies(rowBelow) && FindTargetZombie(rowBelow, PlantWeapon::WEAPON_PRIMARY)))
     {
-        float aSpeed = PlantShootSpeed(mApp, mSeedType);
+        float aSpeed = PlantShootSpeed(mApp, mSeedType, this);
         Reanimation* aHeadReanim1 = mApp->ReanimationGet(mHeadReanimID);
         Reanimation* aHeadReanim2 = mApp->ReanimationGet(mHeadReanimID2);
         Reanimation* aHeadReanim3 = mApp->ReanimationGet(mHeadReanimID3);
@@ -1025,7 +1057,7 @@ void Plant::LaunchStarFruit()
 {
     // @pvz-online: 用户 2026-10-09 令：无论有没有敌人都一直攻击——删 FindStarFruitTarget 门，
     // 空场也照常转 anim_shoot 并出五向星弹（StarFruitFire 本就无条件五发，没怪时飞出屏即可）。
-    float aSpeed = PlantShootSpeed(mApp, mSeedType);
+    float aSpeed = PlantShootSpeed(mApp, mSeedType, this);
     PlayBodyReanim("anim_shoot", ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD, 20, 28.0f * aSpeed);
     mShootingCounter = PlantShootTicks(40, aSpeed);
 }
@@ -1125,7 +1157,7 @@ void Plant::StarFruitFire()
 //0x45F8A0
 void Plant::UpdateShooter()
 {
-    float aSpeed = PlantShootSpeed(mApp, mSeedType);
+    float aSpeed = PlantShootSpeed(mApp, mSeedType, this);
 
     mLaunchCounter--;
     if (mLaunchCounter <= 0)
@@ -1136,7 +1168,7 @@ void Plant::UpdateShooter()
         // 多段攻击动画（忧郁菇 4 连/香蒲双发/加特林 4 连/双发第二发被卡掉）；现在动画速率与
         // 全部检查点同比例提速，命中帧与多发间隔比例不变。Kind 闸门保留（2026-10-03 修正批：
         // 只有射速族条目进得来——此前任意行都乘，寒冰射手 +30% 行会把雪豆射速拉长）。
-        mLaunchCounter = (int)((mLaunchRate - Sexy::Rand(15)) * mApp->RunBuffMul(RUN_BUFF_SWIFT) * mApp->RunPlantUpgradeMulKind(mSeedType, RUN_UPGRADE_KIND_RHYTHM) * mApp->RunPlantBuff2MulKind(mSeedType, RUN_UPGRADE_KIND_RHYTHM) + 0.5f);	// 第二 buff 批 2：同因子链（火力压制）
+        mLaunchCounter = (int)((mLaunchRate - Sexy::Rand(15)) * mApp->RunBuffMul(RUN_BUFF_SWIFT) * mApp->RunPlantUpgradeMulKind(mSeedType, RUN_UPGRADE_KIND_RHYTHM) * mApp->RunPlantBuff2MulKind(mSeedType, RUN_UPGRADE_KIND_RHYTHM) * (PlantInLanternLight(mApp, this) ? mApp->RunPlantBuff2Mul(SeedType::SEED_PLANTERN) : 1.0f) + 0.5f);	// 第二 buff 批 2：同因子链（火力压制）；批 8 追加「暮光」灯照因子（同因子链，见 PlantShootSpeed）
 
         if (mSeedType == SeedType::SEED_THREEPEATER)
         {
@@ -1775,10 +1807,15 @@ Zombie* Plant::FindSquashTarget()
     int aClosestRange = 0;
     Zombie* aClosestZombie = nullptr;
 
+    // @pvz-online: 第二 buff「Leap Shock」飞跃震击（窝瓜 #17，docs/06 §8.6，2★ cap2）：
+    // 持条时相邻行（±1）的僵尸也纳入索敌（基线只有本行 + 巨人特例）。
+    int aLeapStacks = mApp->RunPlantBuff2Count(SeedType::SEED_SQUASH);
+
     Zombie* aZombie = nullptr;
     while (mBoard->IterateZombies(aZombie))
     {
-        if ((aZombie->mRow == mRow || aZombie->mZombieType == ZombieType::ZOMBIE_BOSS) &&
+        if ((aZombie->mRow == mRow || aZombie->mZombieType == ZombieType::ZOMBIE_BOSS ||
+             (aLeapStacks > 0 && (aZombie->mRow - mRow == 1 || aZombie->mRow - mRow == -1))) &&
             aZombie->mHasHead && !aZombie->IsTangleKelpTarget() && aZombie->EffectedByDamage(aDamageRangeFlags))
         {
             Rect aZombieRect = aZombie->GetZombieRect();
@@ -1839,8 +1876,14 @@ void Plant::UpdateSquash()
         {
             // @pvz-online: 窝瓜多砸（批八）：第一次锁定目标时按层数记余额（每层 +2 次）；
             // 重臂回 NOTREADY 时不再重置——余额用完才消失（未升级恒 0，落地即 Die）。
+            // @pvz-online: 第二 buff「Leap Shock」飞跃震击（窝瓜 #17，docs/06 §8.6，2★ cap2）：
+            // 总砸击数 = (1+2×老条层) × 2^新层（与老条加算叠乘，只可选 2 层），余额即再 -1；
+            // 锁定到相邻行目标时整株改行（后续落点 Y / 溅伤判定 / 水池判定全按 mRow 自动跟随），
+            // 巨人特例（跨行锁定）不改行，基线行为原样。
             if (mSquashSmashesLeft < 0)
-                mSquashSmashesLeft = 2 * mApp->RunPlantUpgradeCount(SeedType::SEED_SQUASH);
+                mSquashSmashesLeft = (int)((1 + 2 * mApp->RunPlantUpgradeCount(SeedType::SEED_SQUASH)) * mApp->RunPlantBuff2Mul(SeedType::SEED_SQUASH) + 0.5f) - 1;
+            if (aZombie->mRow != mRow && aZombie->mZombieType != ZombieType::ZOMBIE_BOSS)
+                mRow = aZombie->mRow;
             mTargetZombieID = mBoard->ZombieGetID(aZombie);
             mTargetX = aZombie->ZombieTargetLeadX(0.0f) - mWidth / 2;
             mState = PlantState::STATE_SQUASH_LOOK;
@@ -1866,6 +1909,10 @@ void Plant::UpdateSquash()
             if (aZombie)
             {
                 mTargetX = aZombie->ZombieTargetLeadX(30.0f) - mWidth / 2;
+                // @pvz-online: 第二 buff「Leap Shock」（窝瓜 #17）：起跳前目标若在相邻行
+                //（只有持条才可能选中），跟锁定点一样整株改行——落点/溅伤全随 mRow 走。
+                if (aZombie->mRow != mRow && aZombie->mZombieType != ZombieType::ZOMBIE_BOSS)
+                    mRow = aZombie->mRow;
             }
 
             // @pvz-online: 窝瓜多砸（批八）：记下本次起跳点——首跳 = 种植格（此刻 mX/mY
@@ -2139,6 +2186,9 @@ void Plant::UpdateChomper()
             PlayBodyReanim("anim_bite", ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD, 20, 24.0f);
             mState = PlantState::STATE_CHOMPER_BITING;
             mStateCountdown = 70;
+            // @pvz-online: 第二 buff「Chain Bite」连锁吞（大嘴花 #6，docs/06 §8.6，2★ cap2）：
+            // 每次张嘴记下还能追咬几次；层数 0（未抽/非闯关）时全程走原逻辑。
+            mChainBitesLeft = mApp->RunPlantBuff2Count(SeedType::SEED_CHOMPER);
         }
     }
     else if (mState == PlantState::STATE_CHOMPER_BITING)
@@ -2192,16 +2242,30 @@ void Plant::UpdateChomper()
     {
         if (aBodyReanim->mLoopCount > 0)
         {
-            PlayBodyReanim("anim_chew", ReanimLoopType::REANIM_LOOP, 0, 15.0f);
-            if (mApp->IsIZombieLevel())
+            // @pvz-online: 第二 buff「Chain Bite」连锁吞（大嘴花 #6）：本口咬死目标后还有追咬
+            // 次数、且正前方又有可咬僵尸，就重播一次咬合（与 READY 处同款，不嚼不消化）；
+            // 次数耗尽或前方没目标再照原路进消化。
+            if (mChainBitesLeft > 0 && FindTargetZombie(mRow, PlantWeapon::WEAPON_PRIMARY))
             {
-                aBodyReanim->mAnimRate = 0;
+                --mChainBitesLeft;
+                PlayBodyReanim("anim_bite", ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD, 20, 24.0f);
+                mState = PlantState::STATE_CHOMPER_BITING;
+                mStateCountdown = 70;
             }
+            else
+            {
+                mChainBitesLeft = 0;
+                PlayBodyReanim("anim_chew", ReanimLoopType::REANIM_LOOP, 0, 15.0f);
+                if (mApp->IsIZombieLevel())
+                {
+                    aBodyReanim->mAnimRate = 0;
+                }
 
-            mState = PlantState::STATE_CHOMPER_DIGESTING;
-            // @pvz-online: 单株升级「Ravenous」（大嘴花，表行 SEED_CHOMPER）：咀嚼（消化）
-            // 时间 ×0.5，只可选 1 层。4000 帧是咬到后的消化倒计时；咬/吞动画本身不动。
-            mStateCountdown = (int)(4000 * mApp->RunPlantUpgradeMul(SeedType::SEED_CHOMPER) + 0.5f);
+                mState = PlantState::STATE_CHOMPER_DIGESTING;
+                // @pvz-online: 单株升级「Ravenous」（大嘴花，表行 SEED_CHOMPER）：咀嚼（消化）
+                // 时间 ×0.5，只可选 1 层。4000 帧是咬到后的消化倒计时；咬/吞动画本身不动。
+                mStateCountdown = (int)(4000 * mApp->RunPlantUpgradeMul(SeedType::SEED_CHOMPER) + 0.5f);
+            }
         }
     }
     else if (mState == PlantState::STATE_CHOMPER_DIGESTING)
@@ -3646,7 +3710,7 @@ void Plant::UpdateShooting()
 
     // @pvz-online: 命中/粒子检查点随「动画加速」同比例缩放（见 PlantShootSpeed 注释）。
     // 非攻速植物 aSpeed==1，取整后与原常量逐值相同，行为零变化。
-    float aSpeed = PlantShootSpeed(mApp, mSeedType);
+    float aSpeed = PlantShootSpeed(mApp, mSeedType, this);
 
     if (mSeedType == SeedType::SEED_FUMESHROOM && mShootingCounter == PlantShootTicks(15, aSpeed))
     {

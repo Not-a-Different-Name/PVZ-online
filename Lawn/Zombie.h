@@ -126,6 +126,13 @@ public:
     // @pvz-online: 第二 buff「焦土」（樱桃炸弹 #2，docs/06 §8.6）：DoT 剩余帧（300 = 3 秒），
     // 每 100 帧扣 300×层（火随人——附着在僵尸身上，不烧地皮）。
     int                             mScorchedCounter;
+    // @pvz-online: 第二 buff「霜甲」（寒冰菇 #14，docs/06 §8.6）：软减速剩余帧（2000 = 20 秒），
+    // 幅度固定 35%——寒冰菇冰冻自然解冻时全场铺一次（ApplyAnimRate 乘 0.65，与腐臭之息叠乘）。
+    int                             mFrostArmorCounter;
+    // @pvz-online: 第二 buff「霜甲」的触发标记：本只僵尸当前这次冻结是否来自寒冰菇
+    //（HitIceTrap 唯一调用者 = Plant::IceZombies）；自然解冻时消费并触发全场减速，
+    // 深冻（冰西瓜 mIceTrapCounter 直赋）与死亡清冻结都不触发。
+    bool                            mIceShroomTrap;
     bool                            mMindControlled;                            //+0xB8
     bool                            mBlowingAway;                               //+0xB9
     bool                            mHasHead;                                   //+0xBA

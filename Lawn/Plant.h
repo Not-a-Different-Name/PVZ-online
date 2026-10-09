@@ -202,6 +202,10 @@ public:
     // @pvz-online: 土豆雷「Mine Regrow」补雷（第二 buff 批 7，docs/06 §8.6 #4）：剩余重埋
     // 次数（种下时按词条层数记入，每次爆炸转重埋态时 -1，耗尽照常消失）；词条未抽恒 0。
     int                     mMineregrowsLeft;
+    // @pvz-online: 大嘴花「Chain Bite」连锁吞（第二 buff 批 8，docs/06 §8.6 #6）：本次进食
+    // 还能追咬的剩余次数（进入 BITING 时按词条层数记入；每次咬死目标后有僵尸可咬就 -1
+    // 并重播咬合，耗尽照常进消化）；词条未抽恒 0。
+    int                     mChainBitesLeft;
 
 public:
     Plant();

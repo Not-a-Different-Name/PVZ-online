@@ -438,7 +438,10 @@ bool Projectile::IsZombieHitBySplash(Zombie* theZombie)
 	}
 	if (mProjectileType == ProjectileType::PROJECTILE_FIREBALL)
 	{
-		if (aRowDeviation != 0)
+		// @pvz-online: 第二 buff「烈焰溅射」（火炬树桩 #22，docs/06 §8.6，2★ cap1）：持条时
+		// 火弹溅射判定放行上下各一行（基线只有同排）；不持条行为原样。
+		bool aFlameSplashBuff = mApp->RunPlantBuff2Count(SeedType::SEED_TORCHWOOD) > 0;
+		if (aRowDeviation != 0 && !(aFlameSplashBuff && (aRowDeviation == 1 || aRowDeviation == -1)))
 		{
 			return false;
 		}
@@ -495,8 +498,11 @@ void Projectile::DoSplashDamage(Zombie* theZombie)
 	{
 		aMaxSplashDamageAmount = aOriginalDamage;
 	}
+	// @pvz-online: 第二 buff「烈焰溅射」（火炬树桩 #22，docs/06 §8.6，2★ cap1）：持条时火弹
+	// 溅射每只都吃满原伤 1/3，不再按总上限（原伤）摊薄；不持条走基线摊薄。
+	bool aFlameSplashBuff = mProjectileType == ProjectileType::PROJECTILE_FIREBALL && mApp->RunPlantBuff2Count(SeedType::SEED_TORCHWOOD) > 0;
 	int aSplashDamageAmount = aSplashDamage * aZombiesGetSplashed;
-	if (aSplashDamageAmount > aMaxSplashDamageAmount)
+	if (!aFlameSplashBuff && aSplashDamageAmount > aMaxSplashDamageAmount)
 	{
 		//aSplashDamage *= aMaxSplashDamageAmount / aSplashDamage;
 		aSplashDamage = aOriginalDamage * aMaxSplashDamageAmount / (aSplashDamageAmount * 3);
