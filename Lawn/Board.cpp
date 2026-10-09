@@ -11150,7 +11150,7 @@ int Board::KillAllZombiesInRadius(int theRow, int theX, int theY, int theRadius,
 				if (theBurn)
 				{
 					// @pvz-online: theDirectDamage 透传给 ApplyBurn（0 = 默认）；毁灭菇单株升级
-					//「Annihilation」的 50000 直伤覆写走这条（批八b）。
+					//「Annihilation」的 6000 直伤覆写走这条（批八b；2026-10-09 夜 50000→6000）。
 					aZombie->ApplyBurn(theDirectDamage);
 				}
 				else

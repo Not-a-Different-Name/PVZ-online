@@ -36,7 +36,7 @@ PlantDefinition gPlantDefs[SeedType::NUM_SEED_TYPES] = {  //0x69F2B0
     { SeedType::SEED_SUNSHROOM,         nullptr, ReanimationType::REANIM_SUNSHROOM,     7,  0,      750,    PlantSubClass::SUBCLASS_NORMAL,     2500,   _S("SUN_SHROOM") },
     { SeedType::SEED_FUMESHROOM,        nullptr, ReanimationType::REANIM_FUMESHROOM,    9,  75,     750,    PlantSubClass::SUBCLASS_SHOOTER,    150,    _S("FUME_SHROOM") },
     { SeedType::SEED_GRAVEBUSTER,       nullptr, ReanimationType::REANIM_GRAVE_BUSTER,  40, 0,      750,    PlantSubClass::SUBCLASS_NORMAL,     0,      _S("GRAVE_BUSTER") },
-    { SeedType::SEED_HYPNOSHROOM,       nullptr, ReanimationType::REANIM_HYPNOSHROOM,   10, 75,     3000,   PlantSubClass::SUBCLASS_NORMAL,     0,      _S("HYPNO_SHROOM") },
+    { SeedType::SEED_HYPNOSHROOM,       nullptr, ReanimationType::REANIM_HYPNOSHROOM,   10, 75,     750,   PlantSubClass::SUBCLASS_NORMAL,     0,      _S("HYPNO_SHROOM") },
     { SeedType::SEED_SCAREDYSHROOM,     nullptr, ReanimationType::REANIM_SCRAREYSHROOM, 33, 25,     750,    PlantSubClass::SUBCLASS_SHOOTER,    150,    _S("SCAREDY_SHROOM") },
     { SeedType::SEED_ICESHROOM,         nullptr, ReanimationType::REANIM_ICESHROOM,     36, 75,     5000,   PlantSubClass::SUBCLASS_NORMAL,     0,      _S("ICE_SHROOM") },
     { SeedType::SEED_DOOMSHROOM,        nullptr, ReanimationType::REANIM_DOOMSHROOM,    20, 125,    5000,   PlantSubClass::SUBCLASS_NORMAL,     0,      _S("DOOM_SHROOM") },
@@ -4748,13 +4748,14 @@ void Plant::DoSpecial()
     {
         mApp->PlaySample(SOUND_DOOMSHROOM);
 
-        // @pvz-online: 单株升级「Annihilation」（批八b）：爆炸直伤 50000（只可选 1 层）——
-        // 覆写经 Board::KillAllZombiesInRadius → Zombie::ApplyBurn 传下（厚血目标吃 50000、
+        // @pvz-online: 单株升级「Annihilation」（批八b）：爆炸直伤 6000（只可选 1 层；
+        // 2026-10-09 夜由 50000 下调——保留「无条件清场」质变、砍掉无意义超杀数）——
+        // 覆写经 Board::KillAllZombiesInRadius → Zombie::ApplyBurn 传下（厚血目标吃 6000、
         // 薄血目标照旧烧死保味）；半径回原版 250（批八的半径 +50% 条目已由本条整行取代）。
         int aDirectDamage = 0;
         if (mApp->RunPlantUpgradeCount(SeedType::SEED_DOOMSHROOM) > 0)
         {
-            aDirectDamage = 50000;
+            aDirectDamage = 6000;
         }
         mBoard->KillAllZombiesInRadius(mRow, aPosX, aPosY, 250, 3, true, aDamageRangeFlags, aDirectDamage);
         KillAllPlantsNearDoom();
