@@ -340,7 +340,7 @@ static const RunPlantUpgradeDef gRunPlantBuff2Defs[RUN_PLANT_BUFF2_COUNT] =
 	{ SeedType::SEED_GARLIC,        "Guide Garlic",  "血量仅 20\n被吃时全行僵尸换道",         "Only 20 HP\nZombies in the row switch lanes when bitten", 0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
 	{ SeedType::SEED_MARIGOLD,      "Fortune",       "+10% 概率产金币/钻石\n（每层）",        "+10% chance of gold/diamond\n(per stack)",            0.00f, 3, false, RUN_UPGRADE_KIND_EFFECT, 1 },
 	{ SeedType::SEED_MELONPULT,     "Rolling Burst", "落地后向前滚 1 格\n并再炸一次",         "Rolls 1 tile and bursts again",                       0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 1 },
-	{ SeedType::SEED_GATLINGPEA,    "Fire Peas",     "子弹变火豆：伤害 +50%\n命中解除冰冻减速", "Peas become fire peas: +50% damage\nRemoves chill on hit", 0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
+	{ SeedType::SEED_GATLINGPEA,    "Fire Peas",     "子弹变火豆：伤害翻倍\n命中解除冰冻减速", "Peas become fire peas: double damage\nRemoves chill on hit", 0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
 	{ SeedType::SEED_TWINSUNFLOWER, "Legacy",        "被吃掉时产 1 次阳光",                  "Yields sun once when eaten",                          0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
 	{ SeedType::SEED_GLOOMSHROOM,   "Rock Flesh",    "血量变为 1000\n每次被击固定扣 200",     "Health becomes 1000\nTakes flat 200 per hit",         0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 1 },
 	{ SeedType::SEED_WINTERMELON,   "Deep Freeze",   "+20% 概率冻结命中者 2 秒\n（每层）",    "+20% chance to freeze on hit\nfor 2 sec (per stack)", 0.00f, 3, false, RUN_UPGRADE_KIND_EFFECT, 3 },
@@ -408,6 +408,14 @@ bool RunPlantBuff2InPool(int theIndex)
 	case RUN_BUFF2_LEAP:		// 窝瓜砸击数 ×2/层 + 上下行跳砸（UpdateSquash/FindSquashTarget）
 	case RUN_BUFF2_FLAMESPLASH:	// 火弹溅射放行 ±1 行且不摊薄（Projectile 溅射两处）
 	case RUN_BUFF2_TWILIGHT:	// 路灯照亮格内植物攻速 ×0.75/层（PlantShootSpeed 灯照判定）
+		return true;
+	case RUN_BUFF2_TRISPIKE:	// 批 8b 机制杂项族（后半）：仙人掌三行发射（Fire 补上下行尖刺）
+	case RUN_BUFF2_GALE:		// 三叶草吹风把全场僵尸推离 1 格/层（BlowAwayFliers）
+	case RUN_BUFF2_REGROW:		// 南瓜头每 15 秒回 10%×层 血（UpdateAbilities PUMPKINSHELL 分支）
+	case RUN_BUFF2_MAGNETTHROW:	// 磁力菇吸走防具时 1200×层 直伤（MagnetShroomAttactItem）
+	case RUN_BUFF2_BUTTERFEAST:	// 玉米投手黄油率 +25%/层、时长 +1 秒/层（FindTargetAndFire 骰点 + Projectile 命中）
+	case RUN_BUFF2_FIREPEA:		// 机枪射手子弹成火豆（Fire 里 ConvertToFireball，40 伤/命中解冻）
+	case RUN_BUFF2_TWINCOB:		// 玉米加农炮每轮多发 1 枚同目标玉米（Fire COBCANNON 分支）
 		return true;
 	default:
 		return false;

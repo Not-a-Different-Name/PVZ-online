@@ -937,7 +937,13 @@ bool Plant::FindTargetAndFire(int theRow, PlantWeapon thePlantWeapon)
         {
             // @pvz-online: 批 18 玉米投手行改为「Artillery 种下变加农炮」——黄油率恢复原版
             // 固定 1/4（原 Buttery 挂点删除）。
-            if (Sexy::Rand(4) == 0)
+            // @pvz-online: 第二 buff「Butter Feast」黄油盛宴（玉米投手 #34，docs/06 §8.6，2★
+            // cap2）：持条时黄油率 25% + 25%×层（cap2 封顶 75%）、黄油时长 400 + 100×层 帧
+            //（+1 秒/层，见 Projectile 黄油命中处）；未持条保留原版 Rand(4) 抽法，RNG 流
+            // 与改前完全一致。
+            int aButterFeastStacks = mApp->RunPlantBuff2Count(SeedType::SEED_KERNELPULT);
+            bool aMakeButter = aButterFeastStacks > 0 ? (Sexy::Rand(100) < 25 + 25 * aButterFeastStacks) : (Sexy::Rand(4) == 0);
+            if (aMakeButter)
             {
                 aBodyReanim = mApp->ReanimationGet(mBodyReanimID);
                 aBodyReanim->AssignRenderGroupToPrefix("Cornpult_butter", RENDER_GROUP_NORMAL);
@@ -2425,6 +2431,16 @@ void Plant::MagnetShroomAttactItem(Zombie* theZombie)
         aMagnetItem->mDestOffsetY = RandRangeFloat(-10.0f, 10.0f) + 15.0f;
         aMagnetItem->mItemType = MagnetItemType::MAGNET_ITEM_PICK_AXE;
     }
+
+    // @pvz-online: 第二 buff「Magnet Throw」卸甲飞掷（磁力菇 #31，docs/06 §8.6，2★ cap2）：
+    // 被吸走防具的僵尸就地吃 1200×层 直伤（「防具掷回」的落点）——挂在吸取函数末尾，
+    // 六个分支（桶/橄榄球盔/纱门/梯子/跳杆/弹簧盒/镐）吸到什么就砸什么；伤害标志 0
+    // 走常规结算（同荆棘之壁）。吸取目标必是活体僵尸，无需再挡死亡态。
+    int aMagnetThrowStacks = mApp->RunPlantBuff2Count(SeedType::SEED_MAGNETSHROOM);
+    if (aMagnetThrowStacks > 0)
+    {
+        theZombie->TakeDamage(1200 * aMagnetThrowStacks, 0U);
+    }
 }
 
 //0x461CD0
@@ -3057,6 +3073,23 @@ void Plant::UpdateAbilities()
     else if (mSeedType == SeedType::SEED_SPIKEWEED || mSeedType == SeedType::SEED_SPIKEROCK)    UpdateSpikeweed();
     else if (mSeedType == SeedType::SEED_TANGLEKELP)                                            UpdateTanglekelp();
     else if (mSeedType == SeedType::SEED_SCAREDYSHROOM)                                         UpdateScaredyShroom();
+    else if (mSeedType == SeedType::SEED_PUMPKINSHELL)
+    {
+        // @pvz-online: 第二 buff「Regrow」再生（南瓜头 #30，docs/06 §8.6，2★ cap2）：每 1500 帧
+        //（15 秒）回复 10%×层 最大血量，不超上限。计时器借 mLaunchCounter——南瓜头该字段
+        // 全程闲置（PlantInitialize 里 mLaunchRate 为 0 走 else 置 0，全代码无第二处使用）。
+        // 未抽条恒 0，整段不进。
+        int aRegrowStacks = mApp->RunPlantBuff2Count(SeedType::SEED_PUMPKINSHELL);
+        if (aRegrowStacks > 0 && ++mLaunchCounter >= 1500)
+        {
+            mLaunchCounter = 0;
+            if (mPlantHealth < mPlantMaxHealth)
+            {
+                int aHealTarget = mPlantHealth + (mPlantMaxHealth / 10) * aRegrowStacks;
+                mPlantHealth = aHealTarget > mPlantMaxHealth ? mPlantMaxHealth : aHealTarget;
+            }
+        }
+    }
 
     if (mSubclass == PlantSubClass::SUBCLASS_SHOOTER)
     {
@@ -4800,6 +4833,11 @@ void Plant::BlowAwayFliers()
     // 语义照地刺（DoRowAreaDamage）：CanBeChilled 挡下、不缩短更长的减速（冰道/寒冰菇的
     // 2000 帧不动）、首次挂上出冰音、降速刷新走 UpdateAnimSpeed；计数型、非闯关恒 0。
     int aSlowFrames = 500 * mApp->RunPlantUpgradeCount(SeedType::SEED_BLOVER);
+    // @pvz-online: 第二 buff「Gale Force」狂风（三叶草 #27，docs/06 §8.6，2★ cap2）：持条时
+    // 吹风把全场僵尸推离 1 格×层（+80px/层，网格宽 80px；mPosX 为浮点可直接加）。
+    // 正在啃植物的（mIsEating，啃食位置是锁存的，推走会边啃空气边掉血）与被吹走的
+    //（mBlowingAway，飞行单位本来就在离场）不推；死亡动画中的由外层 IsDeadOrDying 挡。
+    int aGaleForceStacks = mApp->RunPlantBuff2Count(SeedType::SEED_BLOVER);
     Zombie* aZombie = nullptr;
     while (mBoard->IterateZombies(aZombie))
     {
@@ -4810,6 +4848,10 @@ void Plant::BlowAwayFliers()
             if (aZombie->IsFlying())
             {
                 aZombie->mBlowingAway = true;
+            }
+            if (aGaleForceStacks > 0 && !aZombie->mIsEating && !aZombie->mBlowingAway)
+            {
+                aZombie->mPosX += 80.0f * aGaleForceStacks;
             }
             if (aSlowFrames > 0 && aZombie->CanBeChilled() && aSlowFrames > aZombie->mChilledCounter)
             {
@@ -5372,6 +5414,38 @@ void Plant::Fire(Zombie* theTargetZombie, int theRow, PlantWeapon thePlantWeapon
         aProjectile->mPricklyHitsLeft = -1;
     }
 
+    // @pvz-online: 第二 buff「Fire Peas」火豆（机枪射手 #40，docs/06 §8.6，2★ cap1）：持条时
+    // 子弹按原版火豆成弹——就地复用火炬树桩的 ConvertToFireball（换弹型 + 挂火焰豌豆动画 +
+    // FOLEY_FIREPEA），此后一切走火豆既有口径：40 伤（豌豆的 2 倍——评审文案「+50%」低估，
+    // 见 docs/07）、命中解冻冰缓（DoImpact 火弹分支）、同排 1/3 溅射与火系抗性判定。
+    // 4 连发的每一发各走一次 Fire，逐发转换；Overclock 是节奏条不改弹数，无多发交互。
+    if (mSeedType == SeedType::SEED_GATLINGPEA && mApp->RunPlantBuff2Count(SeedType::SEED_GATLINGPEA) > 0)
+    {
+        aProjectile->ConvertToFireball(mPlantCol);
+    }
+
+    // @pvz-online: 第二 buff「Tri-Spike」三向尖刺（仙人掌 #26，docs/06 §8.6，2★ cap1）：持条时
+    // 本行上下各补一发同型尖刺——弹体从仙人掌出发、走三线射手同款斜向运动（MOTION_THREEPEATER，
+    // 影子 ±80 一行的视觉补偿是原版三线的既有写法）飘向相邻行；该行放不了僵尸（池面/出界/
+    // 屋顶边列）就不补（RowCanHaveZombies 闸门，同三线选敌）。伤害标志与穿透标记照抄主弹——
+    // 高射态补高刺（可打气球）、低射态补地刺，老条「Prickly」无限穿透随主弹一起复制。
+    if (mSeedType == SeedType::SEED_CACTUS && mApp->RunPlantBuff2Count(SeedType::SEED_CACTUS) > 0)
+    {
+        for (int aSideRow = mRow - 1; aSideRow <= mRow + 1; aSideRow += 2)
+        {
+            if (!mBoard->RowCanHaveZombies(aSideRow))
+            {
+                continue;
+            }
+            Projectile* aSideProjectile = mBoard->AddProjectile(aOriginX, aOriginY, mRenderOrder - 1, aSideRow, aProjectileType);
+            aSideProjectile->mDamageRangeFlags = aProjectile->mDamageRangeFlags;
+            aSideProjectile->mPricklyHitsLeft = aProjectile->mPricklyHitsLeft;
+            aSideProjectile->mMotionType = ProjectileMotion::MOTION_THREEPEATER;
+            aSideProjectile->mVelY = (aSideRow < mRow) ? -3.0f : 3.0f;
+            aSideProjectile->mShadowY += (aSideRow < mRow) ? 80.0f : -80.0f;
+        }
+    }
+
     // @pvz-online: 单株升级「多发」：每层多打一发（RunBuffs 单株表）。
     // 表里进得了这段的是直射豌豆系（豌豆、三线——三线每道调一次 Fire，所以是每道各 +1 颗，
     // 不是每轮 +3）与小喷菇——多出来的子弹照主子弹的
@@ -5508,6 +5582,23 @@ void Plant::Fire(Zombie* theTargetZombie, int theRow, PlantWeapon thePlantWeapon
         aProjectile->mVelZ = -8.0f;
         aProjectile->mCobTargetX = mTargetX - 40;
         aProjectile->mCobTargetRow = mBoard->PixelToGridYKeepOnBoard(mTargetX, mTargetY);
+
+        // @pvz-online: 第二 buff「Twin Cob」双联装（玉米加农炮 #47，docs/06 §8.6，1★ cap1）：
+        // 每轮多发 1 枚同目标玉米——参数照抄主弹（同弧线同落点），出膛位置右后错开 21px
+        //（沿用西瓜多发的位置错位写法），弹道重叠但看得出是两枚；两发各 300 伤、落点
+        // 各爆各的（230×230 判定区完全重叠 + 位移微差）。
+        if (mApp->RunPlantBuff2Count(SeedType::SEED_COBCANNON) > 0)
+        {
+            Projectile* aExtraProjectile = mBoard->AddProjectile(aOriginX + 21, aOriginY, mRenderOrder - 1, theRow, aProjectileType);
+            aExtraProjectile->mVelX = 0.001f;
+            aExtraProjectile->mDamageRangeFlags = aProjectile->mDamageRangeFlags;
+            aExtraProjectile->mMotionType = ProjectileMotion::MOTION_LOBBED;
+            aExtraProjectile->mVelY = 0.0f;
+            aExtraProjectile->mAccZ = 0.0f;
+            aExtraProjectile->mVelZ = -8.0f;
+            aExtraProjectile->mCobTargetX = aProjectile->mCobTargetX;
+            aExtraProjectile->mCobTargetRow = aProjectile->mCobTargetRow;
+        }
     }
 }
 

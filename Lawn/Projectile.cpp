@@ -953,7 +953,10 @@ void Projectile::DoImpact(Zombie* theZombie)
 
 		if (theZombie)
 		{
-			theZombie->ApplyButter();
+			// @pvz-online: 第二 buff「Butter Feast」黄油盛宴（玉米投手 #34，docs/06 §8.6，2★
+			// cap2）：黄油时长 400 + 100×层 帧（+1 秒/层；命中率的 +25%/层 在投手发射端起骰，
+			// 见 Plant::FindTargetAndFire 的 KERNELPULT 块）。未持条时 +0，与原版默认一致。
+			theZombie->ApplyButter(400 + 100 * mApp->RunPlantBuff2Count(SeedType::SEED_KERNELPULT));
 		}
 	}
 
