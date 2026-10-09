@@ -5184,8 +5184,16 @@ void Plant::Fire(Zombie* theTargetZombie, int theRow, PlantWeapon thePlantWeapon
     // 默认直线运动走，出发位置逐发后错一点，看得出是一排子弹而不是一发重影。
     // 修正批（2026-10-03）改走 Kind 闸门口（Kind=SHOTCOUNT）：只有多发型条目进得来——
     // 此前任意带层行都会给该株多发（批 10 的黄油行差点让玉米投手多发玉米）。
-    // （2026-10-09 数值对齐：小喷菇 +2 颗/层的 ×2 换算删除，回 +1 颗/层，docs/07 同日条目。）
+    // （2026-10-09 数值对齐：小喷菇 +2 颗/层的 ×2 换算删除，回 +1 颗/层，docs/07 同日条目；
+    //  2026-10-09 夜实机反馈又改回 +2 颗/层——见下方的层数 ×2 特判。）
     int aExtraShots = mApp->RunPlantUpgradeCountKind(mSeedType, RUN_UPGRADE_KIND_SHOTCOUNT);
+    // 小喷菇「Spore Volley」按「+2 颗/层」口径：层数 ×2。它每轮只调一次 Fire，取不到双发
+    // 那样「每轮两次 Fire 各跑一遍多发」的自然 2×（双发行 desc 的「+2 颗/层」即由此而来，
+    // 无需特判）；豌豆/三线仍 +1 颗/层，不受影响。
+    if (mSeedType == SeedType::SEED_PUFFSHROOM)
+    {
+        aExtraShots *= 2;
+    }
     for (int i = 0; i < aExtraShots; i++)
     {
         Projectile* aExtraProjectile = mBoard->AddProjectile(aOriginX + 21 * (i + 1), aOriginY, mRenderOrder - 1, theRow, aProjectileType);

@@ -82,6 +82,8 @@
 //      ——纯 UI，RunPickDialog.cpp（本表不动）。
 //   ② 仙人掌「Prickly」：+1 只/层、cap 2 → 尖刺无限穿透、cap 1（弹体标记 -1，Fire 预置）。
 //   ③ 天降：降阳光速率 ×3 → ×2（消费端 LawnApp::RunSkySunIntervalMul 常量 1/3 → 1/2）。
+// 2026-10-09 夜（用户续令，同上见证）：小喷菇「Spore Volley」+1 → +2 颗/层（层数 ×2
+//   特判，见 Plant.cpp Fire 多发段）、档位 3★ → 2★（用户：「三星词条过弱」）。
 static const RunBuffDef gRunBuffDefs[RUN_BUFF_COUNT] =
 {
 	// 末列 = 稀有度档位（权重批 2026-10-09 填档，docs/06 §8.2.1/§8.7；
@@ -217,7 +219,7 @@ static const RunPlantUpgradeDef gRunPlantUpgradeDefs[RUN_PLANT_UPGRADE_COUNT] =
 	{ SeedType::SEED_SNOWPEA,      "Blizzard",     "发射冰西瓜",                        "Fires winter melons",                                0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 3 },
 	{ SeedType::SEED_CHOMPER,      "Ravenous",     "咀嚼时间减半",                      "Chew time halved",                                   -0.50f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
 	{ SeedType::SEED_REPEATER,     "Pea Barrage",  "每次射击多发 2 颗\n（每层）",       "Fires 2 extra peas per shot\n(per stack)",           0.00f, 0, false, RUN_UPGRADE_KIND_SHOTCOUNT, 3 },
-	{ SeedType::SEED_PUFFSHROOM,   "Spore Volley", "每次多发 1 颗\n（每层）",           "Fires 1 extra spore per shot\n(per stack)",        0.00f, 0, false, RUN_UPGRADE_KIND_SHOTCOUNT, 3 },
+	{ SeedType::SEED_PUFFSHROOM,   "Spore Volley", "每次多发 2 颗\n（每层）",           "Fires 2 extra spores per shot\n(per stack)",       0.00f, 0, false, RUN_UPGRADE_KIND_SHOTCOUNT, 2 },
 	{ SeedType::SEED_SUNSHROOM,    "Bright Cap",   "产阳光间隔逐层 ×0.75",              "Sun production interval ×0.75/stack",                -0.25f, 2, true, RUN_UPGRADE_KIND_EFFECT, 2 },
 	{ SeedType::SEED_FUMESHROOM,   "Fume Rush",    "攻击间隔 ×0.5",                     "Attack interval ×0.5",                               -0.50f, 1, false, RUN_UPGRADE_KIND_RHYTHM, 3 },
 	{ SeedType::SEED_GRAVEBUSTER,  "Quick Dig",    "吞掉墓碑额外产 25 阳光\n（每层）",  "Grave eaten yields +25 sun\n(per stack)",            0.00f, 2, false, RUN_UPGRADE_KIND_EFFECT, 1 },
