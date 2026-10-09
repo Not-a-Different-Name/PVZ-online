@@ -2199,6 +2199,16 @@ void Zombie::UpdateZombieGargantuar()
                             SquishAllInSquare(aPlant->mPlantCol, aPlant->mRow, ZombieAttackType::ATTACKTYPE_CHEW);
                         }
                     }
+                    else if (aPlant->mSeedType == SeedType::SEED_GLOOMSHROOM && mApp->RunPlantBuff2Count(SeedType::SEED_GLOOMSHROOM) > 0)
+                    {
+                        // @pvz-online: 第二 buff 批 3「耐砸」（忧郁菇，docs/06 §8.6 #42）：巨人砸
+                        // 每次固定 -200（与被啃同额），砸空才没——像坚果耐砸分支一样不秒杀。
+                        aPlant->mPlantHealth -= 200;
+                        if (aPlant->mPlantHealth <= 0)
+                        {
+                            SquishAllInSquare(aPlant->mPlantCol, aPlant->mRow, ZombieAttackType::ATTACKTYPE_CHEW);
+                        }
+                    }
                     else if ((aPlant->mSeedType == SeedType::SEED_GARLIC && mApp->RunPlantUpgradeCount(SeedType::SEED_GARLIC) > 0)
                           || ((aPlant->mSeedType == SeedType::SEED_WALLNUT || aPlant->mSeedType == SeedType::SEED_TALLNUT)
                               && mApp->RunPlantUpgradeCount(aPlant->mSeedType) > 0))
@@ -2246,6 +2256,15 @@ void Zombie::UpdateZombieGargantuar()
                 {
                     TakeDamage(20, 32U);
                     aPlant->SpikeRockTakeDamage();
+                    if (aPlant->mPlantHealth <= 0)
+                    {
+                        SquishAllInSquare(aPlant->mPlantCol, aPlant->mRow, ZombieAttackType::ATTACKTYPE_CHEW);
+                    }
+                }
+                else if (aPlant->mSeedType == SeedType::SEED_GLOOMSHROOM && mApp->RunPlantBuff2Count(SeedType::SEED_GLOOMSHROOM) > 0)
+                {
+                    // @pvz-online: 第二 buff 批 3「耐砸」（忧郁菇）——同上一份（DO_FIX_BUGS 版）的分支。
+                    aPlant->mPlantHealth -= 200;
                     if (aPlant->mPlantHealth <= 0)
                     {
                         SquishAllInSquare(aPlant->mPlantCol, aPlant->mRow, ZombieAttackType::ATTACKTYPE_CHEW);
@@ -4918,54 +4937,59 @@ void Zombie::UpdateYuckyFace()
     {
         StartWalkAnim(20);
 
-        bool aCanGoUp = true;
-        bool aCanGoDown = true;
-        bool aIsPool = mBoard->mPlantRow[mRow] == PlantRowType::PLANTROW_POOL;
-        if (!mBoard->RowCanHaveZombies(mRow - 1))
-        {
-            aCanGoUp = false;
-        }
-        else if (mBoard->mPlantRow[mRow - 1] == PlantRowType::PLANTROW_POOL && !aIsPool)
-        {
-            aCanGoUp = false;
-        }
-        else if (mBoard->mPlantRow[mRow - 1] != PlantRowType::PLANTROW_POOL && aIsPool)
-        {
-            aCanGoUp = false;
-        }
-        if (!mBoard->RowCanHaveZombies(mRow + 1))
-        {
-            aCanGoDown = false;
-        }
-        else if (mBoard->mPlantRow[mRow + 1] == PlantRowType::PLANTROW_POOL && !aIsPool)
-        {
-            aCanGoDown = false;
-        }
-        else if (mBoard->mPlantRow[mRow + 1] != PlantRowType::PLANTROW_POOL && aIsPool)
-        {
-            aCanGoDown = false;
-        }
+        SwitchLanes();
+    }
+}
 
-        // @pvz-online: 修复上游方向写反的换道（用户 2026-10-03 报"送到 0 和第 6 路"）：
-        // 原「只能往下」分支走 mRow-1、「只能往上」分支走 mRow+1——第 0 行僵尸吃完大蒜
-        // 被 SetRow(-1)、第 5 行被 SetRow(6)，越出 0..5 后贴着草坪边穿行/走出屏幕。
-        // 两分支目标对调回正；下方池/陆地邻接检查不动（方向语义随之自洽）。
-        if (aCanGoDown && !aCanGoUp)
-        {
-            SetRow(mRow + 1);
-        }
-        else if (!aCanGoDown && aCanGoUp)
-        {
-            SetRow(mRow - 1);
-        }
-        else if (aCanGoDown && aCanGoUp)
-        {
-            SetRow((Rand(2) == 0) ? (mRow + 1) : (mRow - 1));
-        }
-        else
-        {
-            TOD_ASSERT();
-        }
+// @pvz-online: 换道判定+执行（第二 buff 批 3 从 UpdateYuckyFace 的 ==170 分支抽出）：
+// 上/下行的可行判定（行表 + 池/陆邻接）与方向写反修复（用户 2026-10-03 报"送到 0 和
+// 第 6 路"，两分支目标对调回正）保持原样。大蒜「引路蒜」词条（第二 buff，docs/06
+// §8.6 #36）在蒜被吃掉时对全行僵尸逐只调用这里复用换道。
+void Zombie::SwitchLanes()
+{
+    bool aCanGoUp = true;
+    bool aCanGoDown = true;
+    bool aIsPool = mBoard->mPlantRow[mRow] == PlantRowType::PLANTROW_POOL;
+    if (!mBoard->RowCanHaveZombies(mRow - 1))
+    {
+        aCanGoUp = false;
+    }
+    else if (mBoard->mPlantRow[mRow - 1] == PlantRowType::PLANTROW_POOL && !aIsPool)
+    {
+        aCanGoUp = false;
+    }
+    else if (mBoard->mPlantRow[mRow - 1] != PlantRowType::PLANTROW_POOL && aIsPool)
+    {
+        aCanGoUp = false;
+    }
+    if (!mBoard->RowCanHaveZombies(mRow + 1))
+    {
+        aCanGoDown = false;
+    }
+    else if (mBoard->mPlantRow[mRow + 1] == PlantRowType::PLANTROW_POOL && !aIsPool)
+    {
+        aCanGoDown = false;
+    }
+    else if (mBoard->mPlantRow[mRow + 1] != PlantRowType::PLANTROW_POOL && aIsPool)
+    {
+        aCanGoDown = false;
+    }
+
+    if (aCanGoDown && !aCanGoUp)
+    {
+        SetRow(mRow + 1);
+    }
+    else if (!aCanGoDown && aCanGoUp)
+    {
+        SetRow(mRow - 1);
+    }
+    else if (aCanGoDown && aCanGoUp)
+    {
+        SetRow((Rand(2) == 0) ? (mRow + 1) : (mRow - 1));
+    }
+    else
+    {
+        TOD_ASSERT();
     }
 }
 
@@ -7298,6 +7322,12 @@ void Zombie::EatPlant(Plant* thePlant)
     }
 
     thePlant->mPlantHealth -= DAMAGE_PER_EAT;
+    // @pvz-online: 第二 buff 批 3「耐砸」（忧郁菇，docs/06 §8.6 #42）：被击固定扣 200/口
+    //（1000 血 = 5 口；1★）。巨人砸分支同额 -200/砸（见 Zombie::Update 的 Squish 分支）。
+    if (thePlant->mSeedType == SeedType::SEED_GLOOMSHROOM && mApp->RunPlantBuff2Count(SeedType::SEED_GLOOMSHROOM) > 0)
+    {
+        thePlant->mPlantHealth -= (200 - DAMAGE_PER_EAT);	// 上面已扣 DAMAGE_PER_EAT，补差到固定 200
+    }
     thePlant->mRecentlyEatenCountdown = 50;
     if (mApp->IsIZombieLevel() && mJustGotShotCounter < -500)
     {
@@ -7312,6 +7342,20 @@ void Zombie::EatPlant(Plant* thePlant)
         mApp->PlaySample(SOUND_GULP);
 
         mBoard->mPlantsEaten++;
+        // @pvz-online: 第二 buff 批 3「引路蒜」（大蒜，docs/06 §8.6 #36）：蒜被吃掉时
+        // 全行僵尸换道——逐只 SwitchLanes（上/下可行判定各自算；带老条「Iron Clove」
+        // 耐砸的同株组合：20 血只挨一下砸，负面前置换来的换道价值，矛盾设计接受）。
+        if (thePlant->mSeedType == SeedType::SEED_GARLIC && mApp->RunPlantBuff2Count(SeedType::SEED_GARLIC) > 0)
+        {
+            Zombie* aRowZombie = nullptr;
+            while (mBoard->IterateZombies(aRowZombie))
+            {
+                if (!aRowZombie->mDead && aRowZombie->mRow == thePlant->mRow)
+                {
+                    aRowZombie->SwitchLanes();
+                }
+            }
+        }
         thePlant->Die();
         mBoard->mChallenge->ZombieAtePlant(thePlant);
 

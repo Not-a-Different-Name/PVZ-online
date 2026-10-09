@@ -242,6 +242,7 @@ public:
     void                            BungeeStealTarget();
     void                            BungeeLiftTarget();
     void                            UpdateYuckyFace();
+    void                            SwitchLanes();
     void                            DrawIceTrap(Graphics* g, const ZombieDrawPosition& theDrawPos, bool theFront);
     void                            HitIceTrap();
     int                             GetHelmDamageIndex();

@@ -379,6 +379,10 @@ bool RunPlantBuff2InPool(int theIndex)
 	case RUN_BUFF2_FREEPLANT:	// 分裂豌豆 0 费（GetCost）
 	case RUN_BUFF2_HEAVYTOSS:	// 卷心菜伤害 +50%/层（DoSplashDamage）
 		return true;
+	case RUN_BUFF2_BEDROCK:		// 批 3 血量改写族：胆小菇血量写死 4000（Plant 构造）
+	case RUN_BUFF2_ROCKFLESH:	// 忧郁菇 1000 + 每击固定 200（啃咬/巨人砸分支）
+	case RUN_BUFF2_GUIDE:		// 大蒜 20 血 + 被吃全行换道（EatPlant → SwitchLanes）
+		return true;
 	default:
 		return false;
 	}

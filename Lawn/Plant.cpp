@@ -537,6 +537,16 @@ void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, Se
     // 由攻击间隔族换成血量族；坚果/高坚果批七换成耐砸，已不在血量族）才乘——此前任意行都乘，
     // 双发/寒冰这类非血量条目会把该株血量一起改了。非闯关局都是 1.0，对 300/4000 无损。
     mPlantHealth = (int)(mPlantHealth * mApp->RunBuffMul(RUN_BUFF_ROOTED) * mApp->RunPlantUpgradeMulKind(theSeedType, RUN_UPGRADE_KIND_HEALTH) + 0.5f);
+    // @pvz-online: 第二 buff 批 3「血量改写」（docs/06 §8.6 #13/#42/#36）：绝对值覆盖——
+    // 乘法链（扎根/老血量条）算完后按词条写死（「变为 N」语义，全局血量 buff 不再放大）。
+    // 磐石 4000（1★）/ 耐砸 1000 + 每击固定 200（1★，扣法在 Zombie 啃咬与巨人砸分支）/
+    // 引路蒜 20 + 被吃全行换道（2★，换道在 Zombie::EatPlant → SwitchLanes）。
+    if (mApp->RunPlantBuff2Count(theSeedType) > 0)
+    {
+        if (theSeedType == SeedType::SEED_SCAREDYSHROOM) mPlantHealth = 4000;
+        else if (theSeedType == SeedType::SEED_GLOOMSHROOM) mPlantHealth = 1000;
+        else if (theSeedType == SeedType::SEED_GARLIC) mPlantHealth = 20;
+    }
     mPlantMaxHealth = mPlantHealth;
 
     if (mSeedType != SeedType::SEED_FLOWERPOT && IsOnBoard())
