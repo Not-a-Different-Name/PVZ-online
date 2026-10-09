@@ -92,7 +92,7 @@ static const RunBuffDef gRunBuffDefs[RUN_BUFF_COUNT] =
 	{ "Abundance",    "产阳光间隔逐层 ×0.75",   "Sun production interval ×0.75/stack", -0.25f, 0, 4, true, 3 },
 	{ "Swift Strikes","植物攻击间隔逐层 ×0.75", "Plant attack interval ×0.75/stack",-0.25f,  0, 0, true, 3 },
 	{ "Quick Seeds",  "种植冷却逐层 ×0.8",      "Planting cooldown ×0.8/stack",    -0.20f,  0, 0, true, 2 },
-	{ "Skyfall",      "夜晚也降阳光，降阳光速率 ×3", "Sky sun also falls at night, 3x drop rate", -0.6667f, 0, 1, false, 1 },
+	{ "Skyfall",      "夜晚也降阳光，降阳光速率 ×2", "Sky sun also falls at night, 2x drop rate", -0.5f, 0, 1, false, 1 },
 	{ "Demolition",   "一次性植物伤害 +60%",    "Instant plant damage +60%",        0.60f,  0, 0, false, 1 },
 	{ "Precision",    "所有伤害 +15%",          "All damage +15%",                  0.15f,  0, 0, false, 1 },
 };
