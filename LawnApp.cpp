@@ -1853,6 +1853,8 @@ void LawnApp::UpdateAdventureRequest()
 // 2026-10-08 起做两页翻页（用户要的）：第 1 页 = 本版更新速览、第 2 页 = 玩法速览（原一屏
 // 正文）。页间用 '\f' 分隔，翻页按钮/页码指示由 OnlineStartDialog 自己摆；第 1 页随每次
 // 发布更新（当前 = Build 39，2026-10-11 用户令发包：39 重连当头条 + 38 的 boss/发阳光 + 卡槽 10 格/闪退修复）。
+// 【排版硬约束】框高 = 所有页里的最高行数（OnlineStartDialog::MaxBodyLineCount），实测 8/9/10 行 →
+// 614/668/722px（54px/行），屏幕只有 600——两语每一页都必须 ≤8 行（含【】标题行），否则按钮被切。
 void LawnApp::UpdateStartupAnnounce()
 {
 	if (mShowedStartupAnnounce) return;
@@ -1868,8 +1870,7 @@ void LawnApp::UpdateStartupAnnounce()
 			"  自动连回、进度继续；也可取消并退出\n"
 			"· 新：闯关关底巨型 Boss（高级选项开启，\n"
 			"  终关第一席出场，免疫控制、砸穿耐砸）\n"
-			"· 新：按 G 发阳光——再按 1-6 选队友，\n"
-			"  对方场地天降阳光（100，到账 90）\n"
+			"· 新：按 G 发阳光——再按 1-6 选队友\n"
 			"· 改动：卡槽加至 10 格；修复：三选一候选\n"
 			"  抽干闪退、仙人掌索敌、三线多发斜向\n"
 			"\f"
@@ -1880,29 +1881,24 @@ void LawnApp::UpdateStartupAnnounce()
 			"  翻倍（封顶 ×32）；末位每行一台兜底推车。\n"
 			"· 主位大墓碑 = 组队 / 加入房间（主机可发起\n"
 			"  闯关）；第三槽 PUZZLE 石板 = 打单关。\n"
-			"· 局内：ESC 暂停、V 看队友场地、T / E 短语与\n"
-			"  表情、G 发阳光",
+			"· 局内：ESC 暂停、V 看队友场地、T / E 短语与表情",
 			"[Update - Build 39]\n"
 			"· New: auto-reconnect - your seat is held\n"
 			"  and you rejoin where you left off\n"
 			"· New: giant boss at the end of Adventure\n"
 			"  (advanced option; immune to control)\n"
-			"· New: press G to gift sun - then 1-6 to\n"
-			"  pick a teammate\n"
+			"· New: press G to gift sun; then pick 1-6\n"
 			"· Tweak: 10 seed slots; fixed the picks\n"
 			"  crash, cactus and three-lane shots\n"
 			"\f"
 			"[Basics]\n"
-			"· 2-6 players each hold one lawn; leaked\n"
-			"  zombies pass on with their HP; a leak on\n"
-			"  the last seat = team defeat.\n"
-			"· Spawns scale by seat: last two seats 2x,\n"
-			"  each seat before doubles, up to x32; the\n"
-			"  last seat has one mower per row.\n"
-			"· Top tombstone = team up / join; the third\n"
-			"  slot PUZZLE slab = single levels.\n"
-			"· ESC pauses; hold V to watch a teammate;\n"
-			"  T / E for phrases and emotes; G gifts sun."),
+			"· 2-6 players hold one lawn each; leaks\n"
+			"  pass on with HP; last-seat leak = loss.\n"
+			"· Spawns scale by seat: last two 2x, each\n"
+			"  seat before doubles, up to x32.\n"
+			"· Top tombstone = team up or join; the\n"
+			"  PUZZLE slab = single levels.\n"
+			"· ESC pause; V watch; T/E chat."),
 		ModText::Tr("知道了", "OK"), nullptr, OnlineStartDialog::NOTIFY_NONE, true);
 	CenterDialog(aDialog, aDialog->mWidth, aDialog->mHeight);
 	TodLog("[announce] dialog %dx%d (screen %dx%d)", aDialog->mWidth, aDialog->mHeight, mWidth, mHeight);
