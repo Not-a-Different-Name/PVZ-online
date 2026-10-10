@@ -527,15 +527,18 @@ public:
 	void							UpdateQuickChat();
 	void							DrawQuickChat(Graphics* g);
 	void							PushQuickChatBanner(uint8_t theSeat, uint8_t theId);
+	void							PushCustomBanner(const char* theTextUtf8);	// id 0 系统提示横幅（发阳光等本机反馈）
 	void							CloseQuickChatPanel();
 	/*inline*/ bool					QuickChatAvailable();
 
-	// 横幅只存来源席位与编号（1..16），文字/卡图渲染时查 QuickChat.h
+	// 横幅只存来源席位与编号（1..8 短语、9..16 表情），文字/卡图渲染时查 QuickChat.h；
+	// id 0 = 本机系统提示（mCustom 直存 UTF-8 文案，不走协议、不拼席位名前缀）
 	struct QuickChatBanner
 	{
 		uint8_t						mSeat;
 		uint8_t						mId;
 		int							mFrames;
+		char						mCustom[48];
 	};
 	enum
 	{
@@ -577,6 +580,12 @@ public:
 	ZombieID						mRunBossZombieID;
 	bool							IsRunBossZombie(Zombie* theZombie);
 	void							SpawnRunBoss();
+
+	// @pvz-online: 发阳光（MOD_BUILD 38）：点自己的阳光银行把一档阳光定向发给顺位
+	// 下一席位的队友（到账额 = 档位 - 税）。单机/单人房/末席/钱不够/冷却中都不发。
+	int								mSunGiftCooldownFrames;
+	void							TrySendSunGift();
+	void							GiveSunGift(int theAmount, uint8_t theFromSeat);	// LawnApp 每帧消费队列时调
 };
 extern bool gShownMoreSunTutorial;
 

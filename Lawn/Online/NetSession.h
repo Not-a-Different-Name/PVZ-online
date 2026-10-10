@@ -309,6 +309,14 @@ public:
 	// 收下的漏怪（先进先出，一只都不许丢）。没有就返回 false。
 	bool			TakePendingEscapedZombie(NetProto::MsgEscapedZombie& theMsg);
 
+	// @pvz-online: 发阳光给队友（MOD_BUILD 38）：定向发往环上下一个上座席位（**环绕**，
+	// 末席发给首位——与漏怪链的"末席即终点"不同，发阳光人人都能发），amount = 到账额
+	// （发送端已扣档位与税）。单人房无人可发、没连上都返回 false——调用方按"没发出去"处理。
+	bool			SendSunGift(uint16_t theAmount);
+
+	// 收到的阳光（先进先出）。没有就返回 false。
+	bool			TakePendingSunGift(NetProto::MsgSendSun& theMsg);
+
 	// 双向：发一条局内快捷聊天（编号查 QuickChat.h：1-8 短语、9-16 植物表情）。
 	// 沿用 Dispatch 默认扇出——所有其他上座席位各收一份，天然按最多六人泛化。
 	// 没连上、编号非法、单人房无人可发都返回 false（调用方当"没发出去"处理）。
@@ -487,6 +495,8 @@ private:
 	std::vector<NetProto::MsgEscapedZombie>	mPendingEscapedZombies;
 	// 收到的局内快捷聊天（收包在会话层、显示在棋盘，跨层不建 UI，理由同漏怪队列）。
 	std::vector<NetProto::MsgQuickChat>	mPendingQuickChats;
+	// @pvz-online: 收到的发阳光（MOD_BUILD 38）。跨层不碰棋盘，理由同漏怪队列。
+	std::vector<NetProto::MsgSendSun>	mPendingSunGifts;
 	// ---- 观战（队友场地查看）----
 	// 观看端：我在看谁（SEAT_UNSET = 没在看）、两个计时、分片装配缓冲。
 	uint8_t				mWatchTargetSeat;

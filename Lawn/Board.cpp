@@ -46,6 +46,12 @@
 
 bool gShownMoreSunTutorial = false;
 
+// @pvz-online: 发阳光档位（MOD_BUILD 38，2026-10-10 用户定案）——档位 100（发送方扣）、
+// 税 10（到账 90）、冷却 300 帧 ≈ 5 秒（按发送方各自计）。实现在 TrySendSunGift（漏怪传递段旁）。
+static const int	kSunGiftAmount = 100;
+static const int	kSunGiftTax = 10;
+static const int	kSunGiftCooldownFrames = 300;
+
 // @pvz-online: 局内快捷聊天的中文绘制自 2026-10-03 语言批起走 ModText 的宽字符直绘
 // （UTF-8 → UTF-16 → TextOutW，与系统码页脱钩）；原先这里有一份 Utf8ToAnsi +
 // SysFont(TextOutA) 的本地助手，已并入 Lawn/ModText。
@@ -79,6 +85,7 @@ Board::Board(LawnApp* theApp)
 	mGridItems.DataArrayInitialize(128U, "griditems");
 	TodHesitationTrace("board dataarrays");
 	mRunBossZombieID = ZombieID::ZOMBIEID_NULL;
+	mSunGiftCooldownFrames = 0;
 
 	mApp->mEffectSystem->EffectSystemFreeAll();
 	mBoardRandSeed = mApp->mAppRandSeed;
@@ -5026,6 +5033,20 @@ void Board::MouseDown(int x, int y, int theClickCount)
 	if (mTimeStopCounter > 0)
 		return;
 
+	// @pvz-online: 发阳光（MOD_BUILD 38）——点自己的阳光银行定向发给环上下一位队友
+	//（环绕：末席发首位）。只在「联机闯关 + 有队友 + 冷却好 + 钱够」时吞点击，
+	// 其余穿透照旧（银行本来无点击行为）。
+	if (theClickCount >= 0 && mApp->IsOnlineGame() && mApp->IsRunMode()
+		&& mApp->mOnlineSession != nullptr
+		&& mApp->mOnlineSession->NextOccupiedSeatInRing(mApp->mOnlineSession->GetLocalSeat()) != NetProto::SEAT_UNSET
+		&& mSunGiftCooldownFrames <= 0 && mSunMoney >= kSunGiftAmount
+		&& x >= mSeedBank->mX && x < mSeedBank->mX + mSeedBank->mWidth
+		&& y >= mSeedBank->mY && y < mSeedBank->mY + mSeedBank->mHeight)
+	{
+		TrySendSunGift();
+		return;
+	}
+
 	HitResult aHitResult;
 	MouseHitTest(x, y, &aHitResult);
 	if (mChallenge->MouseDown(x, y, theClickCount, &aHitResult))
@@ -5766,6 +5787,55 @@ bool Board::IsRunBossZombie(Zombie* theZombie)
 {
 	return theZombie != nullptr && mRunBossZombieID != ZombieID::ZOMBIEID_NULL
 		&& mRunBossZombieID == ZombieGetID(theZombie);
+}
+
+// @pvz-online: 发阳光（MOD_BUILD 38，2026-10-10 用户定案）——点自己的阳光银行，把一档
+// 阳光定向发给环上下一个上座席位的队友（**环绕**：末席发首位；漏怪链不环绕是"末席即
+// 败"的规则下限，发阳光人人都能发）。档位/税/冷却常量在文件顶部。
+// 单机/单人房点不出；钱不够或冷却中点击穿透（不吞，银行本来无点击行为）。
+void Board::TrySendSunGift()
+{
+	if (mSunGiftCooldownFrames > 0) return;
+	if (!mApp->IsOnlineGame() || !mApp->IsRunMode()) return;
+	// 无人可发（单人房）：给一条系统横幅说清楚，别让玩家以为点了没反应。
+	// 目标 = 环上下一个上座席位（环绕，末席发首位）——与漏怪链的"末席即终点"不同。
+	if (mApp->mOnlineSession == nullptr
+		|| mApp->mOnlineSession->NextOccupiedSeatInRing(mApp->mOnlineSession->GetLocalSeat()) == NetProto::SEAT_UNSET)
+	{
+		PushCustomBanner(ModText::Tr("没有可发阳光的队友", "No teammate to send sun to"));
+		return;
+	}
+	if (mSunMoney < kSunGiftAmount)
+	{
+		PushCustomBanner(ModText::Tr("阳光不足", "Not enough sun"));
+		return;
+	}
+
+	mSunMoney -= kSunGiftAmount;
+	mSunGiftCooldownFrames = kSunGiftCooldownFrames;
+	int aCredit = kSunGiftAmount - kSunGiftTax;
+	if (mApp->mOnlineSession->SendSunGift((uint16_t)aCredit))
+	{
+		char aBuf[48];
+		snprintf(aBuf, sizeof(aBuf), "%s%d%s",
+			ModText::Tr("已发阳光（-", "Sent sun (-"),
+			kSunGiftAmount,
+			ModText::Tr("）", ")"));
+		PushCustomBanner(aBuf);
+	}
+	else
+	{
+		// 没发出去（掉线等）：钱退回、不进冷却
+		mSunMoney += kSunGiftAmount;
+		mSunGiftCooldownFrames = 0;
+	}
+}
+
+void Board::GiveSunGift(int theAmount, uint8_t theFromSeat)
+{
+	mSunMoney = std::min(mSunMoney + theAmount, 9990);
+	(void)theFromSeat;	// 横幅的席位名暂不拼（收发都走无名字系统横幅）；要区分来源时再接
+	PushCustomBanner(ModText::Tr("收到队友的阳光", "Received sun from teammate"));
 }
 
 // @pvz-online: 漏怪传递——僵尸走到房子前，联机局里这只怪不算"漏"，交给队友棋盘继续走。
@@ -8755,6 +8825,24 @@ void Board::PushQuickChatBanner(uint8_t theSeat, uint8_t theId)
 	mChatBanners[mChatBannerCount].mSeat = theSeat;
 	mChatBanners[mChatBannerCount].mId = theId;
 	mChatBanners[mChatBannerCount].mFrames = QUICK_CHAT_BANNER_FRAMES;
+	mChatBanners[mChatBannerCount].mCustom[0] = 0;
+	mChatBannerCount++;
+}
+
+// @pvz-online: 本机系统提示横幅（id 0）：不拼席位名前缀、不走协议——发阳光的
+// 「已发/阳光不足/没有队友」等即时反馈直接给一条文字。
+void Board::PushCustomBanner(const char* theTextUtf8)
+{
+	if (mChatBannerCount >= QUICK_CHAT_BANNER_MAX)
+	{
+		for (int i = 1; i < mChatBannerCount; i++) mChatBanners[i - 1] = mChatBanners[i];
+		mChatBannerCount--;
+	}
+	mChatBanners[mChatBannerCount].mSeat = 0;
+	mChatBanners[mChatBannerCount].mId = 0;
+	mChatBanners[mChatBannerCount].mFrames = QUICK_CHAT_BANNER_FRAMES;
+	snprintf(mChatBanners[mChatBannerCount].mCustom, sizeof(mChatBanners[mChatBannerCount].mCustom),
+		"%s", theTextUtf8 ? theTextUtf8 : "");
 	mChatBannerCount++;
 }
 
@@ -8781,6 +8869,7 @@ void Board::UpdateQuickChat()
 	}
 
 	if (mChatInputCooldown > 0) mChatInputCooldown--;
+	if (mSunGiftCooldownFrames > 0) mSunGiftCooldownFrames--;	// @pvz-online: 发阳光冷却（MOD_BUILD 38）
 
 	if (mChatPanelOpen)
 	{
@@ -8859,10 +8948,15 @@ void Board::DrawQuickChat(Graphics* g)
 		const QuickChatBanner& aBanner = mChatBanners[0];
 		uint8_t anId = aBanner.mId;
 		bool anIsEmote = QuickChat::IsEmoteId(anId);
+		bool anIsCustom = (anId == 0);	// 本机系统提示：mCustom 直显，不拼席位名
 
 		// 发送者名字：本机 = "我"；名字为空退回 P+席位号
 		std::string aNameUtf8;
-		if (mApp->mOnlineSession != nullptr && aBanner.mSeat == mApp->mOnlineSession->GetLocalSeat())
+		if (anIsCustom)
+		{
+			// 系统提示没有"谁说的"
+		}
+		else if (mApp->mOnlineSession != nullptr && aBanner.mSeat == mApp->mOnlineSession->GetLocalSeat())
 		{
 			aNameUtf8 = ModText::Tr("我", "Me");
 		}
@@ -8870,15 +8964,23 @@ void Board::DrawQuickChat(Graphics* g)
 		{
 			aNameUtf8 = mApp->mOnlineSession->GetSeatName(aBanner.mSeat);
 		}
-		if (aNameUtf8.empty())
+		if (!anIsCustom && aNameUtf8.empty())
 		{
 			aNameUtf8 = "P" + std::to_string((unsigned)aBanner.mSeat);
 		}
 
-		std::string aTextUtf8 = aNameUtf8 + ModText::Tr("：", ": ");
-		if (!anIsEmote)
+		std::string aTextUtf8;
+		if (anIsCustom)
 		{
-			aTextUtf8 += ModText::Tr(QuickChat::PHRASES[anId - 1], QuickChat::PHRASES_EN[anId - 1]);
+			aTextUtf8 = aBanner.mCustom;
+		}
+		else
+		{
+			aTextUtf8 = aNameUtf8 + ModText::Tr("：", ": ");
+			if (!anIsEmote)
+			{
+				aTextUtf8 += ModText::Tr(QuickChat::PHRASES[anId - 1], QuickChat::PHRASES_EN[anId - 1]);
+			}
 		}
 		std::wstring aText = ModText::WideFromUtf8(aTextUtf8.c_str());
 

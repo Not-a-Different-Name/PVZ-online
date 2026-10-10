@@ -1121,6 +1121,20 @@ void LawnApp::UpdateOnlineRelay()
 			(int)aMsg.mBodyHealth, (int)aMsg.mHelmHealth,
 			(int)aMsg.mShieldHealth, (int)aMsg.mFlyingHealth);
 	}
+
+	// @pvz-online: 发阳光（MOD_BUILD 38）——队友发来的到账额直接入账（封顶 9990）+
+	// 系统横幅；棋盘不在（换关空档）就丢弃，不跨关补账。
+	NetProto::MsgSendSun aSunMsg;
+	while (mOnlineSession->TakePendingSunGift(aSunMsg))
+	{
+		if (mBoard == nullptr)
+		{
+			TodLog("[net] dropped a sun gift: no board (+%u from seat %u)",
+				(unsigned)aSunMsg.mAmount, (unsigned)aSunMsg.mSrcSeat);
+			continue;
+		}
+		mBoard->GiveSunGift((int)aSunMsg.mAmount, aSunMsg.mSrcSeat);
+	}
 }
 
 // @pvz-online: 队友退关（回主菜单）了没有。收到就跟着退——这一局对两边一起结束，会话留着，

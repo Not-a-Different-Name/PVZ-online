@@ -485,6 +485,16 @@ struct MsgBye
 	uint8_t			mReason;
 };
 
+// SEND_SUN（MOD_BUILD 38）：{ srcSeat, dstSeat, u16 amount }
+// 发阳光给队友：发送方本机扣「档位」（默认 100），线上只带到账额（档位-税，默认 90）。
+// 定向发往顺位下一席位（与漏怪传递同一条目标链）；金额全在发送端算好，接收端照收入账。
+struct MsgSendSun
+{
+	uint8_t			mSrcSeat;
+	uint8_t			mDstSeat;
+	uint16_t		mAmount;
+};
+
 // LEVEL_EXIT：{ srcSeat, dstSeat, u8 reason }
 // "我这一局不打了、回主菜单了"。对面收到也回主菜单（这一局对两人一起结束），
 // 会话本身留着——两人都在菜单上，主机直接点关卡就能开下一局。
@@ -871,6 +881,24 @@ inline bool DecodeEscapedZombie(const uint8_t* theData, int theSize, MsgEscapedZ
 	theMsg.mHelmHealth = aReader.I32();
 	theMsg.mShieldHealth = aReader.I32();
 	theMsg.mFlyingHealth = aReader.I32();
+	return !aReader.Overflowed();
+}
+
+inline int EncodeSendSun(uint8_t* theBuffer, int theCapacity, const MsgSendSun& theMsg)
+{
+	Writer aWriter(theBuffer, theCapacity);
+	aWriter.U8(theMsg.mSrcSeat);
+	aWriter.U8(theMsg.mDstSeat);
+	aWriter.U16(theMsg.mAmount);
+	return aWriter.Overflowed() ? -1 : aWriter.Size();
+}
+
+inline bool DecodeSendSun(const uint8_t* theData, int theSize, MsgSendSun& theMsg)
+{
+	Reader aReader(theData, theSize);
+	theMsg.mSrcSeat = aReader.U8();
+	theMsg.mDstSeat = aReader.U8();
+	theMsg.mAmount = aReader.U16();
 	return !aReader.Overflowed();
 }
 

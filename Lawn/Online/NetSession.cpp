@@ -22,6 +22,7 @@ const int	SEEDS_READY_PAYLOAD_SIZE = 3;	// src, dst, u8 ready
 const int	SWAP_REQUEST_PAYLOAD_SIZE = 2;	// src, dst
 const int	SWAP_REPLY_PAYLOAD_SIZE = 3;	// src, dst, u8 accepted
 const int	ESCAPED_ZOMBIE_PAYLOAD_SIZE = 22;	// src, dst, u8 row, u16 type, u8 flags, i32 ×4 血量
+const int	SEND_SUN_PAYLOAD_SIZE	= 4;	// src, dst, u16 amount（发阳光到账额，MOD_BUILD 38）
 const int	HEARTBEAT_PAYLOAD_SIZE	= 6;	// src, dst, u32 tick
 const int	BYE_PAYLOAD_SIZE		= 3;	// src, dst, u8 reason
 const int	LEVEL_EXIT_PAYLOAD_SIZE	= 3;	// src, dst, u8 reason
@@ -887,6 +888,7 @@ void NetSession::DiscardLevelPackets()
 	mHasPendingLevelExit = false;
 	mPendingEscapedZombies.clear();
 	mPendingQuickChats.clear();
+	mPendingSunGifts.clear();
 	// 观战也是"这一局"的事：先跟还在看我场地的观众逐个道别（他们那边立刻收场、不用等
 	// 6 秒超时兜底），再清观众表；我自己的观看状态整段作废——半份快照和上一关的定格
 	// 都不跨局（下一关按住 V 重新点播即可）。
@@ -982,6 +984,35 @@ bool NetSession::TakePendingEscapedZombie(NetProto::MsgEscapedZombie& theMsg)
 	// 先进先出：漏怪是"又来了几只"的事件，顺序不能乱（队列里一只都不许丢）
 	theMsg = mPendingEscapedZombies.front();
 	mPendingEscapedZombies.erase(mPendingEscapedZombies.begin());
+	return true;
+}
+
+bool NetSession::SendSunGift(uint16_t theAmount)
+{
+	// @pvz-online: 发阳光（MOD_BUILD 38）——定向环上下一个上座席位（**环绕**：末席发给
+	// 首位，与漏怪链的"末席即终点"不同——发阳光人人都能发，漏怪传不到头才判负）。
+	uint8_t aTarget = NextOccupiedSeatInRing(mLocalSeat);
+	if (aTarget == NetProto::SEAT_UNSET || aTarget == mLocalSeat || !IsConnected()) return false;
+
+	NetProto::MsgSendSun aMsg;
+	aMsg.mSrcSeat = mLocalSeat;
+	aMsg.mDstSeat = aTarget;
+	aMsg.mAmount = theAmount;
+
+	uint8_t aPayload[NetProto::MAX_PAYLOAD];
+	int aSize = NetProto::EncodeSendSun(aPayload, (int)sizeof(aPayload), aMsg);
+	if (aSize <= 0) return false;
+
+	TodLog("[net] sending sun to seat %u: +%u", (unsigned)aTarget, (unsigned)theAmount);
+	return Dispatch(NetProto::MSG_SEND_SUN, aPayload, aSize, aTarget);
+}
+
+bool NetSession::TakePendingSunGift(NetProto::MsgSendSun& theMsg)
+{
+	if (mPendingSunGifts.empty()) return false;
+
+	theMsg = mPendingSunGifts.front();
+	mPendingSunGifts.erase(mPendingSunGifts.begin());
 	return true;
 }
 
@@ -1545,6 +1576,22 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 				(unsigned)aMsg.mRow, (unsigned)aMsg.mZombieType,
 				(int)aMsg.mBodyHealth, (int)aMsg.mHelmHealth,
 				(int)aMsg.mShieldHealth, (int)aMsg.mFlyingHealth);
+		}
+		break;
+
+	case NetProto::MSG_SEND_SUN:
+		{
+			NetProto::MsgSendSun aMsg;
+			if (aPayloadSize != SEND_SUN_PAYLOAD_SIZE || !NetProto::DecodeSendSun(aPayload, aPayloadSize, aMsg))
+			{
+				SetDead(NetText("对方发来的数据包有问题。", "A player sent a malformed packet.").c_str());
+				return;
+			}
+
+			// 同漏怪口径：收包链不碰棋盘，只排队；LawnApp 每帧取走入账。
+			mPendingSunGifts.push_back(aMsg);
+			TodLog("[net] sun gift from seat %u: +%u",
+				(unsigned)aMsg.mSrcSeat, (unsigned)aMsg.mAmount);
 		}
 		break;
 
