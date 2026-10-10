@@ -15,6 +15,7 @@
 // @pvz-online: 观战（队友场地查看）要用 NetSession::ViewSnapshot 值成员；这个头链
 // （NetSession→NetLink→NetProtocol）全是不含 winsock 的干净接口，进 Board.h 无碍。
 #include "Online/NetSession.h"
+#include "ModText.h"	// 横幅行绘制签名（ModText::Font）用；头链本身只带框架头，无环
 
 using namespace Sexy;
 
@@ -532,7 +533,9 @@ public:
 	/*inline*/ bool					QuickChatAvailable();
 
 	// 横幅只存来源席位与编号（1..8 短语、9..16 表情），文字/卡图渲染时查 QuickChat.h；
-	// id 0 = 本机系统提示（mCustom 直存 UTF-8 文案，不走协议、不拼席位名前缀）
+	// id 0 = 本机系统提示（mCustom 直存 UTF-8 文案，不走协议、不拼席位名前缀）。
+	// 2026-10-11 起：窗口就是「最近 3 条」，从头到尾同时可见、各自计时，最新画在最上
+	//（原先 8 条队列只画队首依次轮播，多条消息挤队尾像没收到）
 	struct QuickChatBanner
 	{
 		uint8_t						mSeat;
@@ -542,11 +545,15 @@ public:
 	};
 	enum
 	{
-		QUICK_CHAT_BANNER_MAX		= 8,
-		QUICK_CHAT_BANNER_FRAMES	= 300,	// 每条横幅 ≈3 秒，多条依次轮播
+		QUICK_CHAT_BANNER_MAX		= 3,	// 同时可见 3 条（最新在最上）；第 4 条到达即顶掉最旧
+		QUICK_CHAT_BANNER_FRAMES	= 500,	// 每条各自计时 ≈5 秒（2026-10-11 由 300/3 秒上调）
 		QUICK_CHAT_PANEL_TIMEOUT	= 1000,	// 面板 ≈10 秒无操作自动关（超时也是退路之一）
 		QUICK_CHAT_KEY_COOLDOWN		= 18	// 开/关/切/发送后短暂吞键，吸住 WM_KEYDOWN 的自动重复
 	};
+	// 画一条横幅（三行堆叠用），返回行高（表情 44 / 文本 26）。声明必须在
+	// QuickChatBanner 结构体之后——参数类型要先可见
+	int								DrawQuickChatBannerRow(Graphics* g, ModText::Font* theFont, int theAscent,
+										const QuickChatBanner& theBanner, int theTopY);
 	QuickChatBanner					mChatBanners[QUICK_CHAT_BANNER_MAX];
 	int								mChatBannerCount;
 	bool							mChatPanelOpen;

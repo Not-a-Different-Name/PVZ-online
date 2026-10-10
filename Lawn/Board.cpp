@@ -8875,7 +8875,7 @@ bool Board::HandleQuickChatKey(KeyCode theKey)
 
 void Board::PushQuickChatBanner(uint8_t theSeat, uint8_t theId)
 {
-	// 横幅也最多 8 条，满了丢最旧保最新（与会话层收包队列同一条策略）
+	// 横幅窗口 3 条，满了丢最旧保最新（与会话层收包队列同一条策略）
 	if (mChatBannerCount >= QUICK_CHAT_BANNER_MAX)
 	{
 		for (int i = 1; i < mChatBannerCount; i++) mChatBanners[i - 1] = mChatBanners[i];
@@ -8946,15 +8946,21 @@ void Board::UpdateQuickChat()
 		}
 	}
 
-	// 横幅轮播：队首计时，到点让位；暂停时冻着不推进
+	// 横幅各自计时（2026-10-11 起三条同屏）：全体一起走，到期的原位摘除、保持顺序；
+	// 暂停时冻着不推进
 	if (!mPaused && mChatBannerCount > 0)
 	{
-		mChatBanners[0].mFrames--;
-		if (mChatBanners[0].mFrames <= 0)
+		for (int i = 0; i < mChatBannerCount; i++) mChatBanners[i].mFrames--;
+		int aWrite = 0;
+		for (int i = 0; i < mChatBannerCount; i++)
 		{
-			for (int i = 1; i < mChatBannerCount; i++) mChatBanners[i - 1] = mChatBanners[i];
-			mChatBannerCount--;
+			if (mChatBanners[i].mFrames > 0)
+			{
+				if (aWrite != i) mChatBanners[aWrite] = mChatBanners[i];
+				aWrite++;
+			}
 		}
+		mChatBannerCount = aWrite;
 	}
 }
 
@@ -9007,70 +9013,82 @@ void Board::DrawQuickChat(Graphics* g)
 
 	if (mChatBannerCount > 0)
 	{
-		const QuickChatBanner& aBanner = mChatBanners[0];
-		uint8_t anId = aBanner.mId;
-		bool anIsEmote = QuickChat::IsEmoteId(anId);
-		bool anIsCustom = (anId == 0);	// 本机系统提示：mCustom 直显，不拼席位名
-
-		// 发送者名字：本机 = "我"；名字为空退回 P+席位号
-		std::string aNameUtf8;
-		if (anIsCustom)
+		// 最近三条同屏、最新在最上（2026-10-11）：倒序画 + 光标下行，行高各行自算
+		int aCursorY = 84;	// 原单条的位置不变（种子栏底下、避开进度条与 mAdvice 带）
+		for (int i = mChatBannerCount - 1; i >= 0; i--)
 		{
-			// 系统提示没有"谁说的"
-		}
-		else if (mApp->mOnlineSession != nullptr && aBanner.mSeat == mApp->mOnlineSession->GetLocalSeat())
-		{
-			aNameUtf8 = ModText::Tr("我", "Me");
-		}
-		else if (mApp->mOnlineSession != nullptr && mApp->mOnlineSession->IsSeatOccupied(aBanner.mSeat))
-		{
-			aNameUtf8 = mApp->mOnlineSession->GetSeatName(aBanner.mSeat);
-		}
-		if (!anIsCustom && aNameUtf8.empty())
-		{
-			aNameUtf8 = "P" + std::to_string((unsigned)aBanner.mSeat);
-		}
-
-		std::string aTextUtf8;
-		if (anIsCustom)
-		{
-			aTextUtf8 = aBanner.mCustom;
-		}
-		else
-		{
-			aTextUtf8 = aNameUtf8 + ModText::Tr("：", ": ");
-			if (!anIsEmote)
-			{
-				aTextUtf8 += ModText::Tr(QuickChat::PHRASES[anId - 1], QuickChat::PHRASES_EN[anId - 1]);
-			}
-		}
-		std::wstring aText = ModText::WideFromUtf8(aTextUtf8.c_str());
-
-		// 横幅：横向居中 y=84（种子栏底下、避开进度条与 mAdvice 带）；表情多一块卡图的空间
-		int aBannerH = anIsEmote ? 44 : 26;
-		int aTextW = ModText::TextWidth(aFont, aText);
-		int aBoxW = aTextW + 24 + (anIsEmote ? 30 : 0);
-		int aBoxX = (BOARD_WIDTH - aBoxW) / 2;
-		int aBoxY = 84;
-
-		g->SetColor(Color(0, 0, 0, 150));
-		g->FillRect(aBoxX, aBoxY, aBoxW, aBannerH);
-
-		int aTextX = aBoxX + 12;
-		int aTextY = aBoxY + (anIsEmote ? 24 : 5) - anAscent;
-		// 白字黑描边：四角偏移各画一遍黑、再画白——横幅底下就是草坪，不描边看不清
-		ModText::DrawTextWide(g, aFont, aTextX + 1, aTextY + 1, aText, Color(0, 0, 0, 255), g->mClipRect);
-		ModText::DrawTextWide(g, aFont, aTextX - 1, aTextY + 1, aText, Color(0, 0, 0, 255), g->mClipRect);
-		ModText::DrawTextWide(g, aFont, aTextX + 1, aTextY - 1, aText, Color(0, 0, 0, 255), g->mClipRect);
-		ModText::DrawTextWide(g, aFont, aTextX - 1, aTextY - 1, aText, Color(0, 0, 0, 255), g->mClipRect);
-		ModText::DrawTextWide(g, aFont, aTextX, aTextY, aText, Color(255, 255, 255, 255), g->mClipRect);
-
-		if (anIsEmote)
-		{
-			SeedType aSeed = QuickChat::EMOTE_SEEDS[anId - 1 - QuickChat::PHRASE_COUNT];
-			QuickChatDrawEmote(g, (float)(aBoxX + aTextW + 18), (float)(aBoxY + 6), aSeed, 0.5f);
+			aCursorY += DrawQuickChatBannerRow(g, aFont, anAscent, mChatBanners[i], aCursorY) + 4;
 		}
 	}
+}
+
+// @pvz-online: 画一条横幅（名字解析 / 黑底盒 / 白字黑描边 / 表情卡图），返回行高
+//（表情 44 / 文本 26）。三条同屏批（2026-10-11）从 DrawQuickChat 里抽出来。
+int Board::DrawQuickChatBannerRow(Graphics* g, ModText::Font* theFont, int theAscent,
+	const QuickChatBanner& theBanner, int theTopY)
+{
+	uint8_t anId = theBanner.mId;
+	bool anIsEmote = QuickChat::IsEmoteId(anId);
+	bool anIsCustom = (anId == 0);	// 本机系统提示：mCustom 直显，不拼席位名
+
+	// 发送者名字：本机 = "我"；名字为空退回 P+席位号
+	std::string aNameUtf8;
+	if (anIsCustom)
+	{
+		// 系统提示没有"谁说的"
+	}
+	else if (mApp->mOnlineSession != nullptr && theBanner.mSeat == mApp->mOnlineSession->GetLocalSeat())
+	{
+		aNameUtf8 = ModText::Tr("我", "Me");
+	}
+	else if (mApp->mOnlineSession != nullptr && mApp->mOnlineSession->IsSeatOccupied(theBanner.mSeat))
+	{
+		aNameUtf8 = mApp->mOnlineSession->GetSeatName(theBanner.mSeat);
+	}
+	if (!anIsCustom && aNameUtf8.empty())
+	{
+		aNameUtf8 = "P" + std::to_string((unsigned)theBanner.mSeat);
+	}
+
+	std::string aTextUtf8;
+	if (anIsCustom)
+	{
+		aTextUtf8 = theBanner.mCustom;
+	}
+	else
+	{
+		aTextUtf8 = aNameUtf8 + ModText::Tr("：", ": ");
+		if (!anIsEmote)
+		{
+			aTextUtf8 += ModText::Tr(QuickChat::PHRASES[anId - 1], QuickChat::PHRASES_EN[anId - 1]);
+		}
+	}
+	std::wstring aText = ModText::WideFromUtf8(aTextUtf8.c_str());
+
+	// 单行：横向按各自内容宽度居中（三行宽度互不牵连）；表情多一块卡图的空间
+	int aBannerH = anIsEmote ? 44 : 26;
+	int aTextW = ModText::TextWidth(theFont, aText);
+	int aBoxW = aTextW + 24 + (anIsEmote ? 30 : 0);
+	int aBoxX = (BOARD_WIDTH - aBoxW) / 2;
+
+	g->SetColor(Color(0, 0, 0, 150));
+	g->FillRect(aBoxX, theTopY, aBoxW, aBannerH);
+
+	int aTextX = aBoxX + 12;
+	int aTextY = theTopY + (anIsEmote ? 24 : 5) - theAscent;
+	// 白字黑描边：四角偏移各画一遍黑、再画白——横幅底下就是草坪，不描边看不清
+	ModText::DrawTextWide(g, theFont, aTextX + 1, aTextY + 1, aText, Color(0, 0, 0, 255), g->mClipRect);
+	ModText::DrawTextWide(g, theFont, aTextX - 1, aTextY + 1, aText, Color(0, 0, 0, 255), g->mClipRect);
+	ModText::DrawTextWide(g, theFont, aTextX + 1, aTextY - 1, aText, Color(0, 0, 0, 255), g->mClipRect);
+	ModText::DrawTextWide(g, theFont, aTextX - 1, aTextY - 1, aText, Color(0, 0, 0, 255), g->mClipRect);
+	ModText::DrawTextWide(g, theFont, aTextX, aTextY, aText, Color(255, 255, 255, 255), g->mClipRect);
+
+	if (anIsEmote)
+	{
+		SeedType aSeed = QuickChat::EMOTE_SEEDS[anId - 1 - QuickChat::PHRASE_COUNT];
+		QuickChatDrawEmote(g, (float)(aBoxX + aTextW + 18), (float)(theTopY + 6), aSeed, 0.5f);
+	}
+	return aBannerH;
 }
 
 // ====================================================================================================
