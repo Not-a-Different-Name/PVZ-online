@@ -66,6 +66,7 @@ void Projectile::ProjectileInitialize(int theX, int theY, int theRenderOrder, in
 	// @pvz-online: 单株升级「Prickly」（仙人掌）的穿透标记（见 Projectile.h）；默认 0
 	//（无条），Fire 里只有仙人掌的弹会预置 -1（无限）或有限计数。
 	mPricklyHitsLeft = 0;
+	mPricklyHitCount = 0;
 	mOnHighGround = mBoard->mGridSquareType[aGridX][theRow] == GridSquareType::GRIDSQUARE_HIGH_GROUND;
 	if (mBoard->StageHasRoof())
 	{
@@ -230,6 +231,12 @@ Zombie* Projectile::FindCollisionTarget()
 			Rect aZombieRect = aZombie->GetZombieRect();
 			if (GetRectOverlap(aProjectileRect, aZombieRect) > 0)
 			{
+				// @pvz-online: 穿透弹命中去重（2026-10-10）：环内僵尸（本次穿越已命中过）
+				// 不再作候选——弹体命中后不再推位（旧推位会跳过贴身/重叠僵尸）。
+				if (mPricklyHitsLeft != 0 && WasZombiePricklyHit(aZombie))
+				{
+					continue;
+				}
 				if (aBestZombie == nullptr || aZombie->mX < aMinX)
 				{
 					aBestZombie = aZombie;
@@ -850,6 +857,29 @@ void Projectile::PlayImpactSound(Zombie* theZombie)
 }
 
 //0x46E000
+// @pvz-online: 穿透去重环（2026-10-10，见 Projectile.h 字段注释）：环容量 16——弹穿越单只
+// 僵尸矩形约 25 帧、每帧至多命中 1 只，16 发内不可能绕回到同一只。池化 ID 失效（僵尸死亡
+// 回池）后理论上可能被新僵尸复用而误跳一发，概率与代价都极低，接受。
+bool Projectile::WasZombiePricklyHit(Zombie* theZombie)
+{
+	ZombieID aID = mBoard->ZombieGetID(theZombie);
+	int aSlots = (mPricklyHitCount < 16) ? mPricklyHitCount : 16;
+	for (int i = 0; i < aSlots; i++)
+	{
+		if (mPricklyHitIds[i] == aID)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+void Projectile::RecordPricklyHit(Zombie* theZombie)
+{
+	mPricklyHitIds[mPricklyHitCount % 16] = mBoard->ZombieGetID(theZombie);
+	mPricklyHitCount++;
+}
+
 void Projectile::DoImpact(Zombie* theZombie)
 {
 	PlayImpactSound(theZombie);
@@ -990,19 +1020,15 @@ void Projectile::DoImpact(Zombie* theZombie)
 
 	// @pvz-online: 单株升级「Prickly」（仙人掌，表行 SEED_CACTUS）：尖刺穿透。三态：
 	// 0 = 无条（原版行为）、-1 = 无限穿透（2026-10-09 晚实机反馈起；旧 +1 只/层、cap 2
-	// 的计数型已废）、>0 = 有限计数（兼容保留）。mPricklyHitsLeft 在 Fire 里预置（只有
-	// 仙人掌的弹带）；有限计数扣完才 Die。继续飞前把弹体推到命中僵尸身后（尖刺判定矩形
-	// 左边多出 25px，留 30 边距），免得下一帧原地又撞上同一只；直射弹的阴影 Y 本来就不跟
-	// 弹体走，这里也别动。
+	// 的计数型已废）、>0 = 有限计数（兼容保留）。mPricklyHitsLeft 在 Fire 里预置；
+	// 有限计数扣完才 Die。2026-10-10 起：命中去重走 16 槽 ID 环（RecordPricklyHit 记账、
+	// FindCollisionTarget 跳环内僵尸），弹体位置不再动——旧版「推到命中者右缘 +30px」
+	// 的绝对传送会把弹跳过贴身/重叠的下一只（弹与它背向而行永不再相遇，实机反馈
+	// 「穿透弹无法同时命中靠近的僵尸」），已废。直射弹的阴影 Y 本来就不跟弹体走，不动。
 	if (mPricklyHitsLeft != 0 && theZombie)
 	{
 		if (mPricklyHitsLeft > 0) mPricklyHitsLeft--;
-		Rect aZombieRect = theZombie->GetZombieRect();
-		float aNewPosX = aZombieRect.mX + aZombieRect.mWidth + 30.0f;
-		if (aNewPosX > mPosX)
-		{
-			mPosX = aNewPosX;
-		}
+		RecordPricklyHit(theZombie);
 		return;
 	}
 

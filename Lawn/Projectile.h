@@ -55,6 +55,11 @@ public:
     // （2026-10-09 晚实机反馈起 Fire 预置 -1）、>0 = 剩余穿透次数（兼容保留，未用）。
     // 只有仙人掌的弹带；命中判定/扣点在 Projectile::DoImpact 末尾。
     int                     mPricklyHitsLeft;
+    // @pvz-online: 穿透去重环（2026-10-10）：最近 16 只已命中僵尸的池化 ID（Board::ZombieGetID），
+    // 穿透弹（mPricklyHitsLeft != 0）在 FindCollisionTarget 跳过环内僵尸防重复命中——
+    // 替代旧版「命中后把弹推到命中者右缘 +30px」（会跳过贴身/重叠僵尸）。计数只增、取模入槽。
+    ZombieID                mPricklyHitIds[16];
+    int                     mPricklyHitCount;
 
 public:
     Projectile();
@@ -66,6 +71,8 @@ public:
     void                    DrawShadow(Graphics* g);
     void                    Die();
     void                    DoImpact(Zombie* theZombie);
+    bool                    WasZombiePricklyHit(Zombie* theZombie);
+    void                    RecordPricklyHit(Zombie* theZombie);
     void                    UpdateMotion();
     void                    CheckForCollision();
     Zombie*                 FindCollisionTarget();
