@@ -23,7 +23,7 @@ static void DrawRowCaption(Graphics* g, ModText::Font* theFont, const std::strin
 		aWide, Color(96, 72, 40), g->mClipRect);
 }
 
-RunOptionsDialog::RunOptionsDialog(LawnApp* theApp, int theScaleSel, int theTempoSel, int theZombotanySel)
+RunOptionsDialog::RunOptionsDialog(LawnApp* theApp, int theScaleSel, int theTempoSel, int theZombotanySel, int theSlideSel)
 	: LawnDialog(theApp, Dialogs::DIALOG_RUN_OPTIONS, true, _S(""), _S(""), _S(""), Dialog::BUTTONS_NONE)
 {
 	mTitle = ModText::Tr("高级选项", "Advanced Options");
@@ -35,6 +35,8 @@ RunOptionsDialog::RunOptionsDialog(LawnApp* theApp, int theScaleSel, int theTemp
 	if (mScaleSel < RunState::RUN_SCALE_HALF || mScaleSel > RunState::RUN_SCALE_QUAD) mScaleSel = RunState::RUN_SCALE_STD;
 	if (mTempoSel < RunState::RUN_TEMPO_FAST || mTempoSel > RunState::RUN_TEMPO_SLOW) mTempoSel = RunState::RUN_TEMPO_STD;
 	if (mZombotanySel != 0 && mZombotanySel != 1) mZombotanySel = 0;
+	mSlideSel = theSlideSel;
+	if (mSlideSel != 0 && mSlideSel != 1) mSlideSel = 1;	// 非法档归开（同"默认开"口径）
 
 	mScaleCaption = ModText::Tr("出怪规模（全队倍率）", "Zombie scale (team multiplier)");
 	mScaleLabels[0] = ModText::Tr("少 ×0.5", "Few ×0.5");
@@ -51,15 +53,19 @@ RunOptionsDialog::RunOptionsDialog(LawnApp* theApp, int theScaleSel, int theTemp
 	mZombotanyLabels[0] = ModText::Tr("关闭", "Off");
 	mZombotanyLabels[1] = ModText::Tr("开启", "On");
 
+	mSlideCaption = ModText::Tr("滑动收阳光（仅本机，全局生效）", "Slide-collect sun (local, all modes)");
+	mSlideLabels[0] = ModText::Tr("关闭", "Off");
+	mSlideLabels[1] = ModText::Tr("开启", "On");
+
 	mTitleY = mScaleCaptionY = mTempoCaptionY = mZombotanyCaptionY = 0;
 
 	// 各行按钮等宽（取最长标签量的）；石门贴图平铺对宽度有整段要求（见 CjkStoneButtonWidth）。
 	// 量宽用按钮实际画标签的那档字号（CjkPointSize(CJK_BUTTON_LABEL_PX)），量画同一份。
 	ModText::Font* aLabelFont = ModText::GetFont(CjkPointSize(CJK_BUTTON_LABEL_PX), false);
-	static const int kRowCounts[3] = { 4, 3, 2 };
-	const std::string* aLabelSets[3] = { mScaleLabels, mTempoLabels, mZombotanyLabels };
-	int* aWidthSets[3] = { mScaleWidths, mTempoWidths, mZombotanyWidths };
-	for (int aRow = 0; aRow < 3; aRow++)
+	static const int kRowCounts[4] = { 4, 3, 2, 2 };
+	const std::string* aLabelSets[4] = { mScaleLabels, mTempoLabels, mZombotanyLabels, mSlideLabels };
+	int* aWidthSets[4] = { mScaleWidths, mTempoWidths, mZombotanyWidths, mSlideWidths };
+	for (int aRow = 0; aRow < 4; aRow++)
 	{
 		int aLabelMax = 0;
 		for (int i = 0; i < kRowCounts[aRow]; i++)
@@ -98,6 +104,15 @@ RunOptionsDialog::RunOptionsDialog(LawnApp* theApp, int theScaleSel, int theTemp
 		aButton->mInverted = (i == mZombotanySel);
 		mZombotanyButtons[i] = aButton;
 	}
+	for (int i = 0; i < 2; i++)
+	{
+		CjkStoneButton* aButton = new CjkStoneButton(RunOptionsDialog_Slide0 + i, this);
+		aButton->SetLabel(mSlideLabels[i]);
+		aButton->mHasAlpha = true;
+		aButton->mHasTransparencies = true;
+		aButton->mInverted = (i == mSlideSel);
+		mSlideButtons[i] = aButton;
+	}
 
 	mOkButton = new CjkStoneButton(RunOptionsDialog_OK, this);
 	mOkButton->SetLabel(ModText::Tr("确定", "OK"));
@@ -116,22 +131,23 @@ RunOptionsDialog::RunOptionsDialog(LawnApp* theApp, int theScaleSel, int theTemp
 	mTallBottom = true;
 	mVerticalCenterText = false;
 
-	// 版心：宽 = 标题与三行按钮总宽的最大者；高 = 标题 + 间隔 + 三行（小标题 + 按钮）
+	// 版心：宽 = 标题与四行按钮总宽的最大者；高 = 标题 + 间隔 + 四行（小标题 + 按钮）
 	// + 确定行。CalcSize 会按对话框贴图再取整/加高，多出来的空隙由 Resize 里
 	// "首行贴顶、确定行贴底"吸收。
 	ModText::Font* aTitleFont = ModText::GetFont(16, true);
 	ModText::Font* aCaptionFont = ModText::GetFont(12, false);
 	int aButtonHeight = IMAGE_BUTTON_LEFT->mHeight;
 	int anExtraX = ModText::TextWidth(aTitleFont, ModText::WideFromUtf8(mTitle.c_str())) + 80;
-	int aRowWidths[3] = {
+	int aRowWidths[4] = {
 		mScaleWidths[0] * 4 + kGapX * 3,
 		mTempoWidths[0] * 3 + kGapX * 2,
 		mZombotanyWidths[0] * 2 + kGapX,
+		mSlideWidths[0] * 2 + kGapX,
 	};
-	for (int i = 0; i < 3; i++) if (aRowWidths[i] > anExtraX) anExtraX = aRowWidths[i];
+	for (int i = 0; i < 4; i++) if (aRowWidths[i] > anExtraX) anExtraX = aRowWidths[i];
 	int aRowHeight = ModText::LineHeight(aCaptionFont) + 6 + aButtonHeight + 8;
 	int anExtraY = ModText::LineHeight(aTitleFont) + 18		// 标题 + 与首行的间隔
-		+ aRowHeight * 3
+		+ aRowHeight * 4
 		+ aButtonHeight + 18;								// 确定行 + 与末行的间隔
 
 	CalcSize(anExtraX, anExtraY);
@@ -144,6 +160,7 @@ RunOptionsDialog::~RunOptionsDialog()
 	for (int i = 0; i < 4; i++) delete mScaleButtons[i];
 	for (int i = 0; i < 3; i++) delete mTempoButtons[i];
 	for (int i = 0; i < 2; i++) delete mZombotanyButtons[i];
+	for (int i = 0; i < 2; i++) delete mSlideButtons[i];
 	delete mOkButton;
 	delete mCancelButton;
 }
@@ -159,7 +176,7 @@ void RunOptionsDialog::Resize(int theX, int theY, int theWidth, int theHeight)
 	int aTitleTop = mContentInsets.mTop + mBackgroundInsets.mTop + DIALOG_HEADER_OFFSET;
 	mTitleY = aTitleTop;						// ModText 顶对齐：存的直接是顶
 
-	// 三行从上往下排：小标题贴行顶、按钮横排居中（各自等宽）
+	// 四行从上往下排：小标题贴行顶、按钮横排居中（各自等宽）
 	int aRowTop = aTitleTop + ModText::LineHeight(aTitleFont) + 18;
 	int aButtonY = aRowTop + ModText::LineHeight(aCaptionFont) + 6;
 	int aX = (mWidth - (mScaleWidths[0] * 4 + kGapX * 3)) / 2;
@@ -189,6 +206,16 @@ void RunOptionsDialog::Resize(int theX, int theY, int theWidth, int theHeight)
 		mZombotanyButtons[i]->Resize(aX, aButtonY, mZombotanyWidths[i], aButtonHeight);
 		aX += mZombotanyWidths[i] + kGapX;
 	}
+	aRowTop += ModText::LineHeight(aCaptionFont) + 6 + aButtonHeight + 8;
+
+	aButtonY = aRowTop + ModText::LineHeight(aCaptionFont) + 6;
+	aX = (mWidth - (mSlideWidths[0] * 2 + kGapX)) / 2;
+	mSlideCaptionY = aRowTop;
+	for (int i = 0; i < 2; i++)
+	{
+		mSlideButtons[i]->Resize(aX, aButtonY, mSlideWidths[i], aButtonHeight);
+		aX += mSlideWidths[i] + kGapX;
+	}
 
 	// 确定行贴底，两枚并排居中（RunModeDialog 底行同一条算式）
 	int aBottomY = mHeight - mContentInsets.mBottom - mBackgroundInsets.mBottom - aButtonHeight + 2;
@@ -205,6 +232,7 @@ void RunOptionsDialog::AddedToManager(WidgetManager* theWidgetManager)
 	for (int i = 0; i < 4; i++) AddWidget(mScaleButtons[i]);
 	for (int i = 0; i < 3; i++) AddWidget(mTempoButtons[i]);
 	for (int i = 0; i < 2; i++) AddWidget(mZombotanyButtons[i]);
+	for (int i = 0; i < 2; i++) AddWidget(mSlideButtons[i]);
 	AddWidget(mOkButton);
 	AddWidget(mCancelButton);
 }
@@ -215,6 +243,7 @@ void RunOptionsDialog::RemovedFromManager(WidgetManager* theWidgetManager)
 	for (int i = 0; i < 4; i++) RemoveWidget(mScaleButtons[i]);
 	for (int i = 0; i < 3; i++) RemoveWidget(mTempoButtons[i]);
 	for (int i = 0; i < 2; i++) RemoveWidget(mZombotanyButtons[i]);
+	for (int i = 0; i < 2; i++) RemoveWidget(mSlideButtons[i]);
 	RemoveWidget(mOkButton);
 	RemoveWidget(mCancelButton);
 }
@@ -232,11 +261,12 @@ void RunOptionsDialog::Draw(Graphics* g)
 			aTitle, mColors[Dialog::COLOR_HEADER], g->mClipRect);
 	}
 
-	// 三行小标题（各行的按钮自己画自己，走控件那套）。
+	// 四行小标题（各行的按钮自己画自己，走控件那套）。
 	ModText::Font* aCaptionFont = ModText::GetFont(12, false);
 	DrawRowCaption(g, aCaptionFont, mScaleCaption, mScaleCaptionY, mWidth);
 	DrawRowCaption(g, aCaptionFont, mTempoCaption, mTempoCaptionY, mWidth);
 	DrawRowCaption(g, aCaptionFont, mZombotanyCaption, mZombotanyCaptionY, mWidth);
+	DrawRowCaption(g, aCaptionFont, mSlideCaption, mSlideCaptionY, mWidth);
 }
 
 // 键盘一律不认（同 OnlineStartDialog / RunModeDialog 的纪律）。
@@ -272,6 +302,12 @@ void RunOptionsDialog::ButtonDepress(int theId)
 	{
 		mZombotanySel = theId - RunOptionsDialog_Zombotany0;
 		for (int i = 0; i < 2; i++) mZombotanyButtons[i]->mInverted = (i == mZombotanySel);
+		return;
+	}
+	if (theId >= RunOptionsDialog_Slide0 && theId <= RunOptionsDialog_Slide0 + 1)
+	{
+		mSlideSel = theId - RunOptionsDialog_Slide0;
+		for (int i = 0; i < 2; i++) mSlideButtons[i]->mInverted = (i == mSlideSel);
 		return;
 	}
 	if (theId == RunOptionsDialog_OK)

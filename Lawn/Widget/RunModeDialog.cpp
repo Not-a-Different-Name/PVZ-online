@@ -399,7 +399,7 @@ void RunModeDialog::ButtonDepress(int theId)
 	// 是主循环）。确定才收值，取消保留原选择；不关本弹窗，选完模式一并带走。
 	if (theId == RunModeDialog_Options)
 	{
-		RunOptionsDialog* aDialog = new RunOptionsDialog(mApp, mScaleSel, mTempoSel, mZombotanySel);
+		RunOptionsDialog* aDialog = new RunOptionsDialog(mApp, mScaleSel, mTempoSel, mZombotanySel, mApp->mSlideCollect ? 1 : 0);
 		mApp->CenterDialog(aDialog, aDialog->mWidth, aDialog->mHeight);
 		mApp->AddDialog(Dialogs::DIALOG_RUN_OPTIONS, aDialog);
 		if (aDialog->WaitForResult() == RunOptionsDialog::RunOptionsDialog_OK)
@@ -407,6 +407,13 @@ void RunModeDialog::ButtonDepress(int theId)
 			mScaleSel = aDialog->mScaleSel;
 			mTempoSel = aDialog->mTempoSel;
 			mZombotanySel = aDialog->mZombotanySel;
+			// 滑动收阳光是本机即时设置（2026-10-10，不进联机载荷）：确定即落注册表并热改
+			// LawnApp 缓存，正在打的局当刻生效；取消不动。
+			if (mApp->mSlideCollect != (aDialog->mSlideSel != 0))
+			{
+				mApp->mSlideCollect = (aDialog->mSlideSel != 0);
+				mApp->RegistryWriteInteger("ModSlideCollect", mApp->mSlideCollect ? 1 : 0);
+			}
 		}
 		return;
 	}

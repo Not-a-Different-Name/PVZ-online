@@ -165,6 +165,10 @@ public:
 	// 0..4；-1 = 这轮排队不是无尽局。和 mPendingAdventure 一起排队、由
 	// UpdateAdventureRequest 消费即清（不带着它去走大墓碑那条路）。
 	int								mPendingEndlessScene;
+	// @pvz-online: 滑动收阳光开关（2026-10-10 用户定案"全局生效"）：本机即时设置——注册表
+	// 键 ModSlideCollect（默认开），不进联机载荷、不影响别的端。构造读一次、高级选项
+	// 面板确定时热改。消费点在 Board::MouseDrag（左键按住滑过阳光即收）。
+	bool							mSlideCollect;
 	// @pvz-online: 进入游戏后的玩法公告（2026-10-03 用户要的）：启动后第一次落到主菜单
 	// 弹一次，讲联机玩法和功能。每进程只弹一次，故意不落盘——每次进游戏都该看得到。
 	bool							mShowedStartupAnnounce;

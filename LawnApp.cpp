@@ -170,6 +170,13 @@ LawnApp::LawnApp()
 	mRunState = nullptr;
 	mPendingAdventure = false;
 	mPendingEndlessScene = -1;
+	// 滑动收阳光默认开；注册表有值以注册表为准（0 = 关）。
+	mSlideCollect = true;
+	{
+		int aValue = 1;
+		RegistryReadInteger("ModSlideCollect", &aValue);
+		mSlideCollect = (aValue != 0);
+	}
 	mShowedStartupAnnounce = false;
 	mOnlineRunStartHeld = false;
 	mOnlineRunGo = false;

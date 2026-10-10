@@ -2705,6 +2705,30 @@ bool Board::CanZombieSpawnOnLevel(ZombieType theZombieType, int theLevel)
 		// 房主设、全员对齐（AlignRunToHost 无条件覆盖）——各客户端建场时在这里读到同值。
 		RunState* aRunState = gLawnApp->GetRunState();
 		bool aZombotany = aRunState != nullptr && aRunState->mZombotany != 0;
+		// @pvz-online: 无尽名单快速解锁（2026-10-10 用户定案"快点解锁"）。无尽锁死一个场景、
+		// 原型按 关序号%5 轮转，若按引擎关号查名单，永远只有本场景 5 格。改查"虚拟关号"：
+		// 先吃满本场景 5 格，此后每 2 关多解锁一格，全表 25 格封顶（后续场景的巨人/水怪/
+		// 投石车等按序渗入）。推导只用 RunState 同步字段（mEndlessScene/mLevelIndex），
+		// 六席各端逐位一致、无随机。波表与种子仍按原型关（GetLevel 不动），名单只管"允许谁"。
+		if (aRunState != nullptr && aRunState->IsEndless())
+		{
+			int aVirtualIndex = aRunState->mEndlessScene * RunState::RUN_LEVELS_PER_SCENE
+				+ (RunState::RUN_LEVELS_PER_SCENE - 1) + aRunState->mLevelIndex / 2;
+			if (aVirtualIndex > RunState::RUN_LEVEL_COUNT - 1) aVirtualIndex = RunState::RUN_LEVEL_COUNT - 1;
+			// 场景不相容类型拦在闸外（名单 v2 的"有意剔除"口径照旧）：
+			// 水生三样只在有水场景（泳池/雾）放行——无水草坪没有行可落；
+			// 冰车/雪橇屋顶不放（RUN_ZOMBIE_ROOF 同口径，2026-10-03 名单 v2 定案）。
+			if (theZombieType == ZombieType::ZOMBIE_DUCKY_TUBE || theZombieType == ZombieType::ZOMBIE_SNORKEL
+				|| theZombieType == ZombieType::ZOMBIE_DOLPHIN_RIDER)
+			{
+				if (aRunState->mEndlessScene != 2 && aRunState->mEndlessScene != 3) return false;
+			}
+			else if (theZombieType == ZombieType::ZOMBIE_ZAMBONI || theZombieType == ZombieType::ZOMBIE_BOBSLED)
+			{
+				if (aRunState->mEndlessScene == 4) return false;
+			}
+			return RunZombieAllowedOnLevel(theZombieType, aVirtualIndex, aZombotany);
+		}
 		return RunZombieAllowedOnLevel(theZombieType, RunLevelIndexForEngineLevel(theLevel), aZombotany);
 	}
 
@@ -3523,6 +3547,23 @@ void Board::MouseDrag(int x, int y)
 {
 	Widget::MouseDrag(x, y);
 	mChallenge->MouseMove(x, y);
+	// @pvz-online: 滑动收阳光（2026-10-10 用户定案"全局生效"）。MouseDrag = 左键按住移动
+	// （框架单独路由，无需自己记按下态）。滑过阳光直接收，口径与 MouseDown 的金币分支一致
+	//（IsSun 闸三种阳光，Collect 自带收集态防重）。开关=本机注册表缓存（mSlideCollect），
+	// 高级选项面板改，不进联机载荷。
+	if (mApp->mSlideCollect)
+	{
+		HitResult aHitResult;
+		if (MouseHitTest(x, y, &aHitResult) && aHitResult.mObjectType == GameObjectType::OBJECT_TYPE_COIN)
+		{
+			Coin* aCoin = (Coin*)aHitResult.mObject;
+			if (aCoin->mBoard && aCoin->IsSun() && !aCoin->mIsBeingCollected)
+			{
+				aCoin->Collect();
+				UpdateCursor();
+			}
+		}
+	}
 }
 
 //0x40E780
