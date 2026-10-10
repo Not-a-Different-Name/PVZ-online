@@ -869,7 +869,11 @@ bool Plant::FindTargetAndFire(int theRow, PlantWeapon thePlantWeapon)
     // @pvz-online: 忧郁菇（用户 2026-10-09 令）：无论有没有敌人都一直攻击——光环不设目标门，
     // 空场也照常走 anim_shooting 四连喷（UpdateShooting → Fire → DoRowAreaDamage，
     // 没怪时白喷、无副作用）。
-    if (aZombie == nullptr && mSeedType != SeedType::SEED_GLOOMSHROOM)
+    // @pvz-online: 仙人掌「Tri-Spike」（2026-10-10 用户令「和三线射手相似的行为，包括索敌」）：
+    // 调用方已按三行 OR 过门（见 UpdateShooter 仙人掌分支），这里放行空放——本行无怪也照放
+    // 主弹+侧弹，同三线「任一行有敌 → 三行都放」口径。
+    bool aTriSpikeAlways = mSeedType == SeedType::SEED_CACTUS && mApp->RunPlantBuff2Count(SeedType::SEED_CACTUS) > 0;
+    if (aZombie == nullptr && mSeedType != SeedType::SEED_GLOOMSHROOM && !aTriSpikeAlways)
         return false;
 
     float aSpeed = PlantShootSpeed(mApp, mSeedType, this);
@@ -1190,7 +1194,26 @@ void Plant::UpdateShooter()
         }
         else if (mSeedType == SeedType::SEED_CACTUS)
         {
-            if (mState == PlantState::STATE_CACTUS_HIGH)
+            // @pvz-online: 「Tri-Spike」持条（2026-10-10 用户令「和三线射手相似的行为，包括
+            // 索敌」）：索敌改三行 OR——本行/上行/下行任一有敌就开火（照 LaunchThreepeater
+            // 的三行判定，RowCanHaveZombies 闸门同款），本行无怪时由 FindTargetAndFire 的
+            // 持条豁免空放（Fire 内侧弹照补）；未持条维持只查本行。
+            if (mApp->RunPlantBuff2Count(mSeedType) > 0)
+            {
+                if (mState == PlantState::STATE_CACTUS_HIGH || mState == PlantState::STATE_CACTUS_LOW)
+                {
+                    PlantWeapon aWeapon = (mState == PlantState::STATE_CACTUS_HIGH) ? PlantWeapon::WEAPON_PRIMARY : PlantWeapon::WEAPON_SECONDARY;
+                    int rowAbove = mRow - 1;
+                    int rowBelow = mRow + 1;
+                    if ((FindTargetZombie(mRow, aWeapon)) ||
+                        (mBoard->RowCanHaveZombies(rowAbove) && FindTargetZombie(rowAbove, aWeapon)) ||
+                        (mBoard->RowCanHaveZombies(rowBelow) && FindTargetZombie(rowBelow, aWeapon)))
+                    {
+                        FindTargetAndFire(mRow, aWeapon);
+                    }
+                }
+            }
+            else if (mState == PlantState::STATE_CACTUS_HIGH)
             {
                 FindTargetAndFire(mRow, PlantWeapon::WEAPON_PRIMARY);
             }
