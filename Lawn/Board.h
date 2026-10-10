@@ -581,10 +581,13 @@ public:
 	bool							IsRunBossZombie(Zombie* theZombie);
 	void							SpawnRunBoss();
 
-	// @pvz-online: 发阳光（MOD_BUILD 38）：点自己的阳光银行把一档阳光定向发给顺位
-	// 下一席位的队友（到账额 = 档位 - 税）。单机/单人房/末席/钱不够/冷却中都不发。
+	// @pvz-online: 发阳光（MOD_BUILD 38，2026-10-10 用户改键交互）：按 G 进选择态，
+	// 1-6 直选队友席位定向发一档阳光（到账额 = 档位 - 税）；收款方场上天降对应
+	// 面额的演出阳光（纯视觉，钱直接入账）。选择态 5 秒无操作自动退出（等待有出路）。
 	int								mSunGiftCooldownFrames;
-	void							TrySendSunGift();
+	int								mSunGiftSelectFrames;	// 发阳光选择态剩余帧（0 = 不在选择态）
+	bool							HandleSunGiftKey(KeyCode theKey);	// KeyDown 钩子；true = 吞键
+	bool							TrySendSunGift(uint8_t theTargetSeat);
 	void							GiveSunGift(int theAmount, uint8_t theFromSeat);	// LawnApp 每帧消费队列时调
 };
 extern bool gShownMoreSunTutorial;

@@ -47,9 +47,12 @@
 bool gShownMoreSunTutorial = false;
 
 // @pvz-online: 发阳光档位（MOD_BUILD 38，2026-10-10 用户定案）——档位 100（发送方扣）、
-// 税 10（到账 90）、冷却 300 帧 ≈ 5 秒（按发送方各自计）。实现在 TrySendSunGift（漏怪传递段旁）。
+// 税 10（到账 90）、冷却 300 帧 ≈ 5 秒（按发送方各自计）、选择态 500 帧 ≈ 5 秒无操作自动退。
+// 交互（2026-10-10 用户改版）：按 G 进选择态、1-6 直选队友席位。实现在 TrySendSunGift
+//（漏怪传递段旁）。天降演出固定三枚面额币（50+25+15），只作视觉示意、金额以横幅为准。
 static const int	kSunGiftAmount = 100;
 static const int	kSunGiftTax = 10;
+static const int	kSunGiftSelectFrames = 500;
 static const int	kSunGiftCooldownFrames = 300;
 
 // @pvz-online: 局内快捷聊天的中文绘制自 2026-10-03 语言批起走 ModText 的宽字符直绘
@@ -86,6 +89,7 @@ Board::Board(LawnApp* theApp)
 	TodHesitationTrace("board dataarrays");
 	mRunBossZombieID = ZombieID::ZOMBIEID_NULL;
 	mSunGiftCooldownFrames = 0;
+	mSunGiftSelectFrames = 0;
 
 	mApp->mEffectSystem->EffectSystemFreeAll();
 	mBoardRandSeed = mApp->mAppRandSeed;
@@ -5033,20 +5037,6 @@ void Board::MouseDown(int x, int y, int theClickCount)
 	if (mTimeStopCounter > 0)
 		return;
 
-	// @pvz-online: 发阳光（MOD_BUILD 38）——点自己的阳光银行定向发给环上下一位队友
-	//（环绕：末席发首位）。只在「联机闯关 + 有队友 + 冷却好 + 钱够」时吞点击，
-	// 其余穿透照旧（银行本来无点击行为）。
-	if (theClickCount >= 0 && mApp->IsOnlineGame() && mApp->IsRunMode()
-		&& mApp->mOnlineSession != nullptr
-		&& mApp->mOnlineSession->NextOccupiedSeatInRing(mApp->mOnlineSession->GetLocalSeat()) != NetProto::SEAT_UNSET
-		&& mSunGiftCooldownFrames <= 0 && mSunMoney >= kSunGiftAmount
-		&& x >= mSeedBank->mX && x < mSeedBank->mX + mSeedBank->mWidth
-		&& y >= mSeedBank->mY && y < mSeedBank->mY + mSeedBank->mHeight)
-	{
-		TrySendSunGift();
-		return;
-	}
-
 	HitResult aHitResult;
 	MouseHitTest(x, y, &aHitResult);
 	if (mChallenge->MouseDown(x, y, theClickCount, &aHitResult))
@@ -5793,28 +5783,26 @@ bool Board::IsRunBossZombie(Zombie* theZombie)
 // 阳光定向发给环上下一个上座席位的队友（**环绕**：末席发首位；漏怪链不环绕是"末席即
 // 败"的规则下限，发阳光人人都能发）。档位/税/冷却常量在文件顶部。
 // 单机/单人房点不出；钱不够或冷却中点击穿透（不吞，银行本来无点击行为）。
-void Board::TrySendSunGift()
+bool Board::TrySendSunGift(uint8_t theTargetSeat)
 {
-	if (mSunGiftCooldownFrames > 0) return;
-	if (!mApp->IsOnlineGame() || !mApp->IsRunMode()) return;
-	// 无人可发（单人房）：给一条系统横幅说清楚，别让玩家以为点了没反应。
-	// 目标 = 环上下一个上座席位（环绕，末席发首位）——与漏怪链的"末席即终点"不同。
-	if (mApp->mOnlineSession == nullptr
-		|| mApp->mOnlineSession->NextOccupiedSeatInRing(mApp->mOnlineSession->GetLocalSeat()) == NetProto::SEAT_UNSET)
+	if (!mApp->IsOnlineGame() || !mApp->IsRunMode() || mApp->mOnlineSession == nullptr) return false;
+	if (theTargetSeat == mApp->mOnlineSession->GetLocalSeat()
+		|| !mApp->mOnlineSession->IsSeatOccupied(theTargetSeat)) return false;
+	if (mSunGiftCooldownFrames > 0)
 	{
-		PushCustomBanner(ModText::Tr("没有可发阳光的队友", "No teammate to send sun to"));
-		return;
+		PushCustomBanner(ModText::Tr("发阳光冷却中", "Sun gift is on cooldown"));
+		return false;
 	}
 	if (mSunMoney < kSunGiftAmount)
 	{
 		PushCustomBanner(ModText::Tr("阳光不足", "Not enough sun"));
-		return;
+		return false;
 	}
 
 	mSunMoney -= kSunGiftAmount;
 	mSunGiftCooldownFrames = kSunGiftCooldownFrames;
 	int aCredit = kSunGiftAmount - kSunGiftTax;
-	if (mApp->mOnlineSession->SendSunGift((uint16_t)aCredit))
+	if (mApp->mOnlineSession->SendSunGift((uint16_t)aCredit, theTargetSeat))
 	{
 		char aBuf[48];
 		snprintf(aBuf, sizeof(aBuf), "%s%d%s",
@@ -5822,13 +5810,75 @@ void Board::TrySendSunGift()
 			kSunGiftAmount,
 			ModText::Tr("）", ")"));
 		PushCustomBanner(aBuf);
+		return true;
 	}
-	else
+	// 没发出去（掉线等）：钱退回、不进冷却
+	mSunMoney += kSunGiftAmount;
+	mSunGiftCooldownFrames = 0;
+	return false;
+}
+
+// @pvz-online: G 键交互（2026-10-10 用户改版）：按一下 G 进选择态，1-6 直选队友席位
+// 定向发一档阳光；G/ESC 或 5 秒无操作退出。选择态吞掉 1-6（含血量键 1/2——观察态同款
+// 优先级，见 KeyDown 挂钩顺序），其余键不吞。
+bool Board::HandleSunGiftKey(KeyCode theKey)
+{
+	if (!mApp->IsOnlineGame() || !mApp->IsRunMode()) return false;
+	if (mApp->mOnlineSession == nullptr) return false;
+	bool aSelecting = mSunGiftSelectFrames > 0;
+
+	if (theKey == 'G' || theKey == 'g')
 	{
-		// 没发出去（掉线等）：钱退回、不进冷却
-		mSunMoney += kSunGiftAmount;
-		mSunGiftCooldownFrames = 0;
+		if (aSelecting)
+		{
+			mSunGiftSelectFrames = 0;
+			PushCustomBanner(ModText::Tr("已取消发阳光", "Sun gift cancelled"));
+			return true;
+		}
+		if (mApp->mOnlineSession->GetOccupiedSeatCount() <= 1)
+		{
+			PushCustomBanner(ModText::Tr("没有可发阳光的队友", "No teammate to send sun to"));
+			return true;
+		}
+		if (mSunGiftCooldownFrames > 0)
+		{
+			PushCustomBanner(ModText::Tr("发阳光冷却中", "Sun gift is on cooldown"));
+			return true;
+		}
+		if (mSunMoney < kSunGiftAmount)
+		{
+			PushCustomBanner(ModText::Tr("阳光不足", "Not enough sun"));
+			return true;
+		}
+		mSunGiftSelectFrames = kSunGiftSelectFrames;
+		PushCustomBanner(ModText::Tr("发阳光：按 1-6 选队友（100，到账 90）", "Sun gift: press 1-6 to pick a teammate"));
+		return true;
 	}
+
+	if (!aSelecting) return false;
+	if (theKey == KEYCODE_ESCAPE)
+	{
+		mSunGiftSelectFrames = 0;
+		return true;
+	}
+	if (theKey >= '1' && theKey <= '6')
+	{
+		uint8_t aSeat = (uint8_t)(theKey - '0');
+		if (aSeat == mApp->mOnlineSession->GetLocalSeat())
+		{
+			PushCustomBanner(ModText::Tr("不能发给自己", "Can't send to yourself"));
+			return true;
+		}
+		if (!mApp->mOnlineSession->IsSeatOccupied(aSeat))
+		{
+			PushCustomBanner(ModText::Tr("该席位没有人", "That seat is empty"));
+			return true;
+		}
+		TrySendSunGift(aSeat);
+		mSunGiftSelectFrames = 0;	// 成败都退出选择态（冷却/钱不足的横幅已给原因）
+		return true;
+	}
+	return false;	// 其他键不吞、选择态继续（超时自动退）
 }
 
 void Board::GiveSunGift(int theAmount, uint8_t theFromSeat)
@@ -5836,6 +5886,15 @@ void Board::GiveSunGift(int theAmount, uint8_t theFromSeat)
 	mSunMoney = std::min(mSunMoney + theAmount, 9990);
 	(void)theFromSeat;	// 横幅的席位名暂不拼（收发都走无名字系统横幅）；要区分来源时再接
 	PushCustomBanner(ModText::Tr("收到队友的阳光", "Received sun from teammate"));
+	// 天降演出：三枚面额币从天上落到场上（50+25+15 的视觉示意，落地自动飞向计数器）。
+	// mVisualOnly 让它们收集时不二次入账、也不算进「在途阳光」种植预算——金额以横幅为准。
+	int aBaseX = RandRangeInt(100, 529);
+	Coin* aCoin = AddCoin(aBaseX, 60, CoinType::COIN_LARGESUN, CoinMotion::COIN_MOTION_FROM_SKY);
+	if (aCoin != nullptr) aCoin->mVisualOnly = true;
+	aCoin = AddCoin(aBaseX + 45, 60, CoinType::COIN_SUN, CoinMotion::COIN_MOTION_FROM_SKY);
+	if (aCoin != nullptr) aCoin->mVisualOnly = true;
+	aCoin = AddCoin(aBaseX + 90, 60, CoinType::COIN_SMALLSUN, CoinMotion::COIN_MOTION_FROM_SKY);
+	if (aCoin != nullptr) aCoin->mVisualOnly = true;
 }
 
 // @pvz-online: 漏怪传递——僵尸走到房子前，联机局里这只怪不算"漏"，交给队友棋盘继续走。
@@ -8848,6 +8907,9 @@ void Board::PushCustomBanner(const char* theTextUtf8)
 
 void Board::UpdateQuickChat()
 {
+	// 发阳光选择态倒计时：超时自动退出（等待必须有出路）
+	if (mSunGiftSelectFrames > 0) mSunGiftSelectFrames--;
+
 	// 先收：队友的喊话不因我按了暂停就丢——横幅会冻着，继续了再轮播
 	if (mApp->mOnlineSession != nullptr)
 	{
@@ -9478,6 +9540,10 @@ void Board::KeyDown(KeyCode theKey)
 
 	// @pvz-online: 联机局内 T/E 唤出快捷聊天；面板开着时吞掉一切键（含 ESC/SPACE）
 	if (HandleQuickChatKey(theKey)) return;
+
+	// @pvz-online: 发阳光——G 进选择态、选择态中 1-6 直选队友席位（选择态优先拿 1-6，
+	// 含血量键 1/2；5 秒无操作自动退）
+	if (HandleSunGiftKey(theKey)) return;
 
 	// @pvz-online: 观战——V 按住进入/退出、观看中 1-6 直选席位、观看中一切键拦截
 	// （必须排在血量 1/2 键之前：观看态优先拿 1/2 当切人键）
@@ -10338,7 +10404,8 @@ int Board::CountSunBeingCollected()
 	Coin* aCoin = nullptr;
 	while (IterateCoins(aCoin))
 	{
-		if (aCoin->mIsBeingCollected && aCoin->IsSun())
+		// mVisualOnly（发阳光的天降演出）不进账，也不能算进种植预算
+		if (aCoin->mIsBeingCollected && aCoin->IsSun() && !aCoin->mVisualOnly)
 		{
 			aCount += aCoin->GetSunValue();
 		}

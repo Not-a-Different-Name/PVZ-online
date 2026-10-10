@@ -987,24 +987,24 @@ bool NetSession::TakePendingEscapedZombie(NetProto::MsgEscapedZombie& theMsg)
 	return true;
 }
 
-bool NetSession::SendSunGift(uint16_t theAmount)
+bool NetSession::SendSunGift(uint16_t theAmount, uint8_t theTargetSeat)
 {
-	// @pvz-online: 发阳光（MOD_BUILD 38）——定向环上下一个上座席位（**环绕**：末席发给
-	// 首位，与漏怪链的"末席即终点"不同——发阳光人人都能发，漏怪传不到头才判负）。
-	uint8_t aTarget = NextOccupiedSeatInRing(mLocalSeat);
-	if (aTarget == NetProto::SEAT_UNSET || aTarget == mLocalSeat || !IsConnected()) return false;
+	// @pvz-online: 发阳光（MOD_BUILD 38）——定向发给按键直选的席位（本地 G + 1-6 选人）。
+	// 目标必须是上座、非自己的席位；与漏怪链无关，末席也能发。
+	if (theTargetSeat == NetProto::SEAT_UNSET || theTargetSeat == mLocalSeat
+		|| !IsSeatOccupied(theTargetSeat) || !IsConnected()) return false;
 
 	NetProto::MsgSendSun aMsg;
 	aMsg.mSrcSeat = mLocalSeat;
-	aMsg.mDstSeat = aTarget;
+	aMsg.mDstSeat = theTargetSeat;
 	aMsg.mAmount = theAmount;
 
 	uint8_t aPayload[NetProto::MAX_PAYLOAD];
 	int aSize = NetProto::EncodeSendSun(aPayload, (int)sizeof(aPayload), aMsg);
 	if (aSize <= 0) return false;
 
-	TodLog("[net] sending sun to seat %u: +%u", (unsigned)aTarget, (unsigned)theAmount);
-	return Dispatch(NetProto::MSG_SEND_SUN, aPayload, aSize, aTarget);
+	TodLog("[net] sending sun to seat %u: +%u", (unsigned)theTargetSeat, (unsigned)theAmount);
+	return Dispatch(NetProto::MSG_SEND_SUN, aPayload, aSize, theTargetSeat);
 }
 
 bool NetSession::TakePendingSunGift(NetProto::MsgSendSun& theMsg)

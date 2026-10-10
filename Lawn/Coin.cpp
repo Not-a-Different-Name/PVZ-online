@@ -48,6 +48,7 @@ void Coin::CoinInitialize(int theX, int theY, CoinType theCoinType, CoinMotion t
 	mHasBouncyArrow = false;
 	mHitGround = false;
 	mTimesDropped = 0;
+	mVisualOnly = false;
 	mPottedPlantSpec.InitializePottedPlant(SeedType::SEED_NONE);
 
     if (IsSun())
@@ -429,7 +430,9 @@ void Coin::ScoreCoin()
 {
     Die();
 
-    if (IsSun())
+    // @pvz-online: 纯演出币（发阳光的天降演出）只走收集动画——钱已由 GiveSunGift 入账，
+    // 这里再 AddSunMoney 就是双份。
+    if (IsSun() && !mVisualOnly)
     {
         int aSunValue = GetSunValue();
         mBoard->AddSunMoney(aSunValue);
@@ -565,6 +568,9 @@ void Coin::UpdateFall()
         {
             mHitGround = true;
             PlayGroundSound();
+            // @pvz-online: 纯演出币落地即自动收集（飞向阳光计数器）——不用玩家点，
+            // 也没有"点了没进账"的困惑；金额语义由横幅承载。
+            if (mVisualOnly) Collect();
         }
 
         mPosY = mGroundY;

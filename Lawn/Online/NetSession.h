@@ -309,10 +309,10 @@ public:
 	// 收下的漏怪（先进先出，一只都不许丢）。没有就返回 false。
 	bool			TakePendingEscapedZombie(NetProto::MsgEscapedZombie& theMsg);
 
-	// @pvz-online: 发阳光给队友（MOD_BUILD 38）：定向发往环上下一个上座席位（**环绕**，
-	// 末席发给首位——与漏怪链的"末席即终点"不同，发阳光人人都能发），amount = 到账额
-	// （发送端已扣档位与税）。单人房无人可发、没连上都返回 false——调用方按"没发出去"处理。
-	bool			SendSunGift(uint16_t theAmount);
+	// @pvz-online: 发阳光给队友（MOD_BUILD 38）：定向发给 theTargetSeat（上座、非自己——
+	// 本地按 G 后 1-6 直选），amount = 到账额（发送端已扣档位与税）。空位/自己/没连上
+	// 都返回 false——调用方按"没发出去"处理。
+	bool			SendSunGift(uint16_t theAmount, uint8_t theTargetSeat);
 
 	// 收到的阳光（先进先出）。没有就返回 false。
 	bool			TakePendingSunGift(NetProto::MsgSendSun& theMsg);

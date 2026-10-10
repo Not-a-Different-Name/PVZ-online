@@ -37,6 +37,9 @@ public:
     bool                    mHasBouncyArrow;        //+0xC9
     bool                    mHitGround;             //+0xCA
     int                     mTimesDropped;          //+0xCC
+    // @pvz-online: 纯演出币（发阳光的天降演出）：收集动画照走、不计入账（ScoreCoin 跳过
+    // AddSunMoney）也不算进「在途阳光」预算（CountSunBeingCollected 跳过）——钱只走 GiveSunGift。
+    bool                    mVisualOnly;
 
 public:
     Coin();
