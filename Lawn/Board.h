@@ -570,6 +570,13 @@ public:
 	bool							mWatchRearmBlocked;		// ESC 退场后压住重进，直到 V 真的松手（防自动重复）
 	uint8_t							mWatchLastSeat;			// 上次看的席位（再按 V 还看他；SEAT_UNSET = 无）
 	int								mWatchSnapshotTicker;	// 被看端发送节拍（每 7 帧 ≈ 15Hz 一份）
+
+	// @pvz-online: 关底巨型 boss（MOD_BUILD 38，2026-10-10 用户定案）：闯关最后一关开始时
+	// 在第一席棋盘刷一只巨型红眼巨人（全控制免疫、砸击无视耐砸），本 ID 用来在各处
+	// 识别它（ZOMBIEID_NULL = 本关没有）。每关 InitLevel 重置；漏怪照普通传递口径接力。
+	ZombieID						mRunBossZombieID;
+	bool							IsRunBossZombie(Zombie* theZombie);
+	void							SpawnRunBoss();
 };
 extern bool gShownMoreSunTutorial;
 

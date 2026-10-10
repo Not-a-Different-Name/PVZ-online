@@ -2194,7 +2194,13 @@ void Zombie::UpdateZombieGargantuar()
                 Plant* aPlant = FindPlantTarget(ZombieAttackType::ATTACKTYPE_CHEW);
                 if (aPlant)
                 {
-                    if (aPlant->mSeedType == SeedType::SEED_SPIKEROCK)
+                    if (mBoard->IsRunBossZombie(this))
+                    {
+                        // @pvz-online: 关底巨型 boss 砸击破耐砸（MOD_BUILD 38，用户定案「真伤」口径）：
+                        // 地刺王/忧郁菇/坚果/大蒜的耐砸减血特例一律跳过，一击压扁整格。
+                        SquishAllInSquare(aPlant->mPlantCol, aPlant->mRow, ZombieAttackType::ATTACKTYPE_CHEW);
+                    }
+                    else if (aPlant->mSeedType == SeedType::SEED_SPIKEROCK)
                     {
                         TakeDamage(20, 32U);
                         aPlant->SpikeRockTakeDamage();
@@ -2256,7 +2262,12 @@ void Zombie::UpdateZombieGargantuar()
             Plant* aPlant = FindPlantTarget(ZombieAttackType::ATTACKTYPE_CHEW);
             if (aPlant)
             {
-                if (aPlant->mSeedType == SeedType::SEED_SPIKEROCK)
+                if (mBoard->IsRunBossZombie(this))
+                {
+                    // @pvz-online: 关底巨型 boss 砸击破耐砸——同上一份（DO_FIX_BUGS 版）的 boss 分支。
+                    SquishAllInSquare(aPlant->mPlantCol, aPlant->mRow, ZombieAttackType::ATTACKTYPE_CHEW);
+                }
+                else if (aPlant->mSeedType == SeedType::SEED_SPIKEROCK)
                 {
                     TakeDamage(20, 32U);
                     aPlant->SpikeRockTakeDamage();
@@ -5003,6 +5014,8 @@ void Zombie::UpdateYuckyFace()
 // §8.6 #36）在蒜被吃掉时对全行僵尸逐只调用这里复用换道。
 void Zombie::SwitchLanes()
 {
+    if (mBoard->IsRunBossZombie(this))  // @pvz-online: 关底巨型 boss 免疫大蒜换道（MOD_BUILD 38）
+        return;
     bool aCanGoUp = true;
     bool aCanGoDown = true;
     bool aIsPool = mBoard->mPlantRow[mRow] == PlantRowType::PLANTROW_POOL;
@@ -7278,6 +7291,8 @@ void Zombie::CheckForHighGround()
 //0x52FA60
 void Zombie::StartMindControlled()
 {
+    if (mBoard->IsRunBossZombie(this))  // @pvz-online: 关底巨型 boss 免疫魅惑（MOD_BUILD 38）
+        return;
     mApp->PlaySample(SOUND_MINDCONTROLLED);
     mMindControlled = true;
     mLastPortalX = -1;
@@ -8473,6 +8488,9 @@ Zombie::~Zombie()
 //0x531990
 bool Zombie::CanBeChilled()
 {
+    if (mBoard->IsRunBossZombie(this))  // @pvz-online: 关底巨型 boss 免疫减速/冰冻（MOD_BUILD 38）
+        return false;
+
     if (mZombieType == ZombieType::ZOMBIE_ZAMBONI || IsBobsledTeamWithSled())
         return false;
 
@@ -9022,6 +9040,8 @@ void Zombie::ApplyButter(int theFrames)
         return;
 
     if (mZombieType == ZombieType::ZOMBIE_ZAMBONI || mZombieType == ZombieType::ZOMBIE_BOSS || IsTangleKelpTarget() || IsBobsledTeamWithSled() || IsFlying())
+        return;
+    if (mBoard->IsRunBossZombie(this))  // @pvz-online: 关底巨型 boss 免疫黄油（MOD_BUILD 38）
         return;
 
     // @pvz-online: 帧参数化（权重批数值对齐 2026-10-09）：默认 400 = 原黄油时长不变；
