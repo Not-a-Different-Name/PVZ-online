@@ -5490,6 +5490,16 @@ void Plant::Fire(Zombie* theTargetZombie, int theRow, PlantWeapon thePlantWeapon
         Projectile* aExtraProjectile = mBoard->AddProjectile(aOriginX + 21 * (i + 1), aOriginY, mRenderOrder - 1, theRow, aProjectileType);
         aExtraProjectile->mDamageRangeFlags = aProjectile->mDamageRangeFlags;
         aExtraProjectile->mPricklyHitsLeft = aProjectile->mPricklyHitsLeft;	// 穿透族：多发复制的子弹同标记（第二 buff 批 1）
+        // @pvz-online: 三线多发补斜向（2026-10-10）：三线斜向三件套挂在 Fire 尾部（下段
+        // SEED_THREEPEATER 分支），多发弹生成时还没挂——旧版相邻行多发弹是 MOTION_STRAIGHT
+        // + mRow=相邻行的「叠画在本行、谁也打不着」废弹（实机反馈「三线加子弹数只加中间的」）。
+        // 相邻行的多发弹补与主弹逐参数一致的斜向运动（同 TRISPIKE 侧弹写法）。
+        if (mSeedType == SeedType::SEED_THREEPEATER && theRow != mRow)
+        {
+            aExtraProjectile->mMotionType = ProjectileMotion::MOTION_THREEPEATER;
+            aExtraProjectile->mVelY = (theRow < mRow) ? -3.0f : 3.0f;
+            aExtraProjectile->mShadowY += (theRow < mRow) ? 80.0f : -80.0f;
+        }
     }
 
     if (mSeedType == SeedType::SEED_CABBAGEPULT || mSeedType == SeedType::SEED_KERNELPULT ||
