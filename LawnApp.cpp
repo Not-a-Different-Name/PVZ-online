@@ -1001,7 +1001,7 @@ void LawnApp::DismissOnlineStartPrompt(bool theSendAck)
 // 为什么要有这道门：Let's Rock 一按就开打，两边各按各的——选得快的那台能领先一整段，
 // 越到后面卡池越大、选项越多，差得越明显（第三关以后才露出来就是因为它）。
 //
-// 为什么是"报状态"而不是"报事件"：这一关不用选卡的机器（卡池 ≤8 之类）根本走不到这儿，
+// 为什么是"报状态"而不是"报事件"：这一关不用选卡的机器（卡池 ≤10 之类）根本走不到这儿，
 // 它得在自己草坪建好时主动报一次"我这一轮的状态"。各家都在新一轮开始时报"还没选"、
 // 真选好了再报"选好了"；收的人只读对面当下的状态，不挑时机清位——清位就是丢消息
 // （对面报得早、本地清得晚，两边就会互相干等）。见 NetProtocol.h 的 SEEDS_READY 一段。
@@ -1072,8 +1072,8 @@ void LawnApp::UpdateOnlineSeeds()
 	}
 	KillDialog(Dialogs::DIALOG_ONLINE_START);
 	mOnlineSeedsHeld = false;
-	// @pvz-online: 两道门共用这一个开合（R7）。卡池>8 拦的是选卡界面的关屏（Let's Rock），
-	// 放行 = 再走一遍关屏（这一遍门会放行）。卡池≤8 的关卡没有选卡界面（"选卡"是草坪上
+	// @pvz-online: 两道门共用这一个开合（R7）。卡池>10 拦的是选卡界面的关屏（Let's Rock），
+	// 放行 = 再走一遍关屏（这一遍门会放行）。卡池≤10 的关卡没有选卡界面（"选卡"是草坪上
 	// 的三选一屏，门在 UpdateRunPick 的 ①），放行 = 解冻 + 开场——和那道门口的收口对上。
 	if (mBoard != nullptr && mBoard->ChooseSeedsOnCurrentLevel())
 	{
@@ -2144,23 +2144,23 @@ void LawnApp::UpdateRunPick()
 			return;
 		}
 
-		// @pvz-online: 卡池≤8 的开场门拦下之后的重入（等队友的那几帧）：下面这些事
+		// @pvz-online: 卡池≤10 的开场门拦下之后的重入（等队友的那几帧）：下面这些事
 		// 都是"只做一次"的（选卡界面已经建过，再建一次会撞断言），一件都别再碰；
 		// 放行由 UpdateOnlineSeeds 负责，它每帧都在跑。
 		if (mOnlineSeedsHeld) return;
 
 		TodLog("[run] the picks are done - the chooser and the intro can start");
 		// 卡槽在 InitLevel 建场时按"当时"的卡池填过，刚刚这几屏的新植物要重填一次
-		// （卡池 ≤8 的关卡全程不开选卡界面，不重填这一关新选的植物就赶不上）。
+		// （卡池 ≤10 的关卡全程不开选卡界面，不重填这一关新选的植物就赶不上）。
 		if (!mBoard->ChooseSeedsOnCurrentLevel())
 		{
 			mBoard->FillSeedBankFromRunPool();
 		}
 		else
 		{
-			// @pvz-online: 卡池是刚做完这几屏才越过 8 的（建场时还 ≤8，卡槽已按当时的池子
+			// @pvz-online: 卡池是刚做完这几屏才越过 10 的（建场时还 ≤10，卡槽已按当时的池子
 			// 填过并定好了格数）：这一关要开选卡界面，而界面的出槽数、开始按钮、Let's Rock
-			// 的回填循环全按 mSeedBank->mNumPackets 走——先把它按"本关选 8 株"的口径重定、
+			// 的回填循环全按 mSeedBank->mNumPackets 走——先把它按"本关选 10 株"的口径重定、
 			// 包袋清空，回到原版选卡关开局的状态；不然界面只有建场时那几格，选完的植物也
 			// 回填不进去（快速版第 2 关"植物栏不刷新、旧卡卡在上面"的根因）。
 			mBoard->mSeedBank->mNumPackets = mBoard->GetNumSeedsInBank();
@@ -2176,7 +2176,7 @@ void LawnApp::UpdateRunPick()
 		mRunState->Save(mPlayerInfo->mId);
 		ShowSeedChooserScreen();
 
-		// @pvz-online: "都确定才开场"（R7）。卡池≤8 的关卡全场不开选卡界面，按不了
+		// @pvz-online: "都确定才开场"（R7）。卡池≤10 的关卡全场不开选卡界面，按不了
 		// Let's Rock、也就没有那道关屏门（TryHoldSeedChooserForTeammates）——这道门口
 		// 是它的替身，等的东西一样：刚在 ShowSeedChooserScreen 里报过"我选好了"，
 		// 队友没齐就等。等待期草坪继续冻着（mRunIntroHeld 保持 true，CutScene::Update
@@ -2781,7 +2781,7 @@ void LawnApp::ShowSeedChooserScreen()
 	TOD_ASSERT(mSeedChooserScreen == nullptr);
 
 	// @pvz-online: 选卡等队友（SEEDS_READY）：新一轮的选卡界面要开了，本机这一轮的等待
-	// 残留先清掉，同时把本机这一轮的状态报准——这一关根本不用选卡的机器（卡池 ≤8 之类
+	// 残留先清掉，同时把本机这一轮的状态报准——这一关根本不用选卡的机器（卡池 ≤10 之类
 	// 全场不开选卡界面）直接算"选好了"：它走不到 Let's Rock，不主动报就会让队友干等。
 	mOnlineSeedsHeld = false;
 	if (IsOnlineGame() && mBoard != nullptr)
@@ -4730,7 +4730,7 @@ bool LawnApp::HasSeedType(SeedType theSeedType)
 bool LawnApp::SeedTypeAvailable(SeedType theSeedType)
 {
 	// @pvz-online: 闯关（肉鸽）：能用哪些植物只看这一局的卡池——卡池是三选一攒出来的，
-	// 和本机档案解锁到哪儿无关（§5.1 定案）。选卡界面（第 4、5 关卡池 > 8 格时才弹）
+	// 和本机档案解锁到哪儿无关（§5.1 定案）。选卡界面（卡池 > 10 格时才弹）
 	// 里每一处"画不画、点不点"的判定都走这里，一处收口；局中的图鉴也跟着只显示卡池。
 	if (IsRunMode())
 	{

@@ -241,7 +241,7 @@ void SeedChooserScreen::CrazyDavePickSeeds()
 	// 三株时会把权重和抽成 0——第三次抽取就撞上 PickFromWeightedArrayUsingSpecialRandSeed
 	// 的断言，点"忽略"后 MTRand::Next(0) 整数除零（2026-10-02 实测：继续闯关读回的卡池
 	// 只剩开局两株，构造选卡界面必崩）。抽几株先按可选（权重 >0）株数封顶，抽空就停手：
-	// 卡池 ≤8 的关卡卡槽本来就按整副卡池填好，这里少预选几株没有任何影响。
+	// 卡池 ≤10 的关卡卡槽本来就按整副卡池填好，这里少预选几株没有任何影响。
 	int aPickCount = 0;
 	for (int i = 0; i < NUM_SEEDS_IN_CHOOSER; i++)
 	{

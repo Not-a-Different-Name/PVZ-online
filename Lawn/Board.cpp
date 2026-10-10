@@ -1788,8 +1788,8 @@ void Board::InitLevel()
 	}
 	else if (mApp->IsRunMode() && !ChooseSeedsOnCurrentLevel())
 	{
-		// 闯关的卡槽按这一局的卡池填（卡池 ≤8 时全带上、直接开打，不进选卡界面）。
-		// R1 的卡池还只有两株，之后每关 +2，到第 4 关超过 8 格才会轮到玩家自己挑。
+		// 闯关的卡槽按这一局的卡池填（卡池 ≤10 时全带上、直接开打，不进选卡界面）。
+		// R1 的卡池还只有两株，之后每关递增，池子攒过 10 格才会轮到玩家自己挑。
 		FillSeedBankFromRunPool();
 	}
 	else if (!ChooseSeedsOnCurrentLevel() && !HasConveyorBeltSeedBank())
@@ -1923,8 +1923,8 @@ void Board::InitLawnMowers()
 //0x40BD30
 bool Board::ChooseSeedsOnCurrentLevel()
 {
-	// @pvz-online: 闯关的卡槽按卡池填：装得下（≤8 格）就全带上、直接开打，
-	// 装不下才轮到玩家自己挑 8 株（原版选卡界面，R2 里把候选改成卡池）。
+	// @pvz-online: 闯关的卡槽按卡池填：装得下（≤10 格）就全带上、直接开打，
+	// 装不下才轮到玩家自己挑 10 株（原版选卡界面，R2 里把候选改成卡池）。
 	if (mApp->IsRunMode())
 		return (int)mApp->GetRunState()->mPool.size() > RunState::RUN_SEED_SLOTS;
 
@@ -1943,10 +1943,10 @@ bool Board::ChooseSeedsOnCurrentLevel()
 	return (!mApp->IsFirstTimeAdventureMode() || mLevel > 7);
 }
 
-// @pvz-online: 闯关的卡槽按这一局的卡池填（卡池 ≤8 时全带上、直接开打，不进选卡界面）。
+// @pvz-online: 闯关的卡槽按这一局的卡池填（卡池 ≤10 时全带上、直接开打，不进选卡界面）。
 // InitLevel 建场时调一次；三选一做完、放开开场之前还要再调一次（LawnApp::UpdateRunPick）——
-// 那几屏会把新植物放进卡池，而卡池 ≤8 的关卡全程不开选卡界面，不重填的话这一关
-// 新选的植物赶不上。卡池 >8 的关卡不用调：玩家挑完 8 株，卡槽由选卡界面自己填。
+// 那几屏会把新植物放进卡池，而卡池 ≤10 的关卡全程不开选卡界面，不重填的话这一关
+// 新选的植物赶不上。卡池 >10 的关卡不用调：玩家挑完 10 株，卡槽由选卡界面自己填。
 void Board::FillSeedBankFromRunPool()
 {
 	RunState* aRun = mApp->GetRunState();
@@ -10551,7 +10551,7 @@ bool Board::HasConveyorBeltSeedBank()
 //0x41BEE0
 int Board::GetNumSeedsInBank()
 {
-	// @pvz-online: 闯关：卡槽数就是卡池（上限 8 格），原版那套"随档案进度膨胀"的算法
+	// @pvz-online: 闯关：卡槽数就是卡池（上限 10 格 = RUN_SEED_SLOTS），原版那套"随档案进度膨胀"的算法
 	// 一概不算——闯关的卡池由这一局的三选一决定，和本机解锁到哪儿无关。
 	if (mApp->IsRunMode())
 	{

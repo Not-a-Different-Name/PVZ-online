@@ -288,8 +288,8 @@ public:
 	void							ProcessDeleteQueue();
 	bool							ChooseSeedsOnCurrentLevel();
 	int								GetNumSeedsInBank();
-	// @pvz-online: 闯关的卡槽按卡池重填（卡池 ≤8 时才有人调）。InitLevel 建场时一次、
-	// 三选一做完放开开场前再一次（见 LawnApp::UpdateRunPick）——不重填的话，卡池 ≤8 的
+	// @pvz-online: 闯关的卡槽按卡池重填（卡池 ≤10 时才有人调）。InitLevel 建场时一次、
+	// 三选一做完放开开场前再一次（见 LawnApp::UpdateRunPick）——不重填的话，卡池 ≤10 的
 	// 关卡不开选卡界面，这一关新选的植物赶不上。
 	void							FillSeedBankFromRunPool();
 	/*inline*/ bool					StageIsNight();

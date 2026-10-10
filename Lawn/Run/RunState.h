@@ -51,7 +51,7 @@ public:
 	// 无尽档的"总关数"：软上限，实际不可达——u16 线传（START_LEVEL 的关序号）与检查点
 	// 校验都按它封口，让 mLevelIndex 永远合法（IsComplete 对无尽档恒假，见下）。
 	static const int	RUN_ENDLESS_LEVEL_COUNT	= 60000;
-	static const int	RUN_SEED_SLOTS		= 8;	// 种子槽固定 8 格（覆盖原版 mPurchases+6 规则）
+	static const int	RUN_SEED_SLOTS		= 10;	// 种子槽固定 10 格（= SEEDBANK_MAX 上限；覆盖原版 mPurchases+6 规则；2026-10-11 8→10，闯关+无尽）
 	static const int	RUN_POOL_MAX		= 48;	// 卡池上限 = 全部植物
 	static const int	RUN_CHOICES			= 3;	// 一屏摆几张卡
 	// @pvz-online: mBuffChoices 的空缺哨兵（方案 §2.4 的防御守卫）：候选不足三条时多出来的
@@ -197,7 +197,7 @@ public:
 	void				NoteBuffScreenConsumed(unsigned short theTakenId);
 	// 这一局拿到某个 buff 的层数（R3 的数值层按它算加成）。
 	int					GetBuffCount(int theBuffId) const;
-	// 这株植物在不在这局的卡池里。选卡界面（卡池 > 8 格才弹）靠它决定哪些袋子
+	// 这株植物在不在这局的卡池里。选卡界面（卡池 > 10 格才弹）靠它决定哪些袋子
 	// 画得出来、点得动——见 LawnApp::SeedTypeAvailable 的闯关分支。
 	bool				HasPlant(SeedType theSeedType) const;
 
