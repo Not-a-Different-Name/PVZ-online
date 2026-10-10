@@ -5448,10 +5448,18 @@ void Plant::Fire(Zombie* theTargetZombie, int theRow, PlantWeapon thePlantWeapon
     }
 
     // @pvz-online: 第二 buff「Tri-Spike」三向尖刺（仙人掌 #26，docs/06 §8.6，2★ cap1）：持条时
-    // 本行上下各补一发同型尖刺——弹体从仙人掌出发、走三线射手同款斜向运动（MOTION_THREEPEATER，
-    // 影子 ±80 一行的视觉补偿是原版三线的既有写法）飘向相邻行；该行放不了僵尸（池面/出界/
-    // 屋顶边列）就不补（RowCanHaveZombies 闸门，同三线选敌）。伤害标志与穿透标记照抄主弹——
-    // 高射态补高刺（可打气球）、低射态补地刺，老条「Prickly」无限穿透随主弹一起复制。
+    // 本行上下各补一发同型尖刺——弹体从仙人掌出发、走三线射手同款斜向运动（MOTION_THREEPEATER）
+    // 飘向相邻行；该行放不了僵尸（池面/出界/屋顶边列）就不补（RowCanHaveZombies 闸门，同三线
+    // 选敌）。伤害标志与穿透标记照抄主弹——高射态补高刺（可打气球）、低射态补地刺，老条
+    // 「Prickly」无限穿透随主弹一起复制。
+    // 2026-10-10 实机修复（用户报「仍然只打两发」；§5.67 曾误判为索敌问题）：影子补偿原照抄
+    // 三线的固定 ±80，但三线炮口贴在行线上（mY+offset−33），仙人掌低射炮口在行线下 23px
+    //（mY+23）、前院行距却是 100（GridToPixelY：前院 row*100、泳池/屋顶 row*85）——上发出生
+    // 影差 = 67+80−100−23 = 24 < 28，撞上 CheckForHighGround 的「贴地」闸门（Projectile.cpp，
+    // SPIKE 在列；本意是屋顶斜坡弹撞地）在第一个更新帧就被 DoImpact(nullptr) 收掉，上发永远
+    // 飞不出去（下发 64、主弹 44 都活——正是「只打两发/只向下分裂」的观感）。现按实际行距
+    // 补偿（同列 ΔGridToPixelY，屋顶斜坡项自消）：两发出生影差恒等于主弹（低射 44 / 高射
+    // 117），任何地形都成活、落点影子线与相邻行对齐；弹速维持三线同款不动。
     if (mSeedType == SeedType::SEED_CACTUS && mApp->RunPlantBuff2Count(SeedType::SEED_CACTUS) > 0)
     {
         for (int aSideRow = mRow - 1; aSideRow <= mRow + 1; aSideRow += 2)
@@ -5465,7 +5473,7 @@ void Plant::Fire(Zombie* theTargetZombie, int theRow, PlantWeapon thePlantWeapon
             aSideProjectile->mPricklyHitsLeft = aProjectile->mPricklyHitsLeft;
             aSideProjectile->mMotionType = ProjectileMotion::MOTION_THREEPEATER;
             aSideProjectile->mVelY = (aSideRow < mRow) ? -3.0f : 3.0f;
-            aSideProjectile->mShadowY += (aSideRow < mRow) ? 80.0f : -80.0f;
+            aSideProjectile->mShadowY += (float)(mBoard->GridToPixelY(mPlantCol, mRow) - mBoard->GridToPixelY(mPlantCol, aSideRow));
         }
     }
 
