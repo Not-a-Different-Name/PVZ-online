@@ -1749,13 +1749,14 @@ void LawnApp::UpdateStartupAnnounce()
 	OnlineStartDialog* aDialog = new OnlineStartDialog(this,
 		ModText::Tr("欢迎来到 PvZ 联机合作版", "Welcome to PvZ Online Co-op"),
 		ModText::Tr(
-			"【本版更新 · Build 37】\n"
-			"· 新模式「无尽」：生存页 5 张卡，锁场景无限循环\n"
-			"· 高级选项：出怪规模/节奏可调、可混入植物僵尸\n"
-			"· 38 条新增益进池；3★ 重定为「质变」级\n"
-			"· 「换一批」升级：刷掉的立即换新、下屏不回头\n"
-			"· 平衡：经济增益增强、天降 ×2；1/2★ 全局减半\n"
-			"· 修复：西瓜二段爆无伤害\n"
+			"【本版更新 · Build 38】\n"
+			"· 新：闯关关底巨型 Boss（高级选项开启，\n"
+			"  终关第一席出场，免疫控制、砸穿耐砸）\n"
+			"· 新：按 G 发阳光——再按 1-6 选队友，\n"
+			"  对方场地天降阳光（100，到账 90）\n"
+			"· 无尽：每屏增益固定 2 条；下滑收阳光\n"
+			"· 修复：仙人掌持条索敌、穿透弹漏打、\n"
+			"  三线多发斜向\n"
 			"\f"
 			"【玩法速览】\n"
 			"· 2~6 人各守一块草坪，漏怪传给下一位队友\n"
@@ -1764,14 +1765,17 @@ void LawnApp::UpdateStartupAnnounce()
 			"  翻倍（封顶 ×32）；末位每行一台兜底推车。\n"
 			"· 主位大墓碑 = 组队 / 加入房间（主机可发起\n"
 			"  闯关）；第三槽 PUZZLE 石板 = 打单关。\n"
-			"· 局内：ESC 暂停、V 看队友场地、T / E 短语与表情",
-			"[Update - Build 37]\n"
-			"· New \"Endless\" mode: 5 locked-scene cards\n"
-			"· Advanced options: scale / tempo; Zombotany\n"
-			"· 38 new buffs; 3-stars now game-changers\n"
-			"· Reroll upgrade: discarded picks stay away\n"
-			"· Balance: economy up, Skyfall x2; globals down\n"
-			"· Fixed: melon splash secondary hit\n"
+			"· 局内：ESC 暂停、V 看队友场地、T / E 短语与\n"
+			"  表情、G 发阳光",
+			"[Update - Build 38]\n"
+			"· New: giant boss at the end of Adventure\n"
+			"  (advanced option; immune to control)\n"
+			"· New: press G to gift sun - then 1-6 to\n"
+			"  pick a teammate; sun falls on their lawn\n"
+			"· Endless: 2 buffs per screen; slide to\n"
+			"  collect sun\n"
+			"· Fixed: cactus targeting, pierce misses,\n"
+			"  three-lane spread angles\n"
 			"\f"
 			"[Basics]\n"
 			"· 2-6 players each hold one lawn; leaked\n"
@@ -1783,7 +1787,7 @@ void LawnApp::UpdateStartupAnnounce()
 			"· Top tombstone = team up / join; the third\n"
 			"  slot PUZZLE slab = single levels.\n"
 			"· ESC pauses; hold V to watch a teammate;\n"
-			"  T / E for phrases and emotes."),
+			"  T / E for phrases and emotes; G gifts sun."),
 		ModText::Tr("知道了", "OK"), nullptr, OnlineStartDialog::NOTIFY_NONE, true);
 	CenterDialog(aDialog, aDialog->mWidth, aDialog->mHeight);
 	TodLog("[announce] dialog %dx%d (screen %dx%d)", aDialog->mWidth, aDialog->mHeight, mWidth, mHeight);
