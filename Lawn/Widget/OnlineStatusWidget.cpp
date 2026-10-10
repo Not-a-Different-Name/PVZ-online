@@ -203,6 +203,10 @@ std::string OnlineStatusWidget::GetSeatLine(int theSeat)
 		aName = ModText::Tr("（无名）", "(no name)");
 	if (!aName.empty())
 		aText += "  " + aName;
+	// MOD_BUILD 39：掉线保留期的席位当场注明——名册上人还占着位（各等待门照旧堵着），
+	// 不标一句的话队友那行看着和在线没两样。
+	if (aSession->IsSeatOffline((uint8_t)theSeat))
+		aText += ModText::Tr("（掉线中）", " (offline)");
 	if (aMine)
 		aText += ModText::Tr("（你）", " (you)");
 	return aText;
@@ -214,6 +218,13 @@ std::string OnlineStatusWidget::GetStateLine()
 {
 	NetSession* aSession = mApp->mOnlineSession;
 	if (!aSession || !aSession->IsActive()) return "";
+
+	// MOD_BUILD 39：重连最优先——小条这一行只回答"卡在哪"。重连期别的一切状态
+	// （等 ACK、换位、刚发生的事）都得让位：人先要回到房里，才谈得上下一步。
+	if (aSession->IsReconnecting())
+		return ModText::Tr("正在重连……（第 ", "Reconnecting... (attempt ")
+			+ std::to_string(aSession->GetReconnectAttempt())
+			+ ModText::Tr(" 次）", ")");
 
 	// 主机按了关卡、正等队友就位。这时候会话还是 CONNECTED，不单独说一句的话
 	// 小条还写着 "pick a level"，看着像压根没点上。六席位时等的是所有还没到的人。
