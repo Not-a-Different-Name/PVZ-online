@@ -15,14 +15,17 @@ var goldenVectors = map[string]string{
 	"cli_swap_commit": "13f002000103",
 	"cli_pong":        "14f00000",
 	"cli_leave_room":  "15f00000",
+	"cli_rejoin":      "16f0190001001700426f6200000000000000000000000000374b513403",
 	"srv_welcome": "01f042000100030103374b5134011700486f7374000000000000000000000000" +
 		"021600426f62000000000000000000000000000317004361726f6c0000000000000000000000",
-	"srv_reject":      "02f00300010002",
-	"srv_peer_join":   "03f0130004150044617665000000000000000000000000",
-	"srv_peer_leave":  "04f002000201",
-	"srv_room_closed": "05f0010000",
-	"srv_seat_swap":   "06f002000204",
-	"srv_ping":        "07f00000",
+	"srv_reject":       "02f00300010002",
+	"srv_peer_join":    "03f0130004150044617665000000000000000000000000",
+	"srv_peer_leave":   "04f002000201",
+	"srv_room_closed":  "05f0010000",
+	"srv_seat_swap":    "06f002000204",
+	"srv_ping":         "07f00000",
+	"srv_peer_offline": "08f00200023c",
+	"srv_peer_back":    "09f0130004150044617665000000000000000000000000",
 }
 
 func goldenBytes(t *testing.T, name string) []byte {
@@ -64,6 +67,13 @@ func TestGoldenVectors(t *testing.T) {
 	join.raw(joinName[:])
 	join.raw([]byte("7KQ4"))
 
+	var rejoin buf
+	rejoin.u16(1)
+	rejoin.u16(23)
+	rejoin.raw(joinName[:])
+	rejoin.raw([]byte("7KQ4"))
+	rejoin.u8(3)
+
 	cases := []struct {
 		name  string
 		frame []byte
@@ -73,6 +83,7 @@ func TestGoldenVectors(t *testing.T) {
 		{"cli_swap_commit", encodeFrame(msgCliSwapCommit, []byte{1, 3})},
 		{"cli_pong", encodeFrame(msgCliPong, nil)},
 		{"cli_leave_room", encodeFrame(msgCliLeaveRoom, nil)},
+		{"cli_rejoin", encodeFrame(msgCliRejoin, rejoin.b)},
 		{"srv_welcome", encodeFrame(msgSrvWelcome, encodeWelcome(3, 1, "7KQ4", roster))},
 		{"srv_reject", encodeFrame(msgSrvReject, encodeReject(2))},
 		{"srv_peer_join", encodeFrame(msgSrvPeerJoin, encodePeerJoin(rosterEntry{4, 21, nm16("Dave")}))},
@@ -80,6 +91,8 @@ func TestGoldenVectors(t *testing.T) {
 		{"srv_room_closed", encodeFrame(msgSrvRoomClosed, encodeRoomClosed(0))},
 		{"srv_seat_swap", encodeFrame(msgSrvSeatSwap, encodeSeatSwap(2, 4))},
 		{"srv_ping", encodeFrame(msgSrvPing, nil)},
+		{"srv_peer_offline", encodeFrame(msgSrvPeerOffline, encodePeerOffline(2, 60))},
+		{"srv_peer_back", encodeFrame(msgSrvPeerBack, encodePeerBack(rosterEntry{4, 21, nm16("Dave")}))},
 	}
 	for _, c := range cases {
 		if want := goldenBytes(t, c.name); !bytes.Equal(c.frame, want) {
@@ -104,5 +117,12 @@ func TestGoldenVectors(t *testing.T) {
 	a, b, ok := decodeSwapCommit(swapPayload)
 	if !ok || a != 1 || b != 3 {
 		t.Fatalf("decode swap commit: ok=%v a=%d b=%d", ok, a, b)
+	}
+
+	_, rejoinPayload, _ := readFrame(bytes.NewReader(goldenBytes(t, "cli_rejoin")))
+	version, build, name, code, seat, ok := decodeRejoin(rejoinPayload)
+	if !ok || version != 1 || build != 23 || cstr(name) != "Bob" || string(code) != "7KQ4" || seat != 3 {
+		t.Fatalf("decode rejoin: ok=%v version=%d build=%d name=%q code=%q seat=%d",
+			ok, version, build, cstr(name), code, seat)
 	}
 }

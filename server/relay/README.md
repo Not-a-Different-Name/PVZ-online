@@ -11,8 +11,8 @@
 
 | 文件 | 职责 |
 |---|---|
-| `main.go` | 入口：`-port` 参数、监听、accept 循环 |
-| `room.go` | 房间与分发：建房 / 加入 / 换位落实 / 转发校验 / 退房回收 / 散房 |
+| `main.go` | 入口：`-port` 参数、监听、accept 循环、过期保留清扫循环 |
+| `room.go` | 房间与分发：建房 / 加入 / 重连受理 / 席位保留与清扫 / 换位落实 / 转发校验 / 退房回收 / 散房 |
 | `conn.go` | 单连接：读循环、写循环（唯一写手）、1s PING 与闲死判定 |
 | `proto.go` | 线格式常量与全部编解码 |
 | `relay_test.go` / `golden_test.go` | 服务端契约测试 / 协议黄金向量 |
@@ -100,9 +100,11 @@ GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o pvz
 | 协议版本 | 1 | `proto.go` | `PROTOCOL_VERSION`——对不上回 `REJECT_PROTOCOL_VERSION` |
 | 席位上限 | 6 | `proto.go` | `MAX_PLAYERS` |
 | 房间码 | 4 字符，字母表 `ABCDEFGHJKLMNPQRSTUVWXYZ23456789`（无 I/O/0/1，32 个），加入时不区分大小写、服务器保证在服内唯一 | `proto.go` | `ROOM_CODE_LEN` |
-| PING / 闲死 | 进过房的连接每 1s 发 `SRV_PING`；10s 收不到它的任何数据即断（广播 `PEER_LEAVE`，原因 `TIMEOUT`） | `conn.go` / `room.go` | 客户端回 `PONG` |
+| PING / 闲死 | 进过房的连接每 1s 发 `SRV_PING`；**30s** 收不到它的任何数据即断，席位进保留（广播 `PEER_OFFLINE`） | `conn.go` / `room.go` | 客户端回 `PONG` |
+| 席位保留 | 非体面断开（掉线/超时）的席位保留 **60s**：本人 `REJOIN`（名字+构建对得上）坐回原席；普通 `JOIN` 跳过保留位，但名字+构建对得上也可以坐回（换进程重进房）；保留过期 = 广播 `PEER_LEAVE`(timeout)；房主的保留过期 = 散房 | `room.go` | 重连窗口 45s（客户端先放弃，不会撞上已释放的席位） |
+| REJOIN 受理 | 快路径（旧连接还挂着）：静默换掉旧连接，只广播 `PEER_BACK`，队友无感；保留路径：核对名字+构建、消费保留、回 `WELCOME`、广播 `PEER_BACK`。身份对不上回 `REJECT_REJOIN_SEAT_MISMATCH`(6)；房间没了/席位已释放回 `REJECT_REJOIN_UNAVAILABLE`(7) | `room.go` | `MSG_CLI_REJOIN` = `0xF016` |
 | 写超时 / 写队列 | 单帧写 10s 超时；写队列 64 帧满 = 客户端卡死，断掉 | `conn.go` / `room.go` | — |
-| 转发校验 | 游戏帧 `payload[0]`（src）必须等于连接的当前席位（防冒名），`payload[1]`（dst）必须在 1..6 且非自己、非空位；不合法丢帧不断线 | `room.go` | 线格式见 `NetProtocol.h` 头部注释 |
+| 转发校验 | 游戏帧 `payload[0]`（src）必须等于连接的当前席位（防冒名），`payload[1]`（dst）必须在 1..6 且非自己、非空位；不合法丢帧不断线（保留期的席位是"空位"，丢帧是正确行为） | `room.go` | 线格式见 `NetProtocol.h` 头部注释 |
 
 ## 已知限制（v1 有意为之）
 
