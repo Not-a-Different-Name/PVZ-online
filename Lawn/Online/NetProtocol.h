@@ -140,7 +140,14 @@ const uint16_t	PROTOCOL_VERSION	= 1;
 // 37 → 38：关底巨型 boss + 发阳光（2026-10-10 用户定案）：START_LEVEL 尾部再带一个
 //        runBossFlag 字节（载荷 24→25；1 = 闯关关底刷巨型 boss，仅第一席），长度不符按
 //        串包拒掉；发阳光走新 MSG 19（载荷与 START_LEVEL 无关）。检查点同版升 v13。
-const uint16_t	MOD_BUILD			= 38;
+// 38 → 39：局中掉线自动重连 + 席位保留（2026-10-11 用户定案）：新增三个控制帧——
+//        客户端 REJOIN（房间码+席位+名字/构建的重连请求）、服务器 PEER_OFFLINE（席位进
+//        保留期、队友按 graceSec 展示倒计时）、PEER_BACK（人回来了，与 PEER_JOIN 同形）。
+//        服务器沉默踢人 10s→30s、非体面断开的席位保留 60s；WELCOME 布局没动、
+//        PROTOCOL_VERSION 仍 1——旧构建收到这三个新帧当没见过的控制帧静默丢弃、不断线，
+//        所以服务器可以先行部署，混搭时重连特性在旧客户端一侧静默失效（走老判死路径）。
+//        只有中继模式有重连（直连无第三方权威，留后续批）。
+const uint16_t	MOD_BUILD			= 39;
 
 const uint16_t	DEFAULT_PORT		= 27777;
 
@@ -209,11 +216,14 @@ enum ControlType : uint16_t
 	MSG_SRV_ROOM_CLOSED	= 0xF005,	// S→C 房间解散（房主走了 / 服务器收摊）
 	MSG_SRV_SEAT_SWAP	= 0xF006,	// S→C 全房广播：这两个席位已互换（换位的唯一权威）
 	MSG_SRV_PING		= 0xF007,	// S→C 每秒一次保活（房里没人说话时唯一的入站流量）
+	MSG_SRV_PEER_OFFLINE = 0xF008,	// S→C 有人掉线了、席位进保留期（graceSec 秒内可重连）
+	MSG_SRV_PEER_BACK	= 0xF009,	// S→C 掉线的人回来了（载荷与 PEER_JOIN 同形）
 	MSG_CLI_CREATE_ROOM	= 0xF011,	// C→S 建房
 	MSG_CLI_JOIN_ROOM	= 0xF012,	// C→S 按房间码加入
 	MSG_CLI_SWAP_COMMIT	= 0xF013,	// C→S 换位已谈妥，请服务器落实并广播
 	MSG_CLI_PONG		= 0xF014,	// C→S 回应 SRV_PING
-	MSG_CLI_LEAVE_ROOM	= 0xF015	// C→S 主动退房（比直接断 TCP 语义清楚，服务器能立刻广播）
+	MSG_CLI_LEAVE_ROOM	= 0xF015,	// C→S 主动退房（比直接断 TCP 语义清楚，服务器能立刻广播）
+	MSG_CLI_REJOIN		= 0xF016	// C→S 重连请求（房间码+席位+名字/构建，服务器要对身份）
 };
 
 enum RejectReason : uint8_t
@@ -223,7 +233,9 @@ enum RejectReason : uint8_t
 	REJECT_ROOM_FULL		= 2,	// 席位都有人了
 	REJECT_BAD_CODE			= 3,	// 房间码格式不对
 	REJECT_SERVER_BUSY		= 4,	// 服务器到上限了（常规负载碰不到，留给以后）
-	REJECT_BAD_REQUEST		= 5		// 包本身不像话（长度/字段越界）
+	REJECT_BAD_REQUEST		= 5,	// 包本身不像话（长度/字段越界）
+	REJECT_REJOIN_SEAT_MISMATCH	= 6,	// 重连时名字/构建和席位原主对不上（防顶号）
+	REJECT_REJOIN_UNAVAILABLE	= 7		// 重连时房间已散 / 席位已释放 / 没这个席位
 };
 
 enum RoomClosedReason : uint8_t
@@ -235,7 +247,7 @@ enum RoomClosedReason : uint8_t
 enum PeerLeaveReason : uint8_t
 {
 	PEER_LEAVE_QUIT			= 0,	// 主动退房（LEAVE_ROOM 或关客户端）
-	PEER_LEAVE_TIMEOUT		= 1,	// 10 秒没收到它的任何数据
+	PEER_LEAVE_TIMEOUT		= 1,	// 服务器沉默判死（MOD_BUILD 39 起放宽到 30 秒）或保留期走完
 	PEER_LEAVE_KICKED		= 2		// 被服务器请出去（床位冲突之类的兜底）
 };
 
@@ -668,6 +680,26 @@ struct MsgSrvPeerLeave
 	uint8_t		mReason;
 };
 
+// PEER_OFFLINE（MOD_BUILD 39）：{ u8 seat, u8 graceSec }
+// "这个席位掉线了，服务器替它把位置留着"。graceSec = 保留还剩多少秒——队友拿它展示
+// 倒计时。保留期内该席位仍然算"有人的"（占位、各等待门照常等它），队友只额外知道
+// "它在掉线中"；人回来了服务器广播 PEER_BACK，保留拖到过期则广播 PEER_LEAVE(timeout)。
+struct MsgSrvPeerOffline
+{
+	uint8_t		mSeat;
+	uint8_t		mGraceSec;
+};
+
+// PEER_BACK（MOD_BUILD 39）：{ u8 seat, u16 build, char name[16] }——与 PEER_JOIN 同形
+// "掉线的人回来了"。收到的一方把该席位标回在线，并把"要它知道的状态"（未决开局命令、
+// 我这边的清完/选卡状态等）重报一遍——补状态走会话层内部的重发，不另开协议消息。
+struct MsgSrvPeerBack
+{
+	uint8_t		mSeat;
+	uint16_t	mBuild;
+	char		mName[NAME_SIZE];
+};
+
 // ROOM_CLOSED：{ u8 reason }（reason 见 RoomClosedReason）
 struct MsgSrvRoomClosed
 {
@@ -698,6 +730,20 @@ struct MsgCliJoinRoom
 	uint16_t	mBuild;
 	char		mName[NAME_SIZE];
 	char		mRoomCode[ROOM_CODE_SIZE];
+};
+
+// REJOIN（MOD_BUILD 39）：{ u16 version, u16 build, char name[16], char roomCode[4], u8 seat }
+// 掉线重连的请求：我原来坐哪一席、我是谁。名字+构建服务器拿去和席位原主核对（防顶号）——
+// 两条路都认：旧连接还挂着（链路抖动）时静默换掉它，或席位在保留期内时消费保留。
+// 受理成功回 WELCOME（名册照旧）、向房里其他人广播 PEER_BACK；拒绝回 REJECT——
+// 对不上名 = 6（哪条路都对不上）、房间没了/席位已释放 = 7。
+struct MsgCliRejoin
+{
+	uint16_t	mVersion;
+	uint16_t	mBuild;
+	char		mName[NAME_SIZE];
+	char		mRoomCode[ROOM_CODE_SIZE];
+	uint8_t		mSeat;
 };
 
 // PING / PONG / LEAVE_ROOM 的载荷是空的，不设结构体——帧头 type 本身把话说完了。
@@ -1209,6 +1255,41 @@ inline bool DecodeSrvPeerLeave(const uint8_t* theData, int theSize, MsgSrvPeerLe
 	return !aReader.Overflowed();
 }
 
+inline int EncodeSrvPeerOffline(uint8_t* theBuffer, int theCapacity, const MsgSrvPeerOffline& theMsg)
+{
+	Writer aWriter(theBuffer, theCapacity);
+	aWriter.U8(theMsg.mSeat);
+	aWriter.U8(theMsg.mGraceSec);
+	return aWriter.Overflowed() ? -1 : aWriter.Size();
+}
+
+inline bool DecodeSrvPeerOffline(const uint8_t* theData, int theSize, MsgSrvPeerOffline& theMsg)
+{
+	Reader aReader(theData, theSize);
+	theMsg.mSeat = aReader.U8();
+	theMsg.mGraceSec = aReader.U8();
+	return !aReader.Overflowed();
+}
+
+inline int EncodeSrvPeerBack(uint8_t* theBuffer, int theCapacity, const MsgSrvPeerBack& theMsg)
+{
+	Writer aWriter(theBuffer, theCapacity);
+	aWriter.U8(theMsg.mSeat);
+	aWriter.U16(theMsg.mBuild);
+	aWriter.Bytes(theMsg.mName, NAME_SIZE);
+	return aWriter.Overflowed() ? -1 : aWriter.Size();
+}
+
+inline bool DecodeSrvPeerBack(const uint8_t* theData, int theSize, MsgSrvPeerBack& theMsg)
+{
+	Reader aReader(theData, theSize);
+	theMsg.mSeat = aReader.U8();
+	theMsg.mBuild = aReader.U16();
+	aReader.Bytes(theMsg.mName, NAME_SIZE);
+	theMsg.mName[NAME_SIZE - 1] = 0;
+	return !aReader.Overflowed();
+}
+
 inline int EncodeSrvRoomClosed(uint8_t* theBuffer, int theCapacity, const MsgSrvRoomClosed& theMsg)
 {
 	Writer aWriter(theBuffer, theCapacity);
@@ -1277,6 +1358,30 @@ inline bool DecodeCliJoinRoom(const uint8_t* theData, int theSize, MsgCliJoinRoo
 	theMsg.mName[NAME_SIZE - 1] = 0;
 	aReader.Bytes(theMsg.mRoomCode, ROOM_CODE_LEN);
 	theMsg.mRoomCode[ROOM_CODE_LEN] = 0;
+	return !aReader.Overflowed();
+}
+
+inline int EncodeCliRejoin(uint8_t* theBuffer, int theCapacity, const MsgCliRejoin& theMsg)
+{
+	Writer aWriter(theBuffer, theCapacity);
+	aWriter.U16(theMsg.mVersion);
+	aWriter.U16(theMsg.mBuild);
+	aWriter.Bytes(theMsg.mName, NAME_SIZE);
+	aWriter.Bytes(theMsg.mRoomCode, ROOM_CODE_LEN);
+	aWriter.U8(theMsg.mSeat);
+	return aWriter.Overflowed() ? -1 : aWriter.Size();
+}
+
+inline bool DecodeCliRejoin(const uint8_t* theData, int theSize, MsgCliRejoin& theMsg)
+{
+	Reader aReader(theData, theSize);
+	theMsg.mVersion = aReader.U16();
+	theMsg.mBuild = aReader.U16();
+	aReader.Bytes(theMsg.mName, NAME_SIZE);
+	theMsg.mName[NAME_SIZE - 1] = 0;
+	aReader.Bytes(theMsg.mRoomCode, ROOM_CODE_LEN);
+	theMsg.mRoomCode[ROOM_CODE_LEN] = 0;
+	theMsg.mSeat = aReader.U8();
 	return !aReader.Overflowed();
 }
 
