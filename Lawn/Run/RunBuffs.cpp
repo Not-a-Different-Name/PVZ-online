@@ -380,7 +380,7 @@ bool RunPlantBuff2InPool(int theIndex)
 	case RUN_BUFF2_SUPPRESS:	// 批 2 节奏/费用/伤害族：双发攻速 ×0.7/层（通用 RHYTHM 挂点）
 	case RUN_BUFF2_SWIFTDIG:	// 墓碑吞噬 ×0.5/层（UpdateGraveBuster 计时）
 	case RUN_BUFF2_FREEPLANT:	// 分裂豌豆 0 费（GetCost）
-	case RUN_BUFF2_HEAVYTOSS:	// 卷心菜伤害 +50%/层（DoSplashDamage）
+	case RUN_BUFF2_HEAVYTOSS:	// 卷心菜伤害 +50%/层（DoImpact 单发分支；2026-10-10 从 DoSplashDamage 挪来）
 		return true;
 	case RUN_BUFF2_BEDROCK:		// 批 3 血量改写族：胆小菇血量写死 4000（Plant 构造）
 	case RUN_BUFF2_ROCKFLESH:	// 忧郁菇 1000 + 每击固定 200（啃咬/巨人砸分支）

@@ -492,13 +492,9 @@ void Projectile::DoSplashDamage(Zombie* theZombie)
 	// @pvz-online: 单株升级「Kindling」（火炬树桩）：火弹再乘单株乘数（helper 注释），
 	// 后面的溅射 1/3 递减与上限换算都从放大后的基数推，比例不变。
 	aOriginalDamage = KindlingFireballDamage(mApp, mProjectileType, aOriginalDamage);
-	// @pvz-online: 第二 buff 批 2「重投」（卷心菜投手，docs/06 §8.6 #32）：卷心菜弹伤害
-	// +50%/层（1★）——弹型即发射株（模仿者已解析），口径同火力 buff 的全局弹伤；溅射
-	// 1/3 递减与上限换算从放大后的基数推，比例不变。
-	if (mProjectileType == ProjectileType::PROJECTILE_CABBAGE)
-	{
-		aOriginalDamage = (int)(aOriginalDamage * mApp->RunPlantBuff2Mul(SeedType::SEED_CABBAGEPULT) + 0.5f);
-	}
+	// @pvz-online: 「重投」原挂此处，2026-10-10 实机修复挪走——卷心菜弹不是溅射弹
+	//（IsSplashDamage 只认西瓜/冰西瓜/火弹），这条路径对卷心菜零执行；现挂 DoImpact
+	// 单发分支（见该处注释）。
 	int aSplashDamage = aOriginalDamage / 3;
 	int aMaxSplashDamageAmount = aSplashDamage * 7;
 	if (mProjectileType == ProjectileType::PROJECTILE_FIREBALL)
@@ -916,6 +912,14 @@ void Projectile::DoImpact(Zombie* theZombie)
 		// @pvz-online: 单株升级「Kindling」（火炬树桩）：火弹打抗火僵尸（投石车/冰车等
 		// IsSplashDamage 为假）走这条单发路径，同样乘（helper 注释）。
 		aDamage = KindlingFireballDamage(mApp, mProjectileType, aDamage);
+		// @pvz-online: 第二 buff 批 2「重投」（卷心菜投手，docs/06 §8.6 #32）：单发伤害
+		// +50%/层（1★，cap3）。2026-10-10 实机修复（用户报「伤害 buff 不生效」）：旧挂点
+		// 在 DoSplashDamage，而卷心菜弹非溅射弹（IsSplashDamage 只认西瓜/冰西瓜/火弹），
+		// 那份乘算对卷心菜从零执行；挪到本条单发分支尾（乘序=火力→火炬→重投，与旧口径一致）。
+		if (mProjectileType == ProjectileType::PROJECTILE_CABBAGE)
+		{
+			aDamage = (int)(aDamage * mApp->RunPlantBuff2Mul(SeedType::SEED_CABBAGEPULT) + 0.5f);
+		}
 		theZombie->TakeDamage(aDamage, aDamageFlags);
 	}
 
