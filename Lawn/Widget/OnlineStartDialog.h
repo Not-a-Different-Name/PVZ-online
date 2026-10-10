@@ -2,13 +2,15 @@
 #define __ONLINESTARTDIALOG_H__
 
 #include "LawnDialog.h"
+#include "../../ConstEnums.h"	// Dialogs::（默认的 theDialogId 参数）
 
 class LawnApp;
 class LawnStoneButton;
 
 // @pvz-online: 联机开局流程的中文框，一张类管几种面孔：
 //   等待其他玩家（主机，[取消]） / 是否加入（客户端，[加入][暂不]） / 继续闯关？（主机，[继续][新开一局]） /
-//   启动玩法公告（[知道了]，正文多行按 '\n' 分行、多页按 '\f' 分页） / 纯看板（"等待队友选卡"，无按钮）。
+//   启动玩法公告（[知道了]，正文多行按 '\n' 分行、多页按 '\f' 分页） / 纯看板（"等待队友选卡"，无按钮） /
+//   掉线重连（[取消并退出]，正文每帧热替换，MOD_BUILD 39）。
 // 为什么自己做：位图字体（main.pak 里的 BrianneTod 全系）只到 Latin，画不了汉字。
 // 自 2026-10-03 语言批起走 ModText 的宽字符直绘（UTF-8 → UTF-16 → TextOutW，与系统码页
 // 脱钩）；此前是 SysFont + Utf8ToAnsi（转本机码页再 TextOutA），已并入 Lawn/ModText，
@@ -22,11 +24,13 @@ public:
 	//   NOTIFY_NONE          不通知：阻塞框自己从 WaitForResult 收结果（续不续存档），纯看板没有按钮
 	//   NOTIFY_INVITE_ANSWER 联机"是否加入"询问框 → LawnApp::OnlineStartPromptAnswer
 	//   NOTIFY_WAIT_CANCEL   主机"等待其他玩家"上的取消 → LawnApp::OnlineStartWaitCancelled
+	//   NOTIFY_RECONNECT_CANCEL  掉线重连框上的「取消并退出」 → LawnApp::OnlineReconnectCancelled
 	enum Notify
 	{
 		NOTIFY_NONE,
 		NOTIFY_INVITE_ANSWER,
-		NOTIFY_WAIT_CANCEL
+		NOTIFY_WAIT_CANCEL,
+		NOTIFY_RECONNECT_CANCEL
 	};
 
 	// 公告翻页按钮（2026-10-08 用户要的）：按下只换页、不设 mResult——设了
@@ -43,9 +47,17 @@ public:
 	// "第 n / m 页"。版心按"最宽的一行 + 最高的一页"定，翻页时框大小与正文位置都不动。
 	// theDraggable = 整框可鼠标拖动、且不受屏幕边缘回夹（基线 Dialog 自带拖拽，但钳在
 	// 屏幕边缘 ±8px 内，框大了会被卡住看不全——只有启动公告框要这个，2026-10-04 用户要求）。
+	// theDialogId = 这框注册到哪个 Dialog id 名下。默认就是它一直用的 DIALOG_ONLINE_START；
+	// 掉线重连框（MOD_BUILD 39）传自己的 DIALOG_ONLINE_RECONNECT——不然会跟"等待其他玩家"
+	// 那套每帧自检（GetDialog(DIALOG_ONLINE_START)）互相踩：自检会以为框没摆、叠着建。
 	OnlineStartDialog(LawnApp* theApp, const char* theTitleUtf8, const char* theBodyUtf8,
-		const char* theYesUtf8, const char* theNoUtf8, Notify theNotify, bool theDraggable = false);
+		const char* theYesUtf8, const char* theNoUtf8, Notify theNotify, bool theDraggable = false,
+		int theDialogId = Dialogs::DIALOG_ONLINE_START);
 	virtual ~OnlineStartDialog();
+
+	// 单页面孔的正文热替换（掉线重连框每帧刷新"第 n 次/剩 N 秒"用）。只换文本不重算尺寸：
+	// 框大小是构造时按换行后的正文定死的，跟着数字每帧重排会让框抖。多页面孔不走这条路。
+	void					SetBody(const char* theBodyUtf8);
 
 	virtual void			Draw(Graphics* g);
 	virtual void			KeyDown(KeyCode theKey);

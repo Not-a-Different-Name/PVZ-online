@@ -151,6 +151,10 @@ public:
 
 	// @pvz-online MOD_BUILD 39：本机是不是正处在掉线自动重连期（UI 据此弹/收重连框）。
 	bool			IsReconnecting() const { return mState == State::RECONNECTING; }
+	// 重连进度：第 n 次尝试 / 总窗口还剩多少秒。重连框和状态行两个消费方共用这一套
+	// 口径——数字只在这儿算一遍，别处只负责摆（两处的说法不许对不上）。
+	unsigned		GetReconnectAttempt() const;
+	int				GetReconnectSecondsLeft() const;
 	// 某席位是不是正处在"掉线保留期"（名册上还占着位、人在自动重连）。他那一格的
 	// 判胜/换位等待照旧堵着；保留期走完服务器会广播 PEER_LEAVE，那时才清格放行。
 	bool			IsSeatOffline(uint8_t theSeat) const;

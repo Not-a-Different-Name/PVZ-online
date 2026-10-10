@@ -334,6 +334,19 @@ bool NetSession::IsSeatOffline(uint8_t theSeat) const
 	return mSeats[theSeat].mOffline;
 }
 
+// 重连进度（MOD_BUILD 39）：口径原来只长在 UpdateStatusText 里，重连框要每帧拿同一对数，
+// 提出来当唯一来源。尝试次数从一开始数（还没连过任何一条也显示"第 1 次"）。
+unsigned NetSession::GetReconnectAttempt() const
+{
+	return (mReconnectAttempts < 1) ? 1u : (unsigned)mReconnectAttempts;
+}
+
+int NetSession::GetReconnectSecondsLeft() const
+{
+	int aLeftSec = (RECONNECT_WINDOW_FRAMES - mFramesSinceReconnectStart) / 100;
+	return (aLeftSec < 0) ? 0 : aLeftSec;
+}
+
 bool NetSession::HasOtherSeats() const
 {
 	for (uint8_t aSeat = 1; aSeat <= NetProto::MAX_PLAYERS; aSeat++)
@@ -1555,9 +1568,9 @@ void NetSession::UpdateStatusText()
 		{
 			// @pvz-online MOD_BUILD 39：重连期状态行。剩余秒数按总窗口倒着数——数到 0
 			// 就是"重连失败"那条路，玩家心里有数就不会对着"正在重连"干瞪眼。
-			int aLeftSec = (RECONNECT_WINDOW_FRAMES - mFramesSinceReconnectStart) / 100;
-			if (aLeftSec < 0) aLeftSec = 0;
-			unsigned anAttempt = (mReconnectAttempts < 1) ? 1u : (unsigned)mReconnectAttempts;
+			// 数字走 GetReconnectAttempt/GetReconnectSecondsLeft：重连框拿的是同一对值。
+			int aLeftSec = GetReconnectSecondsLeft();
+			unsigned anAttempt = GetReconnectAttempt();
 			mStatusText = NetText("掉线了——正在重连（第 ", "Lost the link - reconnecting (attempt ")
 				+ std::to_string(anAttempt)
 				+ NetText(" 次，还剩 ", ", ") + std::to_string((unsigned)aLeftSec) + NetText(" 秒）……", "s left)...");

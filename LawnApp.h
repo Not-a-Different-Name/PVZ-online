@@ -265,6 +265,9 @@ public:
 	// @pvz-online: 主机在等待框上按了"取消"——这次开局作废、人回菜单（等待本身就这一条出路，
 	// 闯关局的等待没有超时；取消键是玩家自己按的"不等了"）。
 	void							OnlineStartWaitCancelled();
+	// @pvz-online MOD_BUILD 39: 掉线重连框上按了「取消并退出」——交给会话层中止重连（判死/收摊
+	// 走 DISCONNECTED 老路；框由那条路统一收）。
+	void							OnlineReconnectCancelled();
 	// 客户端进场收口（询问框点了"加入" / 吃脑子残局上整队重来）：摆覆盖值、拆菜单、回 ACK、建棋盘。
 	void							EnterOnlineStart(const NetProto::MsgStartLevel& theMsg);
 	void							UpdateOnlineRelay();

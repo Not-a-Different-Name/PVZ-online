@@ -651,8 +651,12 @@ void LawnApp::UpdateOnlineStart()
 		mOnlineStartWaitFrames++;
 
 		// ① 队友没了：ACK 和掉线挤在同一帧的话，宁可这一次开局作废，
-		// 也不能一个人开着关跑下去。
-		if (!mOnlineSession->IsConnected())
+		// 也不能一个人开着关跑下去。MOD_BUILD 39 的例外：**闯关局里主机自己在重连**
+		// ——队友们都还在（席位名册服务器保留着），这一局不能当"人没了"作废，全队等
+		// 他连回来接着开局；非闯关局（还没进关，在菜单等第一关的 ACK）保持作废：
+		// 那条路本来就有 6 秒超时兜底，别把人晾在菜单上干等一个可能回不来的人。
+		if (!mOnlineSession->IsConnected()
+			&& !(mOnlineSession->IsReconnecting() && IsRunMode()))
 		{
 			mOnlineWaitingStartAck = false;
 			KillDialog(Dialogs::DIALOG_ONLINE_START);
@@ -908,6 +912,15 @@ void LawnApp::OnlineStartWaitCancelled()
 	TodLog("online start: the host cancelled the wait");
 }
 
+// @pvz-online MOD_BUILD 39：重连框上按了「取消并退出」。会话层收场（尽力跟服务器道个别、
+// 断链路、SetDead）→ DISCONNECTED 老路接管（棋盘在就收摊回主菜单、顺带收框）。框不在这儿
+// 拆：拆的动作归那条路统一做，按钮按下去当帧就能在框上看到反馈，不至于是"按了没反应"。
+void LawnApp::OnlineReconnectCancelled()
+{
+	if (mOnlineSession == nullptr) return;
+	mOnlineSession->AbortReconnect();
+}
+
 // @pvz-online: 客户端进场的收口（主机的开局命令已经受理、该点都点过了）：摆好覆盖值、
 // 拆菜单、回 ACK、建棋盘。两条来路——菜单上的询问框点了"加入"，还是人停在吃脑子的
 // 残局上（整队重来）——都汇到这儿，顺序和以前一模一样。
@@ -1021,6 +1034,44 @@ static void EnsureSeedsWaitDialog(LawnApp* theApp)
 	theApp->AddDialog(Dialogs::DIALOG_ONLINE_START, aDialog);
 }
 
+// @pvz-online MOD_BUILD 39：掉线重连框。非阻塞、模态（模态加入即自动冻棋盘，见 ModalOpen）——
+// 玩家盯着"第 n 次/剩 N 秒"的时候，他那块草坪是定住的（连屏幕里的僵尸也停着），不会趁人
+// 不在打输。每帧自检：会话在重连态就摆一张并就地刷新正文；不在就什么都不做，收框归
+// RECONNECTED / DISCONNECTED 两条事件。和"等待队友选卡"同一条纪律——被谁误关、或哪一帧
+// 没摆上，下一帧自己会补。
+static void EnsureOnlineReconnectDialog(LawnApp* theApp)
+{
+	NetSession* aSession = theApp->mOnlineSession;
+
+	// 固定 3 行（正文热替换的行数不变，框尺寸不重算）。宽度由最长的一行——房间那行——
+	// 顶着走，"第 10 次/剩 9 秒"这种位数变化都在同一张框里，不会顶宽。
+	std::string aBody = ModText::Tr("正在重连……", "Reconnecting...");
+	aBody += "\n";
+	aBody += ModText::Tr("第 ", "Attempt ") + std::to_string(aSession->GetReconnectAttempt())
+		+ ModText::Tr(" 次尝试，还剩 ", ", ") + std::to_string(aSession->GetReconnectSecondsLeft())
+		+ ModText::Tr(" 秒", " s left");
+	aBody += "\n";
+	aBody += ModText::Tr("房间 ", "Room ") + aSession->GetRoomCode()
+		+ ModText::Tr("——你的席位保留着，连上就能继续。", " - your seat is held; you can continue once reconnected.");
+
+	OnlineStartDialog* aDialog = (OnlineStartDialog*)theApp->GetDialog(Dialogs::DIALOG_ONLINE_RECONNECT);
+	if (aDialog == nullptr)
+	{
+		// 单按钮走"否"槽（theYes 传空）：槽位逻辑本来就支持单按钮，框体零改动。
+		aDialog = new OnlineStartDialog(theApp,
+			ModText::Tr("掉线了", "Lost the link"), aBody.c_str(),
+			nullptr, ModText::Tr("取消并退出", "Cancel & leave"),
+			OnlineStartDialog::NOTIFY_RECONNECT_CANCEL, false,
+			Dialogs::DIALOG_ONLINE_RECONNECT);
+		theApp->CenterDialog(aDialog, aDialog->mWidth, aDialog->mHeight);
+		theApp->AddDialog(Dialogs::DIALOG_ONLINE_RECONNECT, aDialog);
+	}
+	else
+	{
+		aDialog->SetBody(aBody.c_str());
+	}
+}
+
 bool LawnApp::TryHoldSeedChooserForTeammates()
 {
 	if (!IsOnlineGame()) return false;			// 单机 / 掉了线：原版节奏，不等
@@ -1048,6 +1099,16 @@ bool LawnApp::TryHoldSeedChooserForTeammates()
 void LawnApp::UpdateOnlineSeeds()
 {
 	if (!mOnlineSeedsHeld) return;
+
+	// @pvz-online MOD_BUILD 39：重连期断的是我自己的线，不是"队友没了"——放行条件
+	// （IsOnlineGame）在这期间天然为假，不加这条约束会把等待门当成"等的人不会来了"
+	// 误放行（选卡关屏当场开打，"都选好才开打"就废了）。等待框先收掉（免得和重连框
+	// 叠着摆），门保持堵着；归队后每帧自检会把框再摆回来（EnsureSeedsWaitDialog）。
+	if (mOnlineSession->IsReconnecting())
+	{
+		KillDialog(Dialogs::DIALOG_ONLINE_START);
+		return;
+	}
 
 	bool aConnected = IsOnlineGame();
 	bool aSomebodyToWait = aConnected && mOnlineSession->HasOtherSeats()
@@ -1225,6 +1286,11 @@ void LawnApp::UpdateOnlineEvents()
 {
 	if (!mOnlineSession) return;
 
+	// @pvz-online MOD_BUILD 39：重连框每帧自检（摆框、刷新"第 n 次/剩 N 秒"；见
+	// EnsureOnlineReconnectDialog）。放事件循环前面：进重连的当帧这张框就得到位。
+	if (mOnlineSession->IsReconnecting())
+		EnsureOnlineReconnectDialog(this);
+
 	NetSession::Event anEvent;
 	while (mOnlineSession->PollEvent(anEvent))
 	{
@@ -1253,6 +1319,9 @@ void LawnApp::UpdateOnlineEvents()
 
 		case NetSession::EventType::DISCONNECTED:
 			TodLog("[net] connection lost: %s", mOnlineSession->GetStatusText().c_str());
+			// @pvz-online MOD_BUILD 39：重连框（在手的话）先收——重连失败/被取消都会走到
+			// 这条收摊老路上来，框不能留在屏幕上盖着后面的"连接断开"提示。
+			KillDialog(Dialogs::DIALOG_ONLINE_RECONNECT);
 			// 询问框挂着的客户端（人还在主菜单上）：对面没了，这张框也就没有意义了。
 			// 不回 ACK——会话都没了。主机那边等待中的看板框由 UpdateOnlineStart 自己收
 			// （它每帧查 IsConnected）。
@@ -1322,6 +1391,51 @@ void LawnApp::UpdateOnlineEvents()
 			if (mBoard != nullptr)
 			{
 				mOnlineSession->PostNotice(ModText::Tr("队友离开了房间。", "A teammate left the room."));
+			}
+			break;
+
+		case NetSession::EventType::RECONNECTING:
+			TodLog("[net] link lost - reconnecting to room %s, our seat is held",
+				mOnlineSession->GetRoomCode().c_str());
+			// 询问框挂着的客户端（人还在主菜单上、还没答"是否加入"）：这一刻起 ACK 也发不
+			// 出去，"是否加入"答了也没用——先收掉，免得和重连框叠着摆。归队后主机补发的
+			// START_LEVEL 会让它原样再摆出来（见会话层 PEER_BACK 的 awaiting 重发），
+			// 回答流程一步不少。
+			//
+			// "等 ACK"的作废不在这儿做：UpdateOnlineStart ① 每帧先跑（本帧会话层已经切到
+			// 重连态），非闯关局的等待当场就按"队友没了"那条作废；闯关局的等待由 ① 的
+			// 新门特意留到重连结束——全队等主机自己回来，不算白等。
+			DismissOnlineStartPrompt(false);
+			break;
+
+		case NetSession::EventType::RECONNECTED:
+			// 我自己回来了：收框（棋盘冻结随之解除）、留一句说明。不重跑任何开局链——
+			// 剧本、棋盘、记忆全是原样保留的那一套；我这边"已选卡/已清完"的记忆会话层
+			// 已清掉、归队时会重新报一遍，队友那边的等待门跟着重开。
+			TodLog("[net] reconnected - we are back in room %s", mOnlineSession->GetRoomCode().c_str());
+			KillDialog(Dialogs::DIALOG_ONLINE_RECONNECT);
+			mOnlineSession->PostNotice(ModText::Tr("已重新连接。", "Reconnected."));
+			break;
+
+		case NetSession::EventType::PEER_OFFLINE:
+			{
+				// 队友掉线、席位进了保留期：给个说法。等待门不动（他那格还占着）——全队
+				// 一起等他回来；保留期走完服务器会广播 PEER_LEAVE，那时才清格放行。
+				TodLog("[net] seat %u lost the link - its seat is held", (unsigned)anEvent.mSeat);
+				std::string aName = mOnlineSession->GetSeatName(anEvent.mSeat);
+				if (aName.empty()) aName = "P" + std::to_string((unsigned)anEvent.mSeat);
+				mOnlineSession->PostNotice((aName + ModText::Tr(" 掉线了，正在重连……", " lost the link - reconnecting...")).c_str());
+			}
+			break;
+
+		case NetSession::EventType::PEER_BACK:
+			{
+				// 掉线的那位回来了（会话层只在这席位此前确实标过 offline 时才推这条——
+				// 快路径的静默替换不打扰任何人）。补状态全在会话层里做，这儿只提示一句。
+				TodLog("[net] seat %u is back", (unsigned)anEvent.mSeat);
+				std::string aName = mOnlineSession->GetSeatName(anEvent.mSeat);
+				if (aName.empty()) aName = "P" + std::to_string((unsigned)anEvent.mSeat);
+				mOnlineSession->PostNotice((aName + ModText::Tr(" 已重新连接。", " is back.")).c_str());
 			}
 			break;
 

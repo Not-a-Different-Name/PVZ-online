@@ -68,8 +68,8 @@ static int BodyBlockHeight(ModText::Font* theFont, int theLineCount)
 }
 
 OnlineStartDialog::OnlineStartDialog(LawnApp* theApp, const char* theTitleUtf8, const char* theBodyUtf8,
-	const char* theYesUtf8, const char* theNoUtf8, Notify theNotify, bool theDraggable) : LawnDialog(
-		theApp, Dialogs::DIALOG_ONLINE_START, true, _S(""), _S(""), _S(""), Dialog::BUTTONS_NONE)
+	const char* theYesUtf8, const char* theNoUtf8, Notify theNotify, bool theDraggable, int theDialogId) : LawnDialog(
+		theApp, theDialogId, true, _S(""), _S(""), _S(""), Dialog::BUTTONS_NONE)
 {
 	mNotify = theNotify;
 	mDraggable = theDraggable;
@@ -194,6 +194,15 @@ int OnlineStartDialog::MaxBodyLineCount() const
 		if (aLines > aMax) aMax = aLines;
 	}
 	return aMax;
+}
+
+// MOD_BUILD 39：正文热替换（单页面孔专用，掉线重连框每帧刷新进度）。只换第 0 页的文本、
+// 标脏重画，不碰版心/摆位——框大小是构造时定的，跟着数字重排会抖。换文本与构造用同一套
+// 约定：'\n' 分行，行数不变（重连框恒 3 行），所以连 MaxBodyLineCount 的定高都不用重算。
+void OnlineStartDialog::SetBody(const char* theBodyUtf8)
+{
+	mPages[0] = (theBodyUtf8 != nullptr) ? theBodyUtf8 : "";
+	MarkDirty();
 }
 
 void OnlineStartDialog::Resize(int theX, int theY, int theWidth, int theHeight)
@@ -360,6 +369,12 @@ void OnlineStartDialog::ButtonDepress(int theId)
 	case NOTIFY_WAIT_CANCEL:
 		// 主机等队友的看板：取消这次开局（撤框、清覆盖值、菜单交还给玩家）
 		mApp->OnlineStartWaitCancelled();
+		break;
+
+	case NOTIFY_RECONNECT_CANCEL:
+		// 掉线重连框：取消重连、退出房间。框不在这儿拆——判死/收摊走会话层的
+		// DISCONNECTED 老路，那条路统一收框（拆早了玩家反而看不出这一下按没按上）。
+		mApp->OnlineReconnectCancelled();
 		break;
 
 	default:

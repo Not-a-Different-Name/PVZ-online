@@ -306,6 +306,7 @@ enum Dialogs
     DIALOG_RUN_PICK,                            // @pvz-online: 闯关的三选一屏（植物 / buff）
     DIALOG_ONLINE_START,                        // @pvz-online: 联机开局流程的中文框（等待其他玩家 / 是否加入 / 继续闯关？），见 OnlineStartDialog
     DIALOG_RUN_OPTIONS,                         // @pvz-online: 闯关「高级选项」面板（出怪规模/节奏/植物僵尸），见 RunOptionsDialog
+    DIALOG_ONLINE_RECONNECT,                    // @pvz-online: 掉线自动重连框（第 n 次/剩 N 秒 + 「取消并退出」），见 OnlineStartDialog
     NUM_DIALOGS
 };
 enum DebugTextMode
