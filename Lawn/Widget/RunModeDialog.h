@@ -46,11 +46,12 @@ public:
 	bool				mShowDiff;			// 联机主机（或无尽变体）才有难度行与「高级选项…」
 	int					mEndlessScene;		// >= 0 = 无尽变体（锁定的场景 0..4）；-1 = 普通选模式页
 	int					mDiffSel;			// 选中的难度档（值 = RunState::RUN_DIFF_*）：LawnApp 在 WaitForResult 之后读
-	// 高级选项三值（批 C）：由弹出的 RunOptionsDialog 回填（取消不改），LawnApp 在
+	// 高级选项值（批 C 起）：由弹出的 RunOptionsDialog 回填（取消不改），LawnApp 在
 	// WaitForResult 之后与 mDiffSel 一起读走、传进 StartRun。
 	int					mScaleSel;			// RunState::RUN_SCALE_*（默认标准）
 	int					mTempoSel;			// RunState::RUN_TEMPO_*（默认标准）
 	int					mZombotanySel;		// 植物僵尸混入开关（0 关 1 开，默认关）
+	int					mBossSel;			// 巨型 boss 开关（0 关 1 开，默认关；无尽档恒按关处理）
 	CjkStoneButton*	mCancelButton;		// 取消 = 关弹窗不开局
 	CjkStoneButton*	mStartButton;		// 无尽变体的「开始」（普通页 nullptr）
 	ButtonWidget*		mOptionsButton;		// 「高级选项…」（mShowDiff 为假时 nullptr）
