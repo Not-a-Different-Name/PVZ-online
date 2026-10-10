@@ -212,6 +212,30 @@ bool RunState::CanOfferPlantPick() const
 	return false;
 }
 
+// @pvz-online: §8.6.1 矛盾对跨屏互斥（2026-10-10 用户拍板：从「同屏去重」扩为「持有即
+// 排除」）：同株两条机制互斥（一条把弹/株改型，另一条依赖原弹/原株）——只拦同屏不够，
+// 跨屏先后双持会出两种坏局：①雪豆改冰瓜弹后「寒冰贯通」仍按株型给弹标无限穿透（弹型
+// 无关）→ 溅射+穿透叠加、远超单条设计强度；②玉米变加农炮后「黄油盛宴」掷点无落点 →
+// 静默无效（卷心菜型死挂点）。口径：这两对里任一条已持有（>0 层）→ 另一条从候选整体
+// 剔除、本局不再出现（双向；对侧双持的存量旧档两条都被拦，不再往上叠）。双向判 = 这条
+// 所属株若在「对侧表」有互斥条且其已持有，返回 true。清单见 docs/06 §8.6.1。
+static bool RunChoiceBlockedByCounterpart(const RunState* theRun, SeedType thePlant, bool theSecondTable)
+{
+	if (thePlant == SeedType::SEED_SNOWPEA)
+	{
+		return theSecondTable
+			? theRun->GetBuffCount(RUN_BUFF_COUNT + RUN_UPGRADE_SNOWPEA) > 0
+			: theRun->GetBuffCount(RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT + RUN_BUFF2_FROSTPIERCE) > 0;
+	}
+	if (thePlant == SeedType::SEED_KERNELPULT)
+	{
+		return theSecondTable
+			? theRun->GetBuffCount(RUN_BUFF_COUNT + RUN_UPGRADE_KERNELPULT) > 0
+			: theRun->GetBuffCount(RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT + RUN_BUFF2_BUTTERFEAST) > 0;
+	}
+	return false;
+}
+
 // 抽一屏的三条候选。种子挂上"这一屏是第几次抽"（mPickCounter），所以同一局里
 // 两屏不会抽出同一组；runSeed 之外还混了本机随机盐 mPickSalt（用户定案：联机里
 // 每个玩家的候选各不相同）。盐在进程内稳定，所以失败重打这一关时抽出来的
@@ -319,6 +343,7 @@ void RunState::RollChoices(bool theReroll)
 			if (!HasPlant(GetRunPlantUpgradeDef(i).mPlant)) continue;
 			int aCap = GetRunChoiceMaxStacks(aId);
 			if (aCap > 0 && GetBuffCount(aId) >= aCap) continue;
+			if (RunChoiceBlockedByCounterpart(this, GetRunPlantUpgradeDef(i).mPlant, false)) continue;
 			aCandidates[aCount] = aId;
 			aWeights[aCount] = GetRunChoiceWeight(aId);
 			aTotalW += aWeights[aCount];
@@ -333,6 +358,7 @@ void RunState::RollChoices(bool theReroll)
 			if (!HasPlant(GetRunPlantBuff2Def(i).mPlant)) continue;
 			int aCap = GetRunChoiceMaxStacks(aId);
 			if (aCap > 0 && GetBuffCount(aId) >= aCap) continue;
+			if (RunChoiceBlockedByCounterpart(this, GetRunPlantBuff2Def(i).mPlant, true)) continue;
 			aCandidates[aCount] = aId;
 			aWeights[aCount] = GetRunChoiceWeight(aId);
 			aTotalW += aWeights[aCount];
@@ -385,10 +411,11 @@ void RunState::RollChoices(bool theReroll)
 		}
 
 		// 加权无放回抽三格。抽中单株条（老表/第二表都算）后把同株的其余条目从候选
-		// 摘除（§8.5/§8.6.1，第二 buff 批 0 落地）：一屏三张里同一株至多出现 1 条，
-		// 矛盾对（寒冰射手「冰西瓜化」↔「寒冰贯通」、玉米投手「加农炮转化」↔「黄油盛宴」）
-		// 都是同株两条，被这条规则一并互斥。跨屏不拦：老条+新条可以先后都拿（存量层叠
-		// 各自按 cap 管）。全局条 GetRunChoicePlant 返 SEED_NONE，不触发。
+		// 摘除（§8.5/§8.6.1，第二 buff 批 0 落地）：一屏三张里同一株至多出现 1 条。
+		// §8.6.1 矛盾对自 2026-10-10（用户拍板）从「同屏去重」扩为「持有即排除」——
+		// 跨屏先后也不让双持，由候选构建期的 RunChoiceBlockedByCounterpart 拦；其余
+		// 同株老条+新条跨屏不拦（存量层叠各自按 cap 管）。全局条 GetRunChoicePlant 返
+		// SEED_NONE，不触发。
 		for (int aSlot = 0; aSlot < RUN_CHOICES; aSlot++)
 		{
 			if (aCount <= 0)

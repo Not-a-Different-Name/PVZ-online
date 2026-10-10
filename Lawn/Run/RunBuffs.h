@@ -214,7 +214,7 @@ enum RunPlantBuff2Id
 	RUN_BUFF2_SCORCHED,		// #2 樱桃炸弹：焦土——被炸者每秒 300 伤燃烧 3 秒，火随人（cap2，2★）
 	RUN_BUFF2_THORNS,		// #3 坚果墙：荆棘之壁——啃食者每秒受 40 伤（cap2，2★）
 	RUN_BUFF2_MINEREGROW,	// #4 土豆雷：自动补雷——引爆后 3 秒原位重埋，每层多补 1 次（cap2，2★）
-	RUN_BUFF2_FROSTPIERCE,	// #5 寒冰射手：寒冰贯通——雪豆无限穿透（cap1，2★；与老条「冰西瓜化」同株互斥）
+	RUN_BUFF2_FROSTPIERCE,	// #5 寒冰射手：寒冰贯通——雪豆无限穿透（cap1，2★；与老条「冰西瓜化」同株互斥，2026-10-10 起跨屏「持有即排除」）
 	RUN_BUFF2_CHAINBITE,	// #6 大嘴花：连锁吞——吞完范围内仍有僵尸立即再咬，每层多连锁 1 次（cap2，2★）
 	RUN_BUFF2_SUPPRESS,		// #7 双发射手：火力压制——攻击间隔 ×0.7/层（cap2，2★；走通用 RHYTHM 挂点）
 	RUN_BUFF2_DEATHSPORE,	// #8 小喷菇：亡语孢子——被啃掉时原地爆炸 900 伤/层（cap2，2★）
@@ -238,7 +238,7 @@ enum RunPlantBuff2Id
 	RUN_BUFF2_REGROW,		// #30 南瓜头：再生——每 15 秒回复 10% 血（cap2，2★）
 	RUN_BUFF2_MAGNETTHROW,	// #31 磁力菇：卸甲飞掷——吸到的防具掷回，1200 伤/层（cap2，2★）
 	RUN_BUFF2_HEAVYTOSS,	// #32 卷心菜投手：重投——伤害 +50%（cap3，1★）
-	RUN_BUFF2_BUTTERFEAST,	// #34 玉米投手：黄油盛宴——黄油率 +25% 且时长 +1 秒/层（cap2，2★；与老条「加农炮转化」同株互斥）
+	RUN_BUFF2_BUTTERFEAST,	// #34 玉米投手：黄油盛宴——黄油率 +25% 且时长 +1 秒/层（cap2，2★；与老条「加农炮转化」同株互斥，2026-10-10 起跨屏「持有即排除」）
 	RUN_BUFF2_GUIDE,		// #36 大蒜：引路蒜——血量仅 20，被吃时全行僵尸换道（cap1，2★；矛盾设计原型）
 	RUN_BUFF2_FORTUNE,		// #38 金盏花：富贵——+10%/层 概率产金/钻石币（cap3，1★；产币端可实现照落，钱用途待定）
 	RUN_BUFF2_ROLLING,		// #39 西瓜投手：滚爆——落地后向前滚 1 格并再炸一次（cap1，1★）
@@ -260,8 +260,8 @@ int RunPlantBuff2IndexFor(SeedType thePlant);
 bool RunPlantBuff2InPool(int theIndex);
 
 // id → 所属植物：全局增益 → SEED_NONE；老单株/第二表条目 → 查各自表的 mPlant。
-// 同屏同株去重（一屏三张里同一株的老/新条至多出现 1 条，§8.6.1 矛盾对互斥同此）
-// 在 RunState::RollChoices 抽中后摘除时用。
+// 同屏同株去重（一屏三张里同一株的老/新条至多出现 1 条）在 RunState::RollChoices
+// 抽中后摘除时用；§8.6.1 矛盾对另有跨屏「持有即排除」（候选构建期，2026-10-10 起）。
 SeedType GetRunChoicePlant(int theId);
 
 #endif
