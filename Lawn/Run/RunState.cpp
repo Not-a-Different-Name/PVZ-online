@@ -47,7 +47,7 @@
 //     其余档读平，场景按 0 续。关数校验按 LevelCountForMode(3)=60000 封口（软上限）。
 
 static const unsigned int RUN_CHECKPOINT_MAGIC = 0x314E5552;	// 'RUN1'
-static const unsigned short RUN_CHECKPOINT_VERSION = 12;
+static const unsigned short RUN_CHECKPOINT_VERSION = 13;
 
 static std::vector<unsigned char>& AppendU16(std::vector<unsigned char>& theData, unsigned int theValue)
 {
@@ -105,7 +105,7 @@ RunState::RunState()
 	StartNew(0);
 }
 
-void RunState::StartNew(int theRunSeed, int theRunMode, int theRunDiff, int theRunScale, int theRunTempo, int theZombotany, int theEndlessScene)
+void RunState::StartNew(int theRunSeed, int theRunMode, int theRunDiff, int theRunScale, int theRunTempo, int theZombotany, int theEndlessScene, int theBossFlag)
 {
 	mRunSeed = theRunSeed;
 	mMode = theRunMode;
@@ -116,6 +116,8 @@ void RunState::StartNew(int theRunSeed, int theRunMode, int theRunDiff, int theR
 	mScale = theRunScale;
 	mTempo = theRunTempo;
 	mZombotany = theZombotany;
+	// 关底 boss 开关：无尽档没有关底，恒记 0（与读档的非无尽口径一致）。
+	mBossFlag = (theRunMode != RUN_MODE_ENDLESS && theBossFlag != 0) ? 1 : 0;
 	mLevelIndex = 0;
 	mPool.clear();
 	mPool.push_back(SeedType::SEED_SUNFLOWER);
@@ -767,6 +769,7 @@ bool RunState::Save(int theProfileId) const
 	// 从此可能出现第二表 id（57..95）。老版本读到会当老单株解出错误条目，故抬版本号让
 	// 老构建直接拒档；v10 及更老档没有这类 id，读平即可，不需要迁移链。
 	AppendU16(aData, (unsigned int)mEndlessScene);	// v12：无尽档锁定的场景（非无尽档恒 0）
+	AppendU16(aData, (unsigned int)(mBossFlag ? 1 : 0));	// v13：关底巨型 boss 开关（无尽档恒 0）
 
 	MkDir(GetAppDataFolder() + "userdata");
 	if (!gSexyAppBase->WriteBytesToFile(GetCheckpointName(theProfileId), aData.data(), (unsigned long)aData.size()))
@@ -804,7 +807,7 @@ bool RunState::Load(int theProfileId)
 	// 非无尽档的场景恒 0。
 	int aMode = RUN_MODE_FULL;
 	int aDiff = RUN_DIFF_STD;
-	if (aMagic != RUN_CHECKPOINT_MAGIC || (aVersion != RUN_CHECKPOINT_VERSION && aVersion != 11 && aVersion != 10 && aVersion != 9 && aVersion != 8 && aVersion != 7 && aVersion != 6 && aVersion != 5 && aVersion != 4 && aVersion != 3 && aVersion != 2))
+	if (aMagic != RUN_CHECKPOINT_MAGIC || (aVersion != RUN_CHECKPOINT_VERSION && aVersion != 12 && aVersion != 11 && aVersion != 10 && aVersion != 9 && aVersion != 8 && aVersion != 7 && aVersion != 6 && aVersion != 5 && aVersion != 4 && aVersion != 3 && aVersion != 2))
 	{
 		TodLog("[run] checkpoint magic/version mismatch, ignored");
 		return false;
@@ -951,6 +954,15 @@ bool RunState::Load(int theProfileId)
 		aEndlessScene = 0;
 	}
 
+	// v13 才有关底 boss 开关；v12 及更老的档读不到，按关。旧值不校验语义（0/1），
+	// 无尽档读进来也按 0（与 StartNew 同口径）。
+	unsigned int aBossFlag = 0;
+	if (aVersion >= 13 && !aReader.ReadU16(aBossFlag))
+	{
+		return false;
+	}
+	if (aMode == RUN_MODE_ENDLESS) aBossFlag = 0;
+
 	mRunSeed = aRunSeed;
 	mMode = aMode;
 	mDiff = aDiff;
@@ -958,6 +970,7 @@ bool RunState::Load(int theProfileId)
 	mScale = (int)(aOptions & 3);
 	mTempo = (int)((aOptions >> 2) & 3);
 	mZombotany = (int)((aOptions >> 4) & 1);
+	mBossFlag = (aBossFlag != 0) ? 1 : 0;
 	mLevelIndex = aLevelIndex;
 	memcpy(mFailCounts, aFailCounts, sizeof(mFailCounts));
 	mMowerUsedRows = aMowerUsedRows;

@@ -124,6 +124,10 @@ public:
 	int							mScale;			// RUN_SCALE_*：出怪规模倍率档
 	int							mTempo;			// RUN_TEMPO_*：波间隔倍率档
 	int							mZombotany;		// 植物僵尸混入开关
+	// @pvz-online: 关底巨型 boss 开关（MOD_BUILD 38，2026-10-10 用户定案）：1 = 闯关最后一关
+	// 关底刷巨型 boss（仅第一席；无尽档没有关底、恒不刷）。房间级设置，随 START_LEVEL 广播、
+	// 随检查点 v13 持久；联机各端无条件按房主的值对齐（不参与重建判等）。
+	int							mBossFlag;
 	// @pvz-online: 补发追赶的目标关序号（R5）。队友没有检查点 / 检查点落后于主机时，
 	// 不是"跳到主机的关"，而是从这一局的起点一屏一屏地把欠下的三选一补齐——
 	// 补做的屏与真打过的一模一样（候选由 runSeed + 关序号推导）。开着的时候
@@ -137,7 +141,7 @@ public:
 	// 无尽档（theRunMode == RUN_MODE_ENDLESS）：theEndlessScene 锁场景（0..4，越界钳 0）。
 	void				StartNew(int theRunSeed, int theRunMode = RUN_MODE_FULL, int theRunDiff = RUN_DIFF_STD,
 							int theRunScale = RUN_SCALE_STD, int theRunTempo = RUN_TEMPO_STD, int theZombotany = 0,
-							int theEndlessScene = 0);
+							int theEndlessScene = 0, int theBossFlag = 0);
 
 	// 时长档的关数口径：每场景关数（5/2/1）与总关数（25/10/5）。模式非法按完整版。
 	// 无尽档的 LevelCountForMode = RUN_ENDLESS_LEVEL_COUNT（软上限）；LevelsPerScene 对

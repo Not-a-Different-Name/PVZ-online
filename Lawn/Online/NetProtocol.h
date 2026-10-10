@@ -137,7 +137,10 @@ const uint16_t	PROTOCOL_VERSION	= 1;
 //        关序号能过 255）、尾部再带一个 runEndlessScene 场景字节（载荷 22→24）；关序号或
 //        场景对不上会开出别的关，混搭必须两边同版本。旧长度（22 字节）的 START_LEVEL 按
 //        串包拒掉；非无尽档场景恒 0，其余语义一字不变。检查点同版升 v12。
-const uint16_t	MOD_BUILD			= 37;
+// 37 → 38：关底巨型 boss + 发阳光（2026-10-10 用户定案）：START_LEVEL 尾部再带一个
+//        runBossFlag 字节（载荷 24→25；1 = 闯关关底刷巨型 boss，仅第一席），长度不符按
+//        串包拒掉；发阳光走新 MSG 19（载荷与 START_LEVEL 无关）。检查点同版升 v13。
+const uint16_t	MOD_BUILD			= 38;
 
 const uint16_t	DEFAULT_PORT		= 27777;
 
@@ -181,7 +184,8 @@ enum MessageType : uint16_t
 	MSG_SEEDS_READY		= 15,	// 双向：我这一轮的选卡状态（1 = 选好了，等其他人）
 	MSG_QUICK_CHAT		= 16,	// 双向：局内快捷聊天，只传编号（1-8 短语、9-16 植物表情，查表在 QuickChat.h）
 	MSG_BOARD_WATCH		= 17,	// 双向：观战点播/保活/收播（op 见 WatchOp；dst = 被看席位）
-	MSG_BOARD_SNAPSHOT	= 18	// 被看方→观看者：战场定格快照（一行实体一款、分片发，见 MsgBoardSnapshot）
+	MSG_BOARD_SNAPSHOT	= 18,	// 被看方→观看者：战场定格快照（一行实体一款、分片发，见 MsgBoardSnapshot）
+	MSG_SEND_SUN		= 19	// 双向：发阳光给队友（单 100 档、税 10、5s 冷却；载荷见 MsgSendSun）
 };
 
 // ------------------------------------------------------------------------------------------------
@@ -387,6 +391,7 @@ struct MsgStartLevel
 	uint8_t			mRunTempo;
 	uint8_t			mRunZombotany;
 	uint8_t			mRunEndlessScene;
+	uint8_t			mRunBossFlag;
 };
 
 // LEVEL_DONE：{ srcSeat, dstSeat, u8 done }（1 = 我这块草坪清完了，0 = 又不清净了）
@@ -708,6 +713,7 @@ inline int EncodeStartLevel(uint8_t* theBuffer, int theCapacity, const MsgStartL
 	aWriter.U8(theMsg.mRunTempo);
 	aWriter.U8(theMsg.mRunZombotany);
 	aWriter.U8(theMsg.mRunEndlessScene);
+	aWriter.U8(theMsg.mRunBossFlag);
 	return aWriter.Overflowed() ? -1 : aWriter.Size();
 }
 
@@ -728,6 +734,7 @@ inline bool DecodeStartLevel(const uint8_t* theData, int theSize, MsgStartLevel&
 	theMsg.mRunTempo = aReader.U8();
 	theMsg.mRunZombotany = aReader.U8();
 	theMsg.mRunEndlessScene = aReader.U8();
+	theMsg.mRunBossFlag = aReader.U8();
 	return !aReader.Overflowed();
 }
 
