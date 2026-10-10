@@ -4,6 +4,7 @@
 上游 README 说明编码风格（m/the/a 前缀、@Contributor 注释标记）。
 
 > **动手前必读**：`docs/规范.md`（项目约束）与 `docs/README.md`（文档索引）。
+> **每批改动落地时同批更新 `docs/08-更新日志.md`**（面向玩家的更新日志，纪律见规范.md §11）。
 > 换电脑：根目录 `../TRANSFER.md` → `docs/01-转移与重建.md`。
 
 ## 构建（Windows + MSVC x86）
