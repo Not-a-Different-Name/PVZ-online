@@ -109,6 +109,11 @@ NetSession::NetSession()
 	mHeartbeatTick = 0;
 	mConnectPort = NetProto::DEFAULT_PORT;
 	mFramesSinceRoomRequest = 0;
+	mReconnectAttempts = 0;
+	mFramesSinceReconnectStart = 0;
+	mFramesSinceRejoinSent = 0;
+	mRejoinSent = false;
+	mLastStartLevelValid = false;
 	mTextChinese = false;			// 默认英文；上层每帧注入（见 SetTextChinese）
 	mStatusText = NetText("未连接。", "Not connected.");
 	mHintText = NetText("开一间房，或输入主机 IP 加入。", "Host a game, or type the host's IP and join.");
@@ -152,6 +157,7 @@ void NetSession::ClearSeatTable()
 	for (int aSeat = 0; aSeat <= NetProto::MAX_PLAYERS; aSeat++)
 	{
 		mSeats[aSeat].mOccupied = false;
+		mSeats[aSeat].mOffline = false;
 		mSeats[aSeat].mBuild = 0;
 		mSeats[aSeat].mName.clear();
 		mSeats[aSeat].mLevelDone = false;
@@ -313,8 +319,19 @@ bool NetSession::IsSeatOccupied(uint8_t theSeat) const
 {
 	if (theSeat == NetProto::SEAT_UNSET || theSeat > NetProto::MAX_PLAYERS) return false;
 	if (theSeat == mLocalSeat) return true;		// 建房/加入那一刻起，自己那席就有人了
-	// 队友那席要真连上才算：还在等人进来的时候，名册上那个位子该是空的
-	return mSeats[theSeat].mOccupied && IsConnected();
+	// 队友那席要真连上才算：还在等人进来的时候，名册上那个位子该是空的。
+	// 重连期是例外（MOD_BUILD 39）：名册还挂在服务器上（席位保留着），本机对"谁还在这房里"
+	// 的记忆照旧——不然这一瞬间全表为空，漏怪链的末席、换位环、各等待门全当房里没人，
+	// 棋盘只要跑出一帧就是误判。
+	return mSeats[theSeat].mOccupied && (IsConnected() || mState == State::RECONNECTING);
+}
+
+// 掉线保留期查询（MOD_BUILD 39）：名册上的人还在，但本人掉线了、正在自动重连。
+// 本机自己那格不标 offline（本机是在回自己的席位，不叫"掉线的人"）。
+bool NetSession::IsSeatOffline(uint8_t theSeat) const
+{
+	if (theSeat == NetProto::SEAT_UNSET || theSeat > NetProto::MAX_PLAYERS) return false;
+	return mSeats[theSeat].mOffline;
 }
 
 bool NetSession::HasOtherSeats() const
@@ -405,6 +422,117 @@ void NetSession::Close()
 	TodLog("[net] session closed");
 }
 
+// @pvz-online MOD_BUILD 39：重连框上的「取消并退出」。
+// 只在中继重连期有意义：链路恰好活着就尽力打一声招呼（服务器立刻回收席位、队友立刻
+// 看到人走了，不必干等保留期走完）；然后必须 Close——重连期的链路可能挂着一个正在
+// 重试的连接线程，而 SetDead 是不动链路的（历史上由 ResetToOff/Close 负责收），
+// 不收它，下次开局会被"上一个线程还在"当面挡住。收场借用 SetDead 的老路：
+// DISCONNECTED 事件 → 上层收摊回主菜单（和"重连窗口耗尽"同一个出口）。
+void NetSession::AbortReconnect()
+{
+	if (mState != State::RECONNECTING) return;
+
+	if (mLink.IsConnected()) SendRaw(NetProto::MSG_CLI_LEAVE_ROOM, nullptr, 0);
+	TodLog("[net] the player cancelled the reconnect and left the room");
+	mLink.Close();
+	SetDead(NetText("已取消重连。", "Reconnect cancelled.").c_str(),
+		NetText("已取消重连", "Reconnect cancelled").c_str());
+}
+
+// @pvz-online MOD_BUILD 39：掉线自动重连的总闸门。中继下链路死了或沉默超时都不判死，
+// 从这里进重连：置态、清计时、关掉旧链路按原地址重开，之后由 Update 的重连段每秒推进
+// （链路通→发 REJOIN→等 WELCOME；发出去没人理→重开再试）。总窗口耗尽才真判死。
+// 重连期内链路又死会再次走到这儿：那时只管把链路再开一次——置态、总窗口、事件通知
+// 都不重来，不然玩家看到的倒计时会一遍遍从 45 秒重新开始。
+// 两件事绝不碰：① 不走 Close()/SendBye——那是"体面退房"，服务器会立刻回收席位，
+// 重连的意义（位子还留着）就没了；② 不清开局记账（pause/leveldone/awaitingAck）——
+// 回来时全队还等着这些记忆接着跑。
+void NetSession::EnterReconnecting()
+{
+	if (mState != State::RECONNECTING)
+	{
+		TodLog("[net] link lost in room %s (seat %u) - trying to reconnect",
+			mRoomCode.c_str(), (unsigned)mLocalSeat);
+		mState = State::RECONNECTING;
+		mReconnectAttempts = 0;
+		mFramesSinceReconnectStart = 0;
+		ClearWatchState(WatchEnd::SILENT);	// 观看/被观看的即时报文已经发不出去了，就地收场
+		ClearSwapState();
+		PushEvent(EventType::RECONNECTING);
+	}
+	ReopenLink();
+}
+
+// 关掉旧链路、按原地址重开一条。FAILED/IDLE 时旧收包线程已经退出，Close 是即时的；
+// CONNECTED 时是我们主动换一条（REJOIN 总等不来 WELCOME，多半对面还是旧服务器）。
+// Connect 之后链路自己会每秒重试直到连上、或被我们再关掉，这里不用管"一时连不上"。
+void NetSession::ReopenLink()
+{
+	mLink.Close();
+	mRejoinSent = false;
+	mFramesSinceRejoinSent = 0;
+	if (mLink.Connect(mConnectHost.c_str(), mConnectPort)) mReconnectAttempts++;
+	// Connect 失败是罕见的线程句柄泄漏场景：就当这一轮没成，Update 下一帧接着看
+}
+
+// 链路通了，向服务器报"我是原来坐 n 号位的人"。服务器核房间码 + 姓名 + 构建，对上了
+// 就把席位还回来（回 WELCOME，名册照旧）。发完就掐表：5 秒没等到 WELCOME 当没收到，
+// 重开链路再来一轮。
+bool NetSession::SendRejoin()
+{
+	if (mTransport != Transport::RELAY) return false;
+	if (mLocalSeat == NetProto::SEAT_UNSET) return false;
+	if ((int)mRoomCode.size() != NetProto::ROOM_CODE_LEN) return false;
+
+	NetProto::MsgCliRejoin aMsg = {};
+	aMsg.mVersion = NetProto::PROTOCOL_VERSION;
+	aMsg.mBuild = NetProto::MOD_BUILD;
+	NetProto::SetName(aMsg.mName, mLocalName.c_str());
+	memcpy(aMsg.mRoomCode, mRoomCode.data(), NetProto::ROOM_CODE_LEN);
+	aMsg.mSeat = mLocalSeat;
+
+	uint8_t aPayload[NetProto::MAX_PAYLOAD];
+	int aSize = NetProto::EncodeCliRejoin(aPayload, (int)sizeof(aPayload), aMsg);
+	if (aSize <= 0) return false;
+
+	mRejoinSent = true;
+	mFramesSinceRejoinSent = 0;
+	TodLog("[net] reconnecting: asking to rejoin room %s seat %u (attempt %d)",
+		mRoomCode.c_str(), (unsigned)mLocalSeat, mReconnectAttempts);
+	return SendRaw(NetProto::MSG_CLI_REJOIN, aPayload, aSize);
+}
+
+// 重连归队时补发"最后一条开局命令"——给那些在等开局 ACK、却因为对方掉线被服务器
+// 把帧丢了的人。不复用 SendStartLevel：那家伙带 ClearPause/ClearLevelDone/mAnyAckRejected
+// 一堆副作用，重发一条旧命令不该把全队判胜记忆清掉。
+// theTargetSeat 给 SEAT_UNSET = 发给所有仍在等的人。
+bool NetSession::ResendLastStartLevel(uint8_t theTargetSeat)
+{
+	if (mRole != Role::HOST || !mLastStartLevelValid) return false;
+
+	NetProto::MsgStartLevel aMsg = mLastStartLevel;
+	aMsg.mSrcSeat = mLocalSeat;				// 换过席位也按现席位报
+	aMsg.mDstSeat = NetProto::SEAT_UNSET;	// 由 Dispatch 按目标填
+
+	uint8_t aPayload[NetProto::MAX_PAYLOAD];
+	int aSize = NetProto::EncodeStartLevel(aPayload, (int)sizeof(aPayload), aMsg);
+	if (aSize <= 0) return false;
+	if (!Dispatch(NetProto::MSG_START_LEVEL, aPayload, aSize, theTargetSeat)) return false;
+
+	// 跟 SendStartLevel 一样：发出去了才记"在等谁回答"（只勾这次真发到的那些）
+	for (uint8_t aSeat = 1; aSeat <= NetProto::MAX_PLAYERS; aSeat++)
+	{
+		if (aSeat == mLocalSeat || !IsSeatOccupied(aSeat)) continue;
+		if (theTargetSeat != NetProto::SEAT_UNSET && aSeat != theTargetSeat) continue;
+		mSeats[aSeat].mAwaitingAck = true;
+	}
+	if (theTargetSeat == NetProto::SEAT_UNSET)
+		TodLog("[net] resent the pending start command to whoever is still waiting");
+	else
+		TodLog("[net] resent the pending start command to seat %u", (unsigned)theTargetSeat);
+	return true;
+}
+
 void NetSession::Update()
 {
 	if (mState == State::OFF) return;
@@ -431,11 +559,28 @@ void NetSession::Update()
 	NetLink::State aLinkState = mLink.GetState();
 	if (aLinkState == NetLink::State::FAILED)
 	{
+		// @pvz-online MOD_BUILD 39：中继里已经坐进名册的人掉线不判死——服务器把席位
+		// 保留着，重开链路自动回去。直连没有第三方兜底、也没有"席位"可保留；开户/第一次
+		// 握手就没成的人（还没入座）没得回——这两种照旧判死走老路。重连期内再次失败
+		// 也走这儿：EnterReconnecting 认得出这不是第一回，不会重置总窗口。
+		if (mTransport == Transport::RELAY && mLocalSeat != NetProto::SEAT_UNSET
+			&& (mState == State::CONNECTED || mState == State::RECONNECTING))
+		{
+			EnterReconnecting();
+			// 提前返回就轮不到末尾那次 UpdateStatusText：不补这一下，进重连的第一帧
+			// 状态行还挂着掉线前的旧文案（测试/UI 都会先看到"重连了"却没见"正在重连"）。
+			UpdateStatusText();
+			return;
+		}
 		SetDead(mLink.GetLastError());
 		return;
 	}
 
-	if (aLinkState == NetLink::State::CONNECTED && mState != State::CONNECTED && mState != State::HANDSHAKING)
+	// 重连期的链路接通不走下面的"握手"分支：那边会重发 CREATE_ROOM/JOIN_ROOM，
+	// 把刚接上的席位又当成"新进房"办。RECONNECTING 的链路一通走对口的 REJOIN
+	//（见下面重连那一段），这里必须把它排除。
+	if (aLinkState == NetLink::State::CONNECTED && mState != State::CONNECTED && mState != State::HANDSHAKING
+		&& mState != State::RECONNECTING)
 	{
 		mState = State::HANDSHAKING;
 		mFramesSincePacket = 0;
@@ -482,7 +627,19 @@ void NetSession::Update()
 			mFramesSinceHeartbeat = 0;
 			SendHeartbeat();
 		}
-		if (mFramesSincePacket > TIMEOUT_FRAMES)
+		// @pvz-online MOD_BUILD 39：中继的沉默判死放宽到 15 秒（网络抖几秒不该清场），
+		// 真超了也不判死——进自动重连，席位在服务器上保留着。直连没有可保留的名分，
+		// 照旧 5 秒判死走老路。
+		if (mTransport == Transport::RELAY)
+		{
+			if (mFramesSincePacket > RECONNECT_SILENCE_FRAMES)
+			{
+				EnterReconnecting();
+				UpdateStatusText();	// 同上：沉默进重连的那一帧也要就地刷新状态行
+				return;
+			}
+		}
+		else if (mFramesSincePacket > TIMEOUT_FRAMES)
 		{
 			SetDead(NetText("连接超时。", "Connection timed out.").c_str());
 			return;
@@ -526,6 +683,34 @@ void NetSession::Update()
 			{
 				mBoardWatcherMask &= (uint8_t)~(1u << aSeat);
 				TodLog("[net] watcher seat %u went quiet - stop sending snapshots", (unsigned)aSeat);
+			}
+		}
+	}
+
+	// @pvz-online MOD_BUILD 39：重连期。这段只干三件事：链路死了重开、链路一通发 REJOIN、
+	// 发了没人理也重开再试；总窗口（45 秒）耗尽才真判死。链路还在 CONNECTING 时不打扰——
+	// NetLink 自己在按秒重试。
+	if (mState == State::RECONNECTING)
+	{
+		if (++mFramesSinceReconnectStart > RECONNECT_WINDOW_FRAMES)
+		{
+			SetDead(NetText("重连失败——没能回到房间。", "Reconnect failed - could not get back into the room.").c_str(),
+				NetText("重连失败", "Reconnect failed").c_str());
+			return;
+		}
+
+		if (aLinkState == NetLink::State::CONNECTED)
+		{
+			if (!mRejoinSent)
+			{
+				SendRejoin();
+			}
+			else if (++mFramesSinceRejoinSent > REJOIN_WAIT_FRAMES)
+			{
+				// 链路活着、服务器却迟迟不认这条 REJOIN：多半对面还是旧服务器（它把没见过的
+				// 帧静默丢了，不会应也不会踢）。重开一次链路再试——重开也救不了就等窗口耗尽。
+				TodLog("[net] rejoin got no WELCOME for 5s - reopening the link and trying again");
+				ReopenLink();
 			}
 		}
 	}
@@ -1207,6 +1392,12 @@ void NetSession::ResetToOff()
 	mConnectHost.clear();
 	mConnectPort = NetProto::DEFAULT_PORT;
 	mFramesSinceRoomRequest = 0;
+	// 重连记账跟着这一局作废：下一条链路是新会话，不该背着上局的尝试数/等待窗口
+	mReconnectAttempts = 0;
+	mFramesSinceReconnectStart = 0;
+	mFramesSinceRejoinSent = 0;
+	mRejoinSent = false;
+	mLastStartLevelValid = false;
 	mStatusText = NetText("未连接。", "Not connected.");
 	mHintText = NetText("开一间房，或输入主机 IP 加入。", "Host a game, or type the host's IP and join.");
 	mEvents.clear();
@@ -1216,11 +1407,25 @@ void NetSession::ResetToOff()
 	mNoticeFrames = 0;
 }
 
-void NetSession::SetConnected()
+void NetSession::SetConnected(bool theWasReconnect)
 {
 	mState = State::CONNECTED;
 	mFramesSincePacket = 0;
 	mFramesSinceHeartbeat = 0;
+
+	// @pvz-online MOD_BUILD 39：重连归队走这条早退——不重跑下面那套首连的动静。
+	// 尤其不能推 CONNECTED：上层拿它当"有新客人"办（拉菜单、开局的那些动作），
+	// 归队的人只该看到一句"回来了"，游戏场景原地不动。
+	if (theWasReconnect)
+	{
+		mRejoinSent = false;
+		mFramesSinceReconnectStart = 0;		// 窗口收工；下一次掉线从头起算
+		TodLog("[net] reconnected to room %s - back in seat %u (%d player(s) in the room)",
+			mRoomCode.c_str(), (unsigned)mLocalSeat, GetOccupiedSeatCount());
+		PushEvent(EventType::RECONNECTED);
+		return;
+	}
+
 	if (mTransport == Transport::RELAY)
 	{
 		// 中继：名册是服务器给的，日志里把"我坐几号位、房主是谁、房里有几个人"一次说清
@@ -1344,6 +1549,20 @@ void NetSession::UpdateStatusText()
 					: (NetText("——你的漏怪往后传给 P", " - your leaks pass on to P")
 						+ std::to_string((unsigned)aNext) + NetText("。", "."));
 			}
+		}
+		break;
+	case State::RECONNECTING:
+		{
+			// @pvz-online MOD_BUILD 39：重连期状态行。剩余秒数按总窗口倒着数——数到 0
+			// 就是"重连失败"那条路，玩家心里有数就不会对着"正在重连"干瞪眼。
+			int aLeftSec = (RECONNECT_WINDOW_FRAMES - mFramesSinceReconnectStart) / 100;
+			if (aLeftSec < 0) aLeftSec = 0;
+			unsigned anAttempt = (mReconnectAttempts < 1) ? 1u : (unsigned)mReconnectAttempts;
+			mStatusText = NetText("掉线了——正在重连（第 ", "Lost the link - reconnecting (attempt ")
+				+ std::to_string(anAttempt)
+				+ NetText(" 次，还剩 ", ", ") + std::to_string((unsigned)aLeftSec) + NetText(" 秒）……", "s left)...");
+			mHintText = NetText("房间 ", "Room ") + mRoomCode
+				+ NetText("——你的席位保留着，连上就能接着打。", " - your seat is being held; you can continue once connected.");
 		}
 		break;
 	case State::DEAD:
@@ -2029,7 +2248,10 @@ void NetSession::HandleControlFrame(uint16_t theType, const uint8_t* thePayload,
 	case NetProto::MSG_SRV_WELCOME:
 		{
 			if (mTransport != Transport::RELAY) return;		// 直连不该收到这些
-			if (mState != State::HANDSHAKING) return;		// 一份名册只认第一次（重复的丢掉）
+			// 一份名册只认第一次（重复的丢掉）；@pvz-online MOD_BUILD 39：重连归队等来的
+			// 那份也受理——整段重连期都停在 RECONNECTING，直到这里才收工。
+			if (mState != State::HANDSHAKING && mState != State::RECONNECTING) return;
+			bool aWasReconnect = (mState == State::RECONNECTING);
 
 			NetProto::MsgSrvWelcome aMsg = {};
 			if (!NetProto::DecodeSrvWelcome(thePayload, theSize, aMsg))
@@ -2040,6 +2262,14 @@ void NetSession::HandleControlFrame(uint16_t theType, const uint8_t* thePayload,
 			if (aMsg.mVersion != NetProto::PROTOCOL_VERSION)
 			{
 				SetDead(NetText("协议版本不一致——所有人必须跑同一版本。", "Version mismatch - all players must run the same build.").c_str(), NetText("协议版本不一致", "Version mismatch").c_str());
+				return;
+			}
+			// @pvz-online MOD_BUILD 39：归队的人拿到的席位必须还是原来那个——对不上说明
+			// 服务器给错了位（或房间码撞上别人的房），接着打下去就是两个人坐同一个位子。
+			if (aWasReconnect && aMsg.mYourSeat != mLocalSeat)
+			{
+				SetDead(NetText("重连失败：席位对不上。", "Reconnect failed: the seat does not match.").c_str(),
+					NetText("重连失败", "Reconnect failed").c_str());
 				return;
 			}
 
@@ -2071,6 +2301,20 @@ void NetSession::HandleControlFrame(uint16_t theType, const uint8_t* thePayload,
 				return;
 			}
 
+			// @pvz-online MOD_BUILD 39：归队前记下"还在等谁回开局 ACK"。ClearSeatTable 会
+			// 把这份记账一起清掉，而回头 UpdateOnlineStart 的"全答齐了"判定看到"全空"会
+			// 当场假通过开跑。重建名册后按席位补回，并给还没答的人重发一条开局命令——
+			// 他多半根本没收到（帧丢在我掉线的那段），或答了但帧丢在半路。
+			bool aWasAwaitingAck[NetProto::MAX_PLAYERS + 1] = {};
+			for (uint8_t aSeat = 1; aSeat <= NetProto::MAX_PLAYERS; aSeat++)
+				aWasAwaitingAck[aSeat] = mSeats[aSeat].mAwaitingAck;
+
+			// @pvz-online MOD_BUILD 39：本机"选好了"也一样要留住。它是个状态不是事件——
+			// 报过一次（Let's Rock / 这一关不用选卡）就不会再报，去重记忆随名册重建归零后
+			// 没有任何一帧会再触发它，队友的等待门（IsPeerSeedsReady）就干等一个永远不来的
+			// "选好了"。这里连同记忆一起恢复，重建完名册立刻补报一遍。
+			bool aWasSeedsReady = aWasReconnect && mSeats[mLocalSeat].mSeedsReady;
+
 			ClearSeatTable();
 			for (int i = 0; i < aMsg.mSeatCount; i++)
 			{
@@ -2089,7 +2333,31 @@ void NetSession::HandleControlFrame(uint16_t theType, const uint8_t* thePayload,
 			mRoomCode = aMsg.mRoomCode;
 			// 谁是房主由服务器点（不一定是 1 号位）：房主管开局和选关，这条不能猜。
 			mRole = (mLocalSeat == mHostSeat) ? Role::HOST : Role::CLIENT;
-			SetConnected();
+
+			// 归队的人：把"还在等谁开场"补回去（见上面的快照）。只补问得着的席位——
+			// 掉线期间真走了的人，这份等待就该作废。
+			if (aWasReconnect)
+			{
+				for (uint8_t aSeat = 1; aSeat <= NetProto::MAX_PLAYERS; aSeat++)
+				{
+					if (aSeat != mLocalSeat && aWasAwaitingAck[aSeat]) ResendLastStartLevel(aSeat);
+				}
+				// 选卡状态同理（见上面的快照）：恢复本机那份记忆，再朝所有队友补报一遍。
+				// 没报过就不补——乱补会让队友提前开打。
+				if (aWasSeedsReady)
+				{
+					mSeats[mLocalSeat].mSeedsReady = true;
+					NetProto::MsgSeedsReady aReady = {};
+					aReady.mSrcSeat = mLocalSeat;
+					aReady.mDstSeat = NetProto::SEAT_UNSET;		// 由 Dispatch 按目标填
+					aReady.mReady = 1;
+					uint8_t aPayload[NetProto::MAX_PAYLOAD];
+					int aSize = NetProto::EncodeSeedsReady(aPayload, (int)sizeof(aPayload), aReady);
+					if (aSize > 0) Dispatch(NetProto::MSG_SEEDS_READY, aPayload, aSize);
+					TodLog("[net] told the team again that my plants were already picked (reconnect)");
+				}
+			}
+			SetConnected(aWasReconnect);
 		}
 		return;
 
@@ -2101,6 +2369,31 @@ void NetSession::HandleControlFrame(uint16_t theType, const uint8_t* thePayload,
 			if (!NetProto::DecodeSrvReject(thePayload, theSize, aMsg))
 			{
 				SetDead(NetText("服务器拒绝了该请求。", "The server did not like that request.").c_str(), NetText("服务器错误", "Server error").c_str());
+				return;
+			}
+
+			// @pvz-online MOD_BUILD 39：重连期被回绝——这不是普通"加入失败"：人是从局里
+			// 掉出来的，文案得说清"回不去了"，然后走判死老路（上层收摊回主菜单）。
+			if (mState == State::RECONNECTING)
+			{
+				switch (aMsg.mReason)
+				{
+				case NetProto::REJECT_REJOIN_SEAT_MISMATCH:
+					SetDead(NetText("重连失败：身份对不上，服务器不认这条归队请求。",
+						"Reconnect failed: the server did not recognize you.").c_str(),
+						NetText("重连失败", "Reconnect failed").c_str());
+					break;
+				case NetProto::REJECT_REJOIN_UNAVAILABLE:
+					SetDead(NetText("重连失败：房间或你的席位已经没了。",
+						"Reconnect failed: the room or your seat is gone.").c_str(),
+						NetText("重连失败", "Reconnect failed").c_str());
+					break;
+				default:
+					SetDead(NetText("重连失败。", "Reconnect failed.").c_str(),
+						NetText("重连失败", "Reconnect failed").c_str());
+					break;
+				}
+				TodLog("[net] the server turned the rejoin down (reason %u)", (unsigned)aMsg.mReason);
 				return;
 			}
 
@@ -2150,6 +2443,7 @@ void NetSession::HandleControlFrame(uint16_t theType, const uint8_t* thePayload,
 			mSeats[aMsg.mSeat].mOccupied = true;
 			mSeats[aMsg.mSeat].mBuild = aMsg.mBuild;
 			mSeats[aMsg.mSeat].mName = SanitizeName(aMsg.mName, NetProto::NAME_SIZE);
+			mSeats[aMsg.mSeat].mOffline = false;	// @pvz-online MOD_BUILD 39：新来的人当然在线
 			TodLog("[net] seat %u joined: %s (build %u)", (unsigned)aMsg.mSeat,
 				mSeats[aMsg.mSeat].mName.c_str(), (unsigned)aMsg.mBuild);
 
@@ -2188,12 +2482,91 @@ void NetSession::HandleControlFrame(uint16_t theType, const uint8_t* thePayload,
 			mSeats[aMsg.mSeat].mSeedsReady = false;
 			mSeats[aMsg.mSeat].mAckState = 0;
 			mSeats[aMsg.mSeat].mAwaitingAck = false;
+			mSeats[aMsg.mSeat].mOffline = false;	// 保留期到点了，掉线的人算是走了
 			// 挂在他身上的换位请求也跟着作废
 			if (mSwapRequestSeat == aMsg.mSeat || mSwapAskSeat == aMsg.mSeat) ClearSwapState();
 			TodLog("[net] seat %u left (reason %u) - %d player(s) left", (unsigned)aMsg.mSeat,
 				(unsigned)aMsg.mReason, GetOccupiedSeatCount());
 
 			PushEvent(EventType::PEER_LEFT, aMsg.mSeat);
+		}
+		return;
+
+	// @pvz-online MOD_BUILD 39：有人掉线了、席位进保留期。席位照旧算"有人的"（各等待门
+	// 全都不动，全队等他），只是名册上标一句"掉线中"，UI 才看得出和"稳稳坐着"的区别。
+	// 保留期拖到过期，服务器会补一条 PEER_LEAVE 走上面那条清格路——等待跟着解锁。
+	case NetProto::MSG_SRV_PEER_OFFLINE:
+		{
+			if (mTransport != Transport::RELAY) return;
+			if (!IsConnected()) return;
+
+			NetProto::MsgSrvPeerOffline aMsg = {};
+			if (!NetProto::DecodeSrvPeerOffline(thePayload, theSize, aMsg))
+			{
+				SetDead(NetText("服务器发来的数据包有问题。", "The server sent a malformed packet.").c_str(), NetText("服务器错误", "Server error").c_str());
+				return;
+			}
+			if (aMsg.mSeat < 1 || aMsg.mSeat > NetProto::MAX_PLAYERS || aMsg.mSeat == mLocalSeat)
+			{
+				TodLog("[net] threw away a PEER_OFFLINE with a bad seat (%u)", (unsigned)aMsg.mSeat);
+				return;
+			}
+
+			mSeats[aMsg.mSeat].mOffline = true;
+			TodLog("[net] seat %u dropped out - the server holds its seat for %u more second(s)",
+				(unsigned)aMsg.mSeat, (unsigned)aMsg.mGraceSec);
+			PushEvent(EventType::PEER_OFFLINE, aMsg.mSeat);
+		}
+		return;
+
+	// @pvz-online MOD_BUILD 39：掉线的人回来了（重新接上，名册照旧）。
+	case NetProto::MSG_SRV_PEER_BACK:
+		{
+			if (mTransport != Transport::RELAY) return;
+			if (!IsConnected()) return;
+
+			NetProto::MsgSrvPeerBack aMsg = {};
+			if (!NetProto::DecodeSrvPeerBack(thePayload, theSize, aMsg))
+			{
+				SetDead(NetText("服务器发来的数据包有问题。", "The server sent a malformed packet.").c_str(), NetText("服务器错误", "Server error").c_str());
+				return;
+			}
+			if (aMsg.mSeat < 1 || aMsg.mSeat > NetProto::MAX_PLAYERS || aMsg.mSeat == mLocalSeat)
+			{
+				TodLog("[net] threw away a PEER_BACK with a bad seat (%u)", (unsigned)aMsg.mSeat);
+				return;
+			}
+
+			// 名册残余里这一格什么样都照常补全（万一 PEER_JOIN 之前丢了，这里顺手救回来）
+			bool aWasOffline = mSeats[aMsg.mSeat].mOffline;
+			mSeats[aMsg.mSeat].mOccupied = true;
+			mSeats[aMsg.mSeat].mBuild = aMsg.mBuild;
+			mSeats[aMsg.mSeat].mName = SanitizeName(aMsg.mName, NetProto::NAME_SIZE);
+			mSeats[aMsg.mSeat].mOffline = false;
+			TodLog("[net] seat %u is back: %s (build %u)", (unsigned)aMsg.mSeat,
+				mSeats[aMsg.mSeat].mName.c_str(), (unsigned)aMsg.mBuild);
+
+			// 他归队时名册是从服务器的 WELCOME 重建的——"我的状态"在他那边全回到初始值，
+			// 而我这边的去重记忆（值没变不发）会把下一次重报吞掉。两条状态点名补给他
+			// （和 PEER_JOIN 补判胜同一个理，选卡那条 PEER_JOIN 没补，归队场景靠得住它）。
+			if (mSeats[mLocalSeat].mLevelDone) SendLevelDoneTo(aMsg.mSeat, true);
+			if (mSeats[mLocalSeat].mSeedsReady)
+			{
+				NetProto::MsgSeedsReady aReady = {};
+				aReady.mSrcSeat = mLocalSeat;
+				aReady.mDstSeat = aMsg.mSeat;
+				aReady.mReady = 1;
+				uint8_t aPayload[NetProto::MAX_PAYLOAD];
+				int aSize = NetProto::EncodeSeedsReady(aPayload, (int)sizeof(aPayload), aReady);
+				if (aSize > 0) Dispatch(NetProto::MSG_SEEDS_READY, aPayload, aSize, aMsg.mSeat);
+			}
+
+			// 主机还在等他回开局 ACK：重发一条开局命令——他多半根本没收到，或答了帧丢在半路。
+			if (mSeats[aMsg.mSeat].mAwaitingAck) ResendLastStartLevel(aMsg.mSeat);
+
+			// 只有"大家看见他掉线过"才值得报一句；快路径的静默替换对别人本来就不存在，
+			// 这个事件就是给 UI 用的（LawnApp 侧提示"X 已重新连接"）。
+			if (aWasOffline) PushEvent(EventType::PEER_BACK, aMsg.mSeat);
 		}
 		return;
 
@@ -2455,6 +2828,11 @@ bool NetSession::SendStartLevel(uint8_t theGameMode, uint32_t theLevel, int32_t 
 
 	if (!Dispatch(NetProto::MSG_START_LEVEL, aPayload, aSize, theTargetSeat)) return false;
 
+	// @pvz-online MOD_BUILD 39：这份命令留个底——重连归队/队友回来时要照原样补发一条
+	//（见 ResendLastStartLevel），那一头不能带"新一局"的副作用。
+	mLastStartLevel = aMsg;
+	mLastStartLevelValid = true;
+
 	// 新的一条命令：上一轮"有人说不行"的记账跟着作废，别让它把这一次也毙了。
 	mAnyAckRejected = false;
 
@@ -2491,7 +2869,7 @@ void NetSession::SendStartAck(bool theAccepted)
 	}
 }
 
-bool NetSession::SendRunGo()
+bool NetSession::SendRunGo(uint8_t theTargetSeat)
 {
 	if (mRole != Role::HOST || !IsConnected()) return false;
 
@@ -2504,7 +2882,7 @@ bool NetSession::SendRunGo()
 	if (aSize <= 0) return false;
 
 	TodLog("[net] telling the team to start their picks");
-	return Dispatch(NetProto::MSG_RUN_GO, aPayload, aSize);
+	return Dispatch(NetProto::MSG_RUN_GO, aPayload, aSize, theTargetSeat);
 }
 
 // 双向：报"我这一轮的选卡状态"。是个状态不是事件——同一轮里重复报同一个值就不发

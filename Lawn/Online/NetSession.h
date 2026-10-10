@@ -33,6 +33,10 @@ public:
 		CONNECTING,		// 客户端：正在连
 		HANDSHAKING,	// TCP 通了，等握手结果
 		CONNECTED,
+		// @pvz-online MOD_BUILD 39：中继掉线，正自动重连（席位在服务器上保留着）。
+		// 整段重连期——包括新链路已通、在等 WELCOME 的那几秒——都停在这个态：
+		// 归队成功 → CONNECTED，窗口耗尽/被服务器回绝/玩家取消 → DEAD。
+		RECONNECTING,
 		DEAD			// 断了或失败了，原因在 GetStatusText() 里
 	};
 
@@ -48,7 +52,12 @@ public:
 		CONNECTED,		// 握手完成，可以开局了
 		DISCONNECTED,	// 掉线（不是我们自己关的）
 		PEER_JOINED,	// 中继：有人进了房（mSeat 说清是谁）。直连不会有——那个人就是 CONNECTED
-		PEER_LEFT		// 中继：有人走了（mSeat 说清是谁）。房主走 = ROOM_CLOSED，不是这一条
+		PEER_LEFT,		// 中继：有人走了（mSeat 说清是谁）。房主走 = ROOM_CLOSED，不是这一条
+		// @pvz-online MOD_BUILD 39：中继重连的四条。
+		RECONNECTING,	// 本机掉线，开始自动重连（UI 弹重连框）
+		RECONNECTED,	// 本机重连成功、坐回原席（UI 收框；不重跑任何开局链）
+		PEER_OFFLINE,	// 某席位掉线、进了保留期（mSeat；名册上还占着位，等他回来）
+		PEER_BACK		// 掉线的那位回来了（mSeat）
 	};
 
 	struct Event
@@ -109,6 +118,13 @@ public:
 	static const int	WATCH_KEEPALIVE_FRAMES		= 200;	// 观看者每 2 秒一条保活
 	static const int	WATCH_SNAPSHOT_FRAMES		= 300;	// 观看者 3 秒没有快照 = 对面没响应，观看收场
 	static const int	WATCH_KEEPER_FRAMES			= 600;	// 被看方 6 秒收不到保活 = 观看者没了，停推
+	// @pvz-online MOD_BUILD 39：中继自动重连的三个计时（同样 10ms 一拍），和服务器侧
+	// （30 秒踢人 / 60 秒席位保留）配套成一个账：客户端最迟 15+45=60 秒就放弃，
+	// 服务器最迟 30+60=90 秒才释放席位——客户端的判决永远先于席位释放落地，
+	// "重连到一个已经没了的席位"不会发生。
+	static const int	RECONNECT_SILENCE_FRAMES	= 1500;	// 中继：15 秒收不到任何东西才按掉线办（直连仍是 TIMEOUT_FRAMES）
+	static const int	RECONNECT_WINDOW_FRAMES		= 4500;	// 重连总窗口 45 秒，超了判死
+	static const int	REJOIN_WAIT_FRAMES			= 500;	// 单次 REJOIN 发出后等 WELCOME 的时限（5 秒），超时重开再试
 
 public:
 	NetSession();
@@ -132,6 +148,15 @@ public:
 	// 开局应答、给主机的话都发给它。
 	uint8_t			GetHostSeat() const { return mHostSeat; }
 	bool			IsHostSeat() const { return mLocalSeat != NetProto::SEAT_UNSET && mLocalSeat == mHostSeat; }
+
+	// @pvz-online MOD_BUILD 39：本机是不是正处在掉线自动重连期（UI 据此弹/收重连框）。
+	bool			IsReconnecting() const { return mState == State::RECONNECTING; }
+	// 某席位是不是正处在"掉线保留期"（名册上还占着位、人在自动重连）。他那一格的
+	// 判胜/换位等待照旧堵着；保留期走完服务器会广播 PEER_LEAVE，那时才清格放行。
+	bool			IsSeatOffline(uint8_t theSeat) const;
+	// 取消重连、放弃这个席位（重连框上的「取消并退出」）。只在中继重连期有效；
+	// 收场走 SetDead 那条老路（DISCONNECTED → 上层收摊回主菜单）。
+	void			AbortReconnect();
 
 	// 本机玩家名：握手时报给对面，名册 UI 靠它显示"谁坐在几号位"。
 	// 名字是"这台机器是谁"，跟某一局无关——StartHost 第一件事就是 ResetToOff，
@@ -209,7 +234,9 @@ public:
 	// 主机侧：全员都进场了——广播"各席位开始做自己的三选一"（闯关 R6 新时序的最后一环：
 	// 命令 → 各席位先进场并回 ACK → 收齐后 RUN_GO → 各席位在新草坪上放选项屏）。
 	// 收齐的判定按**所有上座席位**记账，不再写死"就是那两个人"。
-	bool			SendRunGo();
+	// @pvz-online MOD_BUILD 39：可点名。重连归队的队友可能正卡在"ACK 已到、放行没赶上"
+	// 的缝里（掉线恰好卡在中间），补放行只该给他一个人——给正在打的人再来一条是纯噪音。
+	bool			SendRunGo(uint8_t theTargetSeat = NetProto::SEAT_UNSET);
 
 	// 客户端侧：主机放行了吗（取一次就清）。拿到才把选项屏放出来。
 	bool			TakeRunGo();
@@ -396,6 +423,7 @@ private:
 	struct SeatInfo
 	{
 		bool			mOccupied;		// 有没有人：队友要真连上（中继：名册上有）才算
+		bool			mOffline;		// @pvz-online MOD_BUILD 39：中继，此人掉线、席位保留中（名册计数照旧）
 		uint16_t		mBuild;			// 他报的构建代次（0 = 还不知道）
 		std::string		mName;
 		bool			mLevelDone;		// 报的"草坪清完了"
@@ -405,7 +433,7 @@ private:
 	};
 
 	void			ResetToOff();
-	void			SetConnected();
+	void			SetConnected(bool theWasReconnect = false);
 	void			SetDead(const char* theReason, const char* theShortReason = nullptr);
 	void			UpdateStatusText();
 	void			HandlePacket(const NetLink::Packet& thePacket);
@@ -457,6 +485,16 @@ private:
 	void			SendHelloAck(bool theAccepted, uint8_t theTarget);
 	void			SendHeartbeat();
 	void			SendBye(uint8_t theReason);
+
+	// @pvz-online MOD_BUILD 39：中继掉线的自动重连（只有坐进过名册的人走这条——
+	// 席位在服务器上有保留才谈得上"回去"）。直连与"还没入座的初次握手"一律照旧判死。
+	void			EnterReconnecting();
+	// 关掉旧链路（线程已随 FAILED 退出，Close 是即时的）、按原地址重开、重新记账。
+	void			ReopenLink();
+	bool			SendRejoin();
+	// 把缓存的开局命令补发给还在等 ACK 的席位（重连归队专用）。不走 SendStartLevel 的
+	// 清账副作用——那些（清暂停/清判胜/清"有人驳回"）是给"新的一局"的收尾，重连不是新一局。
+	bool			ResendLastStartLevel(uint8_t theTargetSeat);
 
 private:
 	NetLink				mLink;
@@ -519,6 +557,13 @@ private:
 	bool				mSwapCommitHandled;	// 中继：COMMIT 已经有人接手（我发的，或对面会发），等广播
 	bool				mAnyAckRejected;	// 收到过"现在不行"（粘着，直到下一次开局）
 	int					mFramesSinceRoomRequest;	// 中继：发了 CREATE/JOIN 之后等了多少帧（10 秒判死）
+	// @pvz-online MOD_BUILD 39：重连的记账（ResetToOff 一并清）。
+	int					mReconnectAttempts;		// 这个重连期里链路开过几次（状态行"第 n 次"）
+	int					mFramesSinceReconnectStart;	// 重连总窗口计时（RECONNECT_WINDOW_FRAMES）
+	int					mFramesSinceRejoinSent;	// 本次 REJOIN 发出去之后的计时（REJOIN_WAIT_FRAMES）
+	bool				mRejoinSent;			// 这条链路上 REJOIN 已经发过了（链路一通只发一次）
+	bool				mLastStartLevelValid;	// 缓存的开局命令可用（重连归队时补发用）
+	NetProto::MsgStartLevel	mLastStartLevel;
 	std::string			mNoticeText;			// 即时说明（几秒后自己消失）
 	int					mNoticeFrames;
 	bool				mTextChinese;			// 文案语言（上层每帧注入，见 SetTextChinese）
