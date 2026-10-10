@@ -1852,7 +1852,7 @@ void LawnApp::UpdateAdventureRequest()
 // 框支持整屏拖动且无边缘回夹（2026-10-04 用户要求）：框大了可以拖出去，把被边缘挡住的部分看全。
 // 2026-10-08 起做两页翻页（用户要的）：第 1 页 = 本版更新速览、第 2 页 = 玩法速览（原一屏
 // 正文）。页间用 '\f' 分隔，翻页按钮/页码指示由 OnlineStartDialog 自己摆；第 1 页随每次
-// 发布更新（当前 = Build 37，2026-10-10 用户令：35-37 三代重点进公告——无尽/高级选项+植物僵尸/第二 buff 批/平衡与修复）。
+// 发布更新（当前 = Build 39，2026-10-11 用户令发包：39 重连当头条 + 38 的 boss/发阳光 + 卡槽 10 格/闪退修复）。
 void LawnApp::UpdateStartupAnnounce()
 {
 	if (mShowedStartupAnnounce) return;
@@ -1863,14 +1863,16 @@ void LawnApp::UpdateStartupAnnounce()
 	OnlineStartDialog* aDialog = new OnlineStartDialog(this,
 		ModText::Tr("欢迎来到 PvZ 联机合作版", "Welcome to PvZ Online Co-op"),
 		ModText::Tr(
-			"【本版更新 · Build 38】\n"
+			"【本版更新 · Build 39】\n"
+			"· 新：掉线自动重连——掉线后席位保留、\n"
+			"  自动连回、进度继续；也可取消并退出\n"
 			"· 新：闯关关底巨型 Boss（高级选项开启，\n"
 			"  终关第一席出场，免疫控制、砸穿耐砸）\n"
 			"· 新：按 G 发阳光——再按 1-6 选队友，\n"
 			"  对方场地天降阳光（100，到账 90）\n"
-			"· 无尽：每屏增益固定 2 条；下滑收阳光\n"
-			"· 修复：仙人掌持条索敌、穿透弹漏打、\n"
-			"  三线多发斜向\n"
+			"· 改动：闯关卡槽加至 10 格\n"
+			"· 修复：三选一候选抽干闪退（玩家报障）、\n"
+			"  仙人掌索敌、三线多发斜向\n"
 			"\f"
 			"【玩法速览】\n"
 			"· 2~6 人各守一块草坪，漏怪传给下一位队友\n"
@@ -1881,15 +1883,17 @@ void LawnApp::UpdateStartupAnnounce()
 			"  闯关）；第三槽 PUZZLE 石板 = 打单关。\n"
 			"· 局内：ESC 暂停、V 看队友场地、T / E 短语与\n"
 			"  表情、G 发阳光",
-			"[Update - Build 38]\n"
+			"[Update - Build 39]\n"
+			"· New: auto-reconnect - if you drop, your\n"
+			"  seat is held; you rejoin right where you\n"
+			"  left off, or cancel to exit\n"
 			"· New: giant boss at the end of Adventure\n"
 			"  (advanced option; immune to control)\n"
 			"· New: press G to gift sun - then 1-6 to\n"
-			"  pick a teammate; sun falls on their lawn\n"
-			"· Endless: 2 buffs per screen; slide to\n"
-			"  collect sun\n"
-			"· Fixed: cactus targeting, pierce misses,\n"
-			"  three-lane spread angles\n"
+			"  pick a teammate\n"
+			"· Change: 10 seed slots in Adventure\n"
+			"· Fixed: crash when picks ran dry, cactus\n"
+			"  targeting, three-lane spread angles\n"
 			"\f"
 			"[Basics]\n"
 			"· 2-6 players each hold one lawn; leaked\n"
