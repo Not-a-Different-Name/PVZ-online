@@ -33,6 +33,8 @@ type Conn struct {
 	name  [nameSize]byte
 
 	timedOut   atomic.Bool  // 是不是闲死踢的（决定 PEER_LEAVE 的原因）
+	left       atomic.Bool  // 收到过 LEAVE_ROOM（体面退房：不设席位保留，直接广播离开）
+	replaced   atomic.Bool  // 被重连的快路径静默替换（席位已归新连接，退场时什么都不广播）
 	lastActive atomic.Int64 // 最近收到它的任何数据的时间（unix nano）
 }
 
@@ -139,6 +141,13 @@ func (s *Server) handle(c *Conn, typ uint16, payload []byte) {
 				return
 			}
 			s.handleJoin(c, version, build, name, code)
+		case msgCliRejoin:
+			version, build, name, code, seat, ok := decodeRejoin(payload)
+			if !ok {
+				s.dropBadControl(c, typ)
+				return
+			}
+			s.handleRejoin(c, version, build, name, code, seat)
 		case msgCliSwapCommit:
 			a, b, ok := decodeSwapCommit(payload)
 			if !ok {
@@ -157,6 +166,8 @@ func (s *Server) handle(c *Conn, typ uint16, payload []byte) {
 				s.dropBadControl(c, typ)
 				return
 			}
+			// 体面退房：不设席位保留。被打过标记的连接（已断/已替换）再来这条是无害空转。
+			c.left.Store(true)
 			s.removeConn(c, peerLeaveQuit)
 		default:
 			s.logf("unknown control frame %#x from %s - dropped", typ, c.remoteAddr())

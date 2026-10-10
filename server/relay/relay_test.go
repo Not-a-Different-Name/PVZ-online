@@ -102,6 +102,17 @@ func joinPayload(version, build uint16, name, rawCode string) []byte {
 	return s.b
 }
 
+// rejoinPayload 重连载荷（MOD_BUILD 39）：和 JOIN 一样，尾巴多一个席位号。
+func rejoinPayload(version, build uint16, name, code string, seat uint8) []byte {
+	var s buf
+	s.u16(version)
+	s.u16(build)
+	s.raw(name16(name))
+	s.raw([]byte(code))
+	s.u8(seat)
+	return s.b
+}
+
 func (c *testClient) create(version, build uint16, name string) []byte {
 	c.t.Helper()
 	c.send(msgCliCreateRoom, createPayload(version, build, name))
@@ -118,6 +129,17 @@ func (c *testClient) join(version, build uint16, name, code string) []byte {
 	f := c.next(time.Second)
 	if f.typ != msgSrvWelcome {
 		c.t.Fatalf("join: expected WELCOME, got %#x", f.typ)
+	}
+	return f.payload
+}
+
+// rejoin 发 REJOIN 并等 WELCOME（成功路径的便捷封装；拒绝路径自己 send + expectReject）。
+func (c *testClient) rejoin(version, build uint16, name, code string, seat uint8) []byte {
+	c.t.Helper()
+	c.send(msgCliRejoin, rejoinPayload(version, build, name, code, seat))
+	f := c.next(time.Second)
+	if f.typ != msgSrvWelcome {
+		c.t.Fatalf("rejoin: expected WELCOME, got %#x", f.typ)
 	}
 	return f.payload
 }
@@ -513,7 +535,8 @@ func TestPeerLeaveAndSeatReuse(t *testing.T) {
 	host.next(time.Second)
 	c2.next(time.Second)
 
-	c3.nc.Close()
+	// 体面退房（LEAVE_ROOM）：立即广播离开、不设保留，席位随即可复用
+	c3.send(msgCliLeaveRoom, nil)
 
 	for _, c := range []*testClient{host, c2} {
 		f := c.next(2 * time.Second)
@@ -558,7 +581,8 @@ func TestHostLeaveClosesRoom(t *testing.T) {
 	decodeWelcome(t, c2.join(protocolVersion, 16, "guest", w.code))
 	host.next(time.Second)
 
-	host.nc.Close()
+	// 房主体面退房（LEAVE_ROOM）：散整房（掉线那条路现在进保留期，见 TestHostDropHoldsRoomForRejoin）
+	host.send(msgCliLeaveRoom, nil)
 
 	f := c2.next(2 * time.Second)
 	if f.typ != msgSrvRoomClosed || len(f.payload) != 1 || f.payload[0] != roomClosedHostLeft {
@@ -592,7 +616,7 @@ func TestSwapHostThenHostLeaveStillClosesRoom(t *testing.T) {
 	host.next(time.Second)
 	c2.next(time.Second)
 
-	host.nc.Close()
+	host.send(msgCliLeaveRoom, nil)
 	f := c2.next(2 * time.Second)
 	if f.typ != msgSrvRoomClosed || f.payload[0] != roomClosedHostLeft {
 		t.Fatalf("expected ROOM_CLOSED after swapped-host left, got %#x %x", f.typ, f.payload)
@@ -616,8 +640,9 @@ func TestPing(t *testing.T) {
 }
 
 func TestIdleTimeoutDropsTimeoutPeer(t *testing.T) {
-	// 观察者回 PONG 保自己活着；发呆的那位什么都不回 → 到点被踢，原因 = timeout
-	_, addr := startTestServer(t, func(s *Server) {
+	// 观察者回 PONG 保自己活着；发呆的那位什么都不回 → 到点被踢。
+	// 两段式（MOD_BUILD 39）：先 PEER_OFFLINE（席位进保留期），保留过期没回来才 PEER_LEAVE(timeout)。
+	srv, addr := startTestServer(t, func(s *Server) {
 		s.pingInterval = 30 * time.Millisecond
 		s.idleTimeout = 200 * time.Millisecond
 	})
@@ -633,6 +658,32 @@ func TestIdleTimeoutDropsTimeoutPeer(t *testing.T) {
 	// c2 从此一言不发
 
 	deadline := time.After(3 * time.Second)
+	offlineSeen := false
+	for !offlineSeen {
+		select {
+		case f := <-frames:
+			if f.typ == msgSrvPeerLeave {
+				t.Fatalf("got PEER_LEAVE before PEER_OFFLINE: %x", f.payload)
+			}
+			if f.typ != msgSrvPeerOffline {
+				continue
+			}
+			if f.payload[0] != 2 {
+				t.Fatalf("PEER_OFFLINE = seat %d, want seat 2", f.payload[0])
+			}
+			if f.payload[1] != srv.holdGrace() {
+				t.Fatalf("PEER_OFFLINE grace = %d, want %d", f.payload[1], srv.holdGrace())
+			}
+			offlineSeen = true
+		case <-deadline:
+			t.Fatal("sleeper never went offline for idleness")
+		}
+	}
+
+	// 保留过期（时间拨到未来，直接扫）：广播 PEER_LEAVE(timeout)
+	srv.sweepOnce(time.Now().Add(2 * srv.holdDuration))
+
+	deadline = time.After(2 * time.Second)
 	for {
 		select {
 		case f := <-frames:
@@ -644,7 +695,7 @@ func TestIdleTimeoutDropsTimeoutPeer(t *testing.T) {
 			}
 			return
 		case <-deadline:
-			t.Fatal("sleeper was never dropped for idleness")
+			t.Fatal("expired hold never produced PEER_LEAVE")
 		}
 	}
 }
@@ -707,5 +758,363 @@ func TestUnknownControlFrameIgnored(t *testing.T) {
 	f := c.next(time.Second)
 	if f.typ != msgSrvPing {
 		t.Fatalf("connection did not survive the unknown frame; got %#x", f.typ)
+	}
+}
+
+// ---- MOD_BUILD 39：重连（REJOIN）与席位保留 ----
+
+func expectPeerOffline(t *testing.T, f wireFrame, wantSeat, wantGrace uint8) {
+	t.Helper()
+	if f.typ != msgSrvPeerOffline {
+		t.Fatalf("expected PEER_OFFLINE, got %#x %x", f.typ, f.payload)
+	}
+	if len(f.payload) != 2 || f.payload[0] != wantSeat || f.payload[1] != wantGrace {
+		t.Fatalf("PEER_OFFLINE = %x, want seat %d grace %d", f.payload, wantSeat, wantGrace)
+	}
+}
+
+func expectPeerLeave(t *testing.T, f wireFrame, wantSeat, wantReason uint8) {
+	t.Helper()
+	if f.typ != msgSrvPeerLeave {
+		t.Fatalf("expected PEER_LEAVE, got %#x %x", f.typ, f.payload)
+	}
+	if len(f.payload) != 2 || f.payload[0] != wantSeat || f.payload[1] != wantReason {
+		t.Fatalf("PEER_LEAVE = %x, want seat %d reason %d", f.payload, wantSeat, wantReason)
+	}
+}
+
+// 快路径：旧连接还挂着时 REJOIN（网络抖动自愈）——静默换掉，队友只见 PEER_BACK 不见 OFFLINE。
+func TestRejoinFastPathReplacesLiveConn(t *testing.T) {
+	_, addr := startTestServer(t, nil)
+	host := newTestClient(t, addr)
+	w := decodeWelcome(t, host.create(protocolVersion, 16, "host"))
+	c2 := newTestClient(t, addr)
+	decodeWelcome(t, c2.join(protocolVersion, 16, "guest", w.code))
+	host.next(time.Second) // 吃 PEER_JOIN
+
+	c2new := newTestClient(t, addr)
+	got := decodeWelcome(t, c2new.rejoin(protocolVersion, 16, "guest", w.code, 2))
+	if got.yourSeat != 2 || got.hostSeat != 1 || len(got.roster) != 2 {
+		t.Fatalf("fast-path WELCOME = seat %d host %d roster %d, want 2/1/2", got.yourSeat, got.hostSeat, len(got.roster))
+	}
+
+	// 队友看到的第一帧必须是 PEER_BACK（不能有 OFFLINE 混进来）
+	f := host.next(time.Second)
+	if f.typ != msgSrvPeerBack {
+		t.Fatalf("host got %#x, want PEER_BACK", f.typ)
+	}
+	if seat, build, name := decodePeerJoin(t, f.payload); seat != 2 || build != 16 || name != "guest" {
+		t.Fatalf("PEER_BACK = seat %d build %d name %q", seat, build, name)
+	}
+
+	// 旧连接被静默关掉
+	c2.expectClosed(time.Second)
+
+	// 新连接直接干活：2 → 1 和 1 → 2 都通
+	c2new.send(5, gameFrame(2, 1, 0x99))
+	if f := host.next(time.Second); f.typ != 5 || f.payload[2] != 0x99 {
+		t.Fatalf("host got %#x %x after rejoin, want game frame", f.typ, f.payload)
+	}
+	host.send(5, gameFrame(1, 2, 0x98))
+	if f := c2new.next(time.Second); f.typ != 5 || f.payload[2] != 0x98 {
+		t.Fatalf("rejoined conn got %#x %x, want game frame", f.typ, f.payload)
+	}
+}
+
+// 保留路径：闲死踢掉后席位进保留，本人 REJOIN 坐回原席。
+func TestRejoinFromHoldAfterTimeoutKick(t *testing.T) {
+	_, addr := startTestServer(t, func(s *Server) {
+		s.pingInterval = 30 * time.Millisecond
+		s.idleTimeout = 200 * time.Millisecond
+		s.holdDuration = 5 * time.Second
+	})
+	host := newTestClient(t, addr)
+	w := decodeWelcome(t, host.create(protocolVersion, 16, "host"))
+
+	frames := make(chan wireFrame, 16)
+	stop := host.pump(frames) // 观察者自己 PONG 保活
+	defer stop()
+
+	c2 := newTestClient(t, addr)
+	decodeWelcome(t, c2.join(protocolVersion, 16, "sleeper", w.code))
+	// c2 从此一言不发 → 被踢 → 席位保留
+
+	deadline := time.After(3 * time.Second)
+	for {
+		select {
+		case f := <-frames:
+			if f.typ == msgSrvPeerOffline {
+				expectPeerOffline(t, f, 2, 5)
+				goto offline
+			}
+		case <-deadline:
+			t.Fatal("sleeper never went offline")
+		}
+	}
+offline:
+
+	// 本人回来（新连接 REJOIN）→ WELCOME 坐回 2 号席，队友收到 PEER_BACK
+	c2new := newTestClient(t, addr)
+	got := decodeWelcome(t, c2new.rejoin(protocolVersion, 16, "sleeper", w.code, 2))
+	if got.yourSeat != 2 {
+		t.Fatalf("rejoined seat = %d, want 2", got.yourSeat)
+	}
+	deadline = time.After(2 * time.Second)
+	for {
+		select {
+		case f := <-frames:
+			if f.typ == msgSrvPeerBack {
+				if seat, build, name := decodePeerJoin(t, f.payload); seat != 2 || build != 16 || name != "sleeper" {
+					t.Fatalf("PEER_BACK = seat %d build %d name %q", seat, build, name)
+				}
+				return
+			}
+		case <-deadline:
+			t.Fatal("no PEER_BACK after rejoin from hold")
+		}
+	}
+}
+
+// 保留过期：清扫器广播 PEER_LEAVE(timeout)，席位随即可被新 JOIN 拿走；此时再 REJOIN 被拒。
+func TestHoldExpiryReleasesSeat(t *testing.T) {
+	srv, addr := startTestServer(t, nil)
+	host := newTestClient(t, addr)
+	w := decodeWelcome(t, host.create(protocolVersion, 16, "host"))
+	c2 := newTestClient(t, addr)
+	decodeWelcome(t, c2.join(protocolVersion, 16, "guest", w.code))
+	host.next(time.Second)
+
+	c2.nc.Close() // 非体面断开 → 保留期
+	expectPeerOffline(t, host.next(2*time.Second), 2, srv.holdGrace())
+
+	srv.sweepOnce(time.Now().Add(2 * srv.holdDuration))
+	expectPeerLeave(t, host.next(2*time.Second), 2, peerLeaveTimeout)
+
+	// 席位已释放：老身份 REJOIN 被拒（REJOIN_UNAVAILABLE），新手能正常坐下
+	later := newTestClient(t, addr)
+	later.send(msgCliRejoin, rejoinPayload(protocolVersion, 16, "guest", w.code, 2))
+	later.expectReject(rejectRejoinUnavailable)
+
+	got := decodeWelcome(t, later.join(protocolVersion, 16, "someone", w.code))
+	if got.yourSeat != 2 {
+		t.Fatalf("seat after hold expiry = %d, want 2", got.yourSeat)
+	}
+}
+
+// 普通 JOIN 跳过别人的保留位；名字+构建对得上则坐回自己的保留位（换进程重进房）。
+func TestJoinSkipsAndReclaimsHeldSeats(t *testing.T) {
+	_, addr := startTestServer(t, nil)
+	host := newTestClient(t, addr)
+	w := decodeWelcome(t, host.create(protocolVersion, 16, "host"))
+	c2 := newTestClient(t, addr)
+	decodeWelcome(t, c2.join(protocolVersion, 16, "guest", w.code))
+	host.next(time.Second)
+	c3 := newTestClient(t, addr)
+	decodeWelcome(t, c3.join(protocolVersion, 16, "guest3", w.code))
+	host.next(time.Second)
+	c2.next(time.Second)
+
+	c2.nc.Close() // 2 号席位进保留
+	for _, c := range []*testClient{host, c3} {
+		f := c.next(2 * time.Second)
+		if f.typ != msgSrvPeerOffline || f.payload[0] != 2 {
+			t.Fatalf("expected PEER_OFFLINE seat 2, got %#x %x", f.typ, f.payload)
+		}
+	}
+
+	// 陌生人：跳过保留的 2 号位，坐 4 号
+	stranger := newTestClient(t, addr)
+	got := decodeWelcome(t, stranger.join(protocolVersion, 16, "stranger", w.code))
+	if got.yourSeat != 4 {
+		t.Fatalf("stranger seat = %d, want 4 (held seat 2 must be skipped)", got.yourSeat)
+	}
+
+	// 本人换进程重进房：名字+构建对得上 → 坐回 2 号
+	back := newTestClient(t, addr)
+	got = decodeWelcome(t, back.join(protocolVersion, 16, "guest", w.code))
+	if got.yourSeat != 2 {
+		t.Fatalf("reclaim seat = %d, want 2", got.yourSeat)
+	}
+}
+
+// 房主掉线：房间进保留不散；保留过期还没回来才散房。
+func TestHostDropHoldsRoomThenExpires(t *testing.T) {
+	srv, addr := startTestServer(t, nil)
+	host := newTestClient(t, addr)
+	w := decodeWelcome(t, host.create(protocolVersion, 16, "host"))
+	c2 := newTestClient(t, addr)
+	decodeWelcome(t, c2.join(protocolVersion, 16, "guest", w.code))
+	host.next(time.Second)
+
+	host.nc.Close()
+	expectPeerOffline(t, c2.next(2*time.Second), 1, srv.holdGrace())
+
+	// 房间还活着（只是房主位空着）
+	srv.mu.Lock()
+	roomCount := len(srv.rooms)
+	srv.mu.Unlock()
+	if roomCount != 1 {
+		t.Fatalf("rooms after host drop = %d, want 1 (room must survive the hold)", roomCount)
+	}
+
+	srv.sweepOnce(time.Now().Add(2 * srv.holdDuration))
+	f := c2.next(2 * time.Second)
+	if f.typ != msgSrvRoomClosed || f.payload[0] != roomClosedHostLeft {
+		t.Fatalf("expected ROOM_CLOSED after host hold expired, got %#x %x", f.typ, f.payload)
+	}
+	c2.expectClosed(time.Second)
+
+	srv.mu.Lock()
+	roomCount = len(srv.rooms)
+	srv.mu.Unlock()
+	if roomCount != 0 {
+		t.Fatalf("rooms left = %d, want 0", roomCount)
+	}
+}
+
+// 房主重连归位 + 换位后 hostSeat 跟着走（hostSeat 不许靠指针现找）。
+func TestHostRejoinAndSwapTracking(t *testing.T) {
+	srv, addr := startTestServer(t, nil)
+	host := newTestClient(t, addr)
+	w := decodeWelcome(t, host.create(protocolVersion, 16, "host"))
+	c2 := newTestClient(t, addr)
+	decodeWelcome(t, c2.join(protocolVersion, 16, "guest", w.code))
+	host.next(time.Second)
+
+	host.nc.Close()
+	expectPeerOffline(t, c2.next(2*time.Second), 1, srv.holdGrace())
+
+	// 房主重连：WELCOME 点明 hostSeat 仍是 1；队友收到 PEER_BACK
+	hostNew := newTestClient(t, addr)
+	got := decodeWelcome(t, hostNew.rejoin(protocolVersion, 16, "host", w.code, 1))
+	if got.yourSeat != 1 || got.hostSeat != 1 {
+		t.Fatalf("host rejoin WELCOME = seat %d hostSeat %d, want 1/1", got.yourSeat, got.hostSeat)
+	}
+	if f := c2.next(2 * time.Second); f.typ != msgSrvPeerBack {
+		t.Fatalf("c2 got %#x, want PEER_BACK", f.typ)
+	}
+
+	// 房主换到 2 号位：hostSeat 跟着换
+	hostNew.send(msgCliSwapCommit, []byte{1, 2})
+	hostNew.next(time.Second)
+	c2.next(time.Second)
+
+	// 再掉线：保留的是 2 号位（房主现在坐那儿）
+	hostNew.nc.Close()
+	expectPeerOffline(t, c2.next(2*time.Second), 2, srv.holdGrace())
+
+	// 过期不回来：散房
+	srv.sweepOnce(time.Now().Add(2 * srv.holdDuration))
+	f := c2.next(2 * time.Second)
+	if f.typ != msgSrvRoomClosed {
+		t.Fatalf("expected ROOM_CLOSED, got %#x %x", f.typ, f.payload)
+	}
+}
+
+// 身份核对：名字/构建对不上就拒绝；被拒不影响原连接/保留。
+func TestRejoinIdentityMismatchRejected(t *testing.T) {
+	srv, addr := startTestServer(t, nil)
+	host := newTestClient(t, addr)
+	w := decodeWelcome(t, host.create(protocolVersion, 16, "host"))
+	c2 := newTestClient(t, addr)
+	decodeWelcome(t, c2.join(protocolVersion, 16, "guest", w.code))
+	host.next(time.Second)
+
+	// 快路径冒名：旧连接还活着，名字对不上 → 拒；原连接毫发无损
+	impostor := newTestClient(t, addr)
+	impostor.send(msgCliRejoin, rejoinPayload(protocolVersion, 16, "notguest", w.code, 2))
+	impostor.expectReject(rejectRejoinSeatMismatch)
+	c2.send(5, gameFrame(2, 1, 0x11))
+	if f := host.next(time.Second); f.typ != 5 || f.payload[2] != 0x11 {
+		t.Fatalf("original conn disturbed by rejected impostor: got %#x %x", f.typ, f.payload)
+	}
+
+	// 保留路径：构建对不上 → 拒；名字对不上 → 拒
+	c2.nc.Close()
+	expectPeerOffline(t, host.next(2*time.Second), 2, srv.holdGrace())
+	impostor.send(msgCliRejoin, rejoinPayload(protocolVersion, 99, "guest", w.code, 2))
+	impostor.expectReject(rejectRejoinSeatMismatch)
+	impostor.send(msgCliRejoin, rejoinPayload(protocolVersion, 16, "notguest", w.code, 2))
+	impostor.expectReject(rejectRejoinSeatMismatch)
+
+	// 本人（名字+构建都对）仍能坐回去——拒绝没有把保留弄丢
+	back := newTestClient(t, addr)
+	got := decodeWelcome(t, back.rejoin(protocolVersion, 16, "guest", w.code, 2))
+	if got.yourSeat != 2 {
+		t.Fatalf("legit rejoin after rejects = seat %d, want 2", got.yourSeat)
+	}
+}
+
+// REJOIN 的不可用类拒绝：没房、席位已释放、席位号非法、版本不对。
+func TestRejoinUnavailableCases(t *testing.T) {
+	_, addr := startTestServer(t, nil)
+	host := newTestClient(t, addr)
+	w := decodeWelcome(t, host.create(protocolVersion, 16, "host"))
+
+	c := newTestClient(t, addr)
+	c.send(msgCliRejoin, rejoinPayload(protocolVersion, 16, "x", "ZZZZ", 1))
+	c.expectReject(rejectRejoinUnavailable)
+
+	c.send(msgCliRejoin, rejoinPayload(protocolVersion, 16, "x", "IO01", 1)) // 码不在字母表
+	c.expectReject(rejectBadCode)
+
+	c.send(msgCliRejoin, rejoinPayload(protocolVersion+1, 16, "x", w.code, 1))
+	c.expectReject(rejectProtocolVersion)
+
+	c.send(msgCliRejoin, rejoinPayload(protocolVersion, 16, "x", w.code, 0))
+	c.expectReject(rejectRejoinUnavailable)
+	c.send(msgCliRejoin, rejoinPayload(protocolVersion, 16, "x", w.code, maxPlayers+1))
+	c.expectReject(rejectRejoinUnavailable)
+
+	// 体面退房的席位不设保留（MOD_BUILD 39 的 G9 场景）：走了就是走了
+	c2 := newTestClient(t, addr)
+	decodeWelcome(t, c2.join(protocolVersion, 16, "guest", w.code))
+	host.next(time.Second)
+	c2.send(msgCliLeaveRoom, nil)
+	c2.expectClosed(time.Second)
+	expectPeerLeave(t, host.next(2*time.Second), 2, peerLeaveQuit)
+
+	later := newTestClient(t, addr)
+	later.send(msgCliRejoin, rejoinPayload(protocolVersion, 16, "guest", w.code, 2))
+	later.expectReject(rejectRejoinUnavailable)
+}
+
+// 全员掉线的空房：保留过期后清扫器把房间整个删掉。
+func TestAllDropRoomSweptAway(t *testing.T) {
+	srv, addr := startTestServer(t, nil)
+	host := newTestClient(t, addr)
+	w := decodeWelcome(t, host.create(protocolVersion, 16, "host"))
+	c2 := newTestClient(t, addr)
+	decodeWelcome(t, c2.join(protocolVersion, 16, "guest", w.code))
+	host.next(time.Second)
+
+	// c2 先掉（host 收到 OFFLINE 即证明服务器处理完了）
+	c2.nc.Close()
+	expectPeerOffline(t, host.next(2*time.Second), 2, srv.holdGrace())
+
+	// host 再掉（没人能收到它的 OFFLINE 了，轮询服务器状态等它处理完）
+	host.nc.Close()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		srv.mu.Lock()
+		r := srv.rooms[w.code]
+		done := r != nil && r.host == nil && r.bySeat[1] == nil && r.bySeat[2] == nil &&
+			!r.holds[1].until.IsZero() && !r.holds[2].until.IsZero()
+		srv.mu.Unlock()
+		if done {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("server never processed the host drop")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	srv.sweepOnce(time.Now().Add(2 * srv.holdDuration))
+	srv.mu.Lock()
+	roomCount := len(srv.rooms)
+	srv.mu.Unlock()
+	if roomCount != 0 {
+		t.Fatalf("rooms after sweep = %d, want 0", roomCount)
 	}
 }

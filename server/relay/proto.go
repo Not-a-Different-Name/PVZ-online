@@ -25,19 +25,22 @@ const (
 
 // 控制帧类型（与 C++ 端 NetProto::ControlType 一一对应）
 const (
-	msgSrvWelcome    = 0xF001
-	msgSrvReject     = 0xF002
-	msgSrvPeerJoin   = 0xF003
-	msgSrvPeerLeave  = 0xF004
-	msgSrvRoomClosed = 0xF005
-	msgSrvSeatSwap   = 0xF006
-	msgSrvPing       = 0xF007
+	msgSrvWelcome     = 0xF001
+	msgSrvReject      = 0xF002
+	msgSrvPeerJoin    = 0xF003
+	msgSrvPeerLeave   = 0xF004
+	msgSrvRoomClosed  = 0xF005
+	msgSrvSeatSwap    = 0xF006
+	msgSrvPing        = 0xF007
+	msgSrvPeerOffline = 0xF008
+	msgSrvPeerBack    = 0xF009
 
 	msgCliCreateRoom = 0xF011
 	msgCliJoinRoom   = 0xF012
 	msgCliSwapCommit = 0xF013
 	msgCliPong       = 0xF014
 	msgCliLeaveRoom  = 0xF015
+	msgCliRejoin     = 0xF016
 )
 
 // REJECT 原因（与 NetProto::RejectReason 对齐）
@@ -48,6 +51,9 @@ const (
 	rejectBadCode         = 3
 	rejectServerBusy      = 4
 	rejectBadRequest      = 5
+	// 重连专用（MOD_BUILD 39）
+	rejectRejoinSeatMismatch = 6 // 席位名册对得上、但名字/构建不是本人
+	rejectRejoinUnavailable  = 7 // 房间没了 / 席位既没人也没保留
 )
 
 // ROOM_CLOSED 原因（与 NetProto::RoomClosedReason 对齐）
@@ -189,6 +195,18 @@ func encodePeerLeave(seat, reason uint8) []byte {
 	return s.b
 }
 
+// PEER_OFFLINE：{ u8 seat, u8 graceSec }——有人掉线、席位保留中（graceSec 是保留秒数，
+// 队友 UI 的倒计时用；保留过期后会再补一条 PEER_LEAVE）。
+func encodePeerOffline(seat, graceSec uint8) []byte {
+	var s buf
+	s.u8(seat)
+	s.u8(graceSec)
+	return s.b
+}
+
+// PEER_BACK：{ u8 seat, u16 build, 16B name }——掉线的人回来了（与 PEER_JOIN 同形）。
+func encodePeerBack(e rosterEntry) []byte { return encodePeerJoin(e) }
+
 // ROOM_CLOSED：{ u8 reason }
 func encodeRoomClosed(reason uint8) []byte {
 	var s buf
@@ -237,4 +255,19 @@ func decodeSwapCommit(payload []byte) (a, b uint8, ok bool) {
 		return 0, 0, false
 	}
 	return payload[0], payload[1], true
+}
+
+// REJOIN：{ u16 version, u16 build, 16B name, 4B code, u8 seat }——掉线重连请求。
+// 名字+构建是服务器的身份核对依据（对不上就拒绝，防顶号）。
+func decodeRejoin(payload []byte) (version, build uint16, name, code []byte, seat uint8, ok bool) {
+	if len(payload) != 2+2+nameSize+roomCodeLen+1 {
+		return 0, 0, nil, nil, 0, false
+	}
+	r := &reader{b: payload}
+	version, _ = r.u16()
+	build, _ = r.u16()
+	name, _ = r.raw(nameSize)
+	code, _ = r.raw(roomCodeLen)
+	seat, _ = r.u8()
+	return version, build, name, code, seat, true
 }

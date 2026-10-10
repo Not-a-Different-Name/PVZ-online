@@ -17,12 +17,14 @@ func main() {
 
 	logger := log.New(os.Stdout, "", log.LstdFlags)
 	srv := newServer(func(format string, args ...any) { logger.Printf(format, args...) })
+	go srv.sweepLoop()
 
 	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", *port))
 	if err != nil {
 		logger.Fatalf("listen on :%d failed: %v", *port, err)
 	}
-	logger.Printf("pvz relay listening on :%d (protocol v%d, max %d players)", *port, protocolVersion, maxPlayers)
+	logger.Printf("pvz relay listening on :%d (protocol v%d, max %d players, idle %v, hold %v)",
+		*port, protocolVersion, maxPlayers, srv.idleTimeout, srv.holdDuration)
 
 	for {
 		nc, err := ln.Accept()
