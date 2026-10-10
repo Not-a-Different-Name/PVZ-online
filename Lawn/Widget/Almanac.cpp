@@ -592,6 +592,11 @@ void AlmanacDialog::DrawPlants(Graphics* g)
 	// 翻页组（几何见 AlmanacPagerArrowRect），块内只画当前页；单条的株与旧版一字不差。
 	int aRunEntryIndex = RunPlantUpgradeIndexFor(mSelectedSeed);
 	int aRunEntry2Index = RunPlantBuff2IndexFor(mSelectedSeed);
+	// 魅惑批 2026-10-11：附录只列「当前可获取」的老表条目——池外（花盆/睡莲/墓碑/魅惑菇
+	// 的删条·下架行）不显示，避免列出已无效果或不再可得的词条；这些株的附录会只剩二表
+	// 页或整块消失。
+	if (aRunEntryIndex >= 0 && !RunPlantUpgradeInPool(mSelectedSeed))
+		aRunEntryIndex = -1;
 	if (aRunEntryIndex >= 0 || aRunEntry2Index >= 0)
 	{
 		int aDescHeight = TodDrawStringWrappedHelper(g, TodStringTranslate(aDescriptionName), Rect(485, 309, 258, 230), Sexy::FONT_BRIANNETOD12, Color(40, 50, 90), DS_ALIGN_LEFT, false);

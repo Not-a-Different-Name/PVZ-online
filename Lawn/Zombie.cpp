@@ -7294,6 +7294,22 @@ void Zombie::StartMindControlled()
     if (mBoard->IsRunBossZombie(this))  // @pvz-online: 关底巨型 boss 免疫魅惑（MOD_BUILD 38）
         return;
     mApp->PlaySample(SOUND_MINDCONTROLLED);
+
+    // @pvz-online: 第二 buff「迷魂香」（2026-10-11 双轴改）·血量半轴：转化瞬间血量 ×2^层
+    // （叠乘 ×2/×4）。本函数是全转化路径的唯一汇合点（魅惑菇本体嚼倒戈的 AnimateChewSound
+    // 支、魅惑巨人扔小鬼的 ThrowImp 支）；mBodyMaxHealth 同乘（照 Board.cpp:5770-5771
+    // 巨型 boss 先例）——臂/头掉落阈值与血条比例都按新底子走。幂等闸：只认第一次转化；
+    // 转化瞬间定格，后拿条不追溯。
+    if (!mMindControlled)
+    {
+        float aMul = mApp->RunPlantBuff2Mul(SeedType::SEED_HYPNOSHROOM);
+        if (aMul > 1.0f)
+        {
+            mBodyHealth = (int)(mBodyHealth * aMul + 0.5f);
+            mBodyMaxHealth = (int)(mBodyMaxHealth * aMul + 0.5f);
+        }
+    }
+
     mMindControlled = true;
     mLastPortalX = -1;
 
@@ -7490,21 +7506,14 @@ void Zombie::EatPlant(Plant* thePlant)
 //0x52FE10
 void Zombie::EatZombie(Zombie* theZombie)
 {
-    // @pvz-online: 单株升级「Devotion」（魅惑菇，批 13）：被魅惑僵尸咬到的僵尸也倒戈——
-    // 1 层成型（上限 1）。EatZombie 只被魅惑僵尸的吃循环调到（FindZombieTarget 要求两边
-    // mMindControlled 不同），倒戈照魅惑菇本体走 StartMindControlled + 同款粒子 + 过关
-    // 检查（同 AnimateChewSound 的魅惑菇支：倒戈可能干掉最后一只敌人）。
-    if (mMindControlled && !theZombie->mMindControlled && !theZombie->IsDeadOrDying() &&
-        mApp->RunPlantUpgradeCount(SeedType::SEED_HYPNOSHROOM) > 0)
-    {
-        theZombie->StartMindControlled();
-        mApp->AddTodParticle(theZombie->mPosX + 60.0f, theZombie->mPosY + 40.0f, theZombie->mRenderOrder + 1, ParticleEffect::PARTICLE_MIND_CONTROL);
-        theZombie->TrySpawnLevelAward();
-    }
+    // @pvz-online: 「Devotion」连锁倒戈效果块原在此（魅惑菇，批 13）——2026-10-11 暂时下架
+    // （无上限连锁倒戈太强，用户令删）：表行与 id 原样保留在 RunBuffs.cpp（InPool 池排除），
+    // 此处效果摘除。恢复要点：层数 > 0 时咬中未魅惑的活僵尸即 theZombie->StartMindControlled()
+    // + 脑控粒子（mPosX + 60.0f, mPosY + 40.0f, mRenderOrder + 1）+ TrySpawnLevelAward()。
 
-    // @pvz-online: 第二 buff「迷魂香」（魅惑菇 #12，docs/06 §8.6，2★ cap2 叠乘）：被魅惑
-    // 僵尸的啃咬伤害 ×2^层（表行 mMultiplicative = (1+1.0)^n）——只加在魅惑僵尸出手这侧；
-    // 普通僵尸啃魅惑僵尸不变。
+    // @pvz-online: 第二 buff「迷魂香」（魅惑菇 #12，docs/06 §8.6，2★ cap2 叠乘）·伤害半轴：
+    // 被魅惑僵尸的啃咬伤害 ×2^层（表行 mMultiplicative = (1+1.0)^n）——只加在魅惑僵尸出手
+    // 这侧；普通僵尸啃魅惑僵尸不变。血量半轴见 Zombie::StartMindControlled。
     int aEatZombieDamage = DAMAGE_PER_EAT;
     if (mMindControlled && mApp->RunPlantBuff2Count(SeedType::SEED_HYPNOSHROOM) > 0)
     {

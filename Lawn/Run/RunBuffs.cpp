@@ -236,6 +236,9 @@ static const RunPlantUpgradeDef gRunPlantUpgradeDefs[RUN_PLANT_UPGRADE_COUNT] =
 	// 审计批 2026-10-09 删条不进池：睡莲16/花盆33（血量行对 300 血底子 ≈ 无感，见
 	// RunPlantUpgradeInPool）——表行保留供存量档，池 56→54。
 	// 经济批 2026-10-09 同日删条：墓碑11（效用窄，用户令删）——池 54→53。
+	// 魅惑批 2026-10-11：魅惑菇12「Devotion」暂时下架（用户令：无上限连锁倒戈太强）——
+	// 行与 3★ 档位原样保留（id 稳定、旧档层数不动），不再进抽取池，效果块见
+	// Zombie.cpp::EatZombie（恢复 = 移除 InPool 排除 + 还原该块，docs/03 §5.73）。
 	{ SeedType::SEED_PEASHOOTER,   "Pea Volley",   "豌豆射手每次多发 1 颗\n（每层）",   "Peashooter fires 1 extra pea per shot\n(per stack)", 0.00f, 0, false, RUN_UPGRADE_KIND_SHOTCOUNT, 2 },
 	{ SeedType::SEED_SUNFLOWER,    "Harvest",      "种下立即产 1 次阳光\n每轮 50% 概率多产 1 阳光", "Yields sun once when planted\n50% chance of 1 extra sun per cycle", 0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
 	{ SeedType::SEED_CHERRYBOMB,   "Wide Blast",   "樱桃炸弹爆炸范围 +50%\n（每层）",   "Cherry Bomb blast radius +50%\n(per stack)",        0.50f, 0, false, RUN_UPGRADE_KIND_EFFECT, 2 },
@@ -322,7 +325,7 @@ static const RunPlantUpgradeDef gRunPlantBuff2Defs[RUN_PLANT_BUFF2_COUNT] =
 	{ SeedType::SEED_SUNSHROOM,     "Boosted Grow",  "种下后第二次产阳光前长大\n（首产 15、此后 25）", "Grows up before 2nd sun cycle\n(15 first, 25 after)", 0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
 	{ SeedType::SEED_FUMESHROOM,    "Fetid Breath",  "命中减速 20%，持续 3 秒",              "Hits slow zombies 20% for 3 sec",                     0.00f, 2, false, RUN_UPGRADE_KIND_EFFECT, 2 },
 	{ SeedType::SEED_GRAVEBUSTER,   "Swift Dig",     "吞噬速度 ×0.5",                       "Dig speed ×0.5",                                      -0.50f, 2, true, RUN_UPGRADE_KIND_EFFECT, 1 },
-	{ SeedType::SEED_HYPNOSHROOM,   "Fragrance",     "被魅惑僵尸的伤害 ×2\n（每层）",         "Hypnotized zombies deal ×2 damage\n(per stack)",      1.00f, 2, true, RUN_UPGRADE_KIND_EFFECT, 2 },
+	{ SeedType::SEED_HYPNOSHROOM,   "Fragrance",     "被魅惑僵尸的血量与伤害 ×2\n（每层）",         "Hypnotized zombies: ×2 health & damage\n(per stack)",      1.00f, 2, true, RUN_UPGRADE_KIND_EFFECT, 2 },
 	{ SeedType::SEED_SCAREDYSHROOM, "Bedrock",       "血量变为 4000",                       "Health becomes 4000",                                 0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 1 },
 	{ SeedType::SEED_ICESHROOM,     "Frost Armor",   "冰冻结束后全场减速 35%\n持续 20 秒",    "After freeze: all zombies slowed 35%\nfor 20 sec",    0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 3 },
 	{ SeedType::SEED_DOOMSHROOM,    "Doom Radius",   "爆炸半径 +50%\n（每层）",              "Blast radius +50%\n(per stack)",                      0.50f, 2, false, RUN_UPGRADE_KIND_EFFECT, 2 },
@@ -488,10 +491,13 @@ int GetRunChoiceMaxStacks(int theId)
 // 层数照常生效、id 空间与检查点一字不动——只是不再进抽取池。
 // 经济批 2026-10-09 追加：墓碑吞噬者「Quick Dig」删条（效用窄，用户令删）——处置同上，
 // 挂点（Plant.cpp::UpdateGraveBuster）保留供存量档。
+// 魅惑批 2026-10-11 追加：魅惑菇「Devotion」暂时下架（无上限连锁倒戈太强，用户令下架）——
+// 行保留供索引与旧档层数，效果挂点已从 Zombie.cpp::EatZombie 摘除（恢复 = 移除本条排除
+// + 还原该效果块，见 docs/03 §5.73）。
 bool RunPlantUpgradeInPool(SeedType thePlant)
 {
 	return thePlant != SeedType::SEED_FLOWERPOT && thePlant != SeedType::SEED_LILYPAD
-		&& thePlant != SeedType::SEED_GRAVEBUSTER;
+		&& thePlant != SeedType::SEED_GRAVEBUSTER && thePlant != SeedType::SEED_HYPNOSHROOM;
 }
 
 // 稀有度档位（权重批 2026-10-09，docs/06 §8.7）：全局/单株两类都查 mRarity。
