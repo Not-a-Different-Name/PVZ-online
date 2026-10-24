@@ -24,10 +24,12 @@
 
 #include "../../ConstEnums.h"
 #include "widget/Widget.h"
+#include <memory>
 #include <string_view>
 #include <string>
 
 class LawnApp;
+class GrowthCollectionView;
 
 using namespace Sexy;
 
@@ -74,6 +76,9 @@ public:
 	int			mScrollDecay;				//+0xB4
 	int			mDefaultScrollValue;		//+0xB8
 	bool		mDidPressMoreButton;		//+0xBC
+
+	std::unique_ptr<GrowthCollectionView> mGrowthCollection;
+	bool mGrowthPage=false,mGrowthTogglePressed=false;
 
 	AchievementsWidget(LawnApp* theApp);
 	~AchievementsWidget() override;

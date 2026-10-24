@@ -1,5 +1,8 @@
 #pragma once
 #include "OnlineUiDraw.h"
+#include "PlayerRoomText.h"
+#include "NameplateDraw.h"
+#include "NameplatePresentation.h"
 #include "../Online/RoomPresentation.h"
 
 namespace OnlineRoomLayout {
@@ -9,7 +12,11 @@ inline Rect LocalPage(){return Rect(40,88,328,54);}
 inline Rect ServerPage(){return Rect(392,88,328,54);}
 inline Rect Solo(){return Rect(48,250,664,50);}
 inline Rect Server(){return Rect(148,284,292,36);}
-inline Rect Code(){return Rect(200,284,508,36);}
+inline Rect Code(){return Rect(200,276,340,44);}
+inline Rect Paste(){return Rect(560,276,152,46);}
+inline Rect CopyCode(){return Rect(264,194,148,44);}
+inline Rect CopyInvite(){return Rect(424,194,176,44);}
+inline Rect Share(){return Rect(612,194,100,44);}
 inline Rect Address(){return Rect(148,350,564,36);}
 inline Rect PrivateCode(){return Rect(148,400,180,36);}
 inline Rect Create(){return Rect(48,340,320,46);}
@@ -26,7 +33,7 @@ inline bool HasLostBoard(const LawnApp* app) {
 }
 inline bool CanStart(LawnApp* app) {
     auto* session=RoomPresentation::Session(app);
-    return session && session->CanHostStart() && (!app->mBoard || HasLostBoard(app)) && !app->mOnlineWaitingStartAck;
+    return session && session->CanHostStart() && (app->IsOnlineStartLobby() || HasLostBoard(app)) && !app->mOnlineWaitingStartAck;
 }
 inline bool NeedsPlayers(const NetSession* session) {
     return session && session->IsRelay() && session->IsActive() && !session->CanHostStart() && session->GetConnectedPlayerCount(true)<2;
@@ -39,14 +46,14 @@ inline void Draw(Graphics* g,LawnApp* app,const std::string& detail,const std::s
     if(!active) {
         SeatUi::Strip(g,Rect(40,156,680,70));
         const std::string explanation=page==LOCAL?
-            ModText::Tr("开房：点「开六人房」，把本机地址和房间码发给队友。加入：填地址:端口和房间码，点「加入」。","Host: click Host six, then share the address and code below. Join: fill in host:port and the code, then click Join."):
-            page==SERVER?ModText::Tr("远程组队专用：至少两名在线玩家才能开始。自己玩请选择左侧入口。","Remote co-op needs at least two online players. For solo play, choose the left option."):
-            ModText::Tr("自己玩或同一网络内游玩选左侧；不同网络的朋友组队选右侧。","Choose left for solo or same-network play; choose right for friends on different networks.");
+            ModText::Tr("自己玩点「单人游戏」。和朋友玩可开房，或粘贴局域网邀请。","Choose Play solo, or host a room for friends on your network."):
+            page==SERVER?ModText::Tr("开房后点「复制邀请」发给朋友；收到邀请可点「粘贴加入」。","Create a room and Copy invite for friends, or use Paste & join."):
+            ModText::Tr("自己玩选「单人与局域网游戏」；和远方朋友玩选「在线房间」。","Play alone or on the same network with Solo / LAN game. Otherwise choose Online rooms.");
         SeatUi::Paragraph(g,explanation,Rect(56,166,648,52),19,Color(235,230,210));
         if(page==SERVER) {
-            SeatUi::Text(g,ModText::Tr("自动连接 · 无需选服","Connect automatically"),48,260,664,18,Color(210,220,195));
+            SeatUi::Text(g,ModText::Tr("至少2人才能开始","At least 2 players to start"),48,260,664,18,Color(210,220,195));
             SeatUi::Text(g,ModText::Tr("房间码","Code"),48,310,136,20,Color(220,225,210));
-            SeatUi::Text(g,ModText::Tr("建房自动分配；从大厅加入，或填写队友发来的完整房间码。","Rooms are assigned automatically. Browse rooms or enter the full room code."),48,420,664,18,Color(190,210,225));
+            SeatUi::Text(g,ModText::Tr("也可填写四位房码，再点「加入房间」。","Or enter a four-character code and choose Join room."),48,420,664,18,Color(190,210,225));
         } else if(page==LOCAL) {
             
             SeatUi::Text(g,ModText::Tr("局域网／自建 · 最多六人","LAN / private - up to six players"),48,332,664,20,Color(245,230,165));
@@ -59,29 +66,28 @@ inline void Draw(Graphics* g,LawnApp* app,const std::string& detail,const std::s
         return;
     }
     SeatUi::Strip(g,Rect(40,92,680,84));
-    SeatUi::Text(g,RoomPresentation::Summary(app),56,121,active?412:648,23,Color(245,230,165));
-    if(active)SeatUi::Text(g,RoomPresentation::HostVersion(s),488,121,216,14,Color(145,160,165));
-    const std::string explanation=(!s||s->GetState()==NetSession::State::OFF)?
-        ModText::Tr("浏览公开大厅，或填写房间码加入队友。","Browse public rooms, or enter a room code to join your team."):detail;
-    SeatUi::Paragraph(g,s&&app->mBoard&&s->RelayBattleHeld()?
-        ModText::Tr("等待队友或重连，本局已保留；服务器不能单人游玩。","Waiting for teammates or reconnection. Your lawn is held; server play needs two players."):
-        s&&s->IsConnected()&&NeedsPlayers(s)?
-            (s->IsPrivateRoom()?ModText::Tr("等待至少一位队友加入后，由房主开始。","Wait for a teammate to join, then the host can start."):
-                ModText::Tr("至少两名在线玩家才能开始；自己玩可点击返回单人游戏。","At least two online players are required. Choose Switch to solo to play alone.")):
-        explanation,Rect(56,130,648,42),17,Color(210,220,225));
+    const auto view=PlayerRoomText::Capture(app,CanStart(app),NeedsPlayers(s));
+    SeatUi::Text(g,PlayerRoomText::Title(view),56,121,412,23,view.mismatch?Color(255,175,120):Color(245,230,165));
+    if(view.mismatch)SeatUi::Text(g,ModText::Tr("本机 MOD","Your build: MOD")+std::to_string(NetProto::MOD_BUILD),488,121,216,14,Color(255,175,120));
+    SeatUi::Paragraph(g,PlayerRoomText::Hint(view,detail),Rect(56,130,648,42),17,view.mismatch?Color(255,175,120):Color(210,220,225));
     if(active) {
         SeatUi::Strip(g,Rect(40,188,680,54));
-        SeatUi::Text(g,RoomPresentation::Identity(s),54,222,652,21,Color(245,230,165));
+        std::string caption=s->GetRoomCode();
+        if(caption.empty())caption=s->IsRelay()?ModText::Tr("等待房号","Preparing room"):ModText::Tr("局域网","LAN");
+        if(s->GetOccupiedSeatCount())caption+="  |  "+std::to_string(s->GetOccupiedSeatCount())+"/6";
+        SeatUi::Text(g,caption,54,222,190,20,Color(245,230,165));
         for(int i=0;i<NetProto::MAX_PLAYERS;++i) {
             const int seat=i+1;Rect box(40+(i%2)*352,254+(i/2)*62,328,56);
             SeatUi::Strip(g,box);bool occupied=s->IsSeatOccupied((uint8_t)seat);
-            SeatUi::Text(g,RoomPresentation::SeatName(s,seat),box.mX+10,box.mY+23,308,20,
+            const int nameplate=NameplatePresentation::ForSeat(app,static_cast<uint8_t>(seat));
+            if(occupied && nameplate)NameplateDraw::Draw(g,Rect(box.mX+4,box.mY+1,320,28),nameplate,RoomPresentation::SeatName(s,seat));
+            else SeatUi::Text(g,RoomPresentation::SeatName(s,seat),box.mX+10,box.mY+23,308,20,
                 occupied?Color(245,230,165):Color(170,170,165));
-            SeatUi::Text(g,occupied?RoomPresentation::SeatProgress(app,seat):ModText::Tr("可加入","Available"),
+            if(occupied)SeatUi::Text(g,RoomPresentation::SeatProgress(app,seat),
                 box.mX+10,box.mY+47,occupied?176:308,18,s->IsSeatOffline((uint8_t)seat)?Color(255,175,120):Color(190,215,225));
-            if(occupied)SeatUi::Text(g,RoomPresentation::SeatVersion(s,seat),box.mX+196,box.mY+47,122,14,Color(145,160,165));
+            if(occupied){const auto build=RoomPresentation::SeatBuild(s,seat);const auto badge=PlayerRoomText::VersionBadge(build);if(!badge.empty())SeatUi::Text(g,badge,box.mX+196,box.mY+47,122,14,build?Color(255,175,120):Color(145,160,165));}
         }
-        if(!s->IsRelay()||app->mBoard)SeatUi::Text(g,RoomPresentation::Order(s),40,450,420,18,Color(215,215,195));
+        if(s->IsConnected()&&s->GetOccupiedSeatCount()>1&&(!s->IsRelay()||app->mBoard))SeatUi::Text(g,RoomPresentation::Order(s),40,450,420,18,Color(215,215,195));
     }
 }
 }

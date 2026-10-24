@@ -28,6 +28,7 @@
 #include "../../PvzpLib/PvzpFoley.h"
 #include "../../PvzpLib/PvzpStringFile.h"
 #include "graphics/Font.h"
+#include "../ModText.h"
 #include <algorithm>
 
 ContinueDialog::ContinueDialog(LawnApp* theApp) : LawnDialog(
@@ -41,15 +42,13 @@ ContinueDialog::ContinueDialog(LawnApp* theApp) : LawnDialog(
 {
 	if (theApp->IsAdventureMode())
 	{
-		mDialogLines = mApp->GetString("CONTINUE_GAME_OR_RESTART",
-			"Do you want to continue your current game or restart the level?");
+		mDialogLines = ModText::Tr("可以继续；重新开始会放弃本关进度。", "Continue, or restart and discard this level's progress.");
 		mContinueButton = MakeButton(ContinueDialog::ContinueDialog_Continue, this, "[CONTINUE_BUTTON]");
 		mNewGameButton = MakeButton(ContinueDialog::ContinueDialog_NewGame, this, "[RESTART_BUTTON]");
 	}
 	else
 	{
-		mDialogLines = mApp->GetString("CONTINUE_GAME",
-			"Do you want to continue your current game or start a new game?");
+		mDialogLines = ModText::Tr("可以继续；新游戏会替换当前进度。", "Continue, or start a new game and replace this progress.");
 		mContinueButton = MakeButton(ContinueDialog::ContinueDialog_Continue, this, "[CONTINUE_BUTTON]");
 		mNewGameButton = MakeButton(ContinueDialog::ContinueDialog_NewGame, this, "[NEW_GAME_BUTTON]");
 	}

@@ -57,6 +57,7 @@ constexpr const int MAX_POOL_GRID_SIZE = 10;
 constexpr const int MAX_RENDER_ITEMS = 2048;
 constexpr const int PROGRESS_METER_COUNTER = 150;
 
+namespace Observer {class BoardView;}
 class LawnApp;
 class CursorObject;
 class CursorPreview;
@@ -138,6 +139,7 @@ struct BungeeDropGrid
 class Board : public Widget, public ButtonListener
 {
 public:
+    std::unique_ptr<Observer::BoardView> mObserverView;
     bool PlantHealthVisible() const;
     bool ZombieHealthVisible() const;
     void SetPlantHealthVisible(bool visible);
@@ -397,6 +399,7 @@ public:
 	void                            DrawKeyboardHint(Graphics* g, int slot, int x, int y);
 	void							Update() override;
 	void							UpdateLayers();
+    void DrawAll(Sexy::ModalFlags*,Sexy::Graphics*) override;
 	void							Draw(Graphics* g) override;
 	void							DrawBackdrop(Graphics* g);
 	void							ButtonPress  	(int) override{}

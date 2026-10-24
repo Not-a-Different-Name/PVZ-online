@@ -4,6 +4,7 @@
 #include <vector>
 
 class LawnApp;
+class RunState;
 namespace Sexy { class ButtonWidget; }
 class RunFlowScreen : public Sexy::Widget, public Sexy::ButtonListener
 {
@@ -17,6 +18,13 @@ class RunFlowScreen : public Sexy::Widget, public Sexy::ButtonListener
     std::vector<Sexy::ButtonWidget*> mModeButtons;
     void RefreshModePage();
     void RefreshDamageLabels();
+    void RefreshRerollLabels();
+    RunState* mPickRun=nullptr;
+    unsigned int mExpectedCounter=0;
+    int mLockedChoice=-1;
+    bool mSubmitted=false;
+    Sexy::ButtonWidget* mRefreshButton=nullptr;
+    Sexy::ButtonWidget* mLockButtons[3]{};
     int mBuffMult = 0;
     Sexy::ButtonWidget* mBuffMultButton = nullptr;
     Sexy::ButtonWidget* mLadderButton = nullptr;

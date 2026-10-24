@@ -1,3 +1,4 @@
+#include "../Run/RunSpeciesRuntime.h"
 /*
  * Copyright (C) 2026 Zhou Qiankang <wszqkzqk@qq.com>
  *
@@ -2481,6 +2482,7 @@ static bool LawnLoadGameV4(Board* theBoard, const std::string& theFilePath)
 	theBoard->mApp->mDamageStats.LoadSaveTrailer(theBoard, aBuffer.GetDataPtr(), static_cast<size_t>(aBuffer.GetDataLen()));
 	if (!RunDotEffects::LoadTrailer(theBoard, aBuffer.GetDataPtr(), static_cast<size_t>(aBuffer.GetDataLen()))) return false;
 	if (!RunWaveHitSave::LoadTrailer(theBoard, aBuffer.GetDataPtr(), static_cast<size_t>(aBuffer.GetDataLen()), sizeof(SaveFileHeaderV4) + aHeader.mPayloadSize)) return false;
+    if (!RunSpeciesRuntime::LoadTrailer(theBoard,aBuffer.GetDataPtr(),static_cast<size_t>(aBuffer.GetDataLen()))) return false;
 	theBoard->mApp->mGameScene = GameScenes::SCENE_PLAYING;
 	return true;
 }
@@ -2967,6 +2969,7 @@ static void SyncBoard(SaveGameContext& theContext, Board* theBoard)
 bool LawnLoadGame(Board* theBoard, const std::string& theFilePath)
 {
 	theBoard->mRelayedZombieIds.clear(); // Legacy saves also predate relay identity.
+    RunSpeciesRuntime::Reset(theBoard);
 	if (LawnLoadGameV4(theBoard, theFilePath))
 	{
 		PvzpLogLn("Loaded save game (v4)");
@@ -2988,6 +2991,7 @@ bool LawnLoadGame(Board* theBoard, const std::string& theFilePath)
 		return false;
 	}
 
+    RunSpeciesRuntime::Reset(theBoard);
 	SyncBoard(aContext, theBoard);
 	if (aContext.mFailed)
 	{
@@ -3004,6 +3008,7 @@ bool LawnLoadGame(Board* theBoard, const std::string& theFilePath)
 	theBoard->mApp->mDamageStats.LoadSaveTrailer(theBoard, aContext.mBuffer.GetDataPtr(), static_cast<size_t>(aContext.mBuffer.GetDataLen()));
 	if (!RunDotEffects::LoadTrailer(theBoard, aContext.mBuffer.GetDataPtr(), static_cast<size_t>(aContext.mBuffer.GetDataLen()))) return false;
 	if (!RunWaveHitSave::LoadTrailer(theBoard, aContext.mBuffer.GetDataPtr(), static_cast<size_t>(aContext.mBuffer.GetDataLen()), static_cast<size_t>(aContext.mBuffer.mReadBitPos / 8))) return false;
+    if (!RunSpeciesRuntime::LoadTrailer(theBoard,aContext.mBuffer.GetDataPtr(),static_cast<size_t>(aContext.mBuffer.GetDataLen()))) return false;
 	theBoard->mApp->mGameScene = GameScenes::SCENE_PLAYING;
 	return true;
 }
@@ -3068,5 +3073,7 @@ bool LawnSaveGame(Board* theBoard, const std::string& theFilePath)
 	aOutBuffer.insert(aOutBuffer.end(),nextWave.begin(),nextWave.end());
 	const auto stats = theBoard->mApp->mDamageStats.SaveTrailer();
 	aOutBuffer.insert(aOutBuffer.end(), stats.begin(), stats.end());
+    const auto species=RunSpeciesRuntime::SaveTrailer(theBoard);
+    aOutBuffer.insert(aOutBuffer.end(),species.begin(),species.end());
 	return gSexyAppBase->WriteBytesToFile(theFilePath, aOutBuffer.data(), static_cast<int>(aOutBuffer.size()));
 }

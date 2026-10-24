@@ -1,6 +1,7 @@
 #ifndef __RUNSTATE_H__
 #define __RUNSTATE_H__
 #include "AdmissionState.h"
+#include "TeamProgressionState.h"
 
 #include "ZombieBuffRules.h"
 #include "EndlessRules.h"
@@ -80,7 +81,15 @@ public:
 		ZOMBIE_BUFF_GRAVEKEEPER = 6,	// 墓碑者：巨人砸碎植物→原地生成墓碑
 		ZOMBIE_BUFF_GHOSTWALK = 7,	// 无视阻挡：普通僵尸直接走过植物不停下啃咬
 		ZOMBIE_BUFF_PLANT_TAX = 9,    // 加价：所有植物最终种植费用 +25 阳光/层
-		ZOMBIE_BUFF_SOFTRESIST = 8,	// 软控缩时：减速持续时间减半；最高一层
+		ZOMBIE_BUFF_SOFTRESIST = 8,
+        ZOMBIE_BUFF_GIANT_CHAIN = RunSpeciesRules::GIANT_CHAIN,
+        ZOMBIE_BUFF_JACK_DEATH = RunSpeciesRules::JACK_DEATH,
+        ZOMBIE_BUFF_ARMORED_BALLOON = RunSpeciesRules::ARMORED_BALLOON,
+        ZOMBIE_BUFF_FAST_ZAMBONI = RunSpeciesRules::FAST_ZAMBONI,
+        ZOMBIE_BUFF_HEAVY_FOOTBALL = RunSpeciesRules::HEAVY_FOOTBALL,
+        ZOMBIE_BUFF_ALL_ARMOR = RunSpeciesRules::ALL_ARMOR,
+        ZOMBIE_BUFF_DIGGER_AMBUSH = RunSpeciesRules::DIGGER_AMBUSH,
+	// 软控缩时：减速持续时间减半；最高一层
 	};
 	static const int	RUN_ZOMBIE_BUFF_COUNT	= RunZombieBuffRules::COUNT;	// 池子大小（= 上面枚举条目数）
 	static const int	RUN_ZOMBIE_VOTE_CHOICES	= 3;	// 每次开票的候选数（三选一口径，2026-10-14 用户令）
@@ -181,6 +190,7 @@ public:
     int mEndlessVoteRounds = 0;
     mutable std::vector<unsigned char> mDamageHistory;
     Admission::State mAdmission;
+    TeamProgression::State mTeam;
     unsigned char mEndlessVoteIds[2] = {255,255};
     uint64_t mEndlessFocusMask = 0;
     int mEndlessSnapshotLevel = -1;
@@ -320,10 +330,11 @@ public:
 	{
 		if (theId < 0 || theId >= RUN_ZOMBIE_BUFF_COUNT) return false;
         if (ZombieBuffCount(theId) >= 255) return false;
+        if (theId >= RunSpeciesRules::PRE_SPECIES_COUNT && ZombieBuffCount(theId) >= RunSpeciesRules::MaxStacks(theId)) return false;
         if (theId == ZOMBIE_BUFF_RAVENOUS && ZombieBuffCount(ZOMBIE_BUFF_GHOSTWALK) > 0) return false;
         if (IsNewEndless()) {
             if(theId==ZOMBIE_BUFF_SWIFT && ZombieBuffSpeedPermille()*ZombieSpeedGrowthPermille()>=4000000)return false;
-            const int caps[RUN_ZOMBIE_BUFF_COUNT]={10,12,1,5,50,1,1,1,1,255};
+            const int caps[RUN_ZOMBIE_BUFF_COUNT]={10,12,1,5,50,1,1,1,1,255,2,255,1,255,255,255,255};
             if(ZombieBuffCount(theId)>=caps[theId])return false;
         }
 		return (theId != ZOMBIE_BUFF_STEADFAST && theId != ZOMBIE_BUFF_SOFTRESIST &&
@@ -369,14 +380,16 @@ public:
 	// theReroll = true（「重摇」）时：本屏现三条先从候选整体摘掉——池子够时重抽必出全新
 	// 三条；增益屏另摘上一屏没拿的（mPickCooldownBuffs，含上一屏被刷掉的那批）；两者都在
 	// "池子不够"时按保底 min(池子, 3) 条自动放宽（宁可还有重复，不让三选一屏变秃）。
-	void				RollChoices(bool theReroll = false);
+	void				RollChoices(bool theReroll = false, int lockedChoice = -1);
 	// @pvz-online: 当前屏的候选抽没抽（LawnApp::UpdateRunPick 靠它别把「重摇」重开的屏再抽一遍）。
 	bool				ChoicesRolled() const { return mChoicesRolled; }
 	// @pvz-online: 「重摇」（花园批 2026-10-13；2026-10-14 用户令起取消免费「换一批」——
 	// 第一次也花金币）：花金币把这屏的候选重抽一批——同一条 RollChoices(true) 重抽链
 	// （摘本屏现三条），扣币在 LawnApp::RunPickPaidReroll 那边，这里只管重抽；顺便把本屏
 	// 的重摇计数 +1（阶梯价，见下）。
-	void				PaidReroll();
+	void				PaidReroll(int lockedChoice = -1);
+	bool CanLockChoice(int index) const;
+	int GetRerollPurchaseCost(int lockedChoice = -1) const;
 	// @pvz-online: 这一屏当前的重摇价（花园批同日用户令：「每次*10，从100开始 100 1000 10000
 	// 这样，不设上限」+ 拍板每屏重置）= 底价 × 10^本屏已花币重摇次数。LawnApp 扣费与
 	// RunPickDialog 标价/置灰共用这一个出口，保证三处永远同价。

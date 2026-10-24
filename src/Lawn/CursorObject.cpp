@@ -22,12 +22,26 @@
 #include "Board.h"
 #include "Cutscene.h"
 #include "ZenGarden.h"
+#include "Plant.h"
+#include "System/PlayerInfo.h"
 #include "System/ReanimationLawn.h"
 #include "../LawnApp.h"
 #include "CursorObject.h"
 #include "../Resources.h"
 #include "../PvzpLib/Reanimator.h"
 #include "widget/WidgetManager.h"
+
+namespace {
+PottedPlant* GlovePottedPlant(Board* board, PlantID id)
+{
+	Plant* plant = board->mPlants.DataArrayTryToGet(id);
+	if (!plant || plant->mDead || plant->mPottedPlantIndex < 0 ||
+		plant->mPottedPlantIndex >= board->mApp->mPlayerInfo->mNumPottedPlants ||
+		plant->mPottedPlantIndex >= MAX_POTTED_PLANTS)
+		return nullptr;
+	return &board->mApp->mPlayerInfo->mPottedPlant[plant->mPottedPlantIndex];
+}
+}
 
 CursorObject::CursorObject()
 {
@@ -155,8 +169,8 @@ void CursorObject::Draw(Graphics* g)
 
 	case CursorType::CURSOR_TYPE_PLANT_FROM_GLOVE:
 	{
-		Plant* aPlant = mBoard->mPlants.DataArrayGet(static_cast<unsigned int>(mGlovePlantID));
-		PottedPlant* aPottedPlant = &mApp->mPlayerInfo->mPottedPlant[aPlant->mPottedPlantIndex];
+		PottedPlant* aPottedPlant = GlovePottedPlant(mBoard, mGlovePlantID);
+		if (!aPottedPlant) { mBoard->ClearCursor(); return; }
 		if (mBoard->mBackground == BackgroundType::BACKGROUND_MUSHROOM_GARDEN || mBoard->mBackground == BackgroundType::BACKGROUND_ZOMBIQUARIUM)
 		{
 			mApp->mZenGarden->DrawPottedPlant(g, -10.0f, -10.0f, aPottedPlant, 1.0f, false);
@@ -172,6 +186,7 @@ void CursorObject::Draw(Graphics* g)
 	case CursorType::CURSOR_TYPE_PLANT_FROM_WHEEL_BARROW:
 	{
 		PottedPlant* aPottedPlant = mApp->mZenGarden->GetPottedPlantInWheelbarrow();
+		if (!aPottedPlant) { mBoard->ClearCursor(); return; }
 		if (mBoard->mBackground == BackgroundType::BACKGROUND_MUSHROOM_GARDEN || mBoard->mBackground == BackgroundType::BACKGROUND_ZOMBIQUARIUM)
 		{
 			mApp->mZenGarden->DrawPottedPlant(g, -10.0f, -10.0f, aPottedPlant, 1.0f, false);
@@ -290,10 +305,17 @@ void CursorPreview::Draw(Graphics* g)
 	if (mBoard->mCursorObject->mCursorType == CursorType::CURSOR_TYPE_WHEEELBARROW || mBoard->mCursorObject->mCursorType == CursorType::CURSOR_TYPE_PLANT_FROM_WHEEL_BARROW)
 	{
 		aPottedPlant = mApp->mZenGarden->GetPottedPlantInWheelbarrow();
+		if (!aPottedPlant)
+		{
+			if (mBoard->mCursorObject->mCursorType == CursorType::CURSOR_TYPE_PLANT_FROM_WHEEL_BARROW)
+				mBoard->ClearCursor();
+			return;
+		}
 	}
 	else if (mBoard->mCursorObject->mCursorType == CursorType::CURSOR_TYPE_PLANT_FROM_GLOVE)
 	{
-		aPottedPlant = &mApp->mPlayerInfo->mPottedPlant[mBoard->mPlants.DataArrayGet(static_cast<unsigned int>(mBoard->mCursorObject->mGlovePlantID))->mPottedPlantIndex];
+		aPottedPlant = GlovePottedPlant(mBoard, mBoard->mCursorObject->mGlovePlantID);
+		if (!aPottedPlant) { mBoard->ClearCursor(); return; }
 	}
 
 	if (aPottedPlant)

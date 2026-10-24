@@ -1,5 +1,8 @@
 #include <memory>
+#include "Lawn/Observer/ObserverState.h"
 class CoopPlay;
+class TeamProgressionDialog;
+struct TeamProgressionUiState;
 /*
  * Copyright (C) 2026 Zhou Qiankang <wszqkzqk@qq.com>
  *
@@ -27,6 +30,7 @@ class CoopPlay;
 #include "ConstEnums.h"
 #include "Lawn/System/BattleMusicState.h"
 #include "Lawn/System/DamageStats.h"
+#include "Lawn/Run/TeamProgressionView.h"
 #include "Lawn/Online/NetProtocol.h"
 #include "SexyAppFramework/SexyApp.h"
 #include "PvzpLib/PvzpFoley.h"
@@ -81,6 +85,8 @@ public:
 class LawnApp : public SexyApp
 {
 public:
+    Observer::InputFence mObserverInput;bool mObserverTextTail=false;
+    bool FilterObserverInput(int,int=0,int=0,int=0)override;
     std::unique_ptr<CoopPlay> mCoopPlay;
     BattleMusicState mBattleMusic;
     DamageStats mDamageStats;
@@ -116,6 +122,7 @@ public:
     int mZombieVoteVotes[3]{}, mZombieVoteAbstains = 0, mZombieVoteVotedSeats = 0;
     unsigned int mZombieVoteSeatMask = 0;
     int mZombieVoteRoundsDone = 0;   // 本场景已结的票数（两屏制 MOD_BUILD 56：档 2 结第一票后仍 <2，路口再开第二屏；重开游戏归 0——配合 mZombieVotedLevel 区分"恢复"与"待第二屏"）
+    int mZombieVoteOpenRound=0; // Round at OPEN; RESULT and SHARED can arrive on different queues.
     unsigned char mZombieVoteBannerIds[2]{};  // 本场景结果横幅累积（每屏各记 1 条，全结后合成一条横幅推）
     int mZombieVoteBannerCount = 0;
     std::string mZombieVotePendingBanner;
@@ -184,7 +191,7 @@ public:
 
 	void ShowRunMenu(int endlessScene=-1);
 	void StartRun(int mode, int buffMult = 0, int difficulty = 1, int scale = 1, int tempo = 1, int zombotany = 0, int endlessScene = 0, int bossFlag = 2, int ladder = 0, int zombieBuff = 1,int speedTier=0, int firstWave=0, int endlessOptions=141);
-	void RunPickPaidReroll();
+	bool RunPickPaidReroll(int lockedChoice, unsigned int expectedCounter);
 	void ResumeRun(int mode=-1, int scene=0);
 	void ShowRunPicks();
 	void StartRunLevel();
@@ -272,6 +279,17 @@ public:
 	bool							mMuteSoundsForCutscene;
 
 public:
+    TeamProgressionView::Controller* mTeamProgressionController=nullptr;
+    TeamProgressionDialog* mTeamProgressionDialog=nullptr;
+    std::shared_ptr<TeamProgressionUiState> mTeamProgressionUi;
+    bool mTeamProgressionInputFence=false;
+    void SetTeamProgressionController(TeamProgressionView::Controller* controller);
+    void ShowTeamProgression(TeamProgressionView::Page page);
+    bool TeamProgressionAvailable() const;
+    bool TeamProgressionInputBlocked() const;
+    void UpdateTeamProgressionUi();
+    void CloseTeamProgressionUi(bool restoreFocus=true);
+    void ShowCoopPlayLegacy();
 	LawnApp();
 	~LawnApp() override;
 

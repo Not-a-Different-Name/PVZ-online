@@ -92,6 +92,10 @@ void NetSession::HandlePreparation(const PreparationWire::Message& m) {
             if(m.players[s] && (finalCommit || !(m.phase==COMMIT && p.appliedRequest==p.request)))mCoopPeers[s]=m.players[s];
             mSeats[s].mSeedsReady=(p.ready&(1u<<s))!=0;mSeats[s].mSeedsReadyEpoch=mReadyEpoch;
         }
+        // Retain the committed identity map too on clients. REPORT fills this
+        // table on the coordinator, while STATE supplies it to participants.
+        if(p.phase==GO)for(uint8_t s=1;s<=NetProto::MAX_PLAYERS;++s)
+            p.participants[s]=m.players[s];
         ClearSwapState();UpdateReadyCancelState();
         if(p.phase==COMMIT && p.appliedRequest!=p.request) {
             if(mTransport==Transport::DIRECT)ApplySeatSwap(p.a,p.b);

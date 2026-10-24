@@ -784,6 +784,7 @@ bool SexyAppBase::ProcessDeferredMessages(bool singleMessage)
 			{
 				mLastUserInputTick = mLastTimerTime;
 
+				if(FilterObserverInput(0,int(SDLKeyboardKeyCode(event.key))))break;
 				if (mAllowAltEnter &&
 					event.key.repeat == 0 &&
 					(event.key.keysym.sym == SDLK_RETURN || event.key.keysym.sym == SDLK_KP_ENTER) &&

@@ -52,7 +52,7 @@ file(GLOB SOURCES CONFIGURE_DEPENDS
 )
 list(APPEND SOURCES src/Lawn/Online/RelayCatalog.cpp third_party/ed25519/src/fe.c third_party/ed25519/src/ge.c third_party/ed25519/src/sc.c third_party/ed25519/src/sha512.c third_party/ed25519/src/verify.c)
 # @pvz-online: fixed PC run model and cross-platform session transport.
-list(APPEND SOURCES src/Lawn/Run/RunState.cpp src/Lawn/Run/RunCheckpointIO.cpp src/Lawn/Run/RunHistory.cpp src/Lawn/Run/RunBuffs.cpp src/Lawn/Run/RunFlow.cpp src/Lawn/Run/RunZombieRoster.cpp src/Lawn/Online/NetSession.cpp)
+list(APPEND SOURCES src/Lawn/Run/RunState.cpp src/Lawn/Run/RunSpeciesRuntime.cpp src/Lawn/Run/RunCheckpointIO.cpp src/Lawn/Run/RunHistory.cpp src/Lawn/Run/RunBuffs.cpp src/Lawn/Run/RunFlow.cpp src/Lawn/Run/RunZombieRoster.cpp src/Lawn/Online/NetSession.cpp)
 if(WIN32)
 	list(APPEND SOURCES src/Lawn/Online/NetLinkWin32.cpp)
 elseif(ANDROID OR (UNIX AND NOT EMSCRIPTEN))
@@ -333,3 +333,6 @@ elseif (IOS)
 			PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
 	endif()
 endif()
+
+target_sources(pvz-portable PRIVATE src/Lawn/Observer/ObserverDrawScene.cpp src/Lawn/Observer/ObserverDrawCodec.cpp)
+

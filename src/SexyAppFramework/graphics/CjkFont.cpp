@@ -1,4 +1,5 @@
 #include "CjkFont.h"
+#include "Lawn/Observer/ObserverDrawScene.h"
 #include "Graphics.h"
 #include "MemoryImage.h"
 #include <SDL.h>
@@ -103,6 +104,9 @@ public:
     }
     void DrawString(Graphics* g, int x, int y, std::string_view text, const Color& color, const Rect& clip) override
     {
+        if(auto*capture=dynamic_cast<Observer::DrawRecorder*>(g->mDestImage)){
+            capture->Text(std::string(text),x+int(g->mTransX),y+int(g->mTransY),mHeight,false,color,clip);return;
+        }
         Graphics draw(*g);
         draw.SetColorizeImages(true);
         draw.SetColor(color);

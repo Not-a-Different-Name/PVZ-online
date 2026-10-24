@@ -79,7 +79,7 @@ inline int Hit(Board* board, int x, int y)
     auto& stats = board->mApp->mDamageStats;
     if (CoopHud::RunInfoOpen(board))
     {
-        const int action = BuffView().Hit(x - 20, y - 20, board->mApp->GetRunState(), true, board->mApp->IsOnlineGame(), true);
+        const int action = BuffView().Hit(x - 20, y - 20, board->mApp->GetRunState(), true, board->mApp->IsOnlineGame(), true, board->mApp->TeamProgressionAvailable());
         // The whole overlay consumes input, including gaps and the lawn behind it.
         return std::max(0, action);
     }
@@ -108,6 +108,12 @@ inline void Action(Board* board, int action)
     auto& stats = board->mApp->mDamageStats;
     if (CoopHud::RunInfoOpen(board))
     {
+        if(action==550&&board->mApp->TeamProgressionAvailable())
+        {
+            stats.mOpen=0;
+            board->mApp->ShowTeamProgression(TeamProgressionView::Page::TEAM_EFFECTS);
+            return;
+        }
         if (action == 100) stats.mOpen = 0;
         else BuffView().Act(action, board->mApp->GetRunState());
         return;
@@ -190,7 +196,7 @@ inline void Draw(Board* board, Graphics* graphics)
         panel.mTransX += 20 * panel.mScaleX;
         panel.mTransY += 20 * panel.mScaleY;
         BuffView().Draw(&panel, board->mApp->GetRunState(), true, board->mApp->IsOnlineGame(),
-            false, false, false, "", stats.mCaptured ? stats.mPressed : -1, true);
+            false, false, false, "", stats.mCaptured ? stats.mPressed : -1, true, board->mApp->TeamProgressionAvailable());
         return;
     }
     CoopHud::SmallButton(graphics, BuffEntry(), ModText::Tr("增益", "Buff"), true, stats.mCaptured && stats.mPressed == 5);

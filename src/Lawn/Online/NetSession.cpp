@@ -3,6 +3,7 @@
 #include "NetSession.h"
 #include "RelayNodes.h"
 #include "PrivateEndpoint.h"
+#include "NetworkPlayerText.h"
 #include "../Run/PortVersion.h"
 static_assert(NetProto::MOD_BUILD == PVZ_ANDROID_PC_MOD_BUILD);
 static_assert(NetProto::PROTOCOL_VERSION == PVZ_ANDROID_PC_PROTOCOL_VERSION);
@@ -15,6 +16,7 @@ static_assert(NetProto::PROTOCOL_VERSION == PVZ_ANDROID_PC_PROTOCOL_VERSION);
 
 namespace
 {
+uint64_t ObserverNow(){return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();}
 
 // 控制帧的起始编号（见 NetProtocol.h 的 ControlType）：≥ 这个数的是"服务器→客户端"的
 // 控制帧，由会话层自己处理，绝不转发、也绝不落进游戏消息的 switch。游戏帧是 1..16。
@@ -29,7 +31,7 @@ const int	SEEDS_READY_PAYLOAD_SIZE = 7;	// src, dst, u8 ready, u32 generation
 const int	SWAP_REQUEST_PAYLOAD_SIZE = 2;	// src, dst
 const int	SWAP_REPLY_PAYLOAD_SIZE = 3;	// src, dst, u8 accepted
 const int	SWAP_REQUEST_TIMEOUT_FRAMES = 1500;	// 换位请求等答复 ≈15 秒：对面掉线/装死时自己收摊（等待必须有出路）
-const int	ESCAPED_ZOMBIE_PAYLOAD_SIZE = 38; // @pvz-online: current and max HP for all four sections (MOD_BUILD 46).
+const int   ESCAPED_ZOMBIE_PAYLOAD_SIZE = NetProto::ESCAPED_SPECIES_PAYLOAD_SIZE; // @pvz-online: current and max HP for all four sections (MOD_BUILD 46).
 const int	SEND_SUN_PAYLOAD_SIZE	= 4;	// src, dst, u16 amount（发阳光到账额，MOD_BUILD 38）
 const int	ZOMBIE_VOTE_OPEN_PAYLOAD_SIZE = 7;	// src, dst, u16 sceneIndex, u8 candidates[3]（僵尸强化开票，MOD_BUILD 45）
 const int	ZOMBIE_VOTE_PAYLOAD_SIZE = 5;	// src, dst, u16 sceneIndex, u8 choice（0..2=候选下标、3=弃权）
@@ -130,8 +132,8 @@ NetSession::NetSession()
 	mRejoinSent = false;
 	mLastStartLevelValid = false;
 	mTextChinese = false;			// 默认英文；上层每帧注入（见 SetTextChinese）
-	mStatusText = NetText("未连接。", "Not connected.");
-	mHintText = NetText("开一间房，或输入主机 IP 加入。", "Host a game, or type the host's IP and join.");
+	mStatusText = NetText("创建房间或加入队友。", "Create or join a room.");
+	mHintText = NetText("创建房间，或加入队友。", "Create a room or join teammates.");
 	mShortStatus = NetText("连接断开", "Connection lost");
 	mHasPendingStart = false;
 	mHasRunGo = false;
@@ -170,12 +172,14 @@ NetSession::~NetSession()
 // "人走了但状态还挂着"的残影。
 void NetSession::ClearSeatTable()
 {
+    mNameplateTicks=0;
 	for (int aSeat = 0; aSeat <= NetProto::MAX_PLAYERS; aSeat++)
 	{
 		mSeats[aSeat].mOccupied = false;
 		mSeats[aSeat].mOffline = false;
 		mSeats[aSeat].mBuild = 0;
 		mSeats[aSeat].mName.clear();
+		mSeats[aSeat].mNameplate=0;
 		mSeats[aSeat].mLevelDone = false;
 		mSeats[aSeat].mSeedsReady = false;
         mSeats[aSeat].mSeedsReadyEpoch = 0;
@@ -209,7 +213,8 @@ bool NetSession::StartHost(uint16_t thePort)
 	if (!mLink.Listen(thePort))
 	{
 		mState = State::DEAD;
-		mStatusText = mLink.GetLastError();
+		mDiagnosticStatusText = mLink.GetLastError();
+		mStatusText = NetworkPlayerText::Transport(mDiagnosticStatusText, mTextChinese);
 		mHintText.clear();
 		PushEvent(EventType::DISCONNECTED);
 		return false;
@@ -235,7 +240,8 @@ bool NetSession::StartJoin(const char* theHost, uint16_t thePort)
 	if (!mLink.Connect(mConnectHost.c_str(), thePort))
 	{
 		mState = State::DEAD;
-		mStatusText = mLink.GetLastError();
+		mDiagnosticStatusText = mLink.GetLastError();
+		mStatusText = NetworkPlayerText::Transport(mDiagnosticStatusText, mTextChinese);
 		mHintText.clear();
 		PushEvent(EventType::DISCONNECTED);
 		return false;
@@ -279,7 +285,8 @@ bool NetSession::StartRoomHost(const char* theServer, uint16_t thePort)
 	if (!mLink.Connect(mConnectHost.c_str(), thePort))
 	{
 		mState = State::DEAD;
-		mStatusText = mLink.GetLastError();
+		mDiagnosticStatusText = mLink.GetLastError();
+		mStatusText = NetworkPlayerText::Transport(mDiagnosticStatusText, mTextChinese);
 		mHintText.clear();
 		PushEvent(EventType::DISCONNECTED);
 		return false;
@@ -314,6 +321,8 @@ bool NetSession::StartRoomJoin(const char* theServer, const char* theRoomCode, u
 	{
 		mState = State::DEAD;
 		mStatusText = NetText("房间码不对——应是 4 位字母或数字。", "Bad room code - it is 4 letters and digits.");
+		mDiagnosticStatusText = mStatusText;
+		mStatusText = NetworkPlayerText::Error(mStatusText, mTextChinese);
 		mShortStatus = NetText("房间码不对", "Bad room code");
 		mHintText.clear();
 		PushEvent(EventType::DISCONNECTED);
@@ -323,7 +332,8 @@ bool NetSession::StartRoomJoin(const char* theServer, const char* theRoomCode, u
 	if (!mLink.Connect(mConnectHost.c_str(), thePort))
 	{
 		mState = State::DEAD;
-		mStatusText = mLink.GetLastError();
+		mDiagnosticStatusText = mLink.GetLastError();
+		mStatusText = NetworkPlayerText::Transport(mDiagnosticStatusText, mTextChinese);
 		mHintText.clear();
 		PushEvent(EventType::DISCONNECTED);
 		return false;
@@ -505,6 +515,7 @@ void NetSession::AbortReconnect()
 // 回来时全队还等着这些记忆接着跑。
 void NetSession::EnterReconnecting()
 {
+    ClearObserverV2();mObserverRelay=false;mObserverQueryAt=0;
 	if (mState != State::RECONNECTING)
 	{
 		NetworkLog("[net] link lost in room %s (seat %u) - trying to reconnect",
@@ -604,6 +615,7 @@ bool NetSession::ResendLastStartLevel(uint8_t theTargetSeat)
 
 void NetSession::Update()
 {
+    UpdateNameplate();
 	if (mState == State::OFF) return;
 
 	// 死了就是死了，别再泵这个会话。SetDead 不动 NetLink，判死时链路往往还挂着
@@ -635,6 +647,7 @@ void NetSession::Update()
 	NetLink::State aLinkState = mLink.GetState();
 	if (aLinkState == NetLink::State::FAILED)
 	{
+		mDiagnosticStatusText = mLink.GetLastError();
 		// @pvz-online MOD_BUILD 39：中继里已经坐进名册的人掉线不判死——服务器把席位
 		// 保留着，重开链路自动回去。直连没有第三方兜底、也没有"席位"可保留；开户/第一次
 		// 握手就没成的人（还没入座）没得回——这两种照旧判死走老路。重连期内再次失败
@@ -725,8 +738,9 @@ void NetSession::Update()
             return;
         }
 
+	    ObserverV2Tick();
 		// ---- 观战：观看端补保活/掐超时，被看端删掉哑巴观众 ----
-		if (IsWatching())
+		if (IsWatching() && !IsWatchingV2())
 		{
 			if (!IsSeatOccupied(mWatchTargetSeat))
 			{
@@ -801,7 +815,7 @@ void NetSession::Update()
 		if (--mSwapRequestTicks <= 0)
 		{
 			mSwapRequestSeat = NetProto::SEAT_UNSET;
-			SetNotice(NetText("换位请求没有回音，已收起。", "No answer to the swap ask - given up.").c_str());
+			SetNotice(NetText("队友未答复，换位已取消。", "No reply. The swap was cancelled.").c_str());
 			NetworkLog("[net] swap request timed out");
 		}
 	}
@@ -1173,7 +1187,7 @@ void NetSession::ApplySeatSwap(uint8_t theSeatA, uint8_t theSeatB)
 	else if (mHostSeat == theSeatB) mHostSeat = theSeatA;
     PreparationSeatSwapApplied(theSeatA,theSeatB);
 
-	SetNotice((NetText("已换位——你现在是 P", "Swapped - you are now P")
+	SetNotice((NetText("已换到 P", "You are now P")
 		+ std::to_string((unsigned)mLocalSeat) + NetText("。", ".")).c_str());
 	NetworkLog("[net] positions swapped - local seat %u", (unsigned)mLocalSeat);
 }
@@ -1489,6 +1503,17 @@ bool NetSession::BeginWatch(uint8_t theSeat)
 	if (IsWatching() && mWatchTargetSeat != theSeat)
 		SendBoardWatchMsg(mWatchTargetSeat, NetProto::WATCH_END);
 
+    if(IsWatching())EndWatch(true);
+    if(GetSeatBuild(theSeat)>=94 && (mTransport==Transport::DIRECT || mObserverRelay)) {
+        mWatchTargetSeat=theSeat;
+        static std::atomic<uint32_t> ids{0};
+        mObserverWatch=uint32_t(mCoopToken)^uint32_t(++ids)^uint32_t(std::chrono::steady_clock::now().time_since_epoch().count());
+        if(!mObserverWatch)mObserverWatch=++ids;
+        mObserverRemoteStream=1;mObserverAccepted=false;mObserverInbox.clear();
+        mObserverKeepAt=mObserverLast=ObserverNow();mWatchEndPending=WatchEnd::NONE;
+        if(ObserverControl(theSeat,ObserverWireV2::ControlOp::BEGIN,mObserverWatch,1))return true;
+        ClearWatchState(WatchEnd::TARGET_LEFT);return false;
+    }
 	mWatchTargetSeat = theSeat;
 	mFramesSinceWatchKeepalive = 0;
 	mFramesSinceWatchSnapshot = 0;
@@ -1510,13 +1535,17 @@ void NetSession::EndWatch(bool theNotify)
 {
 	if (!IsWatching()) return;
 
-	if (theNotify) SendBoardWatchMsg(mWatchTargetSeat, NetProto::WATCH_END);
+	if (theNotify) {
+        if(IsWatchingV2())ObserverControl(mWatchTargetSeat,ObserverWireV2::ControlOp::STOP,mObserverWatch,mObserverRemoteStream);
+        else SendBoardWatchMsg(mWatchTargetSeat, NetProto::WATCH_END);
+    }
 	ClearWatchState(WatchEnd::USER);
 }
 
 void NetSession::ClearWatchState(WatchEnd theReason)
 {
 	bool aWasWatching = IsWatching();
+    mObserverWatch=0;mObserverAccepted=false;mObserverRemoteStream=0;mObserverInbox.clear();mObserverAssembler.Context(0,0,0,0,0);
 	mWatchTargetSeat = NetProto::SEAT_UNSET;
 	mFramesSinceWatchKeepalive = 0;
 	mFramesSinceWatchSnapshot = 0;
@@ -1594,12 +1623,18 @@ bool NetSession::SendBoardSnapshot(uint8_t theViewerSeat, const uint8_t* theBody
 	return true;
 }
 
+bool NetSession::SendObserverV2Control(uint8_t viewer,const ObserverWireV2::Control& c){return ObserverControl(viewer,c.op,c.watchId,c.boardStream);}
+bool NetSession::SendObserverV2Frame(uint8_t,const ObserverWireV2::Frame&){return false;}
+#include "ObserverSession.inl"
+
 // ====================================================================================================
 // ★ 状态与文案
 // ====================================================================================================
 
 void NetSession::ResetToOff()
 {
+    ClearObserverV2();mObserverRelay=false;mObserverQueryAt=0;
+	mDiagnosticStatusText.clear();
     mPrivateRoom=false;
  mFlowSupported=mFlowEnabled=mFlowHelloSent=mFlowDeferred=false;
  mFlowDoneValue=mFlowStartPending=mFlowHostStartRecovery=mFlowLost=false;mReadyCancelState=ReadyCancelState::NONE;mFlowTerm=mFlowEpoch=mFlowGeneration=mFlowAcked=mFlowDoneEpoch=0;mFlowPhase=0;mFlowStartTicks=0;
@@ -1615,7 +1650,7 @@ void NetSession::ResetToOff()
     if(!mCoopToken)mCoopToken=++coopEpoch;
     if(mPersistentPlayer)mCoopToken=mPersistentPlayer;
 
-    mCoopInbox.clear(); mDamageInbox.clear(); for(auto& token:mCoopPeers)token=0;
+    mTeamInbox.clear(); mCoopInbox.clear(); mDamageInbox.clear(); for(auto& token:mCoopPeers)token=0;
 
 	// 收摊要把传输层一起收干净。NetLink 只认"上一个收包线程还在，就不给开新的"，
 	// 而"对面拔线 / 心跳超时"判死这条路谁都没关过它——只有玩家按 Disconnect 才走 Close()。
@@ -1642,8 +1677,8 @@ void NetSession::ResetToOff()
 	mFramesSinceRejoinSent = 0;
 	mRejoinSent = false;
 	mLastStartLevelValid = false;
-	mStatusText = NetText("未连接。", "Not connected.");
-	mHintText = NetText("开一间房，或输入主机 IP 加入。", "Host a game, or type the host's IP and join.");
+	mStatusText = NetText("创建房间或加入队友。", "Create or join a room.");
+	mHintText = NetText("创建房间，或加入队友。", "Create a room or join teammates.");
 	mEvents.clear();
 	DiscardLevelPackets();
 	ClearSwapState();
@@ -1653,6 +1688,7 @@ void NetSession::ResetToOff()
 
 void NetSession::SetConnected(bool theWasReconnect)
 {
+	mDiagnosticStatusText.clear();
     if(mLocalSeat>=1 && mLocalSeat<=NetProto::MAX_PLAYERS)mSeats[mLocalSeat].mBuild=NetProto::MOD_BUILD;
 	mState = State::CONNECTED;
 	mFramesSincePacket = 0;
@@ -1691,8 +1727,7 @@ void NetSession::SetConnected(bool theWasReconnect)
 	{
 		NetworkLog("[net] builds differ - local %u, peer %u; playing anyway",
 			(unsigned)NetProto::MOD_BUILD, (unsigned)GetPeerBuild());
-		SetNotice(NetText("房间内有玩家版本不同，请查看各席位并统一版本。",
-			"Players have different builds - check each seat and use the same version.").c_str());
+		SetNotice(NetText("请与队友更新到同一版本。", "Update to the same version as your teammates.").c_str());
 	}
 	PushEvent(EventType::CONNECTED);
 }
@@ -1712,6 +1747,8 @@ void NetSession::SetDead(const char* theReason, const char* theShortReason)
 	mNoticeText.clear();
 	mNoticeFrames = 0;
 	NetworkLog("[net] session dead: %s", mStatusText.c_str());
+	mDiagnosticStatusText = mStatusText;
+	mStatusText = NetworkPlayerText::Error(mStatusText, mTextChinese);
 	PushEvent(EventType::DISCONNECTED);
 }
 
@@ -1720,11 +1757,11 @@ void NetSession::UpdateStatusText()
 	switch (mState)
 	{
 	case State::OFF:
-		mStatusText = NetText("未连接。", "Not connected.");
+		mStatusText = NetText("创建房间或加入队友。", "Create or join a room.");
 		break;
 	case State::LISTENING:
 		// 不写"另一个玩家"：最多六个席位，主机等的是"人"，不是那一个特定的人。
-		mStatusText = NetText("等待队友加入……", "Waiting for players to join...");
+		mStatusText = NetText("请邀请队友加入。", "Invite teammates to join.");
 		break;
 	case State::CONNECTING:
 		{
@@ -1741,18 +1778,18 @@ void NetSession::UpdateStatusText()
 	case State::HANDSHAKING:
 		// 中继这会儿是"TCP 通了，等服务器点名册"（WELCOME），直连是等对方的 HELLO/HELLO_ACK
 		mStatusText = (mTransport == Transport::RELAY)
-			? NetText("正在联系服务器……", "Contacting the server...")
-			: NetText("已连接，握手中……", "Connected. Shaking hands...");
+			? NetText("正在加入，请稍候。", "Joining, please wait.")
+			: NetText("正在加入，请稍候。", "Joining, please wait.");
 		break;
 	case State::CONNECTED:
         if(mFlowEnabled && (mFlowPhase==2 || mFlowPhase==3) && GetConnectedPlayerCount()==0) {
-            mStatusText=NetText("本轮战斗玩家均已掉线，正在等待重连保留期结束。", "All combat players disconnected; waiting for reconnect grace to end.");
-            mHintText=NetText("战斗中归队仍需等待下一关；保留期结束后，请重新开局，不会自动跳关。", "Battle rejoins still wait for the next stage. After grace ends, start a new game; this stage will not be skipped.");
+            mStatusText=NetText("战斗玩家均已掉线，请稍候。", "All fighting players disconnected. Please wait.");
+            mHintText=NetText("本关暂不能继续；等待结束后请重新开局。", "This stage cannot continue. Start a new game when the wait ends.");
             break;
         }
         if(IsWaitingForNextRound(mLocalSeat)) {
-            mStatusText=NetText("已归队，等待下一关", "Rejoined - waiting for next stage");
-            mHintText=NetText("本关已跳过，队友继续战斗；下一关再一起出战。", "This stage is skipped. Teammates keep playing; join them next stage.");
+            mStatusText=NetText("请等下一关一起出战", "Wait for your team's next stage");
+            mHintText=NetText("队友正在战斗，你将在下一关加入。", "Teammates are fighting. You will join next stage.");
             break;
         }
 		{
@@ -1760,23 +1797,22 @@ void NetSession::UpdateStatusText()
 			// 免得客户端点了冒险按钮却什么反馈都没有（局面板照旧不冻心跳）。
 			// 换位这件事谁先谁后不一样，所以状态行得按"谁在等谁"分开写。
 			if (HasIncomingSwapRequest())
-				mStatusText = NetText("队友想和你换位——请点同意或拒绝。", "The teammate wants to swap positions - Accept or Reject.");
+				mStatusText = NetText("请同意或拒绝队友的换位申请。", "Accept or reject the swap request.");
 			else if (IsSwapRequestPending())
-				mStatusText = NetText("换位请求已发出——等待队友答复。", "Swap asked - waiting for the teammate to answer.");
+				mStatusText = NetText("请等队友答复换位。", "Wait for the swap reply.");
 			else if(IsRelay() && !mFlowEnabled)
-                mStatusText=NetText("已连接，当前房间使用兼容联机模式。","Connected. This room uses compatibility mode.");
+                mStatusText=NetText("", "");
 			else if (IsBuildDifferent())
 			{
                 // @pvz-online: a room-wide mismatch must not be paired with one unrelated peer's build.
-                mStatusText = NetText("房间内有玩家版本不同，请查看各席位版本。",
-                    "Players have different versions; check each seat.");
+                mStatusText = NetText("请与队友更新到同一版本。", "Update to the same version as your teammates.");
 			}
 			else
 				// 连上之后该点哪块牌子，按当前设计是"看情况"的：想一起打单关走 PUZZLE，
 				// 组队闯关要等 R5——所以这儿不说牌子名，只说"主机来挑"。
 				mStatusText = (mRole == Role::HOST)
-					? NetText("已连接。请在菜单里选一关。", "Connected. Pick a level from the menu.")
-					: NetText("已连接。等待主机选关。", "Connected. Waiting for the host to pick a level.");
+					? NetText("请在主菜单选关。", "Pick a level from the main menu.")
+					: NetText("请等房主选关。", "Wait for the host to pick a level.");
 
 			// 提示行借来写清"我是几号位、漏怪往哪走"：连上之后 IP 已经没用了
 			// （输入框里还留着），而位置是开局前要拿主意的事（面板里的 Swap）。
@@ -1792,11 +1828,11 @@ void NetSession::UpdateStatusText()
 				// 中继把房间码也带上：房主要念给朋友，其他人核对一下自己进对了房。
 				uint8_t aNext = GetRelayTargetSeat();
 				mHintText = (mTransport == Transport::RELAY)
-					? (NetText("房间 ", "Room ") + (mPrivateRoom?PrivateEndpoint::Invite(mConnectHost,mConnectPort,mRoomCode):(IsRelay()?RelayNodes::ShareCode({mConnectHost,mConnectPort},mRoomCode):mRoomCode)) + NetText("——", " - ")) : std::string();
+					? (NetText("房间 ", "Room ") + (mPrivateRoom?PrivateEndpoint::Invite(mConnectHost,mConnectPort,mRoomCode):(IsRelay()?mRoomCode:mRoomCode)) + NetText("——", " - ")) : std::string();
 				mHintText += NetText("你是 P", "You are P") + std::to_string((unsigned)mLocalSeat);
 				mHintText += (aNext == NetProto::SEAT_UNSET)
-					? NetText("——末位：这里漏怪会直接判全队失败。", " - the last seat: a leak here loses the game.")
-					: (NetText("——你的漏怪往后传给 P", " - your leaks pass on to P")
+					? NetText(" · 末位漏怪，全队失败。", " - last seat: a leak loses the run.")
+					: (NetText(" · 漏怪交给 P", " - leaks go to P")
 						+ std::to_string((unsigned)aNext) + NetText("。", "."));
 			}
 		}
@@ -1808,11 +1844,11 @@ void NetSession::UpdateStatusText()
 			// 数字走 GetReconnectAttempt/GetReconnectSecondsLeft：重连框拿的是同一对值。
 			int aLeftSec = GetReconnectSecondsLeft();
 			unsigned anAttempt = GetReconnectAttempt();
-			mStatusText = NetText("掉线了——正在重连（第 ", "Lost the link - reconnecting (attempt ")
+			mStatusText = NetText("正在重连（第 ", "Reconnecting (attempt ")
 				+ std::to_string(anAttempt)
-				+ NetText(" 次，还剩 ", ", ") + std::to_string((unsigned)aLeftSec) + NetText(" 秒）……", "s left)...");
-			mHintText = NetText("房间 ", "Room ") + (mPrivateRoom?PrivateEndpoint::Invite(mConnectHost,mConnectPort,mRoomCode):(IsRelay()?RelayNodes::ShareCode({mConnectHost,mConnectPort},mRoomCode):mRoomCode))
-				+ NetText("——你的席位保留着，连上就能接着打。", " - your seat is being held; you can continue once connected.");
+				+ NetText(" 次，剩余 ", ", ") + std::to_string((unsigned)aLeftSec) + NetText(" 秒）", "s left)");
+			mHintText = NetText("房间 ", "Room ") + (mPrivateRoom?PrivateEndpoint::Invite(mConnectHost,mConnectPort,mRoomCode):(IsRelay()?mRoomCode:mRoomCode))
+				+ NetText(" · 请等待重连，归队后按提示继续。", " - wait to reconnect, then follow the return prompt.");
 		}
 		break;
 	case State::DEAD:
@@ -1884,6 +1920,7 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
          aType==NetProto::MSG_ESCAPED_ZOMBIE || aType==NetProto::MSG_SEND_SUN))return;
 	switch (aType)
 	{
+    case 30:case 31:HandleObserver(aType,aPayload,aPayloadSize);break;
     case NetProto::MSG_ROUND_WAIT: { // Round wait: {src,dst,epoch:u32,mask:u8}; relay already authenticates src.
         if(aPayloadSize!=7 || mRole!=Role::CLIENT || aPayload[0]!=mHostSeat || aPayload[1]!=mLocalSeat)break;
         NetProto::Reader r(aPayload,aPayloadSize);r.U8();r.U8();uint32_t epoch=r.U32();uint8_t mask=r.U8();
@@ -1912,6 +1949,14 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
             snapshot.mDst != mLocalSeat || snapshot.mSrc == mLocalSeat || !IsSeatOccupied(snapshot.mSrc) ||
             (mTransport == Transport::DIRECT && snapshot.mSrc != DirectPeerSeat())) break;
         if (mDamageInbox.size() < 128) mDamageInbox.push_back(snapshot);
+        break;
+    }
+    case TeamWire::TYPE: {
+        TeamWire::Message message;
+        if(!TeamWire::Decode(aPayload,aPayloadSize,message)||message.dst!=mLocalSeat||message.src==mLocalSeat||
+           !IsSeatOccupied(message.src)||mCoopPeers[message.src]!=message.sender||
+           (message.op==TeamWire::SHARED&&message.src!=GetHostSeat()))break;
+        if(mTeamInbox.size()<128)mTeamInbox.push_back(message);
         break;
     }
     case NetProto::MSG_COOP_EVENT: {
@@ -2110,7 +2155,7 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 	case NetProto::MSG_ESCAPED_ZOMBIE:
 		{
 			NetProto::MsgEscapedZombie aMsg;
-			if (aPayloadSize != ESCAPED_ZOMBIE_PAYLOAD_SIZE || !NetProto::DecodeEscapedZombie(aPayload, aPayloadSize, aMsg))
+            if ((aPayloadSize != ESCAPED_ZOMBIE_PAYLOAD_SIZE && aPayloadSize != 38) || !NetProto::DecodeEscapedZombie(aPayload, aPayloadSize, aMsg))
 			{
 				SetDead(NetText("对方发来的数据包有问题。", "A player sent a malformed packet.").c_str());
 				return;
@@ -2470,6 +2515,14 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 		}
 		break;
 
+    case NameplateWire::TYPE: {
+        NameplateWire::Message message;
+        if(!NameplateWire::Decode(aPayload,static_cast<size_t>(aPayloadSize),message) ||
+            message.dst!=mLocalSeat || message.src==mLocalSeat || !IsSeatOccupied(message.src) ||
+            (mTransport==Transport::DIRECT && message.src!=DirectPeerSeat()))break;
+        mSeats[message.src].mNameplate=message.id;
+        break;
+    }
 	case NetProto::MSG_QUICK_CHAT:
 		{
 			// 双向：局内快捷聊天（编号查 QuickChat.h）。事件不是状态，不去重、按到达顺序入队
@@ -2644,6 +2697,11 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 // 走的是事件队列（PEER_JOINED/PEER_LEFT），由主循环取走，跟别的包一个规矩。
 void NetSession::HandleControlFrame(uint16_t theType, const uint8_t* thePayload, int theSize)
 {
+    if(theType==0xF023) {
+        if(IsRelay() && IsConnected() && theSize==8 && ObserverWireV2::Get32(thePayload)==ObserverRevision && ObserverWireV2::Get32(thePayload+4)==24*1024)mObserverRelay=true;
+        return;
+    }
+
  if(theType==NetProto::MSG_SRV_FLOW){HandleFlowState(thePayload,theSize);return;}
     if(mTransport==Transport::RELAY && theType==0xF00D) {
         if(theSize==4 && thePayload[0]==1 && thePayload[1]==0 && thePayload[2]==mDirectoryPublic && thePayload[3]==mDirectoryStarted)
@@ -2893,6 +2951,8 @@ void NetSession::HandleControlFrame(uint16_t theType, const uint8_t* thePayload,
 			}
 
 			mSeats[aMsg.mSeat].mOccupied = true;
+            mSeats[aMsg.mSeat].mNameplate=0;
+            mNameplateTicks=0;
 			mSeats[aMsg.mSeat].mBuild = aMsg.mBuild;
 			mSeats[aMsg.mSeat].mName = SanitizeName(aMsg.mName, NetProto::NAME_SIZE);
 			mSeats[aMsg.mSeat].mOffline = false;	// @pvz-online MOD_BUILD 39：新来的人当然在线
@@ -2992,6 +3052,7 @@ void NetSession::HandleControlFrame(uint16_t theType, const uint8_t* thePayload,
 
 			// 名册残余里这一格什么样都照常补全（万一 PEER_JOIN 之前丢了，这里顺手救回来）
 			bool aWasOffline = mSeats[aMsg.mSeat].mOffline;
+            mNameplateTicks=0;
 			mSeats[aMsg.mSeat].mOccupied = true;
 			mSeats[aMsg.mSeat].mBuild = aMsg.mBuild;
 			mSeats[aMsg.mSeat].mName = SanitizeName(aMsg.mName, NetProto::NAME_SIZE);
@@ -3155,6 +3216,27 @@ bool NetSession::Dispatch(uint16_t theType, uint8_t* thePayload, int theSize, ui
 	return aAnySent;
 }
 
+void NetSession::SetLocalNameplate(uint8_t id)
+{
+    if(id>3)id=0;
+    if(mLocalNameplate!=id){mLocalNameplate=id;mNameplateTicks=0;}
+}
+
+uint8_t NetSession::GetSeatNameplate(uint8_t seat) const
+{
+    if(!IsSeatOccupied(seat))return 0;
+    return seat==mLocalSeat?mLocalNameplate:mSeats[seat].mNameplate;
+}
+
+void NetSession::UpdateNameplate()
+{
+    if(!IsConnected()){mNameplateTicks=0;return;}
+    if(mNameplateTicks>0){--mNameplateTicks;return;}
+    uint8_t bytes[NameplateWire::SIZE];NameplateWire::Encode(bytes,mLocalNameplate);
+    Dispatch(NameplateWire::TYPE,bytes,static_cast<int>(NameplateWire::SIZE));
+    mNameplateTicks=200;
+}
+
 bool NetSession::SendRaw(uint16_t theType, const uint8_t* thePayload, int thePayloadSize)
 {
 	if (thePayloadSize < 0 || thePayloadSize > NetProto::MAX_PAYLOAD) return false;
@@ -3274,7 +3356,7 @@ bool NetSession::CanHostStart() const
 {
     if (mFlowEnabled && mFlowStartPending) return false; // One authority request at a time.
     return mRole == Role::HOST && ((!IsRelay() && mState == State::LISTENING) ||
-        (IsConnected() && (!IsRelay() || (mFlowEnabled ? ((mFlowEpoch==0 && GetConnectedPlayerCount(true)>=2) ||
+        (IsConnected() && (!IsRelay() || (mFlowEnabled ? ((mFlowPhase==0 && GetConnectedPlayerCount(true)>=2) ||
         ((mFlowPhase==5 || mFlowLost) && GetConnectedPlayerCount(true)>=1)) : GetConnectedPlayerCount(true)>=2))));
 }
 
@@ -3422,6 +3504,7 @@ bool NetSession::SendRunGo(uint8_t theTargetSeat)
 void NetSession::AdoptReadyEpoch(uint32_t epoch)
 {
     if(mReadyEpoch==epoch)return;
+    ClearSwapState(); // Lobby requests belong to the old epoch, never to the new START.
     ClearLevelDoneState(); // Reset once at network epoch adoption, before new-round packets.
     mRoundWaitMask=0;mRoundWaitTicks=0;
     mPreparation=PreparationWire::StateData{};
@@ -3464,7 +3547,7 @@ bool NetSession::SendSeedsReady(bool theReady)
 
 bool NetSession::SendLevelExit(uint8_t theReason)
 {
-	if (mRole == Role::NONE || !IsConnected()) return false;
+	if (theReason != NetProto::EXIT_QUIT_TO_MENU || mRole == Role::NONE || !IsConnected()) return false;
 
 	NetProto::MsgLevelExit aMsg;
 	aMsg.mSrcSeat = mLocalSeat;
@@ -3476,7 +3559,11 @@ bool NetSession::SendLevelExit(uint8_t theReason)
 	if (aSize <= 0) return false;
 
 	NetworkLog("[net] telling the teammate I left the level (reason %u)", (unsigned)theReason);
-	return Dispatch(NetProto::MSG_LEVEL_EXIT, aPayload, aSize);
+	// Report once to the relay even when no other live recipient remains.
+    // Old relays ignore op5; compatibility LEVEL_EXIT is retained below.
+    const bool flowSent=mFlowEnabled && SendFlowProgress(5,true);
+    EndPreparation();ClearSwapState();
+    return Dispatch(NetProto::MSG_LEVEL_EXIT, aPayload, aSize) || flowSent;
 }
 
 void NetSession::SendSwapReply(bool theAccepted, uint8_t theTarget)
@@ -3542,6 +3629,18 @@ bool NetSession::TakeDamageStats(DamageStatsWire::Snapshot& snapshot)
     return true;
 }
 
+bool NetSession::SendTeam(TeamWire::Message message,uint8_t target)
+{
+    if(!IsConnected())return false;
+    message.src=mLocalSeat;message.sender=mCoopToken;
+    auto bytes=TeamWire::Encode(message);
+    if(bytes.empty())return false;
+    return Dispatch(TeamWire::TYPE,bytes.data(),int(bytes.size()),target);
+}
+bool NetSession::TakeTeam(TeamWire::Message& message)
+{
+    if(mTeamInbox.empty())return false;message=mTeamInbox.front();mTeamInbox.erase(mTeamInbox.begin());return true;
+}
 bool NetSession::SendCoop(CoopWire::Event event,uint8_t target)
 {
     if(!IsConnected())return false;

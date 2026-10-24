@@ -1,3 +1,6 @@
+#include <cmath>
+#include <cstring>
+#include "../../ConstEnums.h"
 #ifndef __NETPROTOCOL_H__
 #define __NETPROTOCOL_H__
 
@@ -211,7 +214,7 @@ const uint16_t	PROTOCOL_VERSION	= 1;
 // Build73: Football boss bites for 60; Ravenous retains normal growth.
 // Build75: lily pads and flower pots can share a tile in either planting order.
 // Build77: butter coating DOT, percentage Scorched Earth and Jalapeno Embers.
-const uint16_t	MOD_BUILD			= 90;
+const uint16_t	MOD_BUILD			= 94; // MOD94: normal snapshot observation; same-build rooms.
 // @pvz-online: Build61 splits control buffs; all peers need the new nine-stack snapshot.
 const int ZOMBIE_BUFF_COUNT = RunZombieBuffRules::COUNT;
 
@@ -267,6 +270,8 @@ enum MessageType : uint16_t
     MSG_ROUND_WAIT = 27, // host-owned exclusion from the active battle until the next START.
     MSG_PREPARATION = 25, // @pvz-online: revision-bound intermission consent and ready barrier.
 	MSG_ZOMBIE_VOTE_RESULT	= 22	// H→C：计票结果（只驱动 UI；层数权威在随后的 START_LEVEL 快照）
+	,MSG_OBSERVER_CONTROL = 30	// 观战v2：版本化订阅/接受/保活/停止（仅房内队友/重连等待席）
+	,MSG_OBSERVER_FRAME = 31	// 观战v2：纯展示FULL分片；战斗队列拥堵时可丢弃
 };
 
 // ------------------------------------------------------------------------------------------------
@@ -577,6 +582,9 @@ struct MsgEscapedZombie
 	int32_t         mHelmMaxHealth = 0;
 	int32_t         mShieldMaxHealth = 0;
 	int32_t         mFlyingMaxHealth = 0;
+    uint8_t mSpeciesFlags=0,mSpeciesMind=0;
+    int32_t mSpeciesPhase=0;
+    float mSpeciesAltitude=0,mSpeciesVelX=0,mSpeciesVelZ=0,mSpeciesScale=1;
 };
 
 // GAME_OVER：{ srcSeat, dstSeat, u8 reason }
@@ -1065,8 +1073,24 @@ inline bool DecodePause(const uint8_t* theData, int theSize, MsgPause& theMsg)
 	return !aReader.Overflowed();
 }
 
+// Species extension v1: 24 bytes appended to the original 38-byte payload.
+const int ESCAPED_SPECIES_PAYLOAD_SIZE=62;
+inline bool ValidSpeciesRelay(const MsgEscapedZombie& m) {
+    // Zombie enum values are shared by both clients; no native layout is serialized here.
+    const bool giant=m.mZombieType==ZombieType::ZOMBIE_REDEYE_GARGANTUAR || m.mZombieType==ZombieType::ZOMBIE_GARGANTUAR;
+    const bool jack=m.mZombieType==ZombieType::ZOMBIE_JACK_IN_THE_BOX;
+    return !(m.mSpeciesFlags&~15u) && m.mSpeciesMind<=1 &&
+        (!(m.mSpeciesFlags&7u) || giant) && (!(m.mSpeciesFlags&8u) || jack) &&
+        (!(m.mSpeciesFlags&4u) || m.mSpeciesPhase==ZombiePhase::PHASE_IMP_GETTING_THROWN) &&
+        std::isfinite(m.mSpeciesAltitude) && m.mSpeciesAltitude>=0 && m.mSpeciesAltitude<=4096 &&
+        std::isfinite(m.mSpeciesVelX) && std::fabs(m.mSpeciesVelX)<=100 &&
+        std::isfinite(m.mSpeciesVelZ) && std::fabs(m.mSpeciesVelZ)<=100 &&
+        std::isfinite(m.mSpeciesScale) && m.mSpeciesScale>0 && m.mSpeciesScale<=100 &&
+        m.mSpeciesPhase>=0 && m.mSpeciesPhase<256;
+}
 inline int EncodeEscapedZombie(uint8_t* theBuffer, int theCapacity, const MsgEscapedZombie& theMsg)
 {
+    if(!ValidSpeciesRelay(theMsg))return -1;
 	Writer aWriter(theBuffer, theCapacity);
 	aWriter.U8(theMsg.mSrcSeat);
 	aWriter.U8(theMsg.mDstSeat);
@@ -1081,11 +1105,16 @@ inline int EncodeEscapedZombie(uint8_t* theBuffer, int theCapacity, const MsgEsc
 	aWriter.I32(theMsg.mHelmMaxHealth);
 	aWriter.I32(theMsg.mShieldMaxHealth);
 	aWriter.I32(theMsg.mFlyingMaxHealth);
+    aWriter.U8(1);aWriter.U8(theMsg.mSpeciesFlags);aWriter.U8(theMsg.mSpeciesMind);aWriter.U8(0);
+    aWriter.I32(theMsg.mSpeciesPhase);
+    for(float v:{theMsg.mSpeciesAltitude,theMsg.mSpeciesVelX,theMsg.mSpeciesVelZ,theMsg.mSpeciesScale}) { int32_t bits;std::memcpy(&bits,&v,4);aWriter.I32(bits); }
 	return aWriter.Overflowed() ? -1 : aWriter.Size();
 }
 
 inline bool DecodeEscapedZombie(const uint8_t* theData, int theSize, MsgEscapedZombie& theMsg)
 {
+    if(theSize!=38 && theSize!=ESCAPED_SPECIES_PAYLOAD_SIZE)return false;
+    theMsg=MsgEscapedZombie{};
 	Reader aReader(theData, theSize);
 	theMsg.mSrcSeat = aReader.U8();
 	theMsg.mDstSeat = aReader.U8();
@@ -1100,7 +1129,13 @@ inline bool DecodeEscapedZombie(const uint8_t* theData, int theSize, MsgEscapedZ
 	theMsg.mHelmMaxHealth = aReader.I32();
 	theMsg.mShieldMaxHealth = aReader.I32();
 	theMsg.mFlyingMaxHealth = aReader.I32();
-	return !aReader.Overflowed();
+    if(theSize==ESCAPED_SPECIES_PAYLOAD_SIZE) {
+        if(aReader.U8()!=1)return false;
+        theMsg.mSpeciesFlags=aReader.U8();theMsg.mSpeciesMind=aReader.U8();if(aReader.U8()!=0)return false;
+        theMsg.mSpeciesPhase=aReader.I32();
+        for(float* v:{&theMsg.mSpeciesAltitude,&theMsg.mSpeciesVelX,&theMsg.mSpeciesVelZ,&theMsg.mSpeciesScale}) { int32_t bits=aReader.I32();std::memcpy(v,&bits,4); }
+    }
+    return !aReader.Overflowed() && ValidSpeciesRelay(theMsg);
 }
 
 inline int EncodeSendSun(uint8_t* theBuffer, int theCapacity, const MsgSendSun& theMsg)

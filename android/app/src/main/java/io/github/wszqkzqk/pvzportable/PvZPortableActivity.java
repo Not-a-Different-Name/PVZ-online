@@ -43,6 +43,11 @@ public class PvZPortableActivity extends SDLActivity {
     private static final String TAG = "PvZPortable";
     private OnBackInvokedCallback mBackCallback;
     private boolean mLanNativeReady;
+    private final RoomClipboardBridge mRoomClipboard = new RoomClipboardBridge();
+    public void requestRoomClipboard(int id, int action, String value) { mRoomClipboard.request(this, id, action, value); }
+    public int roomClipboardStatus(int id) { return mRoomClipboard.status(id); }
+    public String takeRoomClipboardText(int id) { return mRoomClipboard.text(id); }
+    public void finishRoomClipboard(int id) { mRoomClipboard.finish(id); }
     private static native void nativePrivateBackground(boolean background);
 
     public void startLanHost(int port) { runOnUiThread(() -> LanHostController.start(this, port)); }
@@ -100,6 +105,7 @@ public class PvZPortableActivity extends SDLActivity {
 
     @Override
     protected void onDestroy() {
+        mRoomClipboard.clear();
         if (isFinishing()) LanHostController.stop();
         if (mBackCallback != null) {
             getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(mBackCallback);

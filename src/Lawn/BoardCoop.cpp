@@ -1,3 +1,4 @@
+#include <climits>
 #include "CoopPlay.h"
 #include "Widget/NextWaveControl.h"
 #include "Widget/AdmissionBoard.h"
@@ -258,12 +259,12 @@ bool Board::HandleSunGiftKey(KeyCode theKey)
         uint8_t aSeat = (uint8_t)(theKey - '0');
         if (aSeat == mApp->mOnlineSession->GetLocalSeat())
         {
-            PushCustomBanner(ModText::Tr("不能发给自己", "Can't send to yourself"));
+            PushCustomBanner(ModText::Tr("请选择其他队友", "Choose another teammate"));
             return true;
         }
         if (!mApp->mOnlineSession->IsSeatOccupied(aSeat))
         {
-            PushCustomBanner(ModText::Tr("该席位没有人", "That seat is empty"));
+            PushCustomBanner(ModText::Tr("换一位在线队友", "Choose an online teammate"));
             return true;
         }
         TrySendSunGift(aSeat);
@@ -275,7 +276,7 @@ bool Board::HandleSunGiftKey(KeyCode theKey)
 
 void Board::GiveSunGift(int theAmount, uint8_t theFromSeat)
 {
-    mSunMoney = std::min(mSunMoney + theAmount, 9990);
+    mSunMoney = int(std::clamp<int64_t>(int64_t(mSunMoney)+theAmount,0,mApp->IsRunMode()?INT_MAX:9990));
     if(theAmount>0 && mApp->mCoopPlay)mApp->mCoopPlay->SunReceived();
     // @pvz-online: 收方横幅带发送者名字（2026-10-13 用户令「显示 XXX 送你阳光」）；
     // 席位名口径同聊天/掉线横幅，空名兜底 P<席位>。

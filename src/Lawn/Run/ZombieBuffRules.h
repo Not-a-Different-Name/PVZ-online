@@ -1,11 +1,13 @@
 #pragma once
 
 #include <cstdint>
+#include "RunSpeciesRules.h"
 
 // @pvz-online: one count keeps checkpoint, vote and wire arrays in agreement.
 namespace RunZombieBuffRules
 {
-constexpr int COUNT = 10;
+constexpr int COUNT = RunSpeciesRules::COUNT;
+constexpr int PRE_SPECIES_COUNT = RunSpeciesRules::PRE_SPECIES_COUNT;
 constexpr int PRE_TAX_COUNT = 9;
 constexpr int LEGACY_COUNT = 8;
 

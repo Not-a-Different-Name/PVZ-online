@@ -1,3 +1,4 @@
+#include "Lawn/Widget/PlayerMessageBox.h"
 #include "../../LawnApp.h"
 #include "RunState.h"
 #include "RunHistory.h"
@@ -73,13 +74,13 @@ void LawnApp::ResumeRun(int mode,int scene)
     for (const auto seed : run->mPool) if (!RunPlantImplemented(seed)) compatible = false;
     if (!compatible)
     {
-        LawnMessageBox(Dialogs::DIALOG_MESSAGE, ModText::Tr("无法继续", "Cannot continue"), ModText::Tr("闯关存档不存在或与此版本不兼容。", "This run save is missing or not compatible with this version."), "OK", "", Sexy::Dialog::BUTTONS_FOOTER);
+        PlayerMessageBox::Show(this, Dialogs::DIALOG_MESSAGE, ModText::Tr("无法继续", "Cannot continue"), ModText::Tr("存档无法读取，请回模式选择页重试。", "Cannot read this save. Return to mode selection and retry."));
         return;
     }
+    SetTeamProgressionController(nullptr);
     mRunState = std::move(run);
     if(mRunState->IsEndless() && !mRunState->IsNewEndless())
-        LawnMessageBox(Dialogs::DIALOG_MESSAGE,ModText::Tr("旧版无尽存档","Legacy endless save"),
-            ModText::Tr("这份旧档仅保存关数和增益，没有草坪阵型。继续时沿用旧规则并重新布阵；新开无尽才启用阶段主题和周期 BOSS。","This legacy save contains progress and buffs, without a lawn. Continuing keeps its old rules and starts a fresh lawn. New runs enable themes and boss cycles."),"OK","",Sexy::Dialog::BUTTONS_FOOTER);
+        PlayerMessageBox::Show(this, Dialogs::DIALOG_MESSAGE, ModText::Tr("旧版无尽存档","Legacy endless save"), ModText::Tr("关数、增益和旧规则保留，需重新布阵。\n想玩新主题和周期BOSS，请新开无尽。","Keep your progress, buffs and old rules.\nRebuild the lawn. For themes and boss cycles,\nstart a new endless run."));
 
     EnterRunLevel();
 }
@@ -123,24 +124,17 @@ void LawnApp::NoteRunFailure()
     RunHistory::Capture(this,RunHistory::FAILED);
 }
 
-void LawnApp::RunPickPaidReroll()
+#include "RunRerollPurchase.h"
+bool LawnApp::RunPickPaidReroll(int lockedChoice, unsigned int expectedCounter)
 {
-    if (!mRunState || !mPlayerInfo || !mRunState->HasPendingPick() || !mRunState->mChoicesRolled) return;
-    const RunState before = *mRunState;
-    const int coins = mPlayerInfo->mCoins;
-    const int cost = mRunState->GetPaidRerollCost();
-    if (mRunState->mRerollVouchers > 0) --mRunState->mRerollVouchers;
-    else { if (coins < cost) return; mPlayerInfo->AddCoins(-cost); }
-    mRunState->PaidReroll();
-    // @pvz-online: neither new choices nor a debit become visible before the joint commit.
-    if (!mRunState->SaveWithPlayer(*mPlayerInfo)) {
-        *mRunState = before;
-        mPlayerInfo->mCoins = coins;
-        LawnMessageBox(Dialogs::DIALOG_MESSAGE, ModText::Tr("保存失败", "Save failed"),
-            ModText::Tr("重摇未保存，未扣款；请检查可用空间。", "Reroll was not saved or charged. Check available storage."),
-            "OK", "", Sexy::Dialog::BUTTONS_FOOTER);
-        return;
+    if (!mRunState || !mPlayerInfo) return false;
+    const auto result = RunRerollPurchase::Apply(*mRunState, *mPlayerInfo, lockedChoice, expectedCounter,
+        [](RunState& run, PlayerInfo& player) { return run.SaveWithPlayer(player); });
+    if (result == RunRerollPurchase::Result::SAVE_FAILED) {
+        PlayerMessageBox::Show(this, Dialogs::DIALOG_MESSAGE, ModText::Tr("保存失败", "Save failed"), ModText::Tr("未扣金币，请检查存储空间后重试。", "No coins spent. Check storage and retry."));
+        return false;
     }
+    return result == RunRerollPurchase::Result::APPLIED;
 }
 
 

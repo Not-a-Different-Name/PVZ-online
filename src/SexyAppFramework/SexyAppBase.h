@@ -535,6 +535,7 @@ public:
 	virtual void			GotFocus();
 	virtual void			LostFocus();
 	virtual bool			DebugKeyDown(int theKey);
+    virtual bool FilterObserverInput(int,int=0,int=0,int=0){return false;}
 	virtual void			CloseRequestAsync();
 	void					InitInput();
 	bool					StartTextInput(std::string& theInput); // set theInput and return true if using soft keyboard capability and user pressed OK (e.g. Switch libnx swkbd)

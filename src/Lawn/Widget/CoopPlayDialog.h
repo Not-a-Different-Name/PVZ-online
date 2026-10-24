@@ -52,14 +52,14 @@ class CoopDialog : public LawnDialog {
     }
     std::string Status() const {
         auto* s=Session();
-        if(coop->hasIncoming)return ModText::Tr("收到借用申请，请同意或拒绝。","Loan request received. Accept or decline.");
-        if(!coop->pendingCancels.empty())return ModText::Tr("取消待确认；确认前不能申请新的借用。","Cancellation pending; wait before requesting another loan.");
+        if(coop->hasIncoming)return ModText::Tr("队友想借植物，请同意或拒绝。", "A teammate wants a plant. Accept or decline.");
+        if(!coop->pendingCancels.empty())return ModText::Tr("等待队友确认取消，再申请新借用。", "Wait for the teammate to confirm cancellation before borrowing again.");
         if(coop->loanWaiting){int seat=s?s->FindCoopSeat(coop->pendingLoan.target):0;
-            return "P"+std::to_string(seat)+ModText::Tr(" · 等待借用答复："," · awaiting loan: ")+GetRunPlantName((SeedType)coop->pendingLoan.plant);}
-        if(coop->giftWaiting)return ModText::Tr("阳光已扣100，等待队友到账90的回执。","100 sun spent; awaiting receipt for 90 sun.");
+            return "P"+std::to_string(seat)+ModText::Tr(" · 等待答复：", " · awaiting reply: ")+GetRunPlantName((SeedType)coop->pendingLoan.plant);}
+        if(coop->giftWaiting)return ModText::Tr("已付100阳光，预计到账90；等待确认。", "100 sun paid; expected delivery 90. Awaiting confirmation.");
         if(!coop->notice.empty())return coop->notice;
         return coop->Preparing()?ModText::Tr("选队友、选植物，然后发送申请。","Choose a teammate and plant, then send the request."):
-            ModText::Tr("借用仅在奖励或选卡期间开放。","Borrowing opens during rewards or seed selection.");
+            ModText::Tr("奖励或选卡时可申请借用。", "Request a loan during rewards or seed selection.");
     }
     int Hit(int x,int y) const {
         if(Hide().Contains(x,y))return 90;
@@ -87,7 +87,7 @@ public:
     void Update() override {LawnDialog::Update();bool active=LoanActive();if(active&&!wasLoanActive){details=true;detailPage=0;}wasLoanActive=active;MarkDirty();}
     void Draw(Graphics* g) override {
         SeatUi::Panel(g,Rect(20,20,760,560));
-        SeatUi::Text(g,ModText::Tr("队友协作 · 植物借用","Teamwork · plant loans"),48,78,610,27,Color(245,230,165));
+        SeatUi::Text(g,ModText::Tr("向队友借植物", "Borrow a plant"),48,78,610,27,Color(245,230,165));
         SeatUi::Button(g,Hide(),ModText::Tr("收起","Hide"),true,down==90);
         SeatUi::Strip(g,Rect(48,96,704,44));
         SeatUi::Paragraph(g,Status(),Rect(58,99,684,40),17,Color(235,225,185));
@@ -109,7 +109,7 @@ public:
                 bool enabled=token&&!s->IsSeatOffline((uint8_t)seat)&&!coop->loanWaiting&&coop->pendingCancels.empty();
                 SeatUi::Button(g,box,"",enabled,token&&token==peer);
                 SeatUi::Text(g,"P"+std::to_string(seat)+" "+s->GetSeatName((uint8_t)seat),box.mX+7,box.mY+21,120,17,Color(245,230,165),true);
-                SeatUi::Text(g,s->IsSeatOffline((uint8_t)seat)?ModText::Tr("离线","Offline"):!token?ModText::Tr("同步中","Syncing"):token==peer?ModText::Tr("已选中","Selected"):ModText::Tr("选择队友","Select"),box.mX+7,box.mY+40,120,15,Color(190,215,225),true);
+                SeatUi::Text(g,s->IsSeatOffline((uint8_t)seat)?ModText::Tr("离线","Offline"):!token?ModText::Tr("请稍等", "Please wait"):token==peer?ModText::Tr("已选中","Selected"):ModText::Tr("选择队友","Select"),box.mX+7,box.mY+40,120,15,Color(190,215,225),true);
             }
             if(!SeatAt(0))SeatUi::Text(g,ModText::Tr("暂无可协作队友","No teammates available"),48,180,704,22,Color(190,215,225));
             for(int i=0;i<8;++i){Rect box=Card(i);int seed=plantPage*8+i;
@@ -118,8 +118,8 @@ public:
                 SeatUi::Text(g,GetRunPlantName((SeedType)seed),box.mX+6,box.mY+97,154,17,Color(245,230,165),true);
             }
             SeatUi::Text(g,std::to_string(plantPage+1)+" / 6",144,469,104,20,Color(245,230,165),true);
-            SeatUi::Text(g,plant<0?ModText::Tr("尚未选择植物","No plant selected"):GetRunPlantName((SeedType)plant),360,469,392,20,Color(245,230,165));
-            SeatUi::Text(g,ModText::Tr("这是申请目录；队友是否拥有该植物，由对方确认。","Request catalog; your teammate must own the plant and approve."),48,497,704,17,Color(190,215,225));
+            SeatUi::Text(g,plant<0?ModText::Tr("请选择植物", "Choose a plant"):GetRunPlantName((SeedType)plant),360,469,392,20,Color(245,230,165));
+            SeatUi::Text(g,ModText::Tr("每关限借一株；队友须拥有并同意借出。", "One loan per level; the owner must have the plant and approve."),48,497,704,17,Color(190,215,225));
         }
         SeatUi::Button(g,Prev(),ModText::Tr("上页","Prev"),true,down==82);
         SeatUi::Button(g,Next(),ModText::Tr("下页","Next"),true,down==83);

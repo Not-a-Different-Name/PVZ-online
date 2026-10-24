@@ -48,7 +48,7 @@ void ZombieVoteDialog::Draw(Sexy::Graphics *g)
         PvzpDrawStringWrapped(g, GetZombieBuffDesc(id), Sexy::Rect(32 + i * 230, 196, 202, 132),
                               ModText::FontFor(Sexy::FONT_DWARVENTODCRAFT18, 20), Sexy::Color(245, 230, 165),
                               DrawStringJustification::DS_ALIGN_LEFT);
-        SeatUi::Text(g, ModText::Format("已有 {}", "Owned {}", mApp->mRunState->ZombieBuffCount(id)),
+        SeatUi::Text(g, ModText::Format("层数 {}", "Stacks {}", mApp->mRunState->ZombieBuffCount(id)),
             25 + i * 230, 348, 215, 20, Sexy::Color(220, 215, 190), true);
     }
 }

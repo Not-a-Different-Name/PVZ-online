@@ -1,4 +1,5 @@
 #include "DamageStats.h"
+#include "../TeamPlay.h"
 #include "../../LawnApp.h"
 #include "../Board.h"
 #include "../Zombie.h"
@@ -217,6 +218,7 @@ void DamageStats::Record(Zombie* zombie, int amount)
         mApp->mBoard != mBoard || mApp->mGameScene != SCENE_PLAYING || zombie->mMindControlled ||
         zombie->mDead || zombie->IsDeadOrDying() || !zombie->IsOnBoard()) return;
     const bool boss = mBoard->IsRunBossZombie(zombie);
+    if(mRemotePlayer){TeamPlay::NoteDamage(mApp,mRemotePlayer,mRemoteStrike,amount,boss);return;}
     auto& row = LocalRow();
     const uint64_t accepted = std::min(static_cast<uint64_t>(amount), DamageStatsWire::LIMIT - row.mRunDamage.mAll);
     row.mLevelDamage.Add(accepted, boss);
@@ -225,6 +227,15 @@ void DamageStats::Record(Zombie* zombie, int amount)
     row.mUpdated = Now();
 }
 
+void DamageStats::AddSupportDamage(uint64_t all,uint64_t boss)
+{
+    if(!mActive||boss>all||all>DamageStatsWire::LIMIT)return;
+    auto&row=LocalRow();
+    const auto accepted=std::min(all,DamageStatsWire::LIMIT-row.mRunDamage.mAll);
+    const auto acceptedBoss=std::min(boss,accepted);
+    row.mRunDamage.mAll+=accepted;row.mRunDamage.mBoss+=acceptedBoss;
+    row.mLevelDamage.mAll+=accepted;row.mLevelDamage.mBoss+=acceptedBoss;row.mUpdated=Now();
+}
 void DamageStats::RecordKill(Zombie* zombie)
 {
     if (!mCredited || !mActive || !mApp || zombie->mBoard != mBoard ||

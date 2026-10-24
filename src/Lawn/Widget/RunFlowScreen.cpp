@@ -20,6 +20,14 @@
 #include <format>
 
 namespace {
+class RerollClickButton:public MobileStoneButton {
+public:
+    RerollClickButton(int id,Sexy::ButtonListener* listener):MobileStoneButton(id,listener){}
+    void MouseUp(int x,int y,int button,int clicks) override {
+        if(clicks>1){Sexy::Widget::MouseUp(x,y,button,clicks);return;}
+        MobileStoneButton::MouseUp(x,y,button,clicks);
+    }
+};
 // Match PC RunModeDialog's challenge cards and icon IDs, with the same click-to-start flow.
 class RunModeCard : public Sexy::ButtonWidget {
     int icon;
@@ -44,7 +52,7 @@ public:
         auto& run=*app->mRunState;
         bool plantPick=run.IsPlantPick();
         int choice=plantPick?static_cast<int>(run.mPlantChoices[mId]):run.mBuffChoices[mId];
-        if(mDisabled){DrawMobileStone(g,Sexy::Rect(0,274,mWidth,48),mLabel,false,false);return;}
+        if(mDisabled){DrawMobileStone(g,Sexy::Rect(0,mHeight-48,mWidth,48),mLabel,false,false);return;}
         auto* font=ModText::FontFor(Sexy::FONT_DWARVENTODCRAFT18,20);
         if(!plantPick){
             const char* plantName=GetRunChoicePlantName(choice);
@@ -54,19 +62,21 @@ public:
             PvzpDrawStringWrapped(g,head,Sexy::Rect(4,0,mWidth-8,55),font,
                 rarity>=3?Sexy::Color(255,200,60):Sexy::Color(205,205,190),DrawStringJustification::DS_ALIGN_CENTER);
             std::string desc=GetRunChoiceDesc(choice);
-            Sexy::Rect descRect(6,60,mWidth-12,170);
-            if(PvzpDrawStringWrappedHelper(g,desc,descRect,font,Sexy::Color::White,DS_ALIGN_LEFT,false)>descRect.mHeight)
-                font=ModText::FontFor(Sexy::FONT_DWARVENTODCRAFT18,18);
+            Sexy::Rect descRect(6,60,mWidth-12,mHeight-152);
+            for(int size=20;size>=14;size-=2) {
+                font=ModText::FontFor(Sexy::FONT_DWARVENTODCRAFT18,size);
+                if(PvzpDrawStringWrappedHelper(g,desc,descRect,font,Sexy::Color::White,DS_ALIGN_LEFT,false)<=descRect.mHeight)break;
+            }
             PvzpDrawStringWrapped(g,desc,descRect,font,Sexy::Color(245,230,165),DrawStringJustification::DS_ALIGN_LEFT);
-            std::string owned=ModText::Format("已有 {}","Owned {}",run.GetBuffCount(choice));
+            std::string owned=ModText::Format("层数 {}", "Stacks {}",run.GetBuffCount(choice));
             int cap=GetRunChoiceMaxStacks(choice);
             if(cap>0)owned+=" / "+std::to_string(cap);
-            PvzpDrawStringWrapped(g,owned,Sexy::Rect(4,238,mWidth-8,30),ModText::FontFor(Sexy::FONT_DWARVENTODCRAFT18,20),Sexy::Color(205,205,190),DrawStringJustification::DS_ALIGN_CENTER);
+            PvzpDrawStringWrapped(g,owned,Sexy::Rect(4,mHeight-84,mWidth-8,30),ModText::FontFor(Sexy::FONT_DWARVENTODCRAFT18,20),Sexy::Color(205,205,190),DrawStringJustification::DS_ALIGN_CENTER);
         } else {
             DrawSeedPacket(g,(mWidth-SEED_PACKET_WIDTH)/2,8,(SeedType)choice,SEED_NONE,0,255,false,false);
-            PvzpDrawStringWrapped(g,ModText::Tr("加入本局植物池","Add to this run's collection"),Sexy::Rect(8,126,mWidth-16,80),font,Sexy::Color(205,205,190),DrawStringJustification::DS_ALIGN_CENTER);
+            PvzpDrawStringWrapped(g,ModText::Tr("加入本局卡池", "Add to this run"),Sexy::Rect(8,126,mWidth-16,80),font,Sexy::Color(205,205,190),DrawStringJustification::DS_ALIGN_CENTER);
         }
-        DrawMobileStone(g,Sexy::Rect(0,274,mWidth,48),mLabel,mIsDown&&mIsOver,true);
+        DrawMobileStone(g,Sexy::Rect(0,mHeight-48,mWidth,48),mLabel,mIsDown&&mIsOver,true);
     }
 };
 }
@@ -77,7 +87,7 @@ RunFlowScreen::RunFlowScreen(LawnApp* app, bool modePage, int endlessScene) : mA
     Resize(0, 0, 800, 600);
     if(endlessScene>=0 && endlessScene<5)mEndlessScene=endlessScene;
     auto addButton = [&](int id, const std::string& text, int x, int y, int width, int height) {
-        auto* button = new MobileStoneButton(id, this);
+        MobileStoneButton* button = id==4?static_cast<MobileStoneButton*>(new RerollClickButton(id,this)):new MobileStoneButton(id, this);
         button->mLabel = text;
         button->SetFont(ModText::FontFor(Sexy::FONT_DWARVENTODCRAFT18, 28));
         button->SetLabelColor(Sexy::Color(245, 230, 165));
@@ -118,26 +128,27 @@ RunFlowScreen::RunFlowScreen(LawnApp* app, bool modePage, int endlessScene) : mA
         addButton(31, ModText::Tr("上一页", "Previous"), 64, 448, 164, 48);
         addButton(32, ModText::Tr("下一页", "Next"), 572, 448, 164, 48);
         addButton(13, mEndlessPage?ModText::Tr("继续无尽", "Continue endless"):ModText::Tr("继续闯关", "Continue run"), 310, 510, 180, 48)->SetDisabled(!RunState::HasCheckpoint(app->mPlayerInfo->mId,mEndlessPage?RunState::RUN_MODE_ENDLESS:-1,mEndlessScene));
-        addButton(28,ModText::Tr("更多设置", "Advanced"),90,510,180,48);
+        addButton(28,ModText::Tr("更多设置", "More settings"),90,510,180,48);
     }
     else
     {
         RunState& run = *app->mRunState;
         if (!run.ChoicesRolled()) run.RollChoices();
+        mPickRun=&run;mExpectedCounter=run.mPickCounter;
         for (int i = 0; i < RunState::RUN_CHOICES; ++i)
         {
             const bool plant = run.IsPlantPick();
             const bool valid = plant ? run.mPlantChoices[i] != SEED_NONE : run.mBuffChoices[i] != RunState::RUN_BUFF_CHOICE_NONE;
             const char* label = !valid ? ModText::Tr("不可用", "Unavailable") : plant ? GetRunPlantName(run.mPlantChoices[i]) : GetRunChoiceName(run.mBuffChoices[i]);
             auto* card=new RunChoiceCard(i,this,app);card->mLabel=label?label:"Plant";
-            card->Resize(56+i*240,166,208,322);card->SetDisabled(!valid);AddWidget(card);
+            card->Resize(56+i*240,198,208,290);card->SetDisabled(!valid);AddWidget(card);
+            mLockButtons[i]=addButton(150+i,"",56+i*240,164,208,30);
         }
         // @pvz-online: the top corners leave the wallet and current-stage strip unobstructed.
         if(run.mAdmission.phase==Admission::PICKS)addButton(60,ModText::Tr("快速完成","Quick catch-up"),56,65,208,42);
-        const int cost = run.GetPaidRerollCost();
-        addButton(4, (run.mRerollVouchers > 0 ? ModText::Format("免费重摇 x{}", "Reroll voucher x{}", run.mRerollVouchers) : ModText::Format("重摇 -{}", "Reroll -{}", LawnApp::GetMoneyString(cost))), 56, 518, 240, 48)
-            ->SetDisabled(run.mRerollVouchers == 0 && app->mPlayerInfo->mCoins < cost);
-        addButton(5, ModText::Tr("跳过", "Skip"), 568, 518, 176, 48);
+        mRefreshButton=addButton(4,"",56,518,240,48);
+        RefreshRerollLabels();
+        addButton(5, ModText::Tr("跳过本次", "Skip this pick"), 568, 518, 176, 48);
     }
     addButton(9, ModText::Tr("返回主菜单", "Back to menu"), mModePage?530:312,mModePage?510:518,208,48);
     if(mModePage)RefreshModePage();
@@ -158,12 +169,24 @@ void RunFlowScreen::RefreshModePage()
         if (advanced && optionIndex >= 0)
             b->Resize(64 + (optionIndex % 2) * 344, 188 + ((optionIndex % 4) / 2) * 110, 328, 64);
         if(b->mId>=40&&b->mId<=42)b->mInverted=(b->mId-40==mDifficulty);
-        if(b->mId==28)b->mLabel=mAdvanced?ModText::Tr("返回模式","Back"):ModText::Tr("更多设置","Advanced");
+        if(b->mId==28)b->mLabel=mAdvanced?ModText::Tr("返回模式","Back"):ModText::Tr("更多设置", "More settings");
     }
     MarkDirty();
 }
 
 RunFlowScreen::~RunFlowScreen() { RemoveAllWidgets(true); }
+
+void RunFlowScreen::RefreshRerollLabels()
+{
+    if(!mPickRun)return;
+    const int cost=mPickRun->GetRerollPurchaseCost(mLockedChoice);
+    mRefreshButton->mLabel=cost>0?ModText::Tr("重摇 -","Reroll -")+LawnApp::GetMoneyString(cost):ModText::Tr("使用重摇券","Use voucher");
+    mRefreshButton->SetDisabled(!mApp->mPlayerInfo || mApp->mPlayerInfo->mCoins<cost);
+    for(int index=0;index<3;++index) {
+        mLockButtons[index]->mLabel=mLockedChoice==index?ModText::Tr("取消锁定","Unlock"):ModText::Tr("锁定","Lock");
+        mLockButtons[index]->SetDisabled(!mPickRun->CanLockChoice(index));
+    }
+}
 
 void RunFlowScreen::RefreshDamageLabels()
 {
@@ -187,7 +210,7 @@ void RunFlowScreen::RefreshOptionLabels()
     mOptionButtons[1]->mLabel = ModText::Format("规模：{}", "Scale: {}", scales[mScale]);
     mOptionButtons[2]->mLabel = ModText::Format("快慢：{}", "Tempo: {}", tempos[mTempo]);
     mOptionButtons[3]->mLabel = ModText::Format("植物僵尸：{}", "Zombotany: {}", mZombotany ? ModText::Tr("开", "On") : ModText::Tr("关", "Off"));
-    mOptionButtons[4]->mLabel = ModText::Format("关底头目：{}", "Final boss: {}", mBossFlag==2?ModText::Tr("末关+场景3","Final + Scene3"):mBossFlag==1?ModText::Tr("仅末关","Final"):ModText::Tr("关","Off"));
+    mOptionButtons[4]->mLabel = ModText::Format("关底头目：{}", "Final boss: {}", mBossFlag==2?ModText::Tr("末关+场景3", "Final + Scene 3"):mBossFlag==1?ModText::Tr("仅末关","Final"):ModText::Tr("关","Off"));
     if(mEndlessPage) {
         const char* cycles[]={ModText::Tr("关","Off"),ModText::Tr("每十关","Every 10"),ModText::Tr("每五关","Every 5")};
         mOptionButtons[4]->mLabel=ModText::Format("周期 BOSS：{}","Boss cycle: {}",cycles[mEndlessOptions&3]);
@@ -208,8 +231,8 @@ void RunFlowScreen::Draw(Sexy::Graphics* g)
     g->DrawString(title,(800-titleFont->StringWidth(title))/2,90);
     auto* font=ModText::FontFor(Sexy::FONT_DWARVENTODCRAFT18,20);
     if(mModePage){
-        auto text=mAdvanced?ModText::Tr("设置完成后，返回准备页开始游戏。","Return to setup to start after setting options."):
-            mEndlessPage?ModText::Tr("固定环境持续闯关；新开与继续分别使用当前场景存档。","Keep your lawn on a fixed field; each scene has its own save."):ModText::Tr("点击卡片开始；开局前可调整难度与高级选项。","Choose a card to start; adjust difficulty and options first.");
+        auto text=mAdvanced?ModText::Tr("点按选项切换；设置完成后点“返回模式”。", "Tap an option to change it, then choose Back."):
+            mEndlessPage?ModText::Tr("选好场景后开始或继续；各场景分别存档。", "Choose a scene, then start or continue. Each scene has its own save."):ModText::Tr("先选难度，需要时点“更多设置”，再点模式卡开始。", "Choose difficulty, adjust More settings if needed, then choose a mode card.");
         PvzpDrawStringWrapped(g,text,Sexy::Rect(80,104,640,46),font,Sexy::Color(205,205,190),DrawStringJustification::DS_ALIGN_CENTER);
         if(!mAdvanced && mEndlessPage) {
             PvzpDrawStringWrapped(g,mOptionButtons[5]->mLabel,Sexy::Rect(80,185,640,40),font,Sexy::Color(245,230,165),DS_ALIGN_CENTER);
@@ -223,7 +246,7 @@ void RunFlowScreen::Draw(Sexy::Graphics* g)
                 ModText::Tr("场景设置 · 点按切换档位", "Scenes · tap to change"), ModText::Tr("伤害统计 · 仅本机显示", "Damage statistics / Local display")};
             const char* endlessGroups[]={ModText::Tr("准备与出怪","Preparation and spawns"),ModText::Tr("阶段挑战与强化","Stage challenges and boosts"),ModText::Tr("阵容、增益与场景","Lineup, buffs and scene"),ModText::Tr("伤害统计 · 仅本机显示", "Damage statistics / Local display")};
             PvzpDrawStringWrapped(g, mEndlessPage?endlessGroups[mAdvancedPage]:groups[mAdvancedPage], Sexy::Rect(80,150,640,30),font,Sexy::Color(205,205,190),DS_ALIGN_CENTER);
-            if (mAdvancedPage == 2 && !mEndlessPage) PvzpDrawStringWrapped(g,ModText::Tr("闯关按场景成长，头目出现在指定关底。","Run difficulty grows by scene; bosses appear at selected milestones."),Sexy::Rect(80,380,640,58),font,Sexy::Color(205,205,190),DS_ALIGN_CENTER);
+            if (mAdvancedPage == 2 && !mEndlessPage) PvzpDrawStringWrapped(g,ModText::Tr("场景阶梯提高血量和出怪数量；BOSS按所选时机出现。", "Scene growth increases HP and zombie count. Bosses follow your selected timing."),Sexy::Rect(80,380,640,58),font,Sexy::Color(205,205,190),DS_ALIGN_CENTER);
             if (mAdvancedPage == 3) PvzpDrawStringWrapped(g, ModText::Tr("总统计包含BOSS伤害；两个显示开关互不影响。", "Total includes boss damage; display switches are independent."), Sexy::Rect(80,380,640,58),font,Sexy::Color(205,205,190),DS_ALIGN_CENTER);
             PvzpDrawStringWrapped(g, ModText::Format("第 {} / 4 页", "Page {} / 4", mAdvancedPage + 1),
                 Sexy::Rect(240,456,320,32), font, Sexy::Color(245,230,165), DS_ALIGN_CENTER);
@@ -232,7 +255,7 @@ void RunFlowScreen::Draw(Sexy::Graphics* g)
         const auto& run=*mApp->mRunState;
         SeatUi::Strip(g, Sexy::Rect(48,112,704,46));
         auto state=run.IsEndless()?ModText::Format("无尽第 {} 关","Endless level {}",run.mLevelIndex+1):ModText::Format("第 {} / {} 关","Level {} / {}",run.mLevelIndex+1,run.GetLevelCount());
-        if(run.mAdmission.phase==Admission::PICKS)state=ModText::Format("补位第 {} 关 · 还需选择 {} 次","Joining level {} / {} choices left",run.mLevelIndex+1,run.mPendingBuffPicks);
+        if(run.mAdmission.phase==Admission::PICKS)state=ModText::Format("加入第 {} 关 · 还需选择 {} 次", "Joining level {} / {} picks left",run.mLevelIndex+1,run.mPendingBuffPicks);
         g->DrawImage(Sexy::IMAGE_COINBANK,64,118);
         g->SetFont(Sexy::FONT_CONTINUUMBOLD14);g->SetColor(Sexy::Color(180,255,90));
         auto money=LawnApp::GetMoneyString(mApp->mPlayerInfo->mCoins);
@@ -241,7 +264,8 @@ void RunFlowScreen::Draw(Sexy::Graphics* g)
         const bool voucher = run.mRerollVouchers > 0;
         std::string cost = voucher ? ModText::Tr("重摇：使用1张券", "Reroll: use 1 voucher")
             : ModText::Tr("本次重摇：", "Reroll cost: ") + LawnApp::GetMoneyString(run.GetPaidRerollCost());
-        if (!voucher && mApp->mPlayerInfo->mCoins < run.GetPaidRerollCost())
+        if(mLockedChoice>=0)cost+=ModText::Tr(" + 锁定 "," + lock ")+LawnApp::GetMoneyString(100);
+        if (mApp->mPlayerInfo->mCoins < run.GetRerollPurchaseCost(mLockedChoice))
             cost += ModText::Tr(" · 金币不足", " / Not enough coins");
         PvzpDrawStringWrapped(g,cost,Sexy::Rect(56,492,688,24),ModText::FontFor(Sexy::FONT_BRIANNETOD16,18),
             Sexy::Color(245,230,165),DS_ALIGN_CENTER);
@@ -341,8 +365,17 @@ void RunFlowScreen::ButtonDepress(int id)
                 mDifficulty, mScale, mTempo, mZombotany, mEndlessScene, mBossFlag, mLadder, mZombieBuff,mSpeedTier, mFirstWave,mEndlessPage?mEndlessOptions:0);
         return;
     }
-    RunState& run = *mApp->mRunState;
-    if (id == 4) mApp->RunPickPaidReroll();
+    if(mSubmitted || !mPickRun || mApp->mRunState.get()!=mPickRun || mPickRun->mPickCounter!=mExpectedCounter)return;
+    RunState& run = *mPickRun;
+    if(id>=150 && id<153) {
+        const int index=id-150;
+        if(!run.CanLockChoice(index))return;
+        mLockedChoice=mLockedChoice==index?-1:index;RefreshRerollLabels();MarkDirty();return;
+    }
+    if (id == 4) {
+        mSubmitted=true;
+        if(!mApp->RunPickPaidReroll(mLockedChoice,mExpectedCounter)){mSubmitted=false;return;}
+    }
     else if (id == 5) run.SkipPendingPick();
     else if (id >= 0 && id < RunState::RUN_CHOICES)
     {

@@ -580,6 +580,7 @@ void WidgetManager::RehupMouse()
 
 bool WidgetManager::MouseUp(int x, int y, int theClickCount)
 {
+    if(mApp->FilterObserverInput(4,theClickCount,x,y))return true;
 	int aMask;
 
 	if (theClickCount < 0)
@@ -613,6 +614,7 @@ bool WidgetManager::MouseUp(int x, int y, int theClickCount)
 
 bool WidgetManager::MouseDown(int x, int y, int theClickCount)
 {
+    if(mApp->FilterObserverInput(3,theClickCount,x,y))return true;
 	if (theClickCount < 0)
 		mActualDownButtons |= 0x02;
 	else if (theClickCount == 3)
@@ -664,6 +666,7 @@ bool WidgetManager::MouseDown(int x, int y, int theClickCount)
 
 bool WidgetManager::MouseMove(int x, int y)
 {
+    if(mApp->FilterObserverInput(5,0,x,y))return true;
 	if (mDownButtons)
 		return MouseDrag(x,y);
 
@@ -733,12 +736,14 @@ bool WidgetManager::MouseExit([[maybe_unused]] int x, [[maybe_unused]] int y)
 
 void WidgetManager::MouseWheel(int theDelta)
 {
+    if(mApp->FilterObserverInput(6,theDelta))return;
 	if (mFocusWidget != nullptr)
 		mFocusWidget->MouseWheel(theDelta);
 }
 
 bool WidgetManager::KeyChar(char theChar)
 {
+    if(mApp->FilterObserverInput(2,int(theChar)))return true;
 	if (theChar == KEYCODE_TAB)
 	{
 		//TODO: Check thing
@@ -768,6 +773,7 @@ bool WidgetManager::KeyText(std::string_view theText)
 
 bool WidgetManager::KeyDown(KeyCode key, bool isRepeat)
 {
+    if(mApp->FilterObserverInput(0,int(key)))return true;
 	const bool previousRepeat = mIsKeyRepeat;
 	mIsKeyRepeat = isRepeat || ((key >= 0 && key < 0xFF) && mKeyDown[key]);
 	if ((key >= 0) && (key < 0xFF))
@@ -782,6 +788,7 @@ bool WidgetManager::KeyDown(KeyCode key, bool isRepeat)
 
 bool WidgetManager::KeyUp(KeyCode key)
 {
+    if(mApp->FilterObserverInput(1,int(key)))return true;
 	if ((key >= 0) && (key < 0xFF))
 		mKeyDown[key] = false;
 

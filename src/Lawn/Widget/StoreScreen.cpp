@@ -28,6 +28,8 @@
 #include "LawnDialog.h"
 #include "GameButton.h"
 #include "StoreScreen.h"
+#include "NameplateShop.h"
+#include "OnlineUiDraw.h"
 #include "../ZenGarden.h"
 #include "../SeedPacket.h"
 #include "../../LawnApp.h"
@@ -77,6 +79,7 @@ StoreScreenOverlay::StoreScreenOverlay(StoreScreen* theParent)
 void StoreScreenOverlay::Draw(Graphics* g)
 {
 	mParent->DrawOverlay(g);
+    if(!mParent->mNameplateShop)SeatUi::Button(g,Rect(616,520,144,46),ModText::Tr("名牌收藏","Nameplates"),mParent->CanInteractWithButtons());
 }
 
 StoreScreen::StoreScreen(LawnApp* theApp) : Dialog(nullptr, nullptr, DIALOG_STORE, true, theApp->GetString("STORE", "Store"), "", "", BUTTONS_NONE)
@@ -156,7 +159,10 @@ StoreScreen::StoreScreen(LawnApp* theApp) : Dialog(nullptr, nullptr, DIALOG_STOR
 	mTrialLockedWhenStoreOpened = mApp->IsTrialStageLocked();
 }
 
-StoreScreen::~StoreScreen() = default;
+StoreScreen::~StoreScreen()
+{
+    if(mNameplateShop){RemoveWidget(mNameplateShop);delete mNameplateShop;}
+}
 
 StoreItem StoreScreen::GetStoreItemType(int theSpotIndex)
 {
@@ -633,11 +639,16 @@ void StoreScreen::StorePreload()
 
 bool StoreScreen::CanInteractWithButtons()
 {
+    if(mNameplateShop)return false;
 	return mStoreTime >= 120 && !mBubbleClickToContinue && mHatchTimer <= 0 && !mWaitForDialog;
 }
 
 void StoreScreen::Update()
 {
+    if(mNameplateShop && mNameplateShop->Closed()) {
+        RemoveWidget(mNameplateShop);mApp->SafeDeleteWidget(mNameplateShop);mNameplateShop=nullptr;
+        if(mWidgetManager)mWidgetManager->SetFocus(this);
+    }
 	mApp->mMusic->MakeSureMusicIsPlaying(MUSIC_TUNE_TITLE_CRAZY_DAVE_MAIN_THEME);
 	mApp->UpdateCrazyDave();
 
@@ -832,6 +843,7 @@ bool StoreScreen::IsPageShown(StorePages thePage)
 
 void StoreScreen::ButtonDepress(int theId)
 {
+    if(mNameplateShop)return;
 	if (theId == StoreScreen::StoreScreen_Back)
 		mResult = 1000;
 	else if (theId == StoreScreen::StoreScreen_Prev || theId == StoreScreen::StoreScreen_Next)
@@ -1130,6 +1142,12 @@ void StoreScreen::AdvanceCrazyDaveDialog()
 
 void StoreScreen::MouseDown(int x, int y, [[maybe_unused]] int theClickCount)
 {
+    if(mNameplateShop)return;
+    if(theClickCount==1 && Rect(616,520,144,46).Contains(x,y) && CanInteractWithButtons()) {
+        mNameplateShop=new NameplateShop(mApp);AddWidget(mNameplateShop);
+        if(mWidgetManager)mWidgetManager->SetFocus(mNameplateShop);
+        return;
+    }
 	if (mBubbleClickToContinue)
 	{
 		AdvanceCrazyDaveDialog();

@@ -30,6 +30,17 @@ public:
         Source(const Source&) = delete;
         Source& operator=(const Source&) = delete;
     };
+    class RemoteSource {
+        DamageStats& stats;
+        uint64_t player,strike;
+        bool credited;
+    public:
+        RemoteSource(DamageStats& s,uint64_t p,uint64_t id):stats(s),player(s.mRemotePlayer),strike(s.mRemoteStrike),credited(s.mCredited){
+            if(p){s.mRemotePlayer=p;s.mRemoteStrike=id;s.mCredited=true;}
+        }
+        ~RemoteSource(){stats.mRemotePlayer=player;stats.mRemoteStrike=strike;stats.mCredited=credited;}
+    };
+    void AddSupportDamage(uint64_t all,uint64_t boss);
     static constexpr int DEFAULT_SETTING = 6;
     bool mSettingsLoaded = false;
     int mSetting = DEFAULT_SETTING;
@@ -68,6 +79,7 @@ private:
     LawnApp* mApp = nullptr;
     Board* mBoard = nullptr;
     bool mCredited = false;
+    uint64_t mRemotePlayer=0,mRemoteStrike=0;
     bool mFailed = false;
     std::vector<unsigned char> mRetrySnapshot;
     std::unordered_set<uint32_t> mInstantKills;

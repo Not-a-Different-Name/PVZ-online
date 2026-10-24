@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: CC0-1.0
 // POSIX transport for the public NetLink interface from pinned PVZ Online Build 44.
 #include "NetLink.h"
+#include "NetOutbound.h"
+#include "LegacyObserverQueue.h"
 #include "NetworkLog.h"
 #include <arpa/inet.h>
 #include <netdb.h>
@@ -42,6 +44,15 @@ constexpr int kSendFlags = MSG_NOSIGNAL;
 #endif
 struct Worker
 {
+    NetOutbound outbound;NetOutbound::Bytes outgoing;size_t outgoingAt=0;bool outgoingDisplay=false;
+    std::chrono::steady_clock::time_point stalledSince{};
+    bool FlushWrites(){for(int quota=0;quota<8;++quota){
+        if(outgoing.empty()){auto now=std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();if(!outbound.Pop(outgoing,outgoingDisplay,now))return true;outgoingAt=0;stalledSince=std::chrono::steady_clock::now();}
+        int n=send(socket,outgoing.data()+outgoingAt,outgoing.size()-outgoingAt,kSendFlags);
+        if(n>0){outgoingAt+=n;stalledSince=std::chrono::steady_clock::now();if(outgoingAt==outgoing.size()){outbound.Completed(outgoingDisplay);bool optional=outgoingDisplay;outgoing.clear();/* Recheck critical before each of at most eight fragments per read slice. */}continue;}
+        if(n<0&&(errno==EAGAIN||errno==EWOULDBLOCK||errno==EINTR)){if(std::chrono::steady_clock::now()-stalledSince<5s)return true;}
+        Fail("Connection lost while sending");return false;
+    }return true;}
     std::atomic<State> state{State::IDLE};
     std::atomic<bool> stop{false};
     std::atomic<bool> backgroundSensitive{false};
@@ -75,7 +86,7 @@ struct Worker
     bool Wait(int fd, short events)
     {
         pollfd descriptor{fd, events, 0};
-        const int result = poll(&descriptor, 1, 100);
+        const int result = poll(&descriptor, 1, 10);
         if (result < 0 && errno != EINTR) Fail(std::strerror(errno));
         return result > 0 && (descriptor.revents & (events | POLLERR | POLLHUP | POLLNVAL));
     }
@@ -138,6 +149,7 @@ struct Worker
         while (received < size && !stop && state == State::CONNECTED)
         {
             if(Suspended())return false;
+            if(!FlushWrites())return false;
             if (!Wait(socket, POLLIN)) continue;
             int count = recv(socket, bytes + received, size - received, 0);
             if (count > 0) { received += count; continue; }
@@ -156,6 +168,7 @@ struct Worker
         if (payload && !ReceiveExact(packet.mData + NetProto::HEADER_SIZE, payload)) return;
         packet.mSize = NetProto::HEADER_SIZE + payload;
         std::lock_guard lock(queueMutex);
+        if (LegacyObserverQueue::IsSnapshot(packet.mData, packet.mSize) && queue.size() >= LegacyObserverQueue::ReceiveSnapshotBudget) return;
         if (queue.size() >= 256) { Fail("Too many unread packets - the connection is stalled."); return; }
         queue.push_back(packet);
     }
@@ -196,6 +209,8 @@ void NetLink::Close()
 {
     if (!mImpl) return;
     auto worker = mImpl->worker;
+    auto drain=std::chrono::steady_clock::now();
+    while(worker->state==State::CONNECTED&&worker->outbound.HasCritical()&&std::chrono::steady_clock::now()-drain<200ms)std::this_thread::sleep_for(1ms);
     worker->stop = true;
     if (worker->socket >= 0) shutdown(worker->socket, SHUT_RDWR);
     if (worker->listener >= 0) shutdown(worker->listener, SHUT_RDWR);
@@ -243,25 +258,10 @@ bool NetLink::Connect(const char* host, uint16_t port)
 NetLink::State NetLink::GetState() const { return mImpl->worker->state; }
 bool NetLink::IsConnected() const { return GetState() == State::CONNECTED; }
 int NetLink::GetConnectAttempts() const { return std::max(1, mImpl->worker->attempts.load()); }
-bool NetLink::Send(const void* data, int size)
-{
-    auto worker = mImpl->worker;
-    if (!data || size <= 0 || size > NetProto::MAX_PACKET || worker->state != State::CONNECTED) return false;
-    const auto* bytes = static_cast<const uint8_t*>(data);
-    int sent = 0, retries = 0;
-    while (sent < size && !worker->stop && worker->state == State::CONNECTED)
-    {
-        int count = send(worker->socket, bytes + sent, size - sent, kSendFlags);
-        if (count > 0) { sent += count; retries = 0; continue; }
-        if (count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR))
-        {
-            if (++retries <= 50) { worker->Wait(worker->socket, POLLOUT); continue; }
-        }
-        worker->Fail("Connection lost while sending");
-        return false;
-    }
-    return sent == size;
-}
+bool NetLink::Send(const void*data,int size){auto w=mImpl->worker;if(w->state!=State::CONNECTED)return false;if(w->outbound.Critical(data,size))return true;w->Fail("Too many pending gameplay messages.");return false;}
+bool NetLink::OfferObserver(uint8_t viewer,std::vector<std::vector<uint8_t>> packets){auto w=mImpl->worker;return w->state==State::CONNECTED&&w->outbound.Display(viewer,std::move(packets));}
+bool NetLink::ObserverWritable()const{auto w=mImpl->worker;return w->state==State::CONNECTED&&!w->outbound.HasCritical()&&w->outbound.DisplayBytes()==0;}
+void NetLink::ClearObserverOutput(uint8_t viewer){mImpl->worker->outbound.ClearDisplay(viewer);}
 bool NetLink::Poll(Packet& packet)
 {
     auto worker = mImpl->worker;

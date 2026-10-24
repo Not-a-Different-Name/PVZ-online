@@ -27,30 +27,30 @@ class RoomDirectoryDialog : public LawnDialog {
     }
 
 public:
-    explicit RoomDirectoryDialog(LawnApp* a):LawnDialog(a,DIALOG_ROOM_DIRECTORY,true,"","","",Dialog::BUTTONS_NONE),app(a) {
-        Resize(0,0,800,600);Sexy::MkDir(Sexy::GetAppDataFolder()+"userdata");RelayNodes::SetCatalogCachePath(Sexy::GetAppDataFolder()+"userdata/relay-nodes.bin");browser.Refresh();
+    explicit RoomDirectoryDialog(LawnApp* a,bool refresh=true):LawnDialog(a,DIALOG_ROOM_DIRECTORY,true,"","","",Dialog::BUTTONS_NONE),app(a) {
+        Resize(0,0,800,600);Sexy::MkDir(Sexy::GetAppDataFolder()+"userdata");RelayNodes::SetCatalogCachePath(Sexy::GetAppDataFolder()+"userdata/relay-nodes.bin");if(refresh)browser.Refresh();
     }
     void Update() override {LawnDialog::Update();browser.Update();MarkDirty();}
     void Draw(Graphics* g) override {
         SeatUi::Panel(g,Rect(0,0,800,600));
-        SeatUi::Text(g,ModText::Tr("公共房间大厅","Public rooms"),48,76,704,29,Color(245,230,165),true);
-        SeatUi::Text(g,ModText::Tr("仅显示尚未开局的公开房间；关间补位请使用房间码。","Public rooms before a run starts. Use room codes for intermission joining."),48,110,704,17,Color(205,220,225),true);
-        std::string status=browser.state==RelayNodes::Directory::LOADING?ModText::Tr("正在查询房间…","Loading rooms..."):
-            browser.state==RelayNodes::Directory::UNAVAILABLE?ModText::Tr("暂时无法查询房间，请稍后刷新。","Could not load rooms. Please refresh shortly."):
-            browser.partial?ModText::Tr("部分房间暂时无法查询，可刷新重试。","Some rooms could not be loaded. Refresh to retry."):
-            browser.entries.empty()?ModText::Tr("暂时没有公开房间，可以返回创建房间。","No public rooms. Go back to create one."):
-            ModText::Tr("选择房间后点击加入；灰色房间不可加入。","Select a room, then Join. Unavailable rooms are grey.");
+        SeatUi::Text(g,ModText::Tr("公开房间","Public rooms"),48,76,704,29,Color(245,230,165),true);
+        SeatUi::Text(g,ModText::Tr("已开局请返回房间，用「粘贴加入」。","To join a run in progress, go Back and use Paste & join."),48,110,704,17,Color(205,220,225),true);
+        std::string status=browser.state==RelayNodes::Directory::LOADING?ModText::Tr("正在找房间…","Loading rooms..."):
+            browser.state==RelayNodes::Directory::UNAVAILABLE?ModText::Tr("没能找到房间，请点「刷新」。","Could not load rooms. Choose Refresh."):
+            browser.partial?ModText::Tr("部分房间没显示，可点「刷新」重试。","Some rooms are missing. Choose Refresh to retry."):
+            browser.entries.empty()?ModText::Tr("暂无公开房间，返回后可「创建房间」。","No public rooms. Go Back to create one."):
+            ModText::Tr("选中房间，再点「加入房间」。","Select a room, then choose Join room.");
         SeatUi::Text(g,status,48,138,704,17,browser.state==RelayNodes::Directory::UNAVAILABLE?Color(255,175,120):Color(210,220,195),true);
         for(int i=0;i<int(browser.entries.size());++i) {
             const auto& located=browser.entries[i];const auto& entry=located.room;auto box=Row(i);SeatUi::Strip(g,box);
             if(i==selected){g->SetColor(Color(225,205,100));g->DrawRect(box.mX+1,box.mY+1,box.mWidth-3,box.mHeight-3);}
             const auto color=entry.Joinable()?Color(245,230,165):Color(175,175,170);
-            SeatUi::Text(g,RelayNodes::ShareCode(located.endpoint,entry.code)+"  "+entry.host,box.mX+12,box.mY+29,382,21,color);
-            const std::string availability=entry.build!=NetProto::MOD_BUILD?ModText::Tr("版本不同","Other build"):
+            SeatUi::Text(g,entry.code+"  "+entry.host,box.mX+12,box.mY+29,382,21,color);
+            const std::string availability=entry.build!=NetProto::MOD_BUILD?ModText::Tr("版本不同，需更新","Update needed"):
                 entry.players>=6?ModText::Tr("已满","Full"):ModText::Tr("等待开局","Waiting");
-            SeatUi::Text(g,std::to_string(entry.players)+"/6  ·  "+availability+"  ·  B"+std::to_string(entry.build),box.mX+404,box.mY+29,288,18,color);
+            SeatUi::Text(g,std::to_string(entry.players)+"/6  ·  "+availability+(entry.build!=NetProto::MOD_BUILD?"  ·  MOD"+std::to_string(entry.build):std::string{}),box.mX+404,box.mY+29,288,18,color);
         }
-        SeatUi::Text(g,ModText::Tr("第 ","Page ")+std::to_string(browser.page+1)+ModText::Tr(" 页  ·  手动刷新","  ·  Refresh manually"),48,490,704,18,Color(205,210,195),true);
+        SeatUi::Text(g,ModText::Tr("第 ","Page ")+std::to_string(browser.page+1)+ModText::Tr(" 页",""),48,490,704,18,Color(205,210,195),true);
         SeatUi::Button(g,Back(),ModText::Tr("返回房间","Back"),true,down==100);
         SeatUi::Button(g,Refresh(),ModText::Tr("刷新","Refresh"),browser.CanRefresh(),down==101);
         SeatUi::Button(g,Prev(),ModText::Tr("上页","Prev"),browser.page>0&&browser.CanRefresh(),down==102);

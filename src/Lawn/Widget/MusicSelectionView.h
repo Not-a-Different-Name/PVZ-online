@@ -74,7 +74,7 @@ public:
                 row.mX + 12, row.mY + 29, row.mWidth - 24, 18, tune == mTune ? title : body);
         }
         SeatUi::Text(graphics, mStatus.empty() ? ModText::Tr(
-            "先选择再应用；直接返回不保存。", "Select, then Apply. Back discards unapplied changes.") : mStatus,
+            "选一首歌，可先「试听」，再点「应用」。", "Select a track, Preview it, then Apply.") : mStatus,
             24, 447, 712, 15, mError ? Color(255, 140, 120) : body);
         SeatUi::Button(graphics, AutoRect(), ModText::Tr("原版", "Auto"), true, down == 200);
         SeatUi::Button(graphics, PreviewRect(), ModText::Tr("试听", "Preview"), mTune > 0, down == 201);
@@ -83,8 +83,8 @@ public:
         SeatUi::Button(graphics, ArrowRect(false), ModText::Tr("上一页", "Prev"), mPage > 0, down == 204);
         SeatUi::Button(graphics, ArrowRect(true), ModText::Tr("下一页", "Next"), mPage < 1, down == 205);
         SeatUi::Paragraph(graphics, ModText::Tr(
-            "只影响本机战斗；菜单、选卡和结尾保持原版。\nBOSS 优先于自选音乐，消失后恢复；试听不解除暂停。",
-            "Local battles only; menus, seed selection and endings stay original.\nBosses override your choice until gone. Preview keeps the lawn paused."),
+            "仅本机战斗生效；开启BOSS音乐后会临时切歌。\n试听不解除暂停；返回不保存。",
+            "Local battles only. Enabled boss music temporarily overrides your track.\nPreview keeps the game paused. Back does not save."),
             Rect(24, 508, 712, 44), 14, muted);
     }
 };

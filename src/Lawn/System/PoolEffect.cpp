@@ -129,7 +129,7 @@ void PoolEffect::UpdateWaterEffect()
 
 void PoolEffect::PoolEffectDraw(Sexy::Graphics* g, bool theIsNight)
 {
-	if (!mApp->Is3DAccelerated())
+	if (!mApp->Is3DAccelerated() || !g->Is3D())
 	{
 		//skip if using software rendering, never true in this port
 		if (theIsNight)

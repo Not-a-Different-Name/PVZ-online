@@ -4,6 +4,7 @@
 #include "../Zombie.h"
 #include "RunBuffs.h"
 #include "../System/DamageStats.h"
+#include "TeamAttackContext.h"
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
@@ -39,6 +40,12 @@ inline void Scorch(Zombie* z) {
     if(!Alive(z))return;
     auto& state=z->mBoard->mRunDotStates[Id(z)];
     Refresh(z->mScorchedCounter,state.scorchTick,300);
+    state.scorchPlayer=state.scorchStrike=0;state.scorchStacks=0;state.scorchMultiplier=1000;
+}
+inline void RemoteScorch(Zombie*z,uint64_t player,uint64_t strike,int stacks,int multiplier=1000) {
+    if(!Alive(z)||!player||!strike||stacks<=0)return;
+    auto&state=z->mBoard->mRunDotStates[Id(z)];Refresh(z->mScorchedCounter,state.scorchTick,300);
+    state.scorchPlayer=player;state.scorchStrike=strike;state.scorchStacks=std::min(stacks,65535);state.scorchMultiplier=std::max(1,multiplier);
 }
 inline void Ember(Zombie* z) {
     if(!Alive(z))return;
@@ -70,8 +77,13 @@ inline void Update(Zombie* z) {
     }
     if(!Alive(z)){states.erase(id);z->mScorchedCounter=0;return;}
     if(Tick(z->mScorchedCounter,state.scorchTick)) {
-        const int stacks=z->mApp->RunPlantBuff2Count(SEED_CHERRYBOMB);
-        if(stacks>0)z->TakeDamage(BurnDamage(z->mBodyHealth,stacks),0U);
+        const int stacks=state.scorchPlayer?state.scorchStacks:z->mApp->RunPlantBuff2Count(SEED_CHERRYBOMB);
+        DamageStats::RemoteSource remote(z->mApp->mDamageStats,state.scorchPlayer,state.scorchStrike);
+        if(stacks>0){
+            const int damage=BurnDamage(z->mBodyHealth,stacks);
+            if(state.scorchPlayer){TeamAttackContext::ExactBlast exact;z->TakeDamage(int(std::min<int64_t>(INT32_MAX,int64_t(damage)*state.scorchMultiplier/1000)),0U);}
+            else z->TakeDamage(damage,0U);
+        }
     }
     if(!Alive(z)){states.erase(id);z->mScorchedCounter=0;return;}
     if(Tick(state.emberFrames,state.emberTick))z->TakeDamage(BurnDamage(z->mBodyHealth,1),0U);
@@ -91,35 +103,44 @@ inline std::vector<unsigned char> SaveTrailer(Board* b) {
         else {ids.push_back(it->first);++it;}
     }
     std::sort(ids.begin(),ids.end());
-    std::vector<unsigned char> out={'P','V','Z','D','O','T','0','1'};
-    Put(out,uint32_t(20+24*ids.size()));Put(out,uint32_t(ids.size()));
+    std::vector<unsigned char> out={'P','V','Z','D','O','T','0','2'};
+    Put(out,uint32_t(20+48*ids.size()));Put(out,uint32_t(ids.size()));
     for(unsigned id:ids) {
         const auto& s=b->mRunDotStates.at(id);Put(out,id);
         for(int v:{s.butterFrames,s.butterTick,s.scorchTick,s.emberFrames,s.emberTick})Put(out,uint32_t(v));
+        Put(out,uint32_t(s.scorchPlayer));Put(out,uint32_t(s.scorchPlayer>>32));
+        Put(out,uint32_t(s.scorchStrike));Put(out,uint32_t(s.scorchStrike>>32));Put(out,uint32_t(s.scorchStacks));Put(out,uint32_t(s.scorchMultiplier));
     }
     Put(out,Hash(out.data(),out.size()));return out;
 }
 inline bool LoadTrailer(Board* b,const unsigned char* data,size_t size) {
-    b->mRunDotStates.clear();
-    if(size<20)return true;
-    for(size_t pos=size-20;;--pos) {
-        if(std::memcmp(data+pos,"PVZDOT01",8)==0) {
+    if(size<6){b->mRunDotStates.clear();return true;}
+    for(size_t pos=size-6;;--pos) {
+        if(std::memcmp(data+pos,"PVZDOT",6)!=0){if(pos==0)break;continue;}
+        if(size-pos<20)return false;
+        const bool extended=std::memcmp(data+pos,"PVZDOT02",8)==0;
+        if(extended||std::memcmp(data+pos,"PVZDOT01",8)==0) {
             const auto* p=data+pos;const uint32_t bytes=Get(p+8),count=Get(p+12);
-            if(count>b->mZombies.mMaxSize || bytes!=20ull+24ull*count || bytes>size-pos ||
+            const size_t stride=extended?48:24;
+            if(count>b->mZombies.mMaxSize || bytes!=20ull+stride*count || bytes>size-pos ||
                 Get(p+bytes-4)!=Hash(p,bytes-4))return false;
             decltype(b->mRunDotStates) restored;
             for(uint32_t i=0;i<count;++i) {
-                const auto* row=p+16+24*i;const unsigned id=Get(row);
+                const auto* row=p+16+stride*i;const unsigned id=Get(row);
                 RunDotState s{int(Get(row+4)),int(Get(row+8)),int(Get(row+12)),int(Get(row+16)),int(Get(row+20))};
                 if(!b->mZombies.DataArrayTryToGet(id) || restored.count(id) || s.butterFrames<0 || s.butterFrames>1200 ||
                     s.emberFrames<0 || s.emberFrames>300 || s.butterTick<0 || s.butterTick>100 ||
                     s.scorchTick<0 || s.scorchTick>100 || s.emberTick<0 || s.emberTick>100)return false;
+                if(extended){s.scorchPlayer=uint64_t(Get(row+24))|(uint64_t(Get(row+28))<<32);s.scorchStrike=uint64_t(Get(row+32))|(uint64_t(Get(row+36))<<32);s.scorchStacks=int(Get(row+40));
+                    s.scorchMultiplier=int(Get(row+44));
+                    if(s.scorchStacks<0||s.scorchStacks>65535||s.scorchMultiplier<1||bool(s.scorchPlayer)!=bool(s.scorchStrike)||(!s.scorchPlayer&&s.scorchStacks))return false;}
                 restored.emplace(id,s);
             }
             b->mRunDotStates=std::move(restored);return true;
         }
-        if(pos==0)break;
+        return false; // Recognized prefix with an unsupported version is not a legacy absent trailer.
     }
+    b->mRunDotStates.clear();
     return true; // pre-Build77 saves have no optional DOT trailer
 }
 }

@@ -36,6 +36,7 @@ constexpr const int MAX_PURCHASES = 80;
 class Coin;
 class LawnApp;
 class NewLawnButton;
+class NameplateShop;
 
 class StoreScreen : public Dialog
 {
@@ -77,7 +78,8 @@ public:
 	bool                        mTrialLockedWhenStoreOpened;
 
 public:
-	StoreScreen(LawnApp* theApp);
+    NameplateShop* mNameplateShop=nullptr;
+    StoreScreen(LawnApp* theApp);
 	~StoreScreen() override;
 
 	StoreItem        GetStoreItemType(int theSpotIndex);

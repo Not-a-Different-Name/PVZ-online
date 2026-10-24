@@ -3,6 +3,8 @@
 #include "SeedChooserScreen.h"
 #include "../Board.h"
 #include "widget/WidgetManager.h"
+#include "RoomShareUi.h"
+#include "PlayerRoomText.h"
 
 // @pvz-online: the existing ready gate stays modal; its presentation no longer hides the lawn.
 class OnlineReadyDialog : public LawnDialog {
@@ -10,6 +12,10 @@ class OnlineReadyDialog : public LawnDialog {
     bool down=false;
     bool readyDown=false,inviteDown=false;
     bool cancelTooLate=false;
+    RoomShareUi::Transfer transfer;
+    int shareDown=-1;
+    std::string localIp;
+    Rect ShareRect(int index) const {return Rect(18+index*218,Endless()?200:148,198,44);}
     static Rect Invite(){return Rect(486,138,166,40);}
     bool Endless()const{return app->GetRunState() && app->GetRunState()->IsNewEndless();}
     static Rect Ready(){return Rect(486,74,166,46);}
@@ -31,10 +37,12 @@ class OnlineReadyDialog : public LawnDialog {
     }
 public:
     explicit OnlineReadyDialog(LawnApp* a):LawnDialog(a,DIALOG_ONLINE_START,true,"","","",Dialog::BUTTONS_NONE),app(a) {
-        Resize(64,92,672,Endless()?192:140);
+        Resize(64,92,672,Endless()?252:200);
+        localIp=NetLink::GetLocalIPv4Text();
     }
     void Update() override {
         LawnDialog::Update();
+        transfer.Update();
         auto* session=RoomPresentation::Session(app);
         if(session) {
             const auto state=session->GetReadyCancelState();
@@ -60,32 +68,35 @@ public:
     void Draw(Graphics* g) override {
         SeatUi::Strip(g,Rect(0,0,mWidth,mHeight));
         auto* s=RoomPresentation::Session(app);
-        SeatUi::Text(g,(s&&s->IsPreparationActive()?ModText::Tr("关间准备 · ","Preparation · "):ModText::Tr("等待队友 · ","Waiting · "))+RoomPresentation::ReadySummary(s),18,35,450,24,Color(245,230,165));
-        SeatUi::Paragraph(g,(s&&s->IsPreparationActive()&&s->GetPreparationPhase()!=PreparationWire::OPEN?RoomPresentation::PreparationStatus(s):RoomPresentation::WaitingSeats(s)),Rect(18,54,450,48),20,Color(220,225,210));
+        const bool ready=s&&s->IsSeatSeedsReady(s->GetLocalSeat());
         const bool cancelling=s&&s->GetReadyCancelState()==NetSession::ReadyCancelState::PENDING;
-        SeatUi::Text(g,cancelTooLate?ModText::Tr("全队已开始，不能再返回选卡。","The game has started; plant selection is closed."):cancelling?
-            ModText::Tr("正在确认取消，确认前不会修改已选植物。","Confirming cancellation. Chosen plants stay unchanged."):
-            ModText::Tr("取消准备可更换已选植物；全员准备后自动开始。","Cancel ready to change plants. Everyone ready starts the game."),18,124,634,18,Color(190,210,225));
-        SeatUi::Button(g,Details(),ModText::Tr("席位与换位","Seats / swap"),true,down);
+        SeatUi::Text(g,RoomPresentation::ReadySummary(s),18,35,450,24,Color(245,230,165));
+        SeatUi::Paragraph(g,PlayerRoomText::ReadyHint(ready,cancelling,cancelTooLate,CanToggleReady()),Rect(18,54,450,48),20,Color(220,225,210));
+        if(!transfer.notice.empty())SeatUi::Text(g,transfer.notice,18,124,634,16,Color(190,210,225));
+        else if(ready&&!cancelling&&!cancelTooLate)SeatUi::Text(g,RoomPresentation::WaitingSeats(s),18,124,634,18,Color(190,210,225));
+        SeatUi::Button(g,Details(),ModText::Tr("队友与换位","Seats / swap"),true,down);
         if(Endless() && s) {
             auto* run=app->GetRunState();const bool host=s->GetRole()==NetSession::Role::HOST;
             std::string status=ModText::Tr("房间码 ","Room code ")+s->GetRoomCode()+" · ";
-            status+=!s->SupportsAdmission()?ModText::Tr("服务器需更新","Server update needed"):
-                s->mAdmissionNewMask?ModText::Tr("补位玩家准备中","New player preparing"):
-                s->mGateWanted==1 && (!host || s->mGateAck==s->mGateRequest)?ModText::Tr("可凭码补位","Code invitations open"):
-                ModText::Tr("补位暂未开放","Invitations closed");
+            status+=!s->SupportsAdmission()?ModText::Tr("暂不能邀请，请稍后再试","Invites unavailable; retry later"):
+                s->mAdmissionNewMask?ModText::Tr("新队友正在选植物","New teammate choosing plants"):
+                s->mGateWanted==1 && (!host || s->mGateAck==s->mGateRequest)?ModText::Tr("允许关间加入","Joining between levels is open"):
+                ModText::Tr("暂不允许加入","Joining is closed");
             SeatUi::Text(g,status,18,166,450,18,Color(220,225,210));
-            if(host)SeatUi::Button(g,Invite(),s->mAdmissionNewMask?ModText::Tr("取消补位","Cancel joining"):
-                run->mAdmission.allow?ModText::Tr("关闭补位","Close invitations"):ModText::Tr("开放补位","Open invitations"),
+            if(host)SeatUi::Button(g,Invite(),s->mAdmissionNewMask?ModText::Tr("取消本次邀请","Cancel invite"):
+                run->mAdmission.allow?ModText::Tr("暂停加入","Close joining"):ModText::Tr("允许加入","Open joining"),
                 s->SupportsAdmission() && s->GetPreparationPhase()!=PreparationWire::SEAL && s->GetPreparationPhase()!=PreparationWire::GO,inviteDown);
         }
-        const bool ready=s&&s->IsSeatSeedsReady(s->GetLocalSeat());
-        const char* label=cancelling?ModText::Tr("正在取消…","Cancelling…"):
-            ready?ModText::Tr("取消准备／换卡","Cancel / change"):ModText::Tr("准备","Ready");
+        const char* label=cancelling?ModText::Tr("取消中…","Cancelling…"):
+            ready?ModText::Tr("取消准备","Cancel ready"):ModText::Tr("准备","Ready");
         SeatUi::Button(g,Ready(),label,CanToggleReady(),readyDown);
+        const char* labels[]={ModText::Tr("复制房号","Copy code"),ModText::Tr("复制邀请","Copy invite"),ModText::Tr("分享","Share")};
+        for(int index=0;index<3;++index)SeatUi::Button(g,ShareRect(index),labels[index],s&&!s->GetRoomCode().empty()&&!transfer.Busy(),shareDown==index);
     }
-    void MouseDown(int x,int y,int clicks) override {down=clicks>0&&Details().Contains(x,y);readyDown=clicks>0&&Ready().Contains(x,y);inviteDown=clicks>0&&Endless()&&Invite().Contains(x,y);MarkDirty();}
+    void MouseDown(int x,int y,int clicks) override {shareDown=-1;for(int index=0;index<3;++index)if(clicks>0&&clicks!=3&&ShareRect(index).Contains(x,y))shareDown=index;down=clicks>0&&Details().Contains(x,y);readyDown=clicks>0&&Ready().Contains(x,y);inviteDown=clicks>0&&Endless()&&Invite().Contains(x,y);MarkDirty();}
     void MouseUp(int x,int y,int clicks) override {
+        const int shared=shareDown;shareDown=-1;
+        if(shared>=0&&clicks>0&&clicks!=3&&ShareRect(shared).Contains(x,y)){const RoomShareUi::Action actions[]={RoomShareUi::Action::CopyCode,RoomShareUi::Action::CopyInvite,RoomShareUi::Action::Share};transfer.Start(actions[shared],RoomPresentation::Session(app),localIp);down=readyDown=inviteDown=false;return;}
         const bool open=down&&clicks>0&&Details().Contains(x,y);
         const bool toggle=readyDown&&clicks>0&&Ready().Contains(x,y);
         const bool invitation=inviteDown&&clicks>0&&Invite().Contains(x,y);
@@ -122,10 +133,9 @@ public:
         auto* s=RoomPresentation::Session(app);if(!s)return;
         SeatUi::Strip(g,Rect(0,0,mWidth,mHeight));
         SeatUi::Text(g,ModText::Tr("正在重连 · 房间 ","Reconnecting · Room ")+s->GetRoomCode(),18,35,450,24,Color(245,230,165));
-        const auto progress=ModText::Tr("尝试 ","Attempt ")+std::to_string(s->GetReconnectAttempt())+
-            ModText::Tr(" · 剩余 "," · ")+std::to_string(s->GetReconnectSecondsLeft())+ModText::Tr("秒","s left");
+        const auto progress=ModText::Tr("自动重连还剩 ","Reconnecting: ")+std::to_string(s->GetReconnectSecondsLeft())+ModText::Tr("秒","s left");
         SeatUi::Text(g,progress,18,80,634,22,Color(220,225,210));
-        SeatUi::Text(g,ModText::Tr("席位保留中，连接恢复后继续。","Your seat is held while the link recovers."),18,124,634,18,Color(190,210,225));
+        SeatUi::Text(g,ModText::Tr("恢复连接后继续；点「返回主菜单」会停止重连。","Play resumes when connected. Leave game stops reconnecting."),18,124,634,18,Color(190,210,225));
         SeatUi::Button(g,Cancel(),ModText::Tr("返回主菜单","Leave game"),true,down);
     }
     void MouseDown(int x,int y,int clicks) override {down=clicks>0&&Cancel().Contains(x,y);MarkDirty();}

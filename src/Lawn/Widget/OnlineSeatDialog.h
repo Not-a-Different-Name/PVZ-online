@@ -11,6 +11,7 @@
 #endif
 
 #include "OnlineUiDraw.h"
+#include "PlayerRoomText.h"
 
 class OnlineSeatDialog : public LawnDialog {
     LawnApp* app;int selected=0,down=-1;bool fromWaiting=false;
@@ -45,8 +46,14 @@ public:
     void Draw(Graphics* g) override {
         SeatUi::Panel(g,Rect(0,0,800,600));
         auto* s=RoomPresentation::Session(app);bool active=RoomPresentation::Active(s);
-        SeatUi::Text(g,ModText::Tr("席位与接力","Seats & relay"),48,78,704,28,Color(245,230,165),true);
-        SeatUi::Text(g,RoomPresentation::ShowingPreparation(app)?RoomPresentation::PreparationStatus(s):RoomPresentation::State(s),48,107,704,20,s&&s->IsConnected()&&!s->IsBuildDifferent()?Color(180,235,165):Color(230,190,140),true);
+        SeatUi::Text(g,ModText::Tr("队友与换位","Teammates & seats"),48,78,704,28,Color(245,230,165),true);
+        const bool mismatch=PlayerRoomText::DifferentBuild(s);
+        const char* instruction=mismatch?ModText::Tr("请全队更新到同一版本，再重新加入。","Update to the same version, then rejoin."):
+            s&&s->HasIncomingSwapRequest()?ModText::Tr("查看换位后的加成，再选同意或拒绝。","Check the swap, then Accept or Decline."):
+            s&&s->IsSwapRequestPending()?ModText::Tr("已申请换位，等队友答复。","Swap requested. Wait for your teammate."):
+            s&&((app->mBoard&&!s->CanChangePreparationSeats())||app->mOnlineWaitingStartAck)?ModText::Tr("现在只能查看，不能换位。","Seats are view-only right now."):
+            ModText::Tr("选一位队友，再点「申请换位」。","Select a teammate, then Request.");
+        SeatUi::Text(g,instruction,48,107,704,20,mismatch?Color(255,175,120):Color(210,225,235),true);
         SeatUi::Text(g,RoomPresentation::Identity(s),48,132,704,20,Color(210,225,235),true);
         SeatUi::Text(g,RoomPresentation::Order(s),48,160,704,19,Color(245,230,165),true);
         for(int i=0;i<NetProto::MAX_PLAYERS;++i) {
@@ -60,23 +67,23 @@ public:
             std::string tag=local?ModText::Tr("你","You"):"";
             if(occupied&&seat==s->GetHostSeat())tag+=tag.empty()?ModText::Tr("房主","Host"):ModText::Tr(" · 房主"," · Host");
             SeatUi::Text(g,tag,box.mX+230,box.mY+24,104,18,Color(170,225,255));
-            if(!occupied){SeatUi::Text(g,ModText::Tr("加入房间后自动分配","Assigned when a player joins"),box.mX+12,box.mY+58,320,18,Color(170,170,165));continue;}
+            if(!occupied)continue;
             bool recovering=s->GetState()==NetSession::State::RECONNECTING;
-            std::string tier=recovering?ModText::Tr("重连后确认倍率","Tiers resume after reconnect"):
+            std::string tier=recovering?ModText::Tr("重连后显示加成","Bonuses shown after reconnect"):
                 ModText::Tr("刷怪 ×","Spawn x")+std::to_string(app->OnlineSeatMultiplierForSeat((uint8_t)seat))+
                 ((app->mRunState&&app->mRunState->IsEndless())?ModText::Tr("   阳光保留","   Sun retained"):
                 ModText::Tr("   额外阳光 +","   Sun bonus +")+std::to_string(app->OnlineStartSunBonusForSeat((uint8_t)seat)));
             SeatUi::Text(g,tier,box.mX+12,box.mY+51,320,19,Color(225,225,210));
             int next=s->NextOccupiedSeat((uint8_t)seat);
-            std::string flow=offline?ModText::Tr("断线保留 · 等待重连","Seat held · awaiting reconnect"):
-                s->GetOccupiedSeatCount()<2?ModText::Tr("单人席位 · 尚无接力队友","Solo seat · no relay teammate"):
-                next?ModText::Tr("漏怪送往 P","Leaks go to P")+std::to_string(next):ModText::Tr("末席 · 每行1车，整局一次","Last · one mower per row per run");
+            std::string flow=offline?ModText::Tr("离线，等待重连","Offline; waiting to reconnect"):
+                s->GetOccupiedSeatCount()<2?ModText::Tr("等待队友加入","Waiting for a teammate"):
+                next?ModText::Tr("漏怪 → P","Leaks → P")+std::to_string(next):ModText::Tr("末席 · 每行1车，整局一次","Last · one mower per row per run");
             if(RoomPresentation::ShowingPreparation(app)||app->mOnlineWaitingStartAck)
                 flow=RoomPresentation::SeatProgress(app,seat);
             SeatUi::Text(g,flow,box.mX+12,box.mY+77,320,18,offline?Color(255,175,120):s->IsSeatSeedsReady((uint8_t)seat)?Color(180,235,165):Color(190,210,225));
         }
-        std::string preview=ModText::Tr("点击队友席位，查看换位预览。","Select a teammate to preview a swap.");
-        if(active&&selected>0&&s->IsSeatOccupied((uint8_t)selected)) {
+        std::string preview=ModText::Tr("选队友，查看换位后的加成。","Select a teammate to see the swap bonuses.");
+        if(active&&selected>0&&selected!=s->GetLocalSeat()&&s->IsSeatOccupied((uint8_t)selected)) {
             preview=RoomPresentation::SeatName(s,selected);
             if(RoomPresentation::CanSwap(app,selected))preview+=ModText::Tr("  换入后：×","  After swap: x")+std::to_string(app->OnlineSeatMultiplierForSeat((uint8_t)selected))+
                 ((app->mRunState&&app->mRunState->IsEndless())?ModText::Tr(" / 阳光保留"," / sun retained"):
@@ -84,19 +91,19 @@ public:
         }
         if(s&&!s->GetNoticeText().empty())preview=s->GetNoticeText();
         if(s&&s->HasIncomingSwapRequest())preview=RoomPresentation::SeatName(s,s->GetSwapRequesterSeat())+
-            ModText::Tr(" 申请与你换位；同意后全队重新准备。"," asks to swap; everyone must ready again.");
+            ModText::Tr(" 想与你换位；同意后全队需重新准备。"," wants to swap. Everyone must ready again.");
         SeatUi::Text(g,preview,48,492,704,20,Color(245,230,165));
-        SeatUi::Button(g,Back(),fromWaiting?ModText::Tr("返回等待","Back to waiting"):app->mBoard?ModText::Tr("返回游戏","Back to game"):ModText::Tr("返回房间","Back to room"),true,down==100);
+        SeatUi::Button(g,Back(),fromWaiting?ModText::Tr("返回等待","Back"):app->mBoard?ModText::Tr("返回游戏","Back"):ModText::Tr("返回房间","Back"),true,down==100);
         if(s&&s->HasIncomingSwapRequest()) {
             SeatUi::Button(g,Accept(),ModText::Tr("同意换位","Accept"),(!app->mBoard||s->IsPreparationActive())&&!app->mOnlineWaitingStartAck,down==102);
             SeatUi::Button(g,Apply(),ModText::Tr("拒绝","Decline"),true,down==103);
         } else {
-            SeatUi::Button(g,Apply(),ModText::Tr("申请换位","Request swap"),RoomPresentation::CanSwap(app,selected),down==101);
+            SeatUi::Button(g,Apply(),ModText::Tr("申请换位","Request"),RoomPresentation::CanSwap(app,selected),down==101);
             bool pending=s&&s->IsSwapRequestPending(),readOnly=(app->mBoard&&!s->CanChangePreparationSeats())||app->mOnlineWaitingStartAck;
-            const char* hint=pending?ModText::Tr("等待队友答复","Waiting for approval"):
-                readOnly?ModText::Tr("战斗或开局期间","During battle / starting"):ModText::Tr("换位需要对方同意","Swaps need approval");
+            const char* hint=pending?ModText::Tr("等待对方同意","Waiting for approval"):
+                readOnly?ModText::Tr("现在不能换位","Swaps unavailable now"):ModText::Tr("换位需对方同意","Swaps need approval");
             const char* detail=pending?ModText::Tr("15秒无回应自动取消","Expires after 15 seconds"):
-                readOnly?ModText::Tr("只可查看，不能换位","View only; swaps disabled"):s&&s->IsPreparationActive()?ModText::Tr("换位后全队重新准备，卡牌保留","Swap clears ready; chosen cards stay"):ModText::Tr("房主身份跟随玩家","Host role follows the player");
+                readOnly?ModText::Tr("",""):s&&s->IsPreparationActive()?ModText::Tr("换位后都要重新准备，植物保留","Everyone readies again; plants stay"):ModText::Tr("房主不变","The host stays the host");
             SeatUi::Text(g,hint,220,544,356,18,Color(205,205,190),true);
             SeatUi::Text(g,detail,220,568,356,18,Color(205,205,190),true);
         }

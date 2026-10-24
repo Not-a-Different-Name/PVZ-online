@@ -1,3 +1,6 @@
+#include "Run/RunSpeciesRuntime.h"
+#include "TeamPlay.h"
+#include "Run/RunSpeciesRules.h"
 #include <memory>
 #include <new>
 #include "Run/EndlessLawn.h"
@@ -32,6 +35,7 @@
 #include <format>
 #include "ZenGarden.h"
 #include "BoardInclude.h"
+#include "Lawn/Observer/ObserverBoard.h"
 #include "Widget/AdmissionBoard.h"
 #include "Online/NetSession.h"
 #include "Online/NetworkLog.h"
@@ -95,6 +99,7 @@ bool gShownMoreSunTutorial = false;
 
 Board::Board(LawnApp* theApp)
 {
+    RunSpeciesRuntime::Reset(this);
 	for (auto& wave : mZombiesInWave) std::fill(std::begin(wave), std::end(wave), ZombieType::ZOMBIE_INVALID);
 	mApp = theApp;
     NextWave::Reset(this);
@@ -269,7 +274,10 @@ Board::Board(LawnApp* theApp)
 	}
 }
 
-Board::~Board() { NextWave::Reset(this); }
+Board::~Board() {
+    if(mApp->mOnlineSession)mApp->mOnlineSession->SetObserverBoard(0,false);
+    mObserverView.reset();
+    RunSpeciesRuntime::Reset(this); NextWave::Reset(this); }
 
 void BoardInitForPlayer()
 {
@@ -291,6 +299,7 @@ void Board::DisposeBoard()
 
 bool Board::AreEnemyZombiesOnScreen()
 {
+    if (RunSpeciesRuntime::Pending(this)) return true;
     if (mDeferredPlantSetup.IsWaiting()) return true;
     if (mRiseFromGraveCounter > 0 || mDeferredZombieSpawns.HasPending()) return true;
 	for (Zombie* aZombie : mZombies)
@@ -2888,7 +2897,14 @@ ZombieType Board::PickZombieType(int theZombiePoints, int theWaveIndex, ZombiePi
             if ((aZombieType==ZombieType::ZOMBIE_BALLOON || aZombieType==ZombieType::ZOMBIE_BUNGEE) &&
                 mApp->GetRunState() && mApp->GetRunState()->GetSceneIndex()<=1) aPickWeight/=2;
 		}
-		aZombieWeightArray[aPickCount].mItem = aZombieType;
+		// Only multiply legal, budgeted balloon candidates; never add wave entries.
+        if (mApp->IsRunMode() && aZombieType==ZombieType::ZOMBIE_BALLOON) {
+            auto* run=mApp->GetRunState();
+            if(run) aPickWeight=RunSpeciesRules::ScalePositive(aPickWeight,
+                RunSpeciesRules::LinearPermille(RunSpeciesRules::ARMORED_BALLOON,
+                    run->ZombieBuffCount(RunSpeciesRules::ARMORED_BALLOON)));
+        }
+        aZombieWeightArray[aPickCount].mItem = aZombieType;
 		aZombieWeightArray[aPickCount].mWeight = aPickWeight;
 		aPickCount++;
 	}
@@ -3079,6 +3095,7 @@ Zombie* Board::AddZombie(ZombieType theZombieType, int theFromWave)
 
 void Board::RemoveAllZombies()
 {
+    RunSpeciesRuntime::Reset(this);
 	for (Zombie* aZombie : mZombies)
 	{
 		if (aZombie->mDead)
@@ -3516,12 +3533,14 @@ void Board::UpdateCursor(const HitResult* theHitResult)
 
 void Board::MouseMove(int x, int y)
 {
+    if(mApp->TeamProgressionInputBlocked())return;
 	Widget::MouseMove(x, y);
 	mChallenge->MouseMove(x, y);
 }
 
 void Board::MouseDrag(int x, int y)
 {
+    if(mApp->TeamProgressionInputBlocked())return;
     if (mCoopTouchCaptured || mMobileWatchOpen) return;
 #ifdef __ANDROID__
 	// @pvz-online: a small movement threshold keeps tapping a card available.
@@ -4102,6 +4121,7 @@ void Board::UpdateToolTip(const HitResult* theHitResult)
 
 void Board::MouseDownCobcannonFire(int x, int y, int theClickCount)
 {
+    if(mApp->TeamProgressionInputBlocked())return;
 	if (theClickCount >= 0 && y >= 80)
 	{
 		if (mCobCannonCursorDelayCounter > 0 && Distance2D(x, y, mCobCannonMouseX, mCobCannonMouseY) < 100.0f)
@@ -4123,6 +4143,7 @@ void Board::MouseDownCobcannonFire(int x, int y, int theClickCount)
 
 void Board::MouseDownWithPlant(int x, int y, int theClickCount)
 {
+    if(mApp->TeamProgressionInputBlocked())return;
 	// 右击鼠标：放下卡牌
 	if (theClickCount < 0)
 	{
@@ -4449,6 +4470,7 @@ void Board::MouseDownWithPlant(int x, int y, int theClickCount)
 			aSpawnImitater = SeedType::SEED_NONE;
 		}
 		Plant* aPlant = AddPlant(aGridX, aGridY, aSpawnType, aSpawnImitater);
+        if(aPlant&&mApp->GetRunState())TeamPlay::NoteSharedPlant(mApp,int(mCursorObject->mType==SEED_IMITATER&&!mApp->GetRunState()->mTeam.shared.Has(SEED_IMITATER)?mCursorObject->mImitaterType:mCursorObject->mType));
 		if (aIsAwake)
 		{
 			aPlant->SetSleeping(false);
@@ -4621,6 +4643,7 @@ void Board::TutorialArrowRemove()
 
 void Board::MouseDownWithTool(int x, int y, int theClickCount, CursorType theCursorType)
 {
+    if(mApp->TeamProgressionInputBlocked())return;
 	if (theClickCount < 0)
 	{
 		ClearCursor();
@@ -5002,6 +5025,7 @@ void Board::PickUpTool(GameObjectType theObjectType)
 
 void Board::MouseDown(int x, int y, int theClickCount)
 {
+    if(mApp->TeamProgressionInputBlocked())return;
     if (mApp->mOnlineSession && mApp->mOnlineSession->RelayBattleHeld()) { mApp->DoOnlineDialog(); return; }
     if(AdmissionBoard::MouseDown(this,x,y,theClickCount))return;
     if (NextWaveControl::MouseDown(this, x, y, theClickCount)) return;
@@ -5225,6 +5249,7 @@ void Board::ClearCursor()
 
 bool Board::CanInteractWithBoardButtons()
 {
+    if(mApp->TeamProgressionInputBlocked())return false;
 	// during the process of obtaining a reward, should not interaction with the menu.
 	if (mBoardFadeOutCounter >= 0)
 		return false;
@@ -5245,6 +5270,7 @@ bool Board::CanInteractWithBoardButtons()
 
 void Board::MouseUp(int x, int y, int theClickCount)
 {
+    if(mApp->TeamProgressionInputBlocked())return;
     if (mApp->mOnlineSession && mApp->mOnlineSession->RelayBattleHeld()) return;
     if(AdmissionBoard::MouseUp(this,x,y,theClickCount))return;
     if (NextWaveControl::MouseUp(this, x, y, theClickCount)) return;
@@ -5746,6 +5772,7 @@ void Board::UpdateGameObjects()
 	{
 		mSeedBank->mSeedPackets[i].Update();
 	}
+    RunSpeciesRuntime::Drain(this);
 }
 
 void Board::StopAllZombieSounds()
@@ -8325,6 +8352,20 @@ void Board::DrawUITop(Graphics* g)
 	DrawDebugObjectRects(g);
 }
 
+// Full observation owns the lawn surface; local child buttons must not
+// repaint over the remote picture. Keep the normal modal and clipping rules.
+void Board::DrawAll(Sexy::ModalFlags* flags,Sexy::Graphics* g){
+ if(mApp->mOnlineSession&&mApp->mOnlineSession->IsWatchingV2()&&mMobileWatchOpen){
+  if(mPriority>mWidgetManager->mMinDeferredOverlayPriority)mWidgetManager->FlushDeferredOverlayWidgets(mPriority);
+  Sexy::AutoModalFlags scoped(flags,mWidgetFlagsMod);
+  Sexy::Graphics clipped(*g);
+  if(mClip&&(flags->GetFlags()&Sexy::WIDGETFLAGS_CLIP))clipped.ClipRect(0,0,mWidth,mHeight);
+  if(flags->GetFlags()&Sexy::WIDGETFLAGS_DRAW)Draw(&clipped);
+  return;
+ }
+ Sexy::Widget::DrawAll(flags,g);
+}
+
 void Board::Draw(Graphics* g)
 {
 	if (mApp->GetDialog(Dialogs::DIALOG_STORE) || mApp->GetDialog(Dialogs::DIALOG_ALMANAC))
@@ -8530,10 +8571,11 @@ void Board::DoTypingCheck(KeyCode theKey)
 	}
 }
 
-void Board::KeyUp(KeyCode theKey) { NextWaveControl::KeyUp(this,theKey); }
+void Board::KeyUp(KeyCode theKey) { if(mApp->TeamProgressionInputBlocked())return;NextWaveControl::KeyUp(this,theKey); }
 
 void Board::KeyDown(KeyCode theKey)
 {
+    if(mApp->TeamProgressionInputBlocked())return;
     if (mApp->mOnlineSession && mApp->mOnlineSession->RelayBattleHeld()) { mApp->DoOnlineDialog(); return; }
     if(NextWaveControl::KeyDown(this,theKey))return;
     // @pvz-online: use uppercase VK letters; lowercase ASCII aliases collide with F5/F7/NUMPAD2.
@@ -8605,6 +8647,7 @@ static void PvzpCrash()
 
 void Board::KeyChar(char theChar)
 {
+    if(mApp->TeamProgressionInputBlocked())return;
     if(mApp->IsRunMode() && (theChar=='n' || theChar=='N'))return;
     // @pvz-online: H/J must not also reach the debug zombie-spawn character handlers.
     if ((theChar == 'h' || theChar == 'H' || theChar == 'j' || theChar == 'J') &&
@@ -9375,8 +9418,7 @@ void Board::KeyChar(char theChar)
 
 void Board::AddSunMoney(int theAmount)
 {
-	mSunMoney += theAmount;
-	mSunMoney = std::min(mSunMoney, 9990);
+    mSunMoney=int(std::clamp<int64_t>(int64_t(mSunMoney)+theAmount,0,mApp->IsRunMode()?INT_MAX:9990));
 	if (mSunMoney >= 8000)
 		ReportAchievement::GiveAchievement(mApp, SunnyDays, true);
 }
@@ -9432,7 +9474,7 @@ bool Board::TakeSunMoney(int theAmount)
 bool Board::CanTakeSunMoney(int theAmount)
 {
     if(mApp->AdmissionBuilding())return theAmount>=0 && theAmount<=mApp->GetRunState()->mAdmission.budget;
-	return theAmount <= mSunMoney + CountSunBeingCollected();
+	return theAmount>=0 && int64_t(theAmount) <= int64_t(mSunMoney) + CountSunBeingCollected();
 }
 
 void Board::ProcessDeleteQueue()
@@ -10507,7 +10549,7 @@ bool Board::SpawnRunBoss()
     int typeIndex=aRun->IsNewEndless()?(int)bossRandom.Next((unsigned long)(StageHasRoof()?2:3)):Rand(3);
     int rowIndex=aRun->IsNewEndless()?(int)bossRandom.Next((unsigned long)aRowCount):Rand(aRowCount);
     ZombieType aBossType = bossTypes[typeIndex];
-    Zombie* aBoss = AddZombieInRow(aBossType, aRows[rowIndex], mCurrentWave);
+    Zombie* aBoss = [&]() { RunSpeciesRules::SpawnScope context(RunSpeciesRules::SpawnKind::RUN_BOSS); return AddZombieInRow(aBossType, aRows[rowIndex], mCurrentWave); }();
 	if (aBoss == nullptr) return false;
 
 	aBoss->mScaleZombie = 2.0f;
@@ -10594,6 +10636,7 @@ bool Board::TryRelayEscapedZombie(Zombie* theZombie)
 	aMsg.mHelmMaxHealth = theZombie->mHelmMaxHealth;
 	aMsg.mShieldMaxHealth = theZombie->mShieldMaxHealth;
 	aMsg.mFlyingMaxHealth = theZombie->mFlyingMaxHealth;
+    RunSpeciesRuntime::ExportRelay(theZombie,aMsg);
 
 	// 发不出去（末席没有下一席位，或者队友刚好断了、socket 坏了）就当没传成：
 	// 宁可这边判负，也不能让这只怪凭空消失——那等于把惩罚取消了。
@@ -10670,7 +10713,7 @@ Zombie* Board::AddRelayedZombie(int theRow, ZombieType theZombieType, int theBod
 	if (aRunBoss && theZombieType != ZombieType::ZOMBIE_REDEYE_GARGANTUAR && theZombieType != ZombieType::ZOMBIE_FOOTBALL &&
 		theZombieType != ZombieType::ZOMBIE_ZAMBONI) return nullptr;
 
-	Zombie* aZombie = AddZombieInRow(theZombieType, theRow, mCurrentWave);
+	Zombie* aZombie = [&]() { RunSpeciesRules::SpawnScope context(RunSpeciesRules::SpawnKind::RELAY); return AddZombieInRow(theZombieType, theRow, mCurrentWave); }();
 	if (aZombie == nullptr) return nullptr;		// 场上满了（AddZombieInRow 里那声 "Too many zombies!!"）
 
 	MarkRelayedZombie(aZombie);

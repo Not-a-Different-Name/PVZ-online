@@ -1,5 +1,6 @@
 #include "RunState.h"
 #include "RunHistory.h"
+#include "../TeamPlay.h"
 #include "RunBuffs.h"
 #include "RunCheckpointIO.h"
 #include "EndlessLawn.h"
@@ -59,7 +60,7 @@ static const unsigned int RUN_CHECKPOINT_MAGIC = 0x314E5552;	// 'RUN1'
 // v19: independent slots, endless rule bits, lineup mask, hashed lawn/retry snapshots,
 // snapshot phase and completed zombie ballot rounds. Older saves retain endless options 0.
 
-static const unsigned short RUN_CHECKPOINT_VERSION = 23; // v23 adds a tenth zombie stack; v18-v22 retain nine.
+static const unsigned short RUN_CHECKPOINT_VERSION = 25; // v24 appends seven species traits; v23 stores exactly ten.
 
 static std::vector<unsigned char>& AppendU16(std::vector<unsigned char>& theData, unsigned int theValue)
 {
@@ -160,6 +161,7 @@ void RunState::StartNew(int theRunSeed, int theRunMode, int theRunDiff, int theR
 	mRunSeed = theRunSeed;
     mDamageHistory.clear();
     mAdmission=Admission::State{};
+    mTeam=TeamProgression::State{};
 	mMode = theRunMode;
 	mDiff = theRunDiff;
 	// 无尽档锁定的场景（0..4）：入口链/线传/读档三处都过了闸，这里再夹一次兜底——
@@ -334,8 +336,12 @@ static bool RunChoiceBlockedByCounterpart(const RunState* theRun, int theId)
 // 两屏不会抽出同一组；runSeed 之外还混了本机随机盐 mPickSalt（用户定案：联机里
 // 每个玩家的候选各不相同）。盐在进程内稳定，所以失败重打这一关时抽出来的
 // 还是同一组三条——重开不会变成"刷候选"；换进程/换机器才换盐。
-void RunState::RollChoices(bool theReroll)
+void RunState::RollChoices(bool theReroll, int lockedChoice)
 {
+	const bool locked = theReroll && CanLockChoice(lockedChoice);
+	const SeedType lockedPlant = locked && IsPlantPick() ? mPlantChoices[lockedChoice] : SeedType::SEED_NONE;
+	const int lockedBuff = locked && !IsPlantPick() ? mBuffChoices[lockedChoice] : RUN_BUFF_CHOICE_NONE;
+	const uint64_t lockedPlants = lockedBuff != RUN_BUFF_CHOICE_NONE ? GetRunChoicePlantMask(lockedBuff) : 0;
 	// 这一屏的候选从这一刻就算抽好了（LawnApp::UpdateRunPick 的"还没抽才抽"守卫看它）。
 	mChoicesRolled = true;
 	// 「重摇」阶梯价按屏起算（花园批同日用户令，拍板"每屏重置"）：非重抽 = 这是一屏新的
@@ -368,7 +374,7 @@ void RunState::RollChoices(bool theReroll)
 		int aTotalW = 0;
 		for (int i = 0; i < NUM_SEEDS_IN_CHOOSER; i++)
 		{
-			if (i != (int)SeedType::SEED_IMITATER && !aOwned[i])
+			if (i != (int)SeedType::SEED_IMITATER && !aOwned[i] && i != lockedPlant)
 			{
 				aCandidates[aCount] = (SeedType)i;
 				// 花盆/荷叶出率 ×5（2026-10-14 用户令）：权重 5 对其余 1——同一池里这两株的
@@ -397,7 +403,7 @@ void RunState::RollChoices(bool theReroll)
 			{
 				aExclude[aExcludeCount++] = (SeedType)mPickCooldownPlants[i];
 			}
-			int aFloor = (aCount < RUN_CHOICES) ? aCount : RUN_CHOICES;
+			int aFloor = std::min(aCount, RUN_CHOICES - (locked ? 1 : 0));
 			for (int aE = 0; aE < aExcludeCount && aCount > aFloor; aE++)
 			{
 				for (int j = 0; j < aCount; j++)
@@ -417,6 +423,7 @@ void RunState::RollChoices(bool theReroll)
 		// 加权无放回抽三格（与增益屏同一套算法）：
 		for (int i = 0; i < RUN_CHOICES; i++)
 		{
+			if (locked && i == lockedChoice) continue;
 			if (aCount <= 0)
 			{
 				mPlantChoices[i] = SeedType::SEED_NONE;
@@ -476,6 +483,7 @@ void RunState::RollChoices(bool theReroll)
 		{
 			int aCap = GetRunChoiceMaxStacks(i);
 			if (aCap > 0 && GetBuffCount(i) >= aCap) continue;
+			if (i == lockedBuff || (GetRunChoicePlantMask(i) & lockedPlants) != 0) continue;
 			aCandidates[aCount] = i;
 			aWeights[aCount] = GetChoiceWeight(i);
 			aTotalW += aWeights[aCount];
@@ -484,6 +492,7 @@ void RunState::RollChoices(bool theReroll)
 		for (int i = 0; i < RUN_PLANT_UPGRADE_COUNT; i++)
 		{
 			int aId = RUN_BUFF_COUNT + i;
+			if (aId == lockedBuff || (GetRunChoicePlantMask(aId) & lockedPlants) != 0) continue;
 			if (!RunPlantUpgradeInPool(GetRunPlantUpgradeDef(i).mPlant)) continue;
 			if (!HasPlant(GetRunPlantUpgradeDef(i).mPlant)) continue;
 			int aCap = GetRunChoiceMaxStacks(aId);
@@ -499,6 +508,7 @@ void RunState::RollChoices(bool theReroll)
 		for (int i = 0; i < RUN_PLANT_BUFF2_COUNT; i++)
 		{
 			int aId = RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT + i;
+			if (aId == lockedBuff || (GetRunChoicePlantMask(aId) & lockedPlants) != 0) continue;
 			if (!RunPlantBuff2InPool(i)) continue;
             // @pvz-online: family traits appear once if any permanent pool member is eligible.
             const uint64_t mask = GetRunChoicePlantMask(aId);
@@ -533,7 +543,7 @@ void RunState::RollChoices(bool theReroll)
 			{
 				aExclude[aExcludeCount++] = mPickCooldownBuffs[i];
 			}
-			int aFloor = (aCount < RUN_CHOICES) ? aCount : RUN_CHOICES;
+			int aFloor = std::min(aCount, RUN_CHOICES - (locked ? 1 : 0));
 			for (int aE = 0; aE < aExcludeCount && aCount > aFloor; aE++)
 			{
 				for (int i = 0; i < aCount; i++)
@@ -552,7 +562,7 @@ void RunState::RollChoices(bool theReroll)
 
 		// 防御守卫（方案 §2.4）：无限条目兜底，池子正常恒 ≥ 3 条；真抽干时缺格填哨兵、
 		// 一条不剩就把这次欠的增益屏作废——空池进 MTRand::Next(0) 是整数除零，直接崩。
-		if (aCount <= 0)
+		if (aCount <= 0 && !locked)
 		{
 			for (int i = 0; i < RUN_CHOICES; i++) mBuffChoices[i] = RUN_BUFF_CHOICE_NONE;
 			mPendingBuffPicks = 0;
@@ -568,6 +578,7 @@ void RunState::RollChoices(bool theReroll)
 		// SEED_NONE，不触发。
 		for (int aSlot = 0; aSlot < RUN_CHOICES; aSlot++)
 		{
+			if (locked && aSlot == lockedChoice) continue;
 			if (aCount <= 0)
 			{
 				mBuffChoices[aSlot] = RUN_BUFF_CHOICE_NONE;
@@ -1058,6 +1069,9 @@ std::vector<unsigned char> RunState::EncodeCheckpoint() const
     AppendI32(aData,static_cast<int>(admission.size()));aData.insert(aData.end(),admission.begin(),admission.end());
     AppendI32(aData,static_cast<int>(EndlessRules::Hash(admission.data(),admission.size())));
     AppendU16(aData, static_cast<unsigned int>(mCrowdRule)); // @pvz-online: v22, validated on load.
+    const auto team=TeamProgression::Encode(mTeam);
+    AppendI32(aData,static_cast<int>(team.size()));aData.insert(aData.end(),team.begin(),team.end());
+    AppendI32(aData,static_cast<int>(EndlessRules::Hash(team.data(),team.size())));
     return aData;
 }
 
@@ -1066,11 +1080,13 @@ bool RunState::Save(int theProfileId) const
     const auto previousHistory = mDamageHistory;
     if(gLawnApp && gLawnApp->GetRunState()==this) { gLawnApp->mDamageStats.Flush(); gLawnApp->mDamageStats.CaptureCheckpoint(*this); }
     if(gLawnApp && gLawnApp->GetRunState()==this && !EndlessLawn::Capture(gLawnApp->mBoard)) { mDamageHistory = previousHistory; return false; }
+    std::vector<unsigned char> previousTeamLawn;bool capturedTeam=false;
+    if(gLawnApp && gLawnApp->GetRunState()==this && !TeamPlay::PrepareCheckpoint(gLawnApp,previousTeamLawn,capturedTeam)) { mDamageHistory=previousHistory;return false; }
     MkDir(GetAppDataFolder() + "userdata");
     const auto path=GetCheckpointName(theProfileId,mMode,mEndlessScene,mAdmission.phase!=Admission::NONE?mAdmission.run:0);
     const auto user=GetAppDataFolder()+"userdata/user"+std::to_string(theProfileId)+".dat";
     const bool saved = RunCheckpointIO::Recover(path,user) && RunCheckpointIO::AtomicWrite(path,EncodeCheckpoint());
-    if (!saved) mDamageHistory = previousHistory;
+    if (!saved) { mDamageHistory = previousHistory; if(capturedTeam)gLawnApp->GetRunState()->mTeam.lawn.swap(previousTeamLawn); }
     if(saved && gLawnApp && gLawnApp->GetRunState()==this)RunHistory::Capture(gLawnApp);
     return saved;
 }
@@ -1079,10 +1095,12 @@ bool RunState::SaveWithPlayer(PlayerInfo& player) const
     const auto previousHistory = mDamageHistory;
     if(gLawnApp && gLawnApp->GetRunState()==this) { gLawnApp->mDamageStats.Flush(); gLawnApp->mDamageStats.CaptureCheckpoint(*this); }
     if(gLawnApp && gLawnApp->GetRunState()==this && !EndlessLawn::Capture(gLawnApp->mBoard)) { mDamageHistory = previousHistory; return false; }
+    std::vector<unsigned char> previousTeamLawn;bool capturedTeam=false;
+    if(gLawnApp && gLawnApp->GetRunState()==this && !TeamPlay::PrepareCheckpoint(gLawnApp,previousTeamLawn,capturedTeam)) { mDamageHistory=previousHistory;return false; }
     MkDir(GetAppDataFolder() + "userdata");
     const bool saved = RunCheckpointIO::Commit(GetCheckpointName(player.mId,mMode,mEndlessScene,mAdmission.phase!=Admission::NONE?mAdmission.run:0),
         GetAppDataFolder()+"userdata/user"+std::to_string(player.mId)+".dat",EncodeCheckpoint(),player.EncodeDetails());
-    if (!saved) mDamageHistory = previousHistory;
+    if (!saved) { mDamageHistory = previousHistory; if(capturedTeam)gLawnApp->GetRunState()->mTeam.lawn.swap(previousTeamLawn); }
     if(saved && gLawnApp && gLawnApp->GetRunState()==this)RunHistory::Capture(gLawnApp);
     return saved;
 }
@@ -1125,7 +1143,7 @@ bool RunState::Load(int theProfileId, int theMode, int theScene, bool theBackup,
 	// v13 才有关底 boss 开关；v14 才有僵尸强化字段（位包 bit7..11 与尾追加 8×u16+u16）。
 	int aMode = RUN_MODE_FULL;
 	int aDiff = RUN_DIFF_STD;
-	if (aMagic != RUN_CHECKPOINT_MAGIC || (aVersion != RUN_CHECKPOINT_VERSION && aVersion != 22 && aVersion != 21 && aVersion != 20 && aVersion != 19 && aVersion != 18 && aVersion != 17 && aVersion != 16 && aVersion != 15 && aVersion != 14 && aVersion != 13 && aVersion != 12 && aVersion != 11 && aVersion != 10 && aVersion != 9 && aVersion != 8 && aVersion != 7 && aVersion != 6 && aVersion != 5 && aVersion != 4 && aVersion != 3 && aVersion != 2))
+	if (aMagic != RUN_CHECKPOINT_MAGIC || (aVersion < 2 || aVersion > RUN_CHECKPOINT_VERSION))
 	{
 		PvzpLogLn("[run] checkpoint magic/version mismatch, ignored");
 		return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam);
@@ -1297,7 +1315,7 @@ bool RunState::Load(int theProfileId, int theMode, int theScene, bool theBackup,
 	unsigned int aZombieVotedLevel = RUN_ZOMBIE_VOTED_NONE;
 	if (aVersion >= 14)
 	{
-		const int aSavedCount = aVersion >= 23 ? RUN_ZOMBIE_BUFF_COUNT : aVersion >= 18 ? RunZombieBuffRules::PRE_TAX_COUNT : RunZombieBuffRules::LEGACY_COUNT;
+		const int aSavedCount = aVersion >= 24 ? RUN_ZOMBIE_BUFF_COUNT : aVersion >= 23 ? RunZombieBuffRules::PRE_SPECIES_COUNT : aVersion >= 18 ? RunZombieBuffRules::PRE_TAX_COUNT : RunZombieBuffRules::LEGACY_COUNT;
 		for (int i = 0; i < aSavedCount; i++)
 		{
 			unsigned int aStack = 0;
@@ -1388,6 +1406,8 @@ bool RunState::Load(int theProfileId, int theMode, int theScene, bool theBackup,
     unsigned int crowdRule = CrowdRules::LEGACY;
     if (aVersion >= 22 && (!aReader.ReadU16(crowdRule) || !CrowdRules::Valid(crowdRule)))
         return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam);
+    mTeam=TeamProgression::State{};
+    if(aVersion>=25) {std::vector<unsigned char> team;if(!aReader.ReadBlob(team)||!TeamProgression::Decode(team,mTeam))return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam);}
     if(theTeam && (mAdmission.run!=theTeam || mAdmission.phase==Admission::NONE))return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam);
     if(theMode==RUN_MODE_ENDLESS ? (aMode!=RUN_MODE_ENDLESS || (int)aEndlessScene!=theScene) : aMode==RUN_MODE_ENDLESS)return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam);
 
@@ -1461,9 +1481,9 @@ bool RunState::Load(int theProfileId, int theMode, int theScene, bool theBackup,
 	return true;
 }
 
-void RunState::PaidReroll()
+void RunState::PaidReroll(int lockedChoice)
 {
-	RollChoices(true);
+	RollChoices(true, lockedChoice);
 	mPaidRerollCount++;
 	PvzpLogLn("[run] the choices were rerolled for coins: #{} this screen, next price {} (pick counter {})", mPaidRerollCount, GetPaidRerollCost(), mPickCounter);
 }
@@ -1474,6 +1494,17 @@ int RunState::GetPaidRerollCost() const
 	int aSteps = (mPaidRerollCount > 7) ? 7 : mPaidRerollCount;
 	for (int i = 0; i < aSteps; i++) aCost *= 10;
 	return aCost;
+}
+
+bool RunState::CanLockChoice(int index) const
+{
+    return HasPendingPick() && mChoicesRolled && index >= 0 && index < RUN_CHOICES &&
+        (IsPlantPick() ? mPlantChoices[index] != SeedType::SEED_NONE : mBuffChoices[index] != RUN_BUFF_CHOICE_NONE);
+}
+
+int RunState::GetRerollPurchaseCost(int lockedChoice) const
+{
+    return (mRerollVouchers > 0 ? 0 : GetPaidRerollCost()) + (CanLockChoice(lockedChoice) ? 100 : 0);
 }
 
 int RunState::BuffMultValueFor(int theBuffMult)
@@ -1607,6 +1638,13 @@ static const ZombieBuffText kZombieBuffTexts[RunState::RUN_ZOMBIE_BUFF_COUNT] = 
 	{ "Ghostwalk", "无视阻挡", "普通僵尸不再停下啃咬，直接走过植物；巨人及橄榄球BOSS除外（最高1层）", "Walk through plants instead of chewing; excludes Gargantuars and Football bosses (max 1 stack)" },
 	{ "Soft Resist", "软控缩时", "减速持续时间缩短50%，幅度不变；与BOSS抗性不叠加（最高1层）", "Slow duration -50%; strength unchanged; does not stack with boss resistance (max 1 stack)" },
     { "Inflation", "加价", "所有植物最终种植费用 +25 阳光/层，包括原本免费和被增益降到免费的植物", "Final planting cost +25 sun per stack for every plant, including normally free and buff-discounted plants" },
+    { "Giant Lineage", "巨人血统", "巨人改投普通巨人；二层后代也可继续投巨人（最多2层）", "Throw Gargantuars; at stack 2 every child can throw another (max 2)" },
+    { "Explosive Farewell", "死亡惊喜", "小丑移速每层+100%；战斗死亡按原范围爆炸一次", "Jack-in-the-box walk speed +100%/stack; explodes once on combat death" },
+    { "Armored Balloons", "装甲气球", "气球权重×5，气球基础耐久1100；三叶草仍可吹走（最多1层）", "Balloon pick weight x5; balloon base HP 1100; Blover still works (max 1)" },
+    { "Fast Zamboni", "极速冰车", "冰车移速每层+100%，本体生命每层+50%", "Zamboni speed +100% and body HP +50% per stack" },
+    { "Heavy Football", "重装橄榄", "橄榄本体、防具、攻击每层+200%；体型放大1.5倍", "Football body/armor/attack +200% per stack; visual size x1.5" },
+    { "Reinforced Armor", "全面重甲", "所有僵尸防具耐久每层+100%，不增加本体生命", "All zombie armor HP +100% per stack; no body HP increase" },
+    { "Digger Ambush", "突袭矿工", "矿工落地立即寻敌，攻击伤害每层+100%", "Diggers seek targets on landing; attack damage +100% per stack" },
 };
 
 static const ZombieBuffText& ZombieBuffTextAt(int theId)
@@ -1649,12 +1687,13 @@ int RunState::GetEffectiveBuffCount(int id) const
 }
 bool RunState::HasUsablePlant(SeedType plant) const
 {
-    return HasPlant(plant) || (mLoanLevel==mLevelIndex && mLoanPlant==(int)plant);
+    return HasPlant(plant) || mTeam.shared.Has((int)plant) || (mLoanLevel==mLevelIndex && mLoanPlant==(int)plant);
 }
 std::vector<SeedType> RunState::GetUsablePool() const
 {
     auto result=mPool;
-    if(mLoanLevel==mLevelIndex && mLoanPlant>=0 && !HasPlant((SeedType)mLoanPlant))result.push_back((SeedType)mLoanPlant);
+    for(int p=0;p<48;++p)if(mTeam.shared.Has(p)&&!HasPlant((SeedType)p))result.push_back((SeedType)p);
+    if(mLoanLevel==mLevelIndex && mLoanPlant>=0 && !HasPlant((SeedType)mLoanPlant) && !mTeam.shared.Has(mLoanPlant))result.push_back((SeedType)mLoanPlant);
     return result;
 }
 bool RunState::ValidateLoan(SeedType plant,const std::vector<BuffStack>& buffs) const

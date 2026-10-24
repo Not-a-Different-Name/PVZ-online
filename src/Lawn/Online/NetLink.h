@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 #include "NetProtocol.h"
 
 // @pvz-online: M2 传输层——winsock2 的最小封装。
@@ -59,6 +60,9 @@ public:
 
 	// 主线程调用。false = 没发出去（连接多半已经不可用了）。
 	bool			Send(const void* theData, int theSize);
+    bool OfferObserver(uint8_t viewer,std::vector<std::vector<uint8_t>> packets);
+    bool ObserverWritable()const;
+    void ClearObserverOutput(uint8_t viewer=0);
 
 	// 主线程调用：取出一整包（含 4 字节头）。队列空返回 false。
 	bool			Poll(Packet& thePacket);

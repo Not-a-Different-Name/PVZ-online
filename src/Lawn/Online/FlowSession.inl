@@ -1,6 +1,6 @@
 // Flow v1 is negotiated with the relay. It does not change direct connections.
 bool NetSession::SendFlowProgress(uint8_t op,bool value,uint32_t generation) {
-    if(!IsConnected() || !mFlowEnabled || !mReadyEpoch || IsWaitingForNextRound(mLocalSeat))return false;
+    if(!IsConnected() || !mFlowEnabled || !mReadyEpoch || (IsWaitingForNextRound(mLocalSeat) && !(op==5 && value)))return false;
     uint8_t bytes[14];NetProto::Writer w(bytes,sizeof(bytes));
     w.U32(mFlowTerm);w.U32(mReadyEpoch);w.U8(op);w.U8(value?1:0);w.U32(generation);
     return SendRaw(NetProto::MSG_CLI_FLOW_PROGRESS,bytes,sizeof(bytes));
@@ -36,6 +36,28 @@ void NetSession::HandleFlowState(const uint8_t* bytes,int size) {
         !(online&(1u<<mLocalSeat)) || !(online&(1u<<host)) || reserved)return;
     const bool changed=mFlowTerm && term!=mFlowTerm;
     const bool newHost=mHostSeat!=host;
+    // Authority can change after GO but before a slow app consumes it. Only
+    // retain a locally witnessed, committed preparation for this exact START.
+    // Server battle phase alone never proves that this player has prepared.
+    const auto committed=mPreparation;
+    uint8_t committedReady=0;
+    const bool sameCommittedRound=(changed || newHost) && mFlowEnabled && !mFlowLost &&
+        (flags&1) && !(flags&2) && phase==2 && epoch && epoch==mFlowEpoch &&
+        epoch==mReadyEpoch && committed.epoch==epoch && committed.local &&
+        committed.phase==PreparationWire::GO && mLastStartLevelValid &&
+        mLastStartLevel.mReadyEpoch==epoch &&
+        (mRole==Role::HOST || mConsumedStartEpoch==epoch) &&
+        !(mRoundWaitMask&(1u<<mLocalSeat)) && !(waiting&(1u<<mLocalSeat)) &&
+        IsSeatSeedsReady(mLocalSeat) && (committed.ready&(1u<<mLocalSeat)) &&
+        committed.participants[mLocalSeat]==mCoopToken;
+    if(sameCommittedRound)for(uint8_t s=1;s<=NetProto::MAX_PLAYERS;++s) {
+        const uint8_t bit=uint8_t(1u<<s);
+        const uint64_t player=s==mLocalSeat?mCoopToken:mCoopPeers[s];
+        if((online&bit) && !(waiting&bit) && !(mRoundWaitMask&bit) &&
+            (committed.entered&bit) && (committed.ready&bit) &&
+            IsSeatSeedsReady(s) && player && committed.participants[s]==player)
+            committedReady|=bit;
+    }
     mFlowSupported=true;mFlowEnabled=(flags&1)!=0;mFlowLost=(flags&2)!=0;mFlowTerm=term;mFlowEpoch=epoch;
     mFlowPhase=phase;mFlowGeneration=generation;mRoundWaitMask=waiting;
     if(mFlowStartPending && epoch==mReadyEpoch)mFlowStartPending=false;
@@ -49,8 +71,16 @@ void NetSession::HandleFlowState(const uint8_t* bytes,int size) {
     // Ask the app to re-report only after its next real board recheck, never here.
     if(epoch==mReadyEpoch && mFlowDoneEpoch==epoch && mFlowDoneValue &&
         !(done&(1u<<mLocalSeat)))mFlowDoneEpoch=0;
+    // The relay's lobby transition cancels a board, not a victory. Preserve
+    // a pending LEVEL_EXIT so the app still returns its actual board to menu.
+    if(phase==0 && epoch) {
+        EndPreparation();ClearSwapState();mFlowDeferred=false;mFlowStartPending=false;
+        mHasPendingStart=false;mHasRunGo=false;mAnyAckRejected=false;
+        mLastStartLevelValid=false;mGateWanted=-1;mGateAck=0;
+        ClearPauseState();ClearLevelDoneState();
+    }
     if(waiting&(1u<<mLocalSeat))mFlowDeferred=true;
-    else if(phase==1 && epoch==mReadyEpoch && mConsumedStartEpoch==epoch)mFlowDeferred=false;
+    else if(phase==0 || phase==5 || (phase==1 && epoch==mReadyEpoch && mConsumedStartEpoch==epoch))mFlowDeferred=false;
     mHostSeat=host;mRole=mLocalSeat==host?Role::HOST:Role::CLIENT;
     if(changed || newHost) {
         mFlowAcked=0;mFlowDoneEpoch=0;mFlowStartPending=false;
@@ -65,9 +95,21 @@ void NetSession::HandleFlowState(const uint8_t* bytes,int size) {
         mPreparation=PreparationWire::StateData{};mPreparation.local=local;
         mPreparation.gameManaged=managed;mPreparation.epoch=mReadyEpoch;
         if(phase>=2)mPreparation.phase=PreparationWire::GO;
+        if(committedReady&(1u<<mLocalSeat)) {
+            // Keep the final revision so app-side configuration/save remains
+            // idempotent; discard all old authority's transaction consent.
+            mPreparation.revision=committed.revision;
+            mPreparation.configuredRevision=committed.configuredRevision;
+            mPreparation.entered=mPreparation.ready=committedReady;
+            mPreparation.occupiedMask=committedReady;
+            for(uint8_t s=1;s<=NetProto::MAX_PLAYERS;++s)
+                if(committedReady&(1u<<s))mPreparation.participants[s]=committed.participants[s];
+        }
         if(phase<2)for(uint8_t s=1;s<=NetProto::MAX_PLAYERS;++s)mCoopPeers[s]=s==mLocalSeat?mCoopToken:0;
         for(uint8_t s=1;s<=NetProto::MAX_PLAYERS;++s) {
-            mSeats[s].mSeedsReady=false;mSeats[s].mAwaitingAck=false;
+            mSeats[s].mSeedsReady=(mPreparation.ready&(1u<<s))!=0;
+            if(mSeats[s].mSeedsReady)mSeats[s].mSeedsReadyEpoch=epoch;
+            mSeats[s].mAwaitingAck=false;
         }
         if(mFlowHostStartRecovery && mLastStartLevelValid) {
             mPendingStart=mLastStartLevel;mHasPendingStart=true;

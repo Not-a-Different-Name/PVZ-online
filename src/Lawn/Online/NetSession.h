@@ -1,7 +1,12 @@
 #include "CoopProtocol.h"
+#include "NameplateWire.h"
+#include "TeamProgressionWire.h"
 #include "DamageStatsWire.h"
 #include "PreparationWire.h"
 #include "AdmissionWire.h"
+#include "ObserverWireV2.h"
+#include "ObserverTransfer.h"
+#include <deque>
 #ifndef __NETSESSION_H__
 #define __NETSESSION_H__
 
@@ -23,6 +28,8 @@
 class NetSession
 {
 public:
+    void SetLocalNameplate(uint8_t id);
+    uint8_t GetSeatNameplate(uint8_t seat) const;
     // Initial create retry information; never infer it from localized text.
     bool mRoomCreateAttempted=false,mRoomCreateBusyRejected=false,mRoomCreateWelcomed=false;
     bool RoomCreateRequestAttempted()const{return mRoomCreateAttempted;}
@@ -62,6 +69,11 @@ public:
     std::vector<DamageStatsWire::Snapshot> mDamageInbox;
     bool SendDamageStats(DamageStatsWire::Snapshot snapshot, uint8_t target = 0);
     bool TakeDamageStats(DamageStatsWire::Snapshot& snapshot);
+    std::vector<TeamWire::Message> mTeamInbox;
+    bool SendTeam(TeamWire::Message message,uint8_t target=0);
+    bool TakeTeam(TeamWire::Message& message);
+    uint32_t GetFlowTerm()const{return mFlowTerm;}
+    bool IsSeatLevelDone(uint8_t seat)const{return seat>=1&&seat<=NetProto::MAX_PLAYERS&&mSeats[seat].mLevelDone;}
     uint64_t mCoopPeers[NetProto::MAX_PLAYERS+1]{};
     std::vector<CoopWire::Event> mCoopInbox;
     bool SendCoop(CoopWire::Event event, uint8_t target=NetProto::SEAT_UNSET);
@@ -475,6 +487,31 @@ public:
 	// 一条保活，3 秒收不到快照就收场（WatchEnd::TIMEOUT）。没连上/席位越界/空位/
 	// 是我自己，都返回 false（看不成）。
 	bool			BeginWatch(uint8_t theSeat);
+    static constexpr uint32_t ObserverRevision=0x9402;
+    void SetObserverBoard(uint64_t instance,bool active);
+    bool IsWatchingV2()const{return mObserverWatch!=0;}
+    bool ObserverAccepted()const{return mObserverAccepted;}
+    uint32_t ObserverWatch()const{return mObserverWatch;}
+    uint32_t ObserverStream()const{return mObserverRemoteStream;}
+    uint32_t ObserverEpoch()const{return mReadyEpoch?mReadyEpoch:1;}
+    bool HasObserverWatchers()const;
+    bool ObserverCanCapture()const{return HasObserverWatchers()&&mLink.ObserverWritable();}
+    bool SendObserverDisplay(const std::vector<uint8_t>& body,uint32_t tick);
+    bool TakeObserverDisplay(ObserverTransfer::Complete& out);
+private:
+    void ObserverV2Tick();void HandleObserver(uint16_t,const uint8_t*,int);
+    bool ObserverControl(uint8_t,ObserverWireV2::ControlOp,uint32_t,uint32_t);
+    void ClearObserverV2();
+    struct ObserverViewer{uint32_t watch=0,stream=0;uint64_t touched=0;};
+    ObserverViewer mObserverViewers[7]{};
+    uint64_t mObserverBoard=0,mObserverQueryAt=0,mObserverKeepAt=0,mObserverLast=0;
+    uint32_t mObserverLocalStream=0,mObserverRemoteStream=0,mObserverWatch=0,mObserverSeq=0;
+    uint32_t mObserverEpoch=0,mObserverTerm=0;
+    bool mObserverBoardActive=false,mObserverRelay=false,mObserverAccepted=false;
+    ObserverTransfer::Assembler mObserverAssembler;
+    std::deque<ObserverTransfer::Complete> mObserverInbox;
+public:
+
 	// 观看端：结束观看（松开 V / ESC / 掉线兜底）。theNotify=true 会给被看方发 END
 	//（对面立刻停推；不发的兜底是被看方 6 秒收不到保活自己停）。
 	void			EndWatch(bool theNotify = true);
@@ -496,6 +533,8 @@ public:
 	// theBody/theSize 是快照数据段（格式见 NetProtocol.h 的 SNAPSHOT_* 注释），
 	// 超过 SNAPSHOT_MAX_PARTS×250 字节的会被拒——那是调用方该裁的账。
 	bool			SendBoardSnapshot(uint8_t theViewerSeat, const uint8_t* theBody, int theSize);
+	bool			SendObserverV2Control(uint8_t theViewerSeat, const ObserverWireV2::Control& theControl);
+	bool			SendObserverV2Frame(uint8_t theViewerSeat, const ObserverWireV2::Frame& theFrame);
 
 	State			GetState() const { return mState; }
 	Role			GetRole() const { return mRole; }
@@ -516,6 +555,7 @@ public:
 	bool			IsBuildDifferent() const;
 
 	const std::string&	GetStatusText() const { return mStatusText; }
+	const std::string& GetDiagnosticStatusText() const { return mDiagnosticStatusText.empty() ? mStatusText : mDiagnosticStatusText; }
 	const std::string&	GetHintText() const { return mHintText; }
 	// 死因的一行短标签（主菜单小状态条那种一行宽的地方用）。没给短标签就是默认的
 	// "Connection lost"——版本/构建不符这类要玩家动手的原因得自带短标签，
@@ -567,6 +607,7 @@ private:
 		bool			mOffline;		// @pvz-online MOD_BUILD 39：中继，此人掉线、席位保留中（名册计数照旧）
 		uint16_t		mBuild;			// 他报的构建代次（0 = 还不知道）
 		std::string		mName;
+		uint8_t mNameplate=0;
 		bool			mLevelDone;		// 报的"草坪清完了"
 		uint32_t mSeedsReadyEpoch;
         bool			mSeedsReady;	// 报的"这一轮选卡选好了"
@@ -581,6 +622,9 @@ private:
 	void			HandlePacket(const NetLink::Packet& thePacket);
 	void			PushEvent(EventType theType, uint8_t theSeat = NetProto::SEAT_UNSET);
 	void			ClearSeatTable();
+    void UpdateNameplate();
+    uint8_t mLocalNameplate=0;
+    int mNameplateTicks=0;
     void AdoptReadyEpoch(uint32_t epoch);
     PreparationWire::StateData mPreparation;
     bool SendPreparation(uint8_t op,uint8_t destination,uint64_t target=0,bool value=false);
@@ -667,6 +711,7 @@ private:
 	std::string			mConnectHost;
 	uint16_t			mConnectPort;
 	std::string			mStatusText;
+	std::string mDiagnosticStatusText; // Raw failure retained for logs; never shown as player guidance.
 	std::string			mHintText;
 	std::string			mShortStatus;
 	std::vector<Event>	mEvents;

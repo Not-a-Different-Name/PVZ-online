@@ -122,6 +122,7 @@ void ZenGarden::DrawPottedPlantIcon(Graphics* g, float x, float y, PottedPlant* 
 
 void ZenGarden::DrawPottedPlant(Graphics* g, float x, float y, PottedPlant* thePottedPlant, float theScale, bool theDrawPot)
 {
+	if (!thePottedPlant) return;
 	Graphics aPottedPlantG(*g);
 	aPottedPlantG.mScaleX = theScale;
 	aPottedPlantG.mScaleY = theScale;
@@ -200,6 +201,10 @@ void ZenGarden::PlantSetLaunchCounter(Plant* thePlant)
 
 Plant* ZenGarden::PlacePottedPlant(intptr_t thePottedPlantIndex)
 {
+	if (!mBoard || thePottedPlantIndex < 0 ||
+		thePottedPlantIndex >= mApp->mPlayerInfo->mNumPottedPlants ||
+		thePottedPlantIndex >= MAX_POTTED_PLANTS)
+		return nullptr;
 	PottedPlant* aPottedPlant = PottedPlantFromIndex(thePottedPlantIndex);
 	SeedType aSeedType = aPottedPlant->mSeedType;
 	if (aPottedPlant->mPlantAge == PottedPlantAge::PLANTAGE_SPROUT)
@@ -274,6 +279,7 @@ Plant* ZenGarden::PlacePottedPlant(intptr_t thePottedPlantIndex)
 
 void ZenGarden::RemovePottedPlant(Plant* thePlant)
 {
+	if (!thePlant || thePlant->mDead) return;
 	thePlant->Die();
 	Plant* aPot = mBoard->GetTopPlantAt(thePlant->mPlantCol, thePlant->mRow, PlantPriority::TOPPLANT_ONLY_UNDER_PLANT);
 	if (aPot)
@@ -2032,6 +2038,10 @@ void ZenGarden::MouseDownWithFullWheelBarrow(int x, int y)
 
 void ZenGarden::MouseDownWithEmptyWheelBarrow(Plant* thePlant)
 {
+	if (!thePlant || thePlant->mDead || thePlant->mPottedPlantIndex < 0 ||
+		thePlant->mPottedPlantIndex >= mApp->mPlayerInfo->mNumPottedPlants ||
+		thePlant->mPottedPlantIndex >= MAX_POTTED_PLANTS)
+		return;
 	PottedPlant* aPottedPlant = PottedPlantFromIndex(thePlant->mPottedPlantIndex);
 	RemovePottedPlant(thePlant);
 	aPottedPlant->mWhichZenGarden = GardenType::GARDEN_WHEELBARROW;

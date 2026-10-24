@@ -1,7 +1,9 @@
+#include "Lawn/Widget/PlayerMessageBox.h"
 #include "Lawn/Widget/NextWaveControl.h"
 #include "Lawn/Widget/OnlineSeatDialog.h"
 #include "Lawn/Run/EndlessLawn.h"
 #include "Lawn/CoopPlay.h"
+#include "Lawn/TeamPlay.h"
 /*
  * Copyright (C) 2026 Zhou Qiankang <wszqkzqk@qq.com>
  *
@@ -28,6 +30,8 @@
 #include <cstdio>
 #include <format>
 #include "LawnApp.h"
+#include "Lawn/System/NameplateCatalog.h"
+#include "Lawn/Online/RoomPresentation.h"
 #include "Lawn/Run/RunHistory.h"
 #include "Lawn/Online/NetSession.h"
 #include "Lawn/Online/NetworkLog.h"
@@ -35,6 +39,7 @@
 #include "Resources.h"
 #include "Lawn/LawnCommon.h"
 #include "Lawn/Board.h"
+#include "Lawn/Observer/ObserverHost.inl"
 #include "Lawn/Run/RunState.h"
 #include "Lawn/ModText.h"
 #include "graphics/CjkFont.h"
@@ -185,6 +190,7 @@ LawnApp::LawnApp()
 
 LawnApp::~LawnApp()
 {
+    TeamPlay::Detach(this);
 	if (mOnlineSession) mOnlineSession->Close();
 	KillRunFlowScreen();
 	while (!mDialogMap.empty())
@@ -270,6 +276,7 @@ void LawnApp::ShutdownHook()
 
 void LawnApp::KillBoard()
 {
+    SetTeamProgressionController(nullptr);
 	FinishModelessDialogs();
 	KillSeedChooserScreen();
 	if (mBoard)
@@ -322,6 +329,7 @@ void LawnApp::GotFocus()
 
 void LawnApp::LostFocus()
 {
+    if(TeamProgressionInputBlocked())return;
     NextWaveControl::Suspend(mBoard);
     if (mBoard)
     {
@@ -474,6 +482,7 @@ void LawnApp::StartPlaying()
 {
 	if(mRunState && mRunState->mAdmission.phase==Admission::PREPARED)mRunState->mAdmission.phase=Admission::PLAYED;
 	KillSeedChooserScreen();
+	TeamPlay::For(this).PrepareBattle();
 	mBoard->StartLevel();
 	mGameScene = GameScenes::SCENE_PLAYING;
     EndlessLawn::RememberLineup(mBoard);
@@ -559,8 +568,7 @@ void LawnApp::NewGame()
 	// 的时候，把"选卡 + 开场"压住：人先站在自己的新草坪上，选项屏盖在草坪上做完，
 	// 才由 UpdateRunPick 放开（见那边的 ①）。单关局 / 非闯关一条路都不变。
 	mRunIntroHeld = false;
-	if (IsRunMode() && (mRunState->HasPendingPick() || mRunState->IsCatchingUp() ||
-        (IsOnlineGame() && !mBoard->ChooseSeedsOnCurrentLevel() && mOnlineSession->HasOtherSeats())))
+	if (IsRunMode())
 	{
 		mRunIntroHeld = true;
 		NetworkLog("[run] the lawn is up before the picks - the intro is held");
@@ -573,9 +581,9 @@ void LawnApp::NewGame()
 
 void LawnApp::ShowGameSelector()
 {
+    SetTeamProgressionController(nullptr);
     if(mRunState && mRunState->IsNewEndless() && mBoard && !mRunState->Save(mPlayerInfo->mId)) {
-        LawnMessageBox(Dialogs::DIALOG_MESSAGE,ModText::Tr("保存失败","Save failed"),
-            ModText::Tr("本次草坪尚未保存，游戏已留在当前画面。请检查可用空间后重试返回菜单。","The lawn could not be saved. The game remains open. Check storage and retry returning to the menu."),"OK","",Sexy::Dialog::BUTTONS_FOOTER);
+        PlayerMessageBox::Show(this, Dialogs::DIALOG_MESSAGE, ModText::Tr("保存失败","Save failed"), ModText::Tr("请勿直接关游戏；\n清理存储空间后再返回菜单。","Keep the game open.\nFree storage, then return to the menu."));
         return;
     }
 
@@ -758,8 +766,7 @@ void LawnApp::EndLevel()
 void LawnApp::DoBackToMain(bool notifyOnline)
 {
     if(mRunState && mRunState->IsNewEndless() && mBoard && !mRunState->Save(mPlayerInfo->mId)) {
-        LawnMessageBox(Dialogs::DIALOG_MESSAGE,ModText::Tr("保存失败","Save failed"),
-            ModText::Tr("本次草坪尚未保存，游戏已留在当前画面。请检查可用空间后重试返回菜单。","The lawn could not be saved. The game remains open. Check storage and retry returning to the menu."),"OK","",Sexy::Dialog::BUTTONS_FOOTER);
+        PlayerMessageBox::Show(this, Dialogs::DIALOG_MESSAGE, ModText::Tr("保存失败","Save failed"), ModText::Tr("请勿直接关游戏；\n清理存储空间后再返回菜单。","Keep the game open.\nFree storage, then return to the menu."));
         return;
     }
 
@@ -1463,6 +1470,7 @@ void LawnApp::Start()
 
 bool LawnApp::DebugKeyDown(int theKey)
 {
+    if(TeamProgressionInputBlocked())return false;
 	return SexyAppBase::DebugKeyDown(theKey);
 }
 
@@ -1591,6 +1599,7 @@ void LawnApp::CheckForGameEnd()
 	if (mRunState)
 	{
         if (mRunIntroHeld || mRunState->HasPendingPick()) return;
+        if(!TeamPlay::NoteVictory(this))return;
         AwardRunRerollVoucher();
         ExpireCoopLoan();
         if(EndlessLawn::StopAtLimit(this))return;
@@ -1768,6 +1777,8 @@ void LawnApp::UpdatePlayTimeStats()
 
 void LawnApp::UpdateFrames()
 {
+    if(auto* session=RoomPresentation::Session(this))session->SetLocalNameplate(mPlayerInfo?NameplateCatalog::Equipped(*mPlayerInfo):0);
+    UpdateTeamProgressionUi();
     mDamageStats.Update(this);
 	if (mOnlineSession)
 	{
@@ -3597,6 +3608,7 @@ void LawnApp::DisconnectOnline()
     mOnlineWasConnected = false;
 }
 
-void LawnApp::UpdateCoopPlay(){if(!mCoopPlay)mCoopPlay=std::make_unique<CoopPlay>(this);mCoopPlay->Update();}
-void LawnApp::ShowCoopPlay(){if(!mCoopPlay)mCoopPlay=std::make_unique<CoopPlay>(this);mCoopPlay->Show();}
+void LawnApp::UpdateCoopPlay(){if(!mCoopPlay)mCoopPlay=std::make_unique<CoopPlay>(this);mCoopPlay->Update();TeamPlay::For(this).Update();}
+void LawnApp::ShowCoopPlay(){if(TeamProgressionAvailable()&&GetDialogCount()==0){ShowTeamProgression(TeamProgressionView::Page::TEAMMATES);return;}ShowCoopPlayLegacy();}
+void LawnApp::ShowCoopPlayLegacy(){if(!mCoopPlay)mCoopPlay=std::make_unique<CoopPlay>(this);mCoopPlay->Show();}
 void LawnApp::ExpireCoopLoan(){if(!mCoopPlay)mCoopPlay=std::make_unique<CoopPlay>(this);mCoopPlay->ExpireLoan();}

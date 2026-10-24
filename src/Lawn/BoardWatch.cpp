@@ -1,5 +1,6 @@
 // @pvz-online: PC snapshot wire format; viewing never creates remote simulation entities.
 #include "Board.h"
+#include "Observer/ObserverBoard.h"
 #include "../LawnApp.h"
 #include "../PvzpLib/Reanimator.h"
 #include "System/ReanimationLawn.h"
@@ -126,6 +127,12 @@ void Board::StopMobileWatch()
 }
 void Board::UpdateBoardWatch()
 {
+    if(mApp->IsOnlineGame()&&mApp->mOnlineSession&&mApp->mOnlineSession->IsConnected()) {
+        if(!mObserverView)mObserverView=std::make_unique<Observer::BoardView>(mApp);
+        mObserverView->Update(this,
+mApp->mOnlineSession.get());
+    }else mObserverView.reset();
+
     auto* session = mApp->mOnlineSession.get();
     if (!mApp->IsOnlineGame() || !session || !session->IsConnected())
     {
@@ -136,8 +143,8 @@ void Board::UpdateBoardWatch()
     if (end == NetSession::WatchEnd::TIMEOUT || end == NetSession::WatchEnd::TARGET_LEFT)
     {
         PushCustomBanner(end == NetSession::WatchEnd::TIMEOUT
-            ? ModText::Tr("队友没有响应", "Teammate is not responding")
-            : ModText::Tr("队友已离开", "Teammate left"));
+            ? ModText::Tr("画面暂不可用，请换一位队友", "View unavailable. Choose another teammate.")
+            : ModText::Tr("队友已离开，请换一位", "Teammate left. Choose another."));
         StopMobileWatch();
     }
     if (mMobileWatchOpen && (!mApp->mActive || mApp->mMinimized || mPaused ||
@@ -176,6 +183,7 @@ static void MobileWatchHealth(Graphics* g, int x, int y, int hp)
 }
 void Board::DrawMobileWatch(Graphics* g)
 {
+    if(mObserverView&&mObserverView->Draw(g,mApp->mOnlineSession.get()))return;
     // Reuse the scene backdrop; only cached snapshot entities are drawn above it.
     DrawBackdrop(g);
     const auto& snap = mRemoteSnapshot;

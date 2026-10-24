@@ -20,6 +20,7 @@
  */
 
 #include "AchievementsScreen.h"
+#include "GrowthCollectionView.h"
 #include "../ModText.h"
 #include <format>
 #include "../Board.h"
@@ -99,6 +100,7 @@ AchievementsWidget::~AchievementsWidget() {
 }
 
 void AchievementsWidget::Update() {
+	if(mGrowthPage){MarkDirty();return;}
 	MarkDirty();
 	if (mScrollValue <= 0)
 		return;
@@ -125,6 +127,8 @@ void AchievementsWidget::Update() {
 }
 
 void AchievementsWidget::Draw(Graphics* g) {
+    if(mGrowthPage){if(!mGrowthCollection)mGrowthCollection=std::make_unique<GrowthCollectionView>(mApp);mGrowthCollection->Draw(g);SeatUi::Button(g,Rect(640,22,144,44),ModText::Tr("常规成就","Achievements"),true);return;}
+
 	g->DrawImage(IMAGE_SELECTORSCREEN_ACHIEVEMENTS_BG, 0, 0);
 
 	int aHeight = IMAGE_SELECTORSCREEN_ACHIEVEMENTS_BG->mHeight;
@@ -190,9 +194,11 @@ void AchievementsWidget::Draw(Graphics* g) {
 	else {
 		g->DrawImage(aIsHighlight ? IMAGE_ACHEESEMENTS_MORE_BUTTON_HIGHLIGHT : IMAGE_ACHEESEMENTS_MORE_BUTTON, 700, 450);
 	}
+	SeatUi::Button(g,Rect(640,22,144,44),ModText::Tr("合作收藏","Team collection"),true);
 }
 
 void AchievementsWidget::KeyDown(KeyCode theKey) {
+	if(mGrowthPage){if(theKey==KEYCODE_ESCAPE){mGrowthPage=false;MarkDirty();}return;}
 	if (theKey == KEYCODE_UP) {
 		mScrollValue = mDefaultScrollValue;
 		mScrollDirection = 1;
@@ -208,6 +214,9 @@ void AchievementsWidget::KeyDown(KeyCode theKey) {
 }
 
 void AchievementsWidget::MouseDown(int x, int y, [[maybe_unused]] int theClickCount) {
+    if(Rect(640,22,144,44).Contains(x,y)){mGrowthTogglePressed=true;return;}
+    if(mGrowthPage){if(mGrowthCollection)mGrowthCollection->Down(x,y);return;}
+
 	if (aBackButtonRect.Contains(x, y))
 		mApp->PlaySample(SOUND_GRAVEBUTTON);
 
@@ -216,6 +225,9 @@ void AchievementsWidget::MouseDown(int x, int y, [[maybe_unused]] int theClickCo
 }
 
 void AchievementsWidget::MouseUp(int x, int y, [[maybe_unused]] int theClickCount) {
+    if(mGrowthTogglePressed){mGrowthTogglePressed=false;if(Rect(640,22,144,44).Contains(x,y)){mGrowthPage=!mGrowthPage;if(mGrowthPage){mScrollValue=0;mGrowthCollection=std::make_unique<GrowthCollectionView>(mApp);}MarkDirty();}return;}
+    if(mGrowthPage){if(mGrowthCollection)mGrowthCollection->Up(x,y);MarkDirty();return;}
+
 	Point aPos = Point(x, y);
 	if (aBackButtonRect.Contains(aPos)) {
 		mApp->mGameSelector->SlideTo(0, 0);
@@ -230,6 +242,7 @@ void AchievementsWidget::MouseUp(int x, int y, [[maybe_unused]] int theClickCoun
 }
 
 void AchievementsWidget::MouseWheel(int theDelta) {
+	if(mGrowthPage)return;
 	mScrollValue = mDefaultScrollValue;
 
 	if (theDelta > 0)

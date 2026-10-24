@@ -3,6 +3,8 @@
 #include "widget/EditListener.h"
 #include <memory>
 #include "../Online/RoomCreateAttempt.h"
+#include "../Online/AutoRoomLookup.h"
+#include "RoomShareUi.h"
 #include <vector>
 class LawnApp;
 namespace Sexy { class EditWidget; class ButtonWidget; }
@@ -23,7 +25,11 @@ private:
     std::vector<std::unique_ptr<Sexy::ButtonWidget>> mButtons;
     RelayNodes::Allocator mAllocator;
     RelayNodes::RoomCreateAttempt mCreation;
-    RelayNodes::CatalogDiscovery mJoinLookup;
+    RoomInvite::AutoRoomLookup mJoinLookup;
+    RoomShareUi::Transfer mTransfer;
+    std::string mPastedText,mPastedCode;
+    void ApplyInvite(const std::string& text);
+    std::string EffectiveInvite();
     std::string mPendingJoinCode;
     std::string mInputError;
     std::string mLocalIp;
