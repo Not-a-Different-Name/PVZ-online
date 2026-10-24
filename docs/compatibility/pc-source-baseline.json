@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "pcRepository": "https://github.com/Not-a-Different-Name/PVZ-online",
   "pcCommit": "4ec113e0c1dcfc8eb7a18d31b2c96772743e2746",
-  "pcModBuild": 95,
+  "pcModBuild": 96,
   "pcProtocolVersion": 1,
   "portableCommit": "141c1476dd462ac3526f796e303177616f4de6bc",
   "onlineGameReady": false,

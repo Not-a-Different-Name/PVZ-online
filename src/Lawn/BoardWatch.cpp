@@ -6,6 +6,7 @@
 #include "System/ReanimationLawn.h"
 #include "Run/RunMath.h"
 #include "Widget/MobileCoopDraw.h"
+#include "Widget/CoopHud.h"
 #include <algorithm>
 
 int Board::BuildBoardSnapshot(uint8_t* theBuffer, int theCapacity)
@@ -167,7 +168,7 @@ void Board::CycleMobileWatch()
     {
         uint8_t seat = (previous - 1 + i) % NetProto::MAX_PLAYERS + 1;
         if (seat == session->GetLocalSeat() || !session->IsSeatOccupied(seat)) continue;
-        if (session->IsWatching()) session->EndWatch(true);
+        if(session->ObserverRequestCooldown()){PushCustomBanner(ModText::Tr("稍等几秒再获取快照", "Wait a few seconds before requesting another snapshot"));return;}
         mHasRemoteSnapshot = false;
         mMobileWatchOpen = session->BeginWatch(seat);
         CloseQuickChatPanel(); mSunGiftSelectFrames = 0; mCoopToolsOpen=false;
@@ -183,7 +184,7 @@ static void MobileWatchHealth(Graphics* g, int x, int y, int hp)
 }
 void Board::DrawMobileWatch(Graphics* g)
 {
-    if(mObserverView&&mObserverView->Draw(g,mApp->mOnlineSession.get()))return;
+    if(mObserverView&&mObserverView->Draw(g,mApp->mOnlineSession.get())){CoopHud::WatchControls(g);return;}
     // Reuse the scene backdrop; only cached snapshot entities are drawn above it.
     DrawBackdrop(g);
     const auto& snap = mRemoteSnapshot;

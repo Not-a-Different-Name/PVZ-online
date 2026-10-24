@@ -1,3 +1,4 @@
+#include "Lawn/Observer/ObserverPrediction.h"
 /*
  * Copyright (C) 2026 Zhou Qiankang <wszqkzqk@qq.com>
  *
@@ -932,6 +933,7 @@ void Reanimation::DrawRenderGroup(Graphics* g, int theRenderGroup)
 	if (mDefinition->mTracks.count == 0)
 		return;
 
+	const int observerAnimation = Observer::CaptureAnimationStart(g, this);
 	PvzpTriangleGroup aTriangleGroup;
 	ReanimatorFrameTime aFrameTime;
 	GetFrameTime(&aFrameTime);
@@ -940,7 +942,11 @@ void Reanimation::DrawRenderGroup(Graphics* g, int theRenderGroup)
 		ReanimatorTrackInstance* aTrackInstance = &mTrackInstances[aTrackIndex];
 		if (aTrackInstance->mRenderGroup == theRenderGroup)
 		{
-			bool aTrackDrawn = DrawTrack(g, aTrackIndex, theRenderGroup, &aTriangleGroup, &aFrameTime);
+			bool aTrackDrawn;
+            if (observerAnimation >= 0) {
+                aTriangleGroup.DrawGroup(g);
+                aTrackDrawn = Observer::CaptureAnimationTrack(g, this, observerAnimation, aTrackIndex);
+            } else aTrackDrawn = DrawTrack(g, aTrackIndex, theRenderGroup, &aTriangleGroup, &aFrameTime);
 			if (aTrackInstance->mAttachmentID != AttachmentID::ATTACHMENTID_NULL)
 			{
 				aTriangleGroup.DrawGroup(g);

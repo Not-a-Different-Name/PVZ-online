@@ -1493,42 +1493,25 @@ bool NetSession::SendBoardWatchMsg(uint8_t theSeat, uint8_t theOp)
 
 bool NetSession::BeginWatch(uint8_t theSeat)
 {
-	if (!IsConnected()) return false;
+	if (!IsConnected()||ObserverRequestCooldown()) return false;
 	// 席位得是个真上座的号、而且不能是自己——看自己场地没有意义（屏幕本来就在）
 	if (theSeat < 1 || theSeat > NetProto::MAX_PLAYERS
 		|| theSeat == mLocalSeat || !IsSeatOccupied(theSeat))
 		return false;
 
-	// 换目标（按住 V 期间按 1-6 切人就走这条路）：先跟旧目标打声招呼，别让他白推
-	if (IsWatching() && mWatchTargetSeat != theSeat)
-		SendBoardWatchMsg(mWatchTargetSeat, NetProto::WATCH_END);
-
+    if(GetSeatBuild(theSeat)<96 || (mTransport!=Transport::DIRECT&&!mObserverRelay))return false;
     if(IsWatching())EndWatch(true);
-    if(GetSeatBuild(theSeat)>=94 && (mTransport==Transport::DIRECT || mObserverRelay)) {
+    if(GetSeatBuild(theSeat)>=96 && (mTransport==Transport::DIRECT || mObserverRelay)) {
         mWatchTargetSeat=theSeat;
         static std::atomic<uint32_t> ids{0};
         mObserverWatch=uint32_t(mCoopToken)^uint32_t(++ids)^uint32_t(std::chrono::steady_clock::now().time_since_epoch().count());
         if(!mObserverWatch)mObserverWatch=++ids;
-        mObserverRemoteStream=1;mObserverAccepted=false;mObserverInbox.clear();
-        mObserverKeepAt=mObserverLast=ObserverNow();mWatchEndPending=WatchEnd::NONE;
+        mObserverRemoteStream=1;mObserverAccepted=false;mObserverReceived=false;mObserverInbox.clear();
+        mObserverRequestAt=mObserverPendingAt=mObserverKeepAt=mObserverLast=ObserverNow();mWatchEndPending=WatchEnd::NONE;
         if(ObserverControl(theSeat,ObserverWireV2::ControlOp::BEGIN,mObserverWatch,1))return true;
         ClearWatchState(WatchEnd::TARGET_LEFT);return false;
     }
-	mWatchTargetSeat = theSeat;
-	mFramesSinceWatchKeepalive = 0;
-	mFramesSinceWatchSnapshot = 0;
-	mWatchAssemblyParts = 0;
-	mWatchAssemblySize = 0;
-	mWatchEndPending = WatchEnd::NONE;
-
-	if (!SendBoardWatchMsg(theSeat, NetProto::WATCH_BEGIN))
-	{
-		// 发都没发出去（对面恰好在上一帧走了）：别干等 3 秒超时，直接收场
-		ClearWatchState(WatchEnd::TARGET_LEFT);
-		return false;
-	}
-	NetworkLog("[net] watching seat %u's board", (unsigned)theSeat);
-	return true;
+    return false; // Local prediction requires the negotiated snapshot revision.
 }
 
 void NetSession::EndWatch(bool theNotify)
@@ -1545,7 +1528,7 @@ void NetSession::EndWatch(bool theNotify)
 void NetSession::ClearWatchState(WatchEnd theReason)
 {
 	bool aWasWatching = IsWatching();
-    mObserverWatch=0;mObserverAccepted=false;mObserverRemoteStream=0;mObserverInbox.clear();mObserverAssembler.Context(0,0,0,0,0);
+    mObserverWatch=0;mObserverAccepted=false;mObserverReceived=false;mObserverRemoteStream=0;mObserverInbox.clear();mObserverAssembler.Context(0,0,0,0,0);
 	mWatchTargetSeat = NetProto::SEAT_UNSET;
 	mFramesSinceWatchKeepalive = 0;
 	mFramesSinceWatchSnapshot = 0;

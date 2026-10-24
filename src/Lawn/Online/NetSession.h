@@ -487,7 +487,7 @@ public:
 	// 一条保活，3 秒收不到快照就收场（WatchEnd::TIMEOUT）。没连上/席位越界/空位/
 	// 是我自己，都返回 false（看不成）。
 	bool			BeginWatch(uint8_t theSeat);
-    static constexpr uint32_t ObserverRevision=0x9402;
+    static constexpr uint32_t ObserverRevision=0x9603;
     void SetObserverBoard(uint64_t instance,bool active);
     bool IsWatchingV2()const{return mObserverWatch!=0;}
     bool ObserverAccepted()const{return mObserverAccepted;}
@@ -495,19 +495,21 @@ public:
     uint32_t ObserverStream()const{return mObserverRemoteStream;}
     uint32_t ObserverEpoch()const{return mReadyEpoch?mReadyEpoch:1;}
     bool HasObserverWatchers()const;
-    bool ObserverCanCapture()const{return HasObserverWatchers()&&mLink.ObserverWritable();}
+    bool ObserverCanCapture()const{if(!HasObserverWatchers()||!mLink.ObserverWritable())return false;for(auto&v:mObserverViewers)if(v.watch&&v.pending)return true;return false;}
     bool SendObserverDisplay(const std::vector<uint8_t>& body,uint32_t tick);
+    void ObserverCaptureFailed();
+    uint32_t ObserverRequestCooldown()const;
     bool TakeObserverDisplay(ObserverTransfer::Complete& out);
 private:
     void ObserverV2Tick();void HandleObserver(uint16_t,const uint8_t*,int);
     bool ObserverControl(uint8_t,ObserverWireV2::ControlOp,uint32_t,uint32_t);
     void ClearObserverV2();
-    struct ObserverViewer{uint32_t watch=0,stream=0;uint64_t touched=0;};
+    struct ObserverViewer{uint32_t watch=0,stream=0;uint64_t touched=0;bool pending=false;};
     ObserverViewer mObserverViewers[7]{};
-    uint64_t mObserverBoard=0,mObserverQueryAt=0,mObserverKeepAt=0,mObserverLast=0;
+    uint64_t mObserverBoard=0,mObserverQueryAt=0,mObserverKeepAt=0,mObserverLast=0,mObserverRequestAt=0,mObserverPendingAt=0;
     uint32_t mObserverLocalStream=0,mObserverRemoteStream=0,mObserverWatch=0,mObserverSeq=0;
     uint32_t mObserverEpoch=0,mObserverTerm=0;
-    bool mObserverBoardActive=false,mObserverRelay=false,mObserverAccepted=false;
+    bool mObserverBoardActive=false,mObserverRelay=false,mObserverAccepted=false,mObserverReceived=false;
     ObserverTransfer::Assembler mObserverAssembler;
     std::deque<ObserverTransfer::Complete> mObserverInbox;
 public:

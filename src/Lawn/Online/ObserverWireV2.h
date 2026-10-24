@@ -16,7 +16,7 @@ static constexpr int FRAME_HEADER = 40;
 static constexpr int FRAME_DATA = MAX_PAYLOAD - FRAME_HEADER;
 static constexpr int MAX_PARTS = 304;
 static constexpr std::uint32_t MAX_ENCODED = 64U * 1024U;
-static constexpr std::uint32_t MAX_RAW = 128U * 1024U;
+static constexpr std::uint32_t MAX_RAW = 1024U * 1024U;
 
 enum class ControlOp : std::uint8_t { BEGIN=1, ACCEPT=2, KEEPALIVE=3, STOP=4, UNSUPPORTED=5, BUSY=6 };
 

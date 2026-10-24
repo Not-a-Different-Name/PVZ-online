@@ -7198,6 +7198,7 @@ void Board::DrawGameObjects(Graphics* g)
 	for (int i = 0; i < aRenderItemCount; i++)
 	{
 		RenderItem& aRenderItem = aRenderList[i];
+        Observer::CaptureRenderItem(g, this, aRenderItem);
 		switch (aRenderItem.mRenderObjectType)
 		{
 		case RenderObjectType::RENDER_ITEM_PLANT:

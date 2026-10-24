@@ -20,7 +20,7 @@ public:
  void Context(uint8_t source,uint8_t dest,uint32_t watch,uint32_t stream,uint32_t epoch){if(src!=source||dst!=dest||watchId!=watch||streamId!=stream||round!=epoch){Reset();last=0;}src=source;dst=dest;watchId=watch;streamId=stream;round=epoch;}
  bool Accept(const uint8_t*p,int size,uint64_t now,Complete&complete){
   ObserverWireV2::Frame f;if(!ObserverWireV2::DecodeFrame(p,size,f)||f.src>6||f.dst>6||f.flags!=1||f.src!=src||f.dst!=dst||f.watchId!=watchId||f.boardStream!=streamId||f.roundEpoch!=round||!Newer(f.frameSeq,last))return false;
-  if(active&&(now<startedAt||now-startedAt>3000))Reset();
+  if(active&&(now<startedAt||now-startedAt>60000))Reset();
   if(f.partIndex==0){if(active&&!Newer(f.frameSeq,base.frameSeq))return false;Reset();base=f;base.data=nullptr;active=true;startedAt=now;buffer.reserve(std::min(size_t(f.partCount)*ObserverWireV2::FRAME_DATA,size_t(ObserverWireV2::MAX_ENCODED)));}
   if(!active||f.partIndex!=next||f.frameSeq!=base.frameSeq||f.partCount!=base.partCount||f.sourceTick!=base.sourceTick||f.rawBytes!=base.rawBytes||f.crc32!=base.crc32||f.flags!=base.flags){Reset();return false;}
   if(buffer.size()+size_t(f.dataSize)>ObserverWireV2::MAX_ENCODED){Reset();return false;}
