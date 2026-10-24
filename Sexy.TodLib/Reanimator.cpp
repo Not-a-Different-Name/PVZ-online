@@ -1,3 +1,4 @@
+#include "Lawn/Observer/ObserverPrediction.h"
 #include <new>
 #include "TodDebug.h"
 #include "TodCommon.h"
@@ -867,13 +868,18 @@ void Reanimation::DrawRenderGroup(Graphics* g, int theRenderGroup)
 	if (mDead)
 		return;
 
+	const int observerAnimation = Observer::CaptureAnimationStart(g, this);
 	TodTriangleGroup aTriangleGroup;
 	for (int aTrackIndex = 0; aTrackIndex < mDefinition->mTracks.count; aTrackIndex++)
 	{
 		ReanimatorTrackInstance* aTrackInstance = &mTrackInstances[aTrackIndex];
 		if (aTrackInstance->mRenderGroup == theRenderGroup)
 		{
-			bool aTrackDrawn = DrawTrack(g, aTrackIndex, theRenderGroup, &aTriangleGroup);
+			bool aTrackDrawn;
+            if (observerAnimation >= 0) {
+                aTriangleGroup.DrawGroup(g);
+                aTrackDrawn = Observer::CaptureAnimationTrack(g, this, observerAnimation, aTrackIndex);
+            } else aTrackDrawn = DrawTrack(g, aTrackIndex, theRenderGroup, &aTriangleGroup);
 			if (aTrackInstance->mAttachmentID != AttachmentID::ATTACHMENTID_NULL)
 			{
 				aTriangleGroup.DrawGroup(g);

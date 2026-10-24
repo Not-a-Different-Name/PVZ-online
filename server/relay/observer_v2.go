@@ -8,6 +8,8 @@ import (
 )
 
 const observerRevision = 0x9402
+const observerLocalRevision = 0x9603
+const observerNodeBytesPerSecond = 12500
 const observerMemoryLimit = 8 * 1024 * 1024
 
 // Display output has its own replaceable bounded queue. It never enters send,
@@ -75,6 +77,9 @@ func (o *observerOutput) pop(s *Server) []byte {
 		return nil
 	}
 	f := o.frames[o.at]
+	if !s.observerBudget(len(f) + 80) {
+		return nil
+	}
 	o.at++
 	o.spent += len(f)
 	o.bytes -= len(f)
@@ -90,6 +95,7 @@ func (o *observerOutput) pop(s *Server) []byte {
 }
 
 type observerSubscription struct {
+	delivered                      bool
 	source, viewer                 *Conn
 	watch, stream, term, epoch     uint32
 	touched, started, rateAt       time.Time
@@ -121,16 +127,23 @@ func (s *Server) clearObserverConn(r *Room, c *Conn) {
 func (s *Server) handleObserverCapability(c *Conn, p []byte) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if len(p) != 4 || binary.LittleEndian.Uint32(p) != observerRevision || c.room.Load() == nil || c.build < 94 {
+	if len(p) != 4 || (binary.LittleEndian.Uint32(p) != observerRevision && binary.LittleEndian.Uint32(p) != observerLocalRevision) || c.room.Load() == nil || c.build < 94 {
 		return
 	}
 	c.observerCap = true
+	c.observerRevision = binary.LittleEndian.Uint32(p)
 	out := make([]byte, 8)
-	binary.LittleEndian.PutUint32(out, observerRevision)
+	binary.LittleEndian.PutUint32(out, c.observerRevision)
 	binary.LittleEndian.PutUint32(out[4:], 24*1024)
 	s.enqueue(c, encodeFrame(0xF023, out))
 }
+
+// One per-node budget is consumed at write time, including conservative TCP/IP
+// overhead. A large snapshot is paced across windows, never dropped because its
+// total size exceeds one second's allowance. Gameplay retains the priority queue.
 func (s *Server) observerBudget(n int) bool {
+	s.observerBudgetMu.Lock()
+	defer s.observerBudgetMu.Unlock()
 	if s.observerBusy.Load() {
 		return false
 	}
@@ -139,16 +152,26 @@ func (s *Server) observerBudget(n int) bool {
 		s.observerBudgetAt = now
 		s.observerBudgetBytes = 0
 	}
-	limit := 256 * 1024
+	limit := observerNodeBytesPerSecond
 	if mbps := s.operations().Config.SendBudgetMbps; mbps > 0 {
-		limit = int(mbps * 1000000 / 8 * .2)
+		scaled := int(mbps * 1000000 / 8 * .05)
+		if scaled < limit {
+			limit = scaled
+		}
 	}
-	if limit < 1024 || s.observerBudgetBytes+n > limit {
+	if s.observerBudgetBytes+n > limit {
 		return false
 	}
 	s.observerBudgetBytes += n
 	return true
 }
+func observerExpired(v *observerSubscription, now time.Time) bool {
+	if v.source.observerRevision == observerLocalRevision && v.viewer.observerRevision == observerLocalRevision {
+		return false
+	}
+	return now.Sub(v.touched) > 4*time.Second
+}
+
 func observerNewer(a, b uint32) bool { return a != b && uint32(a-b) < 0x80000000 }
 func (s *Server) observerLocked(r *Room, c, t *Conn, typ uint16, p []byte, flow bool) {
 	now := time.Now()
@@ -171,7 +194,7 @@ func (s *Server) observerLocked(r *Room, c, t *Conn, typ uint16, p []byte, flow 
 		epoch = r.flow.epoch
 	}
 	for i, v := range r.observer {
-		if v != nil && (now.Sub(v.touched) > 4*time.Second || v.term != term || v.epoch != epoch || r.bySeat[v.source.seat] != v.source || r.bySeat[v.viewer.seat] != v.viewer) {
+		if v != nil && (observerExpired(v, now) || v.term != term || v.epoch != epoch || r.bySeat[v.source.seat] != v.source || r.bySeat[v.viewer.seat] != v.viewer) {
 			s.clearObserverAssembly(v)
 			v.viewer.observer.clear(s)
 			r.observer[i] = nil
@@ -184,7 +207,11 @@ func (s *Server) observerLocked(r *Room, c, t *Conn, typ uint16, p []byte, flow 
 		return encodeFrame(typ, b)
 	}
 	if typ == 30 {
-		if len(p) != 30 || p[2] != 2 || p[3] < 1 || p[3] > 6 || p[4] != 0 || p[5] != 0 || binary.LittleEndian.Uint32(p[18:]) != observerRevision || binary.LittleEndian.Uint32(p[22:]) != 24*1024 || binary.LittleEndian.Uint32(p[14:]) != epoch {
+		if len(p) != 30 || p[2] != 2 || p[3] < 1 || p[3] > 6 || p[4] != 0 || p[5] != 0 || (binary.LittleEndian.Uint32(p[18:]) != observerRevision && binary.LittleEndian.Uint32(p[18:]) != observerLocalRevision) || binary.LittleEndian.Uint32(p[22:]) != 24*1024 || binary.LittleEndian.Uint32(p[14:]) != epoch {
+			return
+		}
+		modern := binary.LittleEndian.Uint32(p[18:]) == observerLocalRevision
+		if modern && (c.observerRevision != observerLocalRevision || t.observerRevision != observerLocalRevision) {
 			return
 		}
 		delay := binary.LittleEndian.Uint32(p[26:])
@@ -198,6 +225,15 @@ func (s *Server) observerLocked(r *Room, c, t *Conn, typ uint16, p []byte, flow 
 		if p[3] == 1 { // Viewer -> source; a reconnect wait seat can watch, never produce.
 			if r.roundWaitMask&(1<<t.seat) != 0 {
 				return
+			}
+			if modern && !c.observerRequestAt.IsZero() && now.Sub(c.observerRequestAt) < 5*time.Second {
+				reply := append([]byte(nil), p...)
+				reply[0], reply[1], reply[3] = p[1], p[0], 6
+				s.enqueue(c, envelope(reply))
+				return
+			}
+			if modern {
+				c.observerRequestAt = now
 			}
 			old := r.observer[c.seat]
 			if old != nil {
@@ -257,7 +293,10 @@ func (s *Server) observerLocked(r *Room, c, t *Conn, typ uint16, p []byte, flow 
 	seq, tick := binary.LittleEndian.Uint32(p[12:]), binary.LittleEndian.Uint32(p[16:])
 	part, count := binary.LittleEndian.Uint16(p[24:]), binary.LittleEndian.Uint16(p[26:])
 	raw, crc := binary.LittleEndian.Uint32(p[32:]), binary.LittleEndian.Uint32(p[36:])
-	if seq == 0 || !observerNewer(seq, v.last) || count == 0 || count > 304 || part >= count || raw == 0 || raw > 128*1024 || binary.LittleEndian.Uint32(p[28:]) != uint32(len(p)-40) {
+	if v.delivered && c.observerRevision == observerLocalRevision {
+		return
+	}
+	if seq == 0 || !observerNewer(seq, v.last) || count == 0 || count > 304 || part >= count || raw == 0 || raw > 1024*1024 || (c.observerRevision != observerLocalRevision && raw > 128*1024) || binary.LittleEndian.Uint32(p[28:]) != uint32(len(p)-40) {
 		return
 	}
 	if now.Sub(v.started) > 3*time.Second {
@@ -308,10 +347,40 @@ func (s *Server) observerLocked(r *Room, c, t *Conn, typ uint16, p []byte, flow 
 	v.last = seq
 	frames := v.frames
 	s.clearObserverAssembly(v)
-	if v.spent+n > 64*1024 || len(t.send) > 16 || !s.observerBudget(n) {
+	if v.spent+n > 96*1024 || len(t.send) > 16 || s.observerBusy.Load() {
 		return
 	}
 	v.spent += n
+	if c.observerRevision == observerLocalRevision {
+		// A single authenticated source upload serves all currently pending viewers.
+		// Only viewer-specific routing/watch identifiers are rewritten; CRC'd content
+		// is immutable and still sent separately to each recipient.
+		for _, target := range r.observer {
+			if target == nil || target.source != c || target.delivered || target.viewer.observerRevision != observerLocalRevision || target.stream != v.stream || target.term != term || target.epoch != epoch {
+				continue
+			}
+			target.delivered = true
+			target.last = seq
+			out := make([][]byte, 0, len(frames))
+			for _, original := range frames {
+				f := append([]byte(nil), original...)
+				at := 4
+				if flow {
+					at += 10
+				}
+				f[at+1] = target.viewer.seat
+				binary.LittleEndian.PutUint32(f[at+4:], target.watch)
+				out = append(out, f)
+			}
+			target.viewer.observer.offer(s, out)
+			select {
+			case <-target.viewer.done:
+				target.viewer.observer.clear(s)
+			default:
+			}
+		}
+		return
+	}
 	t.observer.offer(s, frames)
 	select {
 	case <-t.done:

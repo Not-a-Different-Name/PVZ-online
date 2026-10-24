@@ -71,6 +71,7 @@ inline int AidSeat(Board* board,int row) {
 }
 inline int Hit(Board* b,int x,int y) {
     if(Watching(b)) {
+        if(Rect(400,8,120,46).Contains(x,y))return 10;
         if(Rect(530,8,125,46).Contains(x,y))return 5;
         if(Rect(665,8,125,46).Contains(x,y))return 6;
         return 0;
@@ -110,10 +111,10 @@ inline void WatchNext(Board* b) {
     b->CycleMobileWatch();
 #else
     auto* s=RoomPresentation::Session(b->mApp);if(!s)return;
+    if(s->ObserverRequestCooldown()){b->PushCustomBanner(ModText::Tr("稍等几秒再获取快照","Wait a few seconds before requesting another snapshot"));return;}
     int start=Watching(b)?b->mWatchLastSeat:s->GetLocalSeat();
     for(int n=1;n<=NetProto::MAX_PLAYERS;++n){uint8_t seat=(uint8_t)((start+n-1)%NetProto::MAX_PLAYERS+1);
         if(seat==s->GetLocalSeat()||!s->IsSeatOccupied(seat)||s->IsSeatOffline(seat))continue;
-        if(s->IsWatching())s->EndWatch(true);
         if(s->BeginWatch(seat)){b->mWatchKeyHeld=true;b->mWatchLastSeat=seat;b->mCoopWatchLatched=true;return;}
     }
     StopWatch(b);
@@ -122,6 +123,10 @@ inline void WatchNext(Board* b) {
 inline void Action(Board* b,int action) {
     auto* app=b->mApp;auto* s=RoomPresentation::Session(app);auto* c=app->mCoopPlay.get();
     if(action==6){StopWatch(b);return;}
+    if(action==10&&s&&s->IsWatching()){
+        if(s->ObserverRequestCooldown())b->PushCustomBanner(ModText::Tr("稍等几秒再刷新","Wait a few seconds before refreshing"));
+        else s->BeginWatch(s->GetWatchTargetSeat());return;
+    }
     if(action==5){b->CloseQuickChatPanel();b->mSunGiftSelectFrames=0;WatchNext(b);return;}
     if(Watching(b))return;
     if(action==0)return; // A blank area inside the panel consumes the tap without changing pages.
@@ -215,6 +220,7 @@ inline void Draw(Board* b,Graphics* g) {
     }
 }
 inline void WatchControls(Graphics* g) {
+    SmallButton(g,Rect(400,8,120,46),ModText::Tr("刷新","Refresh"),true);
     SmallButton(g,Rect(530,8,125,46),ModText::Tr("换人","Next"),true);
     SmallButton(g,Rect(665,8,125,46),ModText::Tr("返回","Back"),true);
 }

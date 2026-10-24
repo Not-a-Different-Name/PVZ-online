@@ -106,6 +106,7 @@ func (r *Room) broadcast(s *Server, except *Conn, frame []byte) {
 type Server struct {
 	observerBusy        atomic.Bool
 	observerMemory      atomic.Int64
+	observerBudgetMu    sync.Mutex
 	observerBudgetAt    time.Time
 	observerBudgetBytes int
 	lookupRates         map[string]lookupRate
@@ -617,7 +618,7 @@ func (s *Server) sweepOnce(now time.Time) {
 func (s *Server) sweepRoom(r *Room, now time.Time) bool {
 	for i, v := range r.observer {
 		if v != nil {
-			if now.Sub(v.touched) > 4*time.Second || r.bySeat[v.source.seat] != v.source || r.bySeat[v.viewer.seat] != v.viewer || v.term != r.flow.term && r.flow.enabled || v.epoch != r.flow.epoch && r.flow.enabled {
+			if observerExpired(v, now) || r.bySeat[v.source.seat] != v.source || r.bySeat[v.viewer.seat] != v.viewer || v.term != r.flow.term && r.flow.enabled || v.epoch != r.flow.epoch && r.flow.enabled {
 				s.clearObserverAssembly(v)
 				v.viewer.observer.clear(s)
 				r.observer[i] = nil

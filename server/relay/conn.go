@@ -21,18 +21,20 @@ type outMsg struct {
 }
 
 type Conn struct {
-	observer     observerOutput
-	observerCap  bool
-	created      time.Time
-	credential   [16]byte
-	flow         bool
-	controlStart time.Time
-	controlCount int
-	srv          *Server
-	nc           net.Conn
-	send         chan outMsg
-	done         chan struct{}
-	closeOnce    sync.Once
+	observer          observerOutput
+	observerCap       bool
+	observerRevision  uint32
+	observerRequestAt time.Time
+	created           time.Time
+	credential        [16]byte
+	flow              bool
+	controlStart      time.Time
+	controlCount      int
+	srv               *Server
+	nc                net.Conn
+	send              chan outMsg
+	done              chan struct{}
+	closeOnce         sync.Once
 
 	room atomic.Pointer[Room] // 所属房间（未进房为 nil）
 	seat uint8                // 当前席位（1..6；未分配为 0）—— 持 srv.mu 改

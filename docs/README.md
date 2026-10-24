@@ -5,6 +5,7 @@
 
 | 文档 | 内容 | 什么时候看 |
 |---|---|---|
+| [OBSERVER-MECHANISM-ALTERNATIVES-2026-10-25.md](OBSERVER-MECHANISM-ALTERNATIVES-2026-10-25.md) | 观战双机制（v1简图/v2完整画面）现状盘点、单次快照批边界、A–J十个替代方向、风险/矛盾/待定案问题，及2核2G3M·300人·50观战的量化测算 | 讨论观战方案或定冷却/带宽参数前 |
 | [RELAY-STATUS-LOAD-2026-10-18.md](RELAY-STATUS-LOAD-2026-10-18.md) | 中继本机状态页/命令、Linux负载实测与2核小服务器带宽估计 | 服务端独立状态版；不改变客户端Build，公网待宝塔更新 |
 | [LOBBY-HISTORY-BUILD68-2026-10-18.md](LOBBY-HISTORY-BUILD68-2026-10-18.md) | 公共房间目录、公开/按码切换、本地最近50局及双端验收 | 当前MOD68；代码及本地验收完成，未打包/部署 |
 | [ENDLESS-ADMISSION-BUILD67-2026-10-18.md](ENDLESS-ADMISSION-BUILD67-2026-10-18.md) | 无尽关间按码补位、增益补齐、独立额度与草坪恢复、门禁和随机重连凭据 | 当前MOD67；本地验收通过，尚未打包/部署，真机与长局待验 |

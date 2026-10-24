@@ -7770,6 +7770,7 @@ void Board::DrawGameObjects(Graphics* g)
 	for (int i = 0; i < aRenderItemCount; i++)
 	{
 		RenderItem& aRenderItem = aRenderList[i];
+        Observer::CaptureRenderItem(g, this, aRenderItem);
 		switch (aRenderItem.mRenderObjectType)
 		{
 		case RenderObjectType::RENDER_ITEM_PLANT:
@@ -9909,12 +9910,12 @@ bool Board::HandleBoardWatchKey(KeyCode theKey)
 		mWatchRearmBlocked = true;	// 压住 V 自动重复，等真松手（KeyUp/轮询兜底）再解锁
 		return true;
 	}
+    if(theKey=='R'&&aSession&&aSession->IsWatching()){if(!aSession->BeginWatch(aSession->GetWatchTargetSeat()))PushCustomBanner(ModText::Tr("稍等几秒再刷新","Wait a few seconds before refreshing"));return true;}
 	if (theKey >= '1' && theKey <= '0' + NetProto::MAX_PLAYERS)
 	{
 		uint8_t aSeat = (uint8_t)(theKey - '0');
 		if (aSession != nullptr && aSeat != aSession->GetLocalSeat() && aSession->IsSeatOccupied(aSeat))
 		{
-			if (aSession->IsWatching()) aSession->EndWatch(true);
 			if (aSession->BeginWatch(aSeat)) mWatchLastSeat = aSeat;
 		}
 		return true;	// 观看态优先拦截 1/2：这里不落血量显示键
