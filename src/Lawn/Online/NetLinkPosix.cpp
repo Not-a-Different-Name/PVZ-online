@@ -301,3 +301,11 @@ std::string NetLink::GetLocalIPv4Text()
     }
     return preferred.empty() ? fallback : preferred;
 }
+
+std::string NetLink::GetPeerIPv4Text()const{
+ if(!IsConnected())return {};sockaddr_in address{};
+ socklen_t n=sizeof(address);
+ if(getpeername(mImpl->worker->socket,reinterpret_cast<sockaddr*>(&address),&n)!=0||address.sin_family!=AF_INET)return {};
+ const auto*b=reinterpret_cast<const unsigned char*>(&address.sin_addr);
+ return std::to_string(b[0])+"."+std::to_string(b[1])+"."+std::to_string(b[2])+"."+std::to_string(b[3]);
+}

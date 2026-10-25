@@ -13,6 +13,7 @@ struct BufferConfig {
     std::uint64_t delayMs = 1500;
     std::size_t maxFrames = 12;
     std::size_t maxBytes = 8 * 1024 * 1024;
+    std::uint64_t timeoutMs = 3000;
 };
 
 struct SourceStamp {
@@ -120,7 +121,7 @@ public:
             retryAt = now > std::numeric_limits<std::uint64_t>::max() - RetryMs ? now : now + RetryMs;
             return false;
         }
-        visible = next.frame.sequence;
+        visible = next.frame.sequence;visibleSource=next.sourceMs;
         status = Status::Showing;
         retryAt = 0;
         while (count--) {
@@ -143,7 +144,7 @@ public:
     }
 
     void End(EndReason ended = EndReason::User) {
-        renderer.Clear();
+        renderer.Clear();visibleSource=0;
         queue.clear(); bytes = 0;
         identity = {};
         clock = lastTraffic = localAnchor = sourceAnchor = lastSource = accepted = visible = retryAt = 0;
@@ -162,13 +163,14 @@ public:
     std::uint64_t Dropped() const { return dropped; }
     std::uint64_t Delay() const { return config.delayMs; }
     bool Paused() const { return paused; }
+    std::uint64_t VisibleSourceMilliseconds()const{return visibleSource;}
     bool Buffering() const { return anchored && visible == 0 && !paused; }
 
 private:
     bool Advance(std::uint64_t now) {
         if (status == Status::Closed || now < clock) return false;
         clock = now;
-        if (now - lastTraffic >= TimeoutMs) { End(EndReason::Timeout); return false; }
+        if (now - lastTraffic >= std::clamp<std::uint64_t>(config.timeoutMs,3000,6000)) { End(EndReason::Timeout); return false; }
         return true;
     }
     struct Entry { Frame frame; std::uint64_t sourceMs; std::size_t bytes; };
@@ -178,6 +180,7 @@ private:
     Identity identity;
     std::size_t bytes = 0;
     std::uint64_t clock = 0, lastTraffic = 0, localAnchor = 0, sourceAnchor = 0, lastSource = 0;
+    std::uint64_t visibleSource=0;
     std::uint64_t accepted = 0, visible = 0, retryAt = 0, dropped = 0;
     bool paused = false, anchored = false;
     Status status = Status::Closed;

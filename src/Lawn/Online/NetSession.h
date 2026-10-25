@@ -6,6 +6,7 @@
 #include "AdmissionWire.h"
 #include "ObserverWireV2.h"
 #include "ObserverTransfer.h"
+#include "ObserverDirectLink.h"
 #include <deque>
 #ifndef __NETSESSION_H__
 #define __NETSESSION_H__
@@ -495,13 +496,18 @@ public:
     uint32_t ObserverStream()const{return mObserverRemoteStream;}
     uint32_t ObserverEpoch()const{return mReadyEpoch?mReadyEpoch:1;}
     bool HasObserverWatchers()const;
-    bool ObserverCanCapture()const{if(!HasObserverWatchers()||!mLink.ObserverWritable())return false;for(auto&v:mObserverViewers)if(v.watch&&v.pending)return true;return false;}
+    bool ObserverCanCapture()const;
+    bool IsObserverDirect()const;
+    void StopObserverDirect(){mPunchLink.Cancel(mObserverWatch);mPunchFailedWatch=mObserverWatch;}
+    uint64_t ObserverDirectInterval()const;
+
     bool SendObserverDisplay(const std::vector<uint8_t>& body,uint32_t tick);
     void ObserverCaptureFailed();
     uint32_t ObserverRequestCooldown()const;
     bool TakeObserverDisplay(ObserverTransfer::Complete& out);
 private:
     void ObserverV2Tick();void HandleObserver(uint16_t,const uint8_t*,int);
+    void HandlePunchControl(const uint8_t*,int);   // @pvz-online P2P-a：0xF024 打洞控制面
     bool ObserverControl(uint8_t,ObserverWireV2::ControlOp,uint32_t,uint32_t);
     void ClearObserverV2();
     struct ObserverViewer{uint32_t watch=0,stream=0;uint64_t touched=0;bool pending=false;};
@@ -510,6 +516,16 @@ private:
     uint32_t mObserverLocalStream=0,mObserverRemoteStream=0,mObserverWatch=0,mObserverSeq=0;
     uint32_t mObserverEpoch=0,mObserverTerm=0;
     bool mObserverBoardActive=false,mObserverRelay=false,mObserverAccepted=false,mObserverReceived=false;
+    // P2P 打洞（观战第二期 P2P-a）：问候/探测端点发现；画面直连数据通道是 P2P-b。
+    ObserverDirect::DirectLink mPunchLink;
+    std::uint64_t mPunchQueryAt=0;
+    bool mPunchRelay=false,mPunchAdvertised=false;
+    uint64_t mPunchAttemptAt=0,mPunchRenewAt=0,mObserverDirectAt=0;
+    uint32_t mPunchAttemptWatch=0,mPunchFailedWatch=0;int mPunchAttempts=0;
+    uint64_t mDirectSentAt[7]{};
+    ObserverDirect::Context DirectContext(uint8_t peer,bool producer)const;
+    void TickObserverDirect(uint64_t now);
+
     ObserverTransfer::Assembler mObserverAssembler;
     std::deque<ObserverTransfer::Complete> mObserverInbox;
 public:
