@@ -71,6 +71,7 @@ public:
 
 	// 主机在面板上念给队友听的自己的局域网地址；取不到就返回 "127.0.0.1"。
 	static std::string	GetLocalIPv4Text();
+    std::string GetPeerIPv4Text()const;
 
 private:
 	Impl*			mImpl;

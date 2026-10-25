@@ -25,6 +25,7 @@ type Conn struct {
 	observerCap       bool
 	observerRevision  uint32
 	observerRequestAt time.Time
+	punch             punchConnState
 	created           time.Time
 	credential        [16]byte
 	flow              bool
@@ -179,6 +180,8 @@ func (s *Server) handle(c *Conn, typ uint16, payload []byte) {
 		switch typ {
 		case 0xF023:
 			s.handleObserverCapability(c, payload)
+		case 0xF024:
+			s.handlePunchControl(c, payload)
 		case msgCliFlow:
 			s.handleFlow(c, payload)
 		case msgCliFlowProgress:

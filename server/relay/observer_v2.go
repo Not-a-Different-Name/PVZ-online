@@ -132,7 +132,14 @@ func (s *Server) handleObserverCapability(c *Conn, p []byte) {
 	}
 	c.observerCap = true
 	c.observerRevision = binary.LittleEndian.Uint32(p)
-	out := make([]byte, 8)
+	size := 8
+	if c.build >= 97 && s.operations().Config.PunchEnable && s.punch.udp != nil {
+		size = 12
+	}
+	out := make([]byte, size)
+	if size == 12 {
+		binary.LittleEndian.PutUint32(out[8:], 1)
+	}
 	binary.LittleEndian.PutUint32(out, c.observerRevision)
 	binary.LittleEndian.PutUint32(out[4:], 24*1024)
 	s.enqueue(c, encodeFrame(0xF023, out))

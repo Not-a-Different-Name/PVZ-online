@@ -17,7 +17,7 @@ import (
 	"time"
 )
 
-const relayRelease = "2026-10-25-observer-local1"
+const relayRelease = "2026-10-25-observer-direct1"
 const defaultAdminAddress = "127.0.0.1:27778"
 const connectionLimit = 512
 const roomLimit = 256
@@ -81,6 +81,11 @@ type relayStatus struct {
 	RateLimitedTotal          uint64           `json:"rate_limited_total"`
 	TimedOutTotal             uint64           `json:"timed_out_total"`
 	WriteErrorsTotal          uint64           `json:"write_errors_total"`
+	PunchCapableTotal         uint64           `json:"punch_capable_total"`
+	PunchHellosTotal          uint64           `json:"punch_hellos_total"`
+	PunchOffersTotal          uint64           `json:"punch_offers_total"`
+	PunchDirectTotal          uint64           `json:"punch_direct_total"`
+	PunchFailedTotal          uint64           `json:"punch_failed_total"`
 	ReceivedBytesPerSecond    float64          `json:"received_bytes_per_second"`
 	SentBytesPerSecond        float64          `json:"sent_bytes_per_second"`
 	ForwardedFramesPerSecond  float64          `json:"forwarded_frames_per_second"`
@@ -178,6 +183,11 @@ func (s *Server) sampleStatus(now time.Time) relayStatus {
 	v.RateLimitedTotal = c.rateLimited.Load()
 	v.TimedOutTotal = c.timedOut.Load()
 	v.WriteErrorsTotal = c.writeErrors.Load()
+	v.PunchCapableTotal = s.punch.capable.Load()
+	v.PunchHellosTotal = s.punch.hellosSeen.Load()
+	v.PunchOffersTotal = s.punch.offers.Load()
+	v.PunchDirectTotal = s.punch.opened.Load()
+	v.PunchFailedTotal = s.punch.failed.Load()
 	if !previous.SampledAt.IsZero() {
 		v.SampleSeconds = now.Sub(previous.SampledAt).Seconds()
 		v.ReceivedBytesPerSecond = float64(v.ReceivedBytesTotal-previous.ReceivedBytesTotal) / v.SampleSeconds
@@ -309,6 +319,8 @@ func printStatus(address string, raw bool, out io.Writer) error {
 	fmt.Fprintf(out, "累计收/发 %.2f / %.2f MiB  累计连接 %d  容量拒绝 %d\n队列 %d帧，单连接最高 %d/64；队列满断开 %d\n超时断开 %d  写失败 %d  格式错误 %d  控制频率超限 %d\n",
 		float64(v.ReceivedBytesTotal)/1048576, float64(v.SentBytesTotal)/1048576, v.AcceptedTotal, v.CapacityRejectedTotal,
 		v.QueuedFrames, v.MaxConnectionQueue, v.QueueDropsTotal, v.TimedOutTotal, v.WriteErrorsTotal, v.MalformedTotal, v.RateLimitedTotal)
+	fmt.Fprintf(out, "P2P打洞：握手 %d  问候 %d  配对 %d  直连成功 %d  失败 %d\n",
+		v.PunchCapableTotal, v.PunchHellosTotal, v.PunchOffersTotal, v.PunchDirectTotal, v.PunchFailedTotal)
 	fmt.Fprintln(out, "流量只含中继TCP数据，不含IP/TCP头、重传；退出/重启后累计值清零。")
 	return nil
 }

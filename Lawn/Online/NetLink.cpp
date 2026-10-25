@@ -650,3 +650,11 @@ std::string NetLink::GetLocalIPv4Text()
 	if (!aFallback.empty()) return aFallback;
 	return "127.0.0.1";
 }
+
+std::string NetLink::GetPeerIPv4Text()const{
+ if(!IsConnected())return {};sockaddr_in address{};
+ int n=sizeof(address);
+ if(getpeername(mImpl->mSocket,reinterpret_cast<sockaddr*>(&address),&n)!=0||address.sin_family!=AF_INET)return {};
+ const auto*b=reinterpret_cast<const unsigned char*>(&address.sin_addr);
+ return std::to_string(b[0])+"."+std::to_string(b[1])+"."+std::to_string(b[2])+"."+std::to_string(b[3]);
+}

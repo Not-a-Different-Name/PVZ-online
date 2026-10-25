@@ -119,6 +119,7 @@ type Server struct {
 	stats               relayCounters
 	status              statusCache
 	ops                 operationsState
+	punch               punchHub
 	startedAt           time.Time
 	gamePort            int
 
@@ -509,6 +510,7 @@ func (s *Server) removeConn(c *Conn, reason uint8) {
 		return
 	}
 	s.clearObserverConn(r, c)
+	s.punchDrop(r, c)
 	c.room.Store(nil)
 	seat := c.seat
 	if seat >= 1 && seat <= maxPlayers && r.bySeat[seat] == c {

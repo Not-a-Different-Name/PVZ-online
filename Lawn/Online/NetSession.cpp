@@ -512,7 +512,7 @@ void NetSession::AbortReconnect()
 // 回来时全队还等着这些记忆接着跑。
 void NetSession::EnterReconnecting()
 {
-    ClearObserverV2();mObserverRelay=false;mObserverQueryAt=0;
+    ClearObserverV2();mObserverRelay=false;mObserverQueryAt=0;mPunchRelay=mPunchAdvertised=false;mPunchQueryAt=0;mPunchLink.Close();
 	if (mState != State::RECONNECTING)
 	{
 		TodLog("[net] link lost in room %s (seat %u) - trying to reconnect",
@@ -1525,6 +1525,7 @@ void NetSession::EndWatch(bool theNotify)
 void NetSession::ClearWatchState(WatchEnd theReason)
 {
 	bool aWasWatching = IsWatching();
+    mPunchLink.Cancel(DirectContext(mWatchTargetSeat,false));mPunchAttemptWatch=mPunchFailedWatch=0;mPunchAttempts=0;mObserverDirectAt=0;
     mObserverWatch=0;mObserverAccepted=false;mObserverReceived=false;mObserverRemoteStream=0;mObserverInbox.clear();mObserverAssembler.Context(0,0,0,0,0);
 	mWatchTargetSeat = NetProto::SEAT_UNSET;
 	mFramesSinceWatchKeepalive = 0;
@@ -1613,7 +1614,7 @@ bool NetSession::SendObserverV2Frame(uint8_t,const ObserverWireV2::Frame&){retur
 
 void NetSession::ResetToOff()
 {
-    ClearObserverV2();mObserverRelay=false;mObserverQueryAt=0;
+    ClearObserverV2();mObserverRelay=false;mObserverQueryAt=0;mPunchRelay=mPunchAdvertised=false;mPunchQueryAt=0;mPunchLink.Close();
 	mDiagnosticStatusText.clear();
     mPrivateRoom=false;
  mFlowSupported=mFlowEnabled=mFlowHelloSent=mFlowDeferred=false;
@@ -2678,9 +2679,13 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 void NetSession::HandleControlFrame(uint16_t theType, const uint8_t* thePayload, int theSize)
 {
     if(theType==0xF023) {
-        if(IsRelay() && IsConnected() && theSize==8 && ObserverWireV2::Get32(thePayload)==ObserverRevision && ObserverWireV2::Get32(thePayload+4)==24*1024)mObserverRelay=true;
+        if(IsRelay()&&IsConnected()&&(theSize==8||theSize==12)&&ObserverWireV2::Get32(thePayload)==ObserverRevision&&ObserverWireV2::Get32(thePayload+4)==24*1024){
+            mObserverRelay=true;mPunchAdvertised=theSize==12&&(ObserverWireV2::Get32(thePayload+8)&1);
+            if(!mPunchAdvertised){mPunchLink.Close();mPunchRelay=false;}mObserverQueryAt=ObserverNow();
+        }
         return;
     }
+    if(theType==0xF024) {HandlePunchControl(thePayload,theSize);return;}
 
  if(theType==NetProto::MSG_SRV_FLOW){HandleFlowState(thePayload,theSize);return;}
     if(mTransport==Transport::RELAY && theType==0xF00D) {

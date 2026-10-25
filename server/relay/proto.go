@@ -51,6 +51,38 @@ const (
 	msgObserverFrame   = 31
 )
 
+// P2P punch（观战第二期 P2P-a）：中继只在 0xF024 控制面介绍同房观战对、在 UDP 上
+// 应答 32 字节问候让客户端得知自己的公网映射；观战画面字节永远客户端直连，
+// 中继不承载、不落盘、不解码。时长常量在 observer_punch.go。
+const (
+	msgCliPunch         = 0xF024
+	punchRevision       = 1
+	punchUDPPortDefault = 27888
+)
+
+// 0xF024 载荷：首字节 op。C→S 与 S→C 复用编号，方向区分。
+const (
+	punchOpCapable = 1 // C→S {rev u32}；S→C {rev u32, udpPort u16, flags u8, helloToken 16} = 24B
+	punchOpBegin   = 2 // C→S {targetSeat u8}；S→C offer {peerSeat u8, ip 4, port u16, token 16, ttl u16} = 26B
+	punchOpResult  = 3 // C→S {targetSeat u8, ok u8, rttMs u16} = 5B
+)
+
+// 32 字节定长 UDP 包：magic[4] op[1] token[16] seq[4] ip[4] port[2] pad[1]。
+// op1/2 = 客户端↔中继问候；op3/4/5 = 客户端↔客户端探测/应答/数据（P2P-b），
+// 中继收到一律丢弃。
+const (
+	punchMagic0 = 0x50 // 'P'
+	punchMagic1 = 0x5A // 'Z'
+	punchMagic2 = 0x50 // 'P'
+	punchMagic3 = 0x32 // '2'
+	punchUDPHello    = 1
+	punchUDPHelloAck = 2
+	punchUDPProbe    = 3
+	punchUDPProbeAck = 4
+	punchUDPData     = 5
+	punchPacketSize  = 32
+)
+
 // REJECT 原因（与 NetProto::RejectReason 对齐）
 const (
 	rejectProtocolVersion = 0

@@ -32,6 +32,7 @@ public:
  explicit DrawScene(LawnApp*);~DrawScene();bool Validate(const DrawFrame&)const;std::size_t Bytes(const DrawFrame&)const;
  bool Prepare(const DrawFrame&);void Draw(Sexy::Graphics*);void Clear();std::size_t Size()const{return current.commands.size();}
  void SetPredictionAge(double seconds){predictionAge=seconds;}
+ const DrawFrame& CurrentFrame()const{return current;}
  uint8_t Flags()const{return current.flags;}uint16_t Wave()const{return current.wave;}uint16_t Total()const{return current.total;}
 private:DrawAssets assets;DrawFrame current;std::vector<Sexy::Image*> images;std::vector<std::unique_ptr<Reanimation>> animations;double predictionAge=0;
 };

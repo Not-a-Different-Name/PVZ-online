@@ -27,6 +27,8 @@ type operationsConfig struct {
 	Weight           uint16  `json:"weight"`
 	AcceptNewRooms   bool    `json:"accept_new_rooms"`
 	BusyCPUPercent   float64 `json:"busy_cpu_percent"`
+	PunchEnable      bool    `json:"punch_enable"`
+	PunchUDPPort     int     `json:"punch_udp_port"`
 	CatalogPath      string  `json:"catalog_path"`
 	CatalogPublicKey string  `json:"catalog_public_key"`
 }
@@ -48,7 +50,7 @@ type operationsState struct {
 }
 
 func defaultOperationsConfig() operationsConfig {
-	return operationsConfig{Revision: 1, Weight: 100, AcceptNewRooms: true, BusyCPUPercent: 85, CatalogPublicKey: defaultCatalogPublicKey}
+	return operationsConfig{Revision: 1, Weight: 100, AcceptNewRooms: true, BusyCPUPercent: 85, PunchEnable: true, PunchUDPPort: punchUDPPortDefault, CatalogPublicKey: defaultCatalogPublicKey}
 }
 func (s *Server) operations() *operationsSnapshot {
 	if v := s.ops.current.Load(); v != nil {
@@ -90,7 +92,7 @@ func (s *Server) reloadOperations(path string) error {
 			err = errors.New("trailing config data")
 		}
 	}
-	if err == nil && (cfg.Revision == 0 || cfg.Weight == 0 || cfg.Weight > 1000 || cfg.BandwidthMbps < 0 || cfg.BandwidthMbps > 100000 || cfg.SendBudgetMbps < 0 || cfg.SendBudgetMbps > 100000 || cfg.BandwidthMbps > 0 && cfg.SendBudgetMbps > cfg.BandwidthMbps || cfg.BusyCPUPercent < 1 || cfg.BusyCPUPercent > 100) {
+	if err == nil && (cfg.Revision == 0 || cfg.Weight == 0 || cfg.Weight > 1000 || cfg.BandwidthMbps < 0 || cfg.BandwidthMbps > 100000 || cfg.SendBudgetMbps < 0 || cfg.SendBudgetMbps > 100000 || cfg.BandwidthMbps > 0 && cfg.SendBudgetMbps > cfg.BandwidthMbps || cfg.BusyCPUPercent < 1 || cfg.BusyCPUPercent > 100 || cfg.PunchUDPPort < 1 || cfg.PunchUDPPort > 65535) {
 		err = errors.New("invalid operations config values")
 	}
 	previous := s.ops.current.Load()

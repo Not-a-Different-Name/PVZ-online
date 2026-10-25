@@ -78,6 +78,14 @@ func main() {
 	srv.startSampling(*configPath)
 	defer srv.stopSampling()
 	go srv.sweepLoop()
+	// P2P 打洞监听是冷配置：端口取启动时的运营配置，热改不重绑，重启生效。
+	if ops := srv.operations().Config; ops.PunchEnable {
+		if err := srv.startPunchUDP(ops.PunchUDPPort); err != nil {
+			logger.Fatalf("punch udp: %v", err)
+		}
+		go srv.punchSweepLoop()
+		logger.Printf("punch udp listening on :%d", ops.PunchUDPPort)
+	}
 
 	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", *port))
 	if err != nil {

@@ -69,11 +69,13 @@ set(Lawn__Online__Online_Include
     "../Lawn/Online/NetProtocol.h"
     "../Lawn/Online/NetLink.h"
     "../Lawn/Online/NetSession.h"
+    "../Lawn/Online/ObserverDirectLink.h"
 )
 source_group("Lawn\\Online\\Online Include" FILES ${Lawn__Online__Online_Include})
 
 set(Lawn__Online__Online_Source
     "../Lawn/Online/NetLink.cpp"
+    "../Lawn/Online/ObserverDirectLink.cpp"
     "../Lawn/Online/NetSession.cpp"
     "../Lawn/Online/RelayCatalog.cpp"
     "../third_party/ed25519/src/fe.c"

@@ -6,7 +6,7 @@
 namespace ObserverTransfer {
 inline uint32_t Crc(const uint8_t*p,size_t n){uint32_t c=~0u;for(size_t i=0;i<n;++i){c^=p[i];for(int j=0;j<8;++j)c=(c>>1)^(0xedb88320u&uint32_t(-int32_t(c&1)));}return ~c;}
 inline bool Newer(uint32_t a,uint32_t b){return a!=b&&uint32_t(a-b)<0x80000000u;}
-struct Complete {uint8_t src=0,dst=0;uint32_t watch=0,stream=0,sequence=0,tick=0,epoch=0,rawBytes=0;std::vector<uint8_t> data;};
+struct Complete {uint8_t src=0,dst=0;uint32_t watch=0,stream=0,sequence=0,tick=0,epoch=0,rawBytes=0;std::vector<uint8_t> data;bool direct=false;};
 inline bool Fragment(uint8_t src,uint8_t dst,uint32_t watch,uint32_t stream,uint32_t seq,uint32_t tick,uint32_t epoch,const std::vector<uint8_t>&data,std::vector<std::vector<uint8_t>>&out){
  out.clear();if(data.size()<5||data.size()>ObserverWireV2::MAX_ENCODED||!epoch)return false;
  uint32_t raw=ObserverWireV2::Get32(data.data()+1);if(!raw||raw>ObserverWireV2::MAX_RAW)return false;
