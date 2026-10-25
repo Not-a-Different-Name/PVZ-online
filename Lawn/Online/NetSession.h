@@ -317,6 +317,23 @@ public:
 	// 细节会被取走，这条留着做"这次开不下去"的判断；下一次开局/回主菜单才清。
 	bool			AnyStartAckRejected() const { return mAnyAckRejected; }
 
+	// 主机侧：这次开局不干了（队友拒绝 / 超时 / 自己取消）。FLOW_START 一被中继收下
+	// 房间就进了 flowSetup 相，与成员答不答无关——不把它收回大厅，CanHostStart 会
+	// 一直停在假上，开局键就再也按不亮（2026-10-25 玩家报障）。
+	void			AbortFlowStartAttempt();
+
+	// 成员侧：房主刚才那条开局已被放弃、中继把房间收回大厅了——还挂着的"是否加入"
+	// 该收掉了，再点"加入"只会一个人进场。
+	bool			StartAttemptRolledBack() const;
+
+	// 主机侧：房间停在 setup 相、本机却没有任何在途的开局——上次放弃发出的「回菜单」
+	// 丢了（放弃的五条路里有一条是断线，那一下注定发不出去；重连归队后房间还停在 1 相，
+	// 中继对 setup 相没有服务端自救，开始键从此不亮）。
+	bool			IsOrphanFlowSetup() const;
+
+	// 孤儿 setup 相自救：重发一次「回菜单」，把房间收回大厅。
+	void			RecoverOrphanFlowSetup();
+
 	// 主机侧：全员都进场了——广播"各席位开始做自己的三选一"（闯关 R6 新时序的最后一环：
 	// 命令 → 各席位先进场并回 ACK → 收齐后 RUN_GO → 各席位在新草坪上放选项屏）。
 	// 收齐的判定按**所有上座席位**记账，不再写死"就是那两个人"。

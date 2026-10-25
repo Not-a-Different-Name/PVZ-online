@@ -131,6 +131,7 @@ Board::Board(LawnApp* theApp)
 	mWatchNoticeTimer = 0;
 	mWatchKeyHeld = false;
 	mWatchRearmBlocked = false;
+	mWatchKeyHandled = false;
 	mWatchLastSeat = NetProto::SEAT_UNSET;
 	mLevel = 0;
 	mCursorObject = new CursorObject();
@@ -9778,6 +9779,7 @@ mApp->mOnlineSession);
 		mWatchNoticeTimer = 0;
 		mWatchKeyHeld = false;
 		mWatchRearmBlocked = false;
+		mWatchKeyHandled = false;
 		mCoopWatchLatched = false;
 		return;
 	}
@@ -9796,6 +9798,10 @@ mApp->mOnlineSession);
 	{
 		mWatchEndSeen = anEnd;
 		mWatchNoticeTimer = 120;
+		// 切换式观看（2026-10-25）：看外收场不再有「松手清账」那一步——在这儿就地收干净，
+		// 不然 mWatchKeyHeld 挂着，数字键（选卡/直选席位）会被观看钩子继续吞掉。
+		mWatchKeyHeld = false;
+		mCoopWatchLatched = false;
 	}
 	if (mWatchNoticeTimer > 0)
 	{
@@ -9812,6 +9818,7 @@ mApp->mOnlineSession);
 		if (aSession->IsWatching()) aSession->EndWatch(true);
 	}
 	if (mWatchRearmBlocked && !mWidgetManager->mKeyDown['V']) mWatchRearmBlocked = false;
+	if (mWatchKeyHandled && !mWidgetManager->mKeyDown['V']) mWatchKeyHandled = false;	// 失焦丢 KeyUp 兜底
 
 	// 被看端：没人看零开销；有人看每 7 帧（≈15Hz）打包一份、逐观众单播。
 	// 观众走光重置节拍——下一个观众一来立刻拿到第一份，不用等满一拍。
@@ -9840,11 +9847,13 @@ mApp->mOnlineSession);
 }
 
 // ====================================================================================================
-// @pvz-online: 观战批③——观看 UI。口径（2026-10-05 与用户敲定）：
-//   · 按住 V 全屏切入队友场地（自己的模拟照跑不暂停）；松开 V / Esc 退回；
-//   · 按住期间 1-6 直选席位（观看态优先拦截，1/2 不切血量显示）；观看中一切键吞掉
-//     （防止空格弹暂停菜单盖住观看层）；
-//   · 失焦/KeyUp 丢失由 UpdateBoardWatch 的 mKeyDown 轮询兜底；
+// @pvz-online: 观战批③——观看 UI。口径（2026-10-05 与用户敲定；2026-10-25 按用户定案
+// 把「按住 V」改成「按 V 切换」）：
+//   · 按 V 进入队友场地全屏观看（自己的模拟照跑不暂停）；再看一下 V 切到下一位队友
+//     （按席位号循环）；Esc 退回；
+//   · 观看中 1-6 直选席位（观看态优先拦截，1/2 不切血量显示）、R 重看当前对象；观看中
+//     其余键吞掉（防止空格弹暂停菜单盖住观看层）；
+//   · 自动重复的 V 只算一下（mWatchKeyHandled 压住，KeyUp/失焦轮询清回）；
 //   · 结束原因 TIMEOUT/TARGET_LEFT 在收场后提示 ~2 秒（DrawWatchNotice）。
 // 绘制全部只读 mRemoteSnapshot（纯展示数据），不建/不碰任何实体；坐标与棋盘同系。
 
@@ -9874,6 +9883,19 @@ uint8_t Board::PickDefaultWatchSeat()
 	return NetProto::SEAT_UNSET;
 }
 
+// 下一个可看席位：从 theAfter 的下一位起按席位号循环，跳过空席。
+// 返回 SEAT_UNSET = 没别人可看。
+static uint8_t NextWatchSeat(const NetSession* theSession, uint8_t theAfter)
+{
+	if (theAfter == NetProto::SEAT_UNSET) return NetProto::SEAT_UNSET;
+	for (int aStep = 1; aStep <= NetProto::MAX_PLAYERS; aStep++)
+	{
+		uint8_t aSeat = (uint8_t)((theAfter + aStep - 1) % NetProto::MAX_PLAYERS + 1);
+		if (aSeat != theSession->GetLocalSeat() && theSession->IsSeatOccupied(aSeat)) return aSeat;
+	}
+	return NetProto::SEAT_UNSET;
+}
+
 // KeyDown 钩子。返回 true = 这个键被观看功能吃掉（不落给血量键/暂停/ESC 链）。
 bool Board::HandleBoardWatchKey(KeyCode theKey)
 {
@@ -9881,13 +9903,21 @@ bool Board::HandleBoardWatchKey(KeyCode theKey)
 
 	if (theKey == 'V')
 	{
-		// 自动重复的 V：按住的幂等吞掉；ESC 退场后压到真松手，别把观看立刻拉回来
-		if (mWatchRearmBlocked) return true;
-		if (mWatchKeyHeld) return true;
+		// ESC 退场后压到真松手；按住期间的自动重复一次只算一下
+		if (mWatchRearmBlocked || mWatchKeyHandled) return true;
 		if (mApp->mGameScene != GameScenes::SCENE_PLAYING || !mApp->IsOnlineGame()
 			|| aSession == nullptr || !aSession->IsConnected())
 		{
 			return false;	// 单机/不在局内：V 没有含义，落回原链
+		}
+		if (mWatchKeyHeld && aSession->IsWatching())
+		{
+			// 已在观看：V 切换到下一位队友（按席位号循环）；带冷却时提示稍等
+			mWatchKeyHandled = true;
+			uint8_t aSeat = NextWatchSeat(aSession, mWatchLastSeat);
+			if (aSeat != NetProto::SEAT_UNSET && aSession->BeginWatch(aSeat)) mWatchLastSeat = aSeat;
+			else PushCustomBanner(ModText::Tr("稍等几秒再刷新", "Wait a few seconds before refreshing"));
+			return true;
 		}
 		uint8_t aSeat = PickDefaultWatchSeat();
 		if (aSeat == NetProto::SEAT_UNSET || !aSession->BeginWatch(aSeat))
@@ -9895,6 +9925,8 @@ bool Board::HandleBoardWatchKey(KeyCode theKey)
 			return false;	// 没有可看的队友：不吞，V 当没按过
 		}
 		mWatchKeyHeld = true;
+		mCoopWatchLatched = true;	// 切换式观看：松开 V 不退场，Esc/暂停才退
+		mWatchKeyHandled = true;
 		mWatchLastSeat = aSeat;
 		return true;
 	}
@@ -10215,7 +10247,7 @@ void Board::KeyDown(KeyCode theKey)
 	// 含选卡键 1/2；5 秒无操作自动退）
 	if (HandleSunGiftKey(theKey)) return;
 
-	// @pvz-online: 观战——V 按住进入/退出、观看中 1-6 直选席位、观看中一切键拦截
+	// @pvz-online: 观战——V 切换观看/换人、Esc 退出，观看中 1-6 直选席位、一切键拦截
 	// （必须排在选卡键之前：观看态优先拿数字当切人键）
 	if (HandleBoardWatchKey(theKey)) return;
 	if (HandlePlantKeyboardKey(theKey)) return;
@@ -10277,15 +10309,12 @@ void Board::KeyUp(KeyCode theKey)
 {
     if(mApp->TeamProgressionInputBlocked())return;
     NextWaveControl::KeyUp(this,theKey);
-	if ((theKey == 'V') && (mWatchKeyHeld || mWatchRearmBlocked))
+	if ((theKey == 'V') && (mWatchKeyHeld || mWatchRearmBlocked || mWatchKeyHandled))
 	{
-        mCoopWatchLatched=false;
-		mWatchKeyHeld = false;
+		// 切换式观看（2026-10-25 用户定案）：松开 V 不再退场——退场只认 Esc/暂停/按钮。
+		// 这里只收"这一次按下"的账：自动重复的压制与 ESC 的重进闸一起放开。
+		mWatchKeyHandled = false;
 		mWatchRearmBlocked = false;
-		if (mApp->mOnlineSession != nullptr && mApp->mOnlineSession->IsWatching())
-		{
-			mApp->mOnlineSession->EndWatch(true);	// WatchEnd::USER——自己松的手，不提示
-		}
 	}
 }
 

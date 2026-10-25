@@ -647,8 +647,9 @@ public:
 	bool							mHasRemoteSnapshot;
 	NetSession::WatchEnd			mWatchEndSeen;			// 待展示的结束原因（TIMEOUT/TARGET_LEFT；展示完清回 NONE）
 	int								mWatchNoticeTimer;		// 结束提示残留帧数（~2 秒）
-	bool							mWatchKeyHeld;			// 本机 V 按住中（结束观看也要等松手再按）
+	bool							mWatchKeyHeld;			// 观看中（V 或按钮进入；按 Esc 退出）
 	bool							mWatchRearmBlocked;		// ESC 退场后压住重进，直到 V 真的松手（防自动重复）
+	bool							mWatchKeyHandled;		// 这次 V 按下已处理（按住期间的自动重复不算新的一下）
 	uint8_t							mWatchLastSeat;			// 上次看的席位（再按 V 还看他；SEAT_UNSET = 无）
 	int								mWatchSnapshotTicker;	// 被看端发送节拍（每 7 帧 ≈ 15Hz 一份）
 

@@ -2252,6 +2252,9 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 				break;
 			}
 
+			// A canceled or already-answered start no longer owns this ACK slot.
+			// Ignore late/duplicate replies instead of restoring rejected state.
+			if (!mSeats[aMsg.mSrcSeat].mAwaitingAck) break;
 			// 存到他那格里就走：开局要换场景、动一堆 UI，那是主循环的活。
 			mSeats[aMsg.mSrcSeat].mAckState = aMsg.mAccepted ? 1 : 2;
 			mSeats[aMsg.mSrcSeat].mAwaitingAck = false;

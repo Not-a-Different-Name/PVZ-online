@@ -179,6 +179,7 @@ LawnApp::LawnApp()
 	mOnlineWasConnected = false;
 	mOnlineWaitingStartAck = false;
 	mOnlineStartWaitFrames = 0;
+	mOrphanSetupTicks = 0;
 	mPauseMenuWasOpen = false;
 	mPauseMenuFromPeer = false;
 	mOnlineWaitingAdviceOn = false;
@@ -738,6 +739,7 @@ void LawnApp::UpdateOnlineStart()
 			&& !(mOnlineSession->IsReconnecting() && IsRunMode()))
 		{
 			mOnlineWaitingStartAck = false;
+			mOnlineSession->AbortFlowStartAttempt();	// 开局作废：中继房间收回大厅，别让它卡在 setup 相
 			KillDialog(Dialogs::DIALOG_ONLINE_START);
 			ClearOnlineStartOverride();
 			ShowGameSelector();
@@ -753,6 +755,7 @@ void LawnApp::UpdateOnlineStart()
 		if (mOnlineSession->IsConnected() && IsRunMode() && !mOnlineSession->HasOtherSeats() && !mOnlineSession->HasRoundFlow())
 		{
 			mOnlineWaitingStartAck = false;
+			mOnlineSession->AbortFlowStartAttempt();	// 房都空了：一样把房间收回大厅
 			KillDialog(Dialogs::DIALOG_ONLINE_START);
 			ClearOnlineStartOverride();
 			TodLog("[net] the room emptied while waiting for a start ack - going in solo");
@@ -794,7 +797,8 @@ void LawnApp::UpdateOnlineStart()
 		if (mOnlineSession->AnyStartAckRejected())
 		{
 			mOnlineWaitingStartAck = false;
-			KillDialog(Dialogs::DIALOG_ONLINE_START);
+			mOnlineSession->AbortFlowStartAttempt();	// 拒绝=这次开局作废：把中继房间收回大厅，
+			KillDialog(Dialogs::DIALOG_ONLINE_START);	// 已点「加入」进场的队友也一并拉回来
 			ClearOnlineStartOverride();
 			ShowGameSelector();
 			TodLog("online start: a teammate turned it down");
@@ -836,6 +840,7 @@ void LawnApp::UpdateOnlineStart()
 		if (!IsRunMode() && mOnlineStartWaitFrames > ONLINE_START_WAIT_TIMEOUT_FRAMES)
 		{
 			mOnlineWaitingStartAck = false;
+			mOnlineSession->AbortFlowStartAttempt();	// 超时同拒绝：房间收回大厅，开局键随时能再按
 			KillDialog(Dialogs::DIALOG_ONLINE_START);
 			ClearOnlineStartOverride();
 			ShowGameSelector();
@@ -850,6 +855,27 @@ void LawnApp::UpdateOnlineStart()
 			aDialog->WaitForResult();
 		}
 		return;
+	}
+
+	// @pvz-online 2026-10-25：孤儿 setup 相自救。放弃开局的五条路里有一条是断线——
+	// 那一下「回菜单」注定发不出去；重连归队后房间还停在 setup 相，而中继对 setup 相
+	// 没有服务端自救，开始键从此不亮。人已回到菜单、手上又没有任何在途开局时，就认作
+	// 这种孤儿，每 200 帧重发一次 op5 把房间收回大厅（点齐 ACK 进场的那扇窗有棋盘
+	// 挡着，进不来这条）。发得冗余无害：房间已在大厅时 op5 是空操作。
+	if (mOnlineSession->IsConnected() && !mOnlineSession->IsReconnecting() &&
+		mOnlineSession->GetRole() == NetSession::Role::HOST &&
+		mGameScene == GameScenes::SCENE_MENU && mBoard == nullptr &&
+		mOnlineSession->IsOrphanFlowSetup())
+	{
+		if (++mOrphanSetupTicks >= 200)
+		{
+			mOrphanSetupTicks = 0;
+			mOnlineSession->RecoverOrphanFlowSetup();
+		}
+	}
+	else
+	{
+		mOrphanSetupTicks = 0;
 	}
 
 	// 不在等待时的迟到 ACK：没有哪个等待方认领它，清掉。留着的话下一次等待会被它污染——
@@ -891,6 +917,15 @@ void LawnApp::UpdateOnlineStart()
 
 	// 客户端侧：主机开局了，跟着开自己那块棋盘。
 	NetProto::MsgStartLevel aStart;
+
+	// @pvz-online 2026-10-25：房主放弃了那条开局（中继已把房间收回大厅）——还挂着的
+	// "是否加入"当场收掉；不收的话，晚一步点"加入"只会一个人进场。闯关命令在下面
+	// 那条超时里被特意放过（补发追赶可能要几十屏），这条是它唯一的收口。
+	if (mOnlineStartPromptActive && mOnlineSession->StartAttemptRolledBack())
+	{
+		TodLog("[net] the start attempt was rolled back - the invite is closed");
+		DismissOnlineStartPrompt(false);
+	}
 
 	// @pvz-online: 询问框挂着的这段时间也在计时：非闯关局给它和主机那把尺一样长的时间
 	// （同一个常量），到点两边一起收——主机那边超时作废，这边把框撤掉顺手回一句"不去"。
@@ -985,6 +1020,7 @@ void LawnApp::OnlineStartWaitCancelled()
 	if (!mOnlineWaitingStartAck) return;	// 早撤了（已经进场 / 这次已经作废）：这一下不算数
 
 	mOnlineWaitingStartAck = false;
+	mOnlineSession->AbortFlowStartAttempt();	// 玩家自己取消：同一条收法，房间收回大厅
 	KillDialog(Dialogs::DIALOG_ONLINE_START);
 	ClearOnlineStartOverride();
 	ShowGameSelector();
