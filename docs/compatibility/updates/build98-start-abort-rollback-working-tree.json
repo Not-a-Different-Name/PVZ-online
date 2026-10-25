@@ -1,0 +1,15 @@
+{
+  "pcModBuild": 98,
+  "description": "After a member declines the start (or the host cancels / times out / loses the room), the host now aborts the attempt: flow progress op5 returns the relay room to the lobby so the start button recovers, pending start retries and per-seat ack bookkeeping are cleared. Members holding a stale invite get it dismissed automatically when the room rolls back. Follow-up sweep fix: if the abort's op5 was lost (the disconnect abort path), the host self-heals an orphaned setup-phase room from the menu once back with no start in flight. Shared Online files (NetSession.h, NetProtocol.h, FlowSession.inl) synced whole from the PC working tree; LawnApp.cpp/OnlineGame.cpp/LawnApp.h fork replayed per hunk. FlowSession.inl logs via NetworkLog instead of TodLog (no Tod layer in this port).",
+  "status": "working-tree",
+  "validation": {
+    "pcNativeBuildPassed": true,
+    "androidArm64NativeBuildPassed": true,
+    "hostAbortPathsPatchedFive": true,
+    "memberRollbackDismissPatched": true,
+    "orphanSetupSelfHealPatched": true,
+    "noTodLogInPort": true,
+    "androidInstalled": false,
+    "androidDeviceConnected": false
+  }
+}

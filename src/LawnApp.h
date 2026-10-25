@@ -106,6 +106,9 @@ public:
     bool mSlideCollect = true;
     bool mHasOnlineStart = false, mOnlineWasConnected = false, mOnlineWaitingStartAck = false;
     int mOnlineStartLevel = 0, mOnlineStartSeed = 0, mOnlineStartWaitFrames = 0;
+    // 孤儿 setup 相自救的节拍器：房主停在菜单、房间却停在 setup 相（放弃时的 op5 丢了）
+    // 时，按这个计数每 200 帧重发一次「回菜单」。
+    int mOrphanSetupTicks = 0;
     bool mOnlineRunStartHeld = false, mOnlineRunGo = false, mRunIntroHeld = false;
     bool mOnlineStartPromptActive = false, mOnlineSeedsHeld = false, mOnlineWaitingAdviceOn = false;
     bool mShowedStartupAnnounce = false;

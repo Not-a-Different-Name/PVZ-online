@@ -105,8 +105,10 @@ void NetSession::TickObserverDirect(uint64_t now){
  if(IsRelay()&&mPunchAdvertised&&(!mPunchRelay||(mObserverWatch&&now-mPunchRenewAt>=120000))&&now-mPunchQueryAt>=2000){
   uint8_t p[5];p[0]=ObserverDirect::OP_CAPABLE;ObserverWireV2::Put32(p+1,ObserverDirect::REVISION);SendRaw(ObserverDirect::CONTROL_TYPE,p,5);mPunchQueryAt=now;
  }
- if(mTransport==Transport::DIRECT&&mObserverWatch&&mObserverAccepted&&GetSeatBuild(mWatchTargetSeat)>=97&&mPunchFailedWatch!=mObserverWatch&&mPunchAttemptWatch!=mObserverWatch){
-  mPunchAttemptWatch=mObserverWatch;
+ // LAN tokens have the same 120-second lifetime as relay offers. Renew before
+ // expiry even when the subscription and UDP channel are already established.
+ if(mTransport==Transport::DIRECT&&mObserverWatch&&mObserverAccepted&&GetSeatBuild(mWatchTargetSeat)>=97&&mPunchFailedWatch!=mObserverWatch&&(mPunchAttemptWatch!=mObserverWatch||now-mPunchAttemptAt>=90000)){
+  mPunchAttemptWatch=mObserverWatch;mPunchAttemptAt=now;
   if(mPunchLink.Open()){uint8_t p[35]{};p[0]=4;ObserverDirect::Put16(p+1,mPunchLink.LocalPort());
    if(ObserverDirect::DirectLink::Token(p+3)){
     auto c=DirectContext(mWatchTargetSeat,false);ObserverDirect::Put32(p+19,c.watch);ObserverDirect::Put32(p+23,c.stream);ObserverDirect::Put32(p+27,c.epoch);ObserverDirect::Put32(p+31,c.term);

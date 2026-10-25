@@ -145,3 +145,41 @@ void NetSession::UpdateReadyCancelState() {
  if(mPreparation.phase==PreparationWire::OPEN && mPreparation.revision>=mReadyCancelRevision &&
   !(mPreparation.ready&(1u<<mLocalSeat)))mReadyCancelState=ReadyCancelState::CONFIRMED;
 }
+
+// @pvz-online 2026-10-25：房主放弃这次开局（队友拒绝 / 超时 / 自己取消）。
+// FLOW_START 被中继收下的那一刻房间就进了 flowSetup 相——成员答不答与它无关；
+// 人都回了菜单就再没人退关，returnFlowToMenu 永远不来，房间卡在 1 相，
+// CanHostStart 只认大厅/终场相，开局键从此按不亮（2026-10-25 玩家报障）。
+// op5「回菜单」在大厅相是空操作（returnFlowToMenu 见 lobby 直接 return），
+// 所以每次放弃都发一发不会误伤；应答记账一并作废，防迟到的 ACK 或断线补发
+// 把这条死掉的开局又复活（PEER_BACK 的 ResendLastStartLevel 只认 mAwaitingAck）。
+void NetSession::AbortFlowStartAttempt() {
+	mFlowStartPending = false;
+	mAnyAckRejected = false;
+	for (uint8_t seat = 1; seat <= NetProto::MAX_PLAYERS; ++seat) {
+		mSeats[seat].mAwaitingAck = false;
+		mSeats[seat].mAckState = 0;
+	}
+	// 直连房间没有 flow 相（mFlowEnabled 恒假）天然跳过；断线时发不出去也不影响本地收摊。
+	if (mFlowEnabled && IsConnected() && SendFlowProgress(5, true))
+		NetworkLog("[net] the start attempt was aborted - the room goes back to the lobby");
+}
+
+// 成员侧：中继已把房间收回大厅（flow 回到 lobby 相）而本机刚好消费过那一条 START——
+// 房主放弃了这次开局，还挂着的「是否加入」该收掉了，再点「加入」只会一个人进场。
+bool NetSession::StartAttemptRolledBack() const {
+	return mFlowEnabled && mConsumedStartEpoch && mFlowPhase == 0 && mFlowEpoch == mConsumedStartEpoch;
+}
+
+// 主机侧：房间停在 setup 相、本机却没有任何在途的开局——上次放弃发出的 op5 丢了。
+// 已进场的那扇窗（点齐 ACK → 建棋盘 → 首个 op1 之前）不会误入：那时候应用侧有棋盘，
+// 自救的调用门（在菜单、无棋盘）把它挡在外面；迁移接任的相 1 被恢复记号排除。
+bool NetSession::IsOrphanFlowSetup() const {
+	return mFlowEnabled && mFlowPhase == 1 && mReadyEpoch && mFlowEpoch == mReadyEpoch &&
+		!mFlowStartPending && !mFlowHostStartRecovery && !mHasPendingStart;
+}
+
+void NetSession::RecoverOrphanFlowSetup() {
+	if (mFlowEnabled && IsConnected() && SendFlowProgress(5, true))
+		NetworkLog("[net] an orphaned setup was reclaimed - the room goes back to the lobby");
+}
