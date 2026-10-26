@@ -62,6 +62,10 @@ public:
 	bool								mShowMenuButtonAfterAchievements;	//+0xAD
 	int									mAchievementAnimTime;	//+0xBC
 	bool								mShowingAchievements;	//+0xD8
+	int mAchievementPage = 0;
+	int mAchievementPageDown = 0;
+	int AchievementPageCount() const { return (int(mAchievementItems.size()) + 3) / 4; }
+	void FlipAchievementPage(int delta);
 	std::vector<AchievementScreenItem>	mAchievementItems;		//+0xC0
 
 public:

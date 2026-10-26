@@ -942,7 +942,7 @@ void RenderParticle(Graphics* g, PvzpParticle* theParticle, const Color& theColo
 	PvzpEmitterDefinition* aEmitterDef = aEmitter->mEmitterDef;
 	Image* aImage = aEmitter->mImageOverride != nullptr ? aEmitter->mImageOverride : aEmitterDef->mImage;
 	if (aImage == nullptr)
-		return;
+		return;  // 不存在贴图时，取消绘制
 
 	int aCelWidth = aImage->GetCelWidth();
 	int aCelHeight = aImage->GetCelHeight();
@@ -1271,5 +1271,6 @@ PvzpParticleSystem* PvzpParticleHolder::AllocParticleSystemFromDef(float theX, f
 PvzpParticleSystem* PvzpParticleHolder::AllocParticleSystem(float theX, float theY, int theRenderOrder, ParticleEffect theParticleEffect)
 {
 	PVZP_ASSERT(static_cast<int>(theParticleEffect) >= 0 && static_cast<int>(theParticleEffect) < gParticleDefCount);
-	return AllocParticleSystemFromDef(theX, theY, theRenderOrder, &gParticleDefArray[theParticleEffect], theParticleEffect);
+	PvzpParticleSystem* aResult = AllocParticleSystemFromDef(theX, theY, theRenderOrder, &gParticleDefArray[theParticleEffect], theParticleEffect);
+	return aResult;
 }

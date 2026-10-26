@@ -1817,6 +1817,8 @@ void LawnApp::UpdateFrames()
 				DoOnlineDialog();
 		}
 	}
+    // Team progression also runs in a pure solo game with no network session.
+    TeamPlay::For(this).Update();
 	// 开局要换场景、动一堆 UI，所以也放在循环外、widget 更新之前——收包链里干了迟早出事。
 	UpdateEndlessAdmission();
 	UpdateOnlineStart();
@@ -3608,7 +3610,7 @@ void LawnApp::DisconnectOnline()
     mOnlineWasConnected = false;
 }
 
-void LawnApp::UpdateCoopPlay(){if(!mCoopPlay)mCoopPlay=std::make_unique<CoopPlay>(this);mCoopPlay->Update();TeamPlay::For(this).Update();}
+void LawnApp::UpdateCoopPlay(){if(!mCoopPlay)mCoopPlay=std::make_unique<CoopPlay>(this);mCoopPlay->Update();}
 void LawnApp::ShowCoopPlay(){if(TeamProgressionAvailable()&&GetDialogCount()==0){ShowTeamProgression(TeamProgressionView::Page::TEAMMATES);return;}ShowCoopPlayLegacy();}
 void LawnApp::ShowCoopPlayLegacy(){if(!mCoopPlay)mCoopPlay=std::make_unique<CoopPlay>(this);mCoopPlay->Show();}
 void LawnApp::ExpireCoopLoan(){if(!mCoopPlay)mCoopPlay=std::make_unique<CoopPlay>(this);mCoopPlay->ExpireLoan();}

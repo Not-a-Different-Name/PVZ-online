@@ -1,3 +1,4 @@
+#include "../TeamPlay.h"
 #include "Lawn/Widget/PlayerMessageBox.h"
 #include "../../LawnApp.h"
 #include "RunState.h"
@@ -155,6 +156,7 @@ float LawnApp::RunBuffMul(int theBuffId) const
 	{
 		aMul = 1.0f + aDef.mPerStackMul * (float)aStacks;
 	}
+	if(theBuffId==RUN_BUFF_FASTSEED)aMul*=TeamPlay::SeedMultiplier(const_cast<LawnApp*>(this));
 	return aMul < 0.1f ? 0.1f : aMul;
 }
 
@@ -198,6 +200,7 @@ float LawnApp::RunPlantUpgradeMul(SeedType thePlant) const
 	{
 		aMul = 1.0f + aDef.mPerStackMul * (float)aStacks;
 	}
+	
 	return aMul < 0.1f ? 0.1f : aMul;
 }
 
@@ -228,6 +231,7 @@ float LawnApp::RunPlantUpgradeMulKind(SeedType thePlant, RunPlantUpgradeKind the
 	{
 		aMul = 1.0f + aDef.mPerStackMul * (float)aStacks;
 	}
+	
 	return aMul < 0.1f ? 0.1f : aMul;
 }
 
@@ -259,6 +263,7 @@ float LawnApp::RunPlantBuff2Mul(SeedType thePlant) const
 	{
 		aMul = 1.0f + aDef.mPerStackMul * (float)aStacks;
 	}
+	
 	return aMul < 0.1f ? 0.1f : aMul;
 }
 
@@ -288,6 +293,7 @@ float LawnApp::RunPlantBuff2MulKind(SeedType thePlant, RunPlantUpgradeKind theKi
 	{
 		aMul = 1.0f + aDef.mPerStackMul * (float)aStacks;
 	}
+	
 	return aMul < 0.1f ? 0.1f : aMul;
 }
 

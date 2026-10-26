@@ -1,3 +1,4 @@
+#include "TeamPlay.h"
 /*
  * Copyright (C) 2026 Zhou Qiankang <wszqkzqk@qq.com>
  *
@@ -733,6 +734,7 @@ void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, Se
     // @pvz-online: steel shell halves the final HP after existing health multipliers.
     if (theSeedType == SeedType::SEED_PUMPKINSHELL && mApp->RunExtraBuffCount(RUN_BUFF2_STEEL_PUMPKIN) > 0)
         mPlantHealth = std::max(1, mPlantHealth / 2);
+    mPlantHealth = int(std::min(double(INT_MAX),double(mPlantHealth)*TeamPlay::HealthMultiplier(mApp)+0.5));
     mPlantMaxHealth = mPlantHealth;
 
     if (mSeedType != SeedType::SEED_FLOWERPOT && IsOnBoard())
@@ -6377,7 +6379,7 @@ int Plant::CoopMaxHealth()
         else if(mSeedType==SEED_GARLIC)value=20;
     }
     if(mSeedType==SEED_PUMPKINSHELL && mApp->RunExtraBuffCount(RUN_BUFF2_STEEL_PUMPKIN)>0)value=std::max(1.0,value/2);
-    return (int)value;
+    return int(std::min(double(2147483647),double(int(value))*TeamPlay::HealthMultiplier(mApp)+0.5));
 }
 float Plant::CoopAttackPeriod()
 {

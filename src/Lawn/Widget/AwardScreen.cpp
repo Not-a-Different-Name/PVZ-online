@@ -25,6 +25,7 @@
 #include "GameButton.h"
 #include "StoreScreen.h"
 #include "AwardScreen.h"
+#include "OnlineUiDraw.h"
 #include "../ZenGarden.h"
 #include "../SeedPacket.h"
 #include "../../LawnApp.h"
@@ -47,6 +48,8 @@ AwardScreen::AwardScreen(LawnApp* theApp, AwardType theAwardType, bool theShowin
 	mAchievementAnimTime = 0;
 	mAwardType = theAwardType;
 	mShowingAchievements = theShowingAchievements;
+	mShowStartButtonAfterAchievements = false;
+	mShowMenuButtonAfterAchievements = false;
 
 	mLoadedResourceNames.push_back("DelayLoad_AwardScreen");
 
@@ -62,7 +65,7 @@ AwardScreen::AwardScreen(LawnApp* theApp, AwardType theAwardType, bool theShowin
 
 				AchievementScreenItem aAchievementItem{};
 				aAchievementItem.mId = i;
-				aAchievementItem.mStartAnimTime = 100 * mAchievementItems.size() + 150;
+				aAchievementItem.mStartAnimTime = 100 * (mAchievementItems.size() % 4) + 150;
 				aAchievementItem.mEndAnimTime = aAchievementItem.mStartAnimTime + 100;
 				aAchievementItem.mStartY = 750;
 				aAchievementItem.mY = aAchievementItem.mStartY;
@@ -70,18 +73,9 @@ AwardScreen::AwardScreen(LawnApp* theApp, AwardType theAwardType, bool theShowin
 			}
 		}
 
-		if (!mAchievementItems.empty()) {
-			//int aDestY = 284 - ((76 * mAchievementItems.size()) >> 1);
-			int aDestY = 284 - ((76 * mAchievementItems.size()) / 2);
-
-			for (size_t j = 0; j < mAchievementItems.size(); j++) {
-				mAchievementItems[j].mDestY = aDestY;
-				aDestY += 76;
-			}
-		}
-		else {
-			mShowingAchievements = false;
-		}
+		for (size_t j = 0; j < mAchievementItems.size(); ++j)
+			mAchievementItems[j].mDestY = 110 + int(j % 4) * 86;
+		mShowingAchievements = !mAchievementItems.empty();
 
 		mApp->WriteCurrentUserConfig();
 	}
@@ -249,6 +243,9 @@ AwardScreen::AwardScreen(LawnApp* theApp, AwardType theAwardType, bool theShowin
 		mMenuButton->mBtnNoDraw = true;
 		mMenuButton->mDisabled = true;
 		mContinueButton->SetLabel("[CONTINUE_BUTTON]");
+		// Keep dismissal available even while a long batch of achievements animates.
+		mContinueButton->mBtnNoDraw = false;
+		mContinueButton->mDisabled = false;
 	}
 
 	if (IsPaperNote())
@@ -470,6 +467,10 @@ void AwardScreen::Update()
 
 void AwardScreen::KeyDown(KeyCode theKey)
 {
+    if (mShowingAchievements && (theKey == KEYCODE_LEFT || theKey == KEYCODE_PRIOR || theKey == KEYCODE_RIGHT || theKey == KEYCODE_NEXT)) {
+        FlipAchievementPage(theKey == KEYCODE_LEFT || theKey == KEYCODE_PRIOR ? -1 : 1); return;
+    }
+
 	if (theKey == KeyCode::KEYCODE_SPACE || theKey == KeyCode::KEYCODE_RETURN)
 	{
 		StartButtonPressed();
@@ -494,6 +495,12 @@ void AwardScreen::StartButtonPressed()
 {
 	if (mApp->GetDialog(DIALOG_STORE))
 		return;
+
+	if (mShowingAchievements || mAwardType == AWARD_ACHIEVEMENTONLY)
+	{
+		AchievementsContinuePressed();
+		return;
+	}
 	if (mAwardType == AWARD_RUN_COMPLETE)
 	{
 		mApp->KillAwardScreen();
@@ -599,6 +606,13 @@ void AwardScreen::StartButtonPressed()
 
 void AwardScreen::MouseDown([[maybe_unused]] int x, [[maybe_unused]] int y, int theClickCount)
 {
+    if (mShowingAchievements) {
+        int page = Rect(90,515,170,42).Contains(x,y) && mAchievementPage > 0 ? -1 :
+            Rect(540,515,170,42).Contains(x,y) && mAchievementPage + 1 < AchievementPageCount() ? 1 : 0;
+        mAchievementPageDown = theClickCount == 1 ? page : 0;
+        if (mAchievementPageDown) { MarkDirty(); return; }
+    }
+
 	if (mAwardType == AWARD_RUN_COMPLETE)
 	{
 		mRunReturnPressed = theClickCount == 1 && Rect(mStartButton->mX, mStartButton->mY,
@@ -614,6 +628,13 @@ void AwardScreen::MouseDown([[maybe_unused]] int x, [[maybe_unused]] int y, int 
 
 void AwardScreen::MouseUp([[maybe_unused]] int x, [[maybe_unused]] int y, int theClickCount)
 {
+    if (mShowingAchievements) {
+        int page = Rect(90,515,170,42).Contains(x,y) && mAchievementPage > 0 ? -1 :
+            Rect(540,515,170,42).Contains(x,y) && mAchievementPage + 1 < AchievementPageCount() ? 1 : 0;
+        const int down = mAchievementPageDown; mAchievementPageDown = 0;
+        if (down) { if (theClickCount == 1 && page == down) FlipAchievementPage(down); else MarkDirty(); return; }
+    }
+
 	if (mAwardType == AWARD_RUN_COMPLETE)
 	{
 		bool activate = mRunReturnPressed && theClickCount == 1 && Rect(mStartButton->mX, mStartButton->mY,
@@ -638,35 +659,38 @@ void AwardScreen::MouseUp([[maybe_unused]] int x, [[maybe_unused]] int y, int th
 
 void AwardScreen::LostFocus()
 {
+    mAchievementPageDown = 0;
 	mRunReturnPressed = false;
 	Widget::LostFocus();
 }
 
 void AwardScreen::DrawAchievements(Graphics* g) {
-	g->SetColorizeImages(true);
-	// Rect aTextWrap = Rect(0, 0, 0, 77); // unused
-	g->SetColor(Color(255, 255, 255));
-	g->FillRect(0, 0, mWidth, mHeight);
-	g->SetColorizeImages(false);
+    g->DrawImage(IMAGE_CHALLENGE_BACKGROUND, 0, 0);
+    SeatUi::Text(g, ModText::Tr("成就", "ACHIEVEMENTS"), 80, 58, 640, 28, Color(220,220,220), true);
+    const size_t first = size_t(mAchievementPage) * 4;
+    for (size_t i = first; i < std::min(first + 4, mAchievementItems.size()); ++i) {
+        const auto& item = mAchievementItems[i];
+        const int y = item.mY;
+        Graphics row(*g); row.ClipRect(80, 90, 640, 360);
+        Rect source(70 * (item.mId % 7), 70 * (item.mId / 7), 70, 70);
+        row.DrawImage(IMAGE_ACHEESEMENTS_ICONS, Rect(110, y, 70, 70), source);
+        SeatUi::Text(&row, GetAchievementName(mApp, item.mId), 200, y + 22, 490, 20, Color(224,187,98));
+        SeatUi::Paragraph(&row, GetAchievementDescription(mApp, item.mId), Rect(200, y + 27, 490, 50), 16, Color::White);
+    }
+    if (AchievementPageCount() > 1) {
+        SeatUi::Text(g, ModText::Format("第 {} / {} 页", "Page {} / {}", mAchievementPage + 1, AchievementPageCount()),
+            250, 482, 300, 18, Color(220,220,220), true);
+        SeatUi::Button(g, Rect(90,515,170,42), ModText::Tr("上一页", "Previous"), mAchievementPage > 0, mAchievementPageDown == -1);
+        SeatUi::Button(g, Rect(540,515,170,42), ModText::Tr("下一页", "Next"), mAchievementPage + 1 < AchievementPageCount(), mAchievementPageDown == 1);
+    }
+}
 
-	g->DrawImage(IMAGE_CHALLENGE_BACKGROUND, 0, 0);
-
-	PvzpDrawString(g, mApp->GetString("ACHIEVEMENTS_TITLE", "ACHIEVEMENTS"), BOARD_WIDTH / 2, 58, FONT_HOUSEOFTERROR28, Color(220, 220, 220), DS_ALIGN_CENTER);
-
-	for (size_t i = 0; i < mAchievementItems.size(); i++) {
-		std::string aAchievementName = GetAchievementName(mApp, mAchievementItems[i].mId);
-		std::string aAchievementDesc = GetAchievementDescription(mApp, mAchievementItems[i].mId);
-		aAchievementName.append(ModText::Tr(" 成就达成！", " Earned!"));
-
-		Rect aSrcRect = Rect(70 * (mAchievementItems[i].mId % 7), 70 * (mAchievementItems[i].mId / 7), 70, 70);
-		Rect aDestRect = Rect(220, mAchievementItems[i].mY + 10, 70, 70);
-		Rect aTextRect = Rect(300, mAchievementItems[i].mY + 20, 300, 60);
-
-		g->DrawImage(IMAGE_ACHEESEMENTS_ICONS, aDestRect, aSrcRect);
-
-		PvzpDrawString(g, aAchievementName, 450, mAchievementItems[i].mY + 25, FONT_DWARVENTODCRAFT15, Color(224, 187, 98), DS_ALIGN_CENTER);
-		PvzpDrawStringWrapped(g, aAchievementDesc, aTextRect, FONT_DWARVENTODCRAFT12, Color(255, 255, 255), DS_ALIGN_CENTER_VERTICAL_MIDDLE);
-	}
+void AwardScreen::FlipAchievementPage(int delta) {
+    if (!mShowingAchievements || AchievementPageCount() < 1) return;
+    mAchievementPage = std::clamp(mAchievementPage + delta, 0, AchievementPageCount() - 1);
+    mAchievementAnimTime = 600;
+    for (auto& item : mAchievementItems) item.mY = item.mDestY;
+    MarkDirty();
 }
 
 void AwardScreen::AchievementsContinuePressed() {

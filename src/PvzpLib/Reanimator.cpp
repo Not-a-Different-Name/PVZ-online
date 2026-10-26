@@ -1210,10 +1210,16 @@ bool ReanimationHolder::MakeRoomForPlant(unsigned int count)
 
 Reanimation* ReanimationHolder::AllocReanimation(float theX, float theY, int theRenderOrder, ReanimationType theReanimationType)
 {
-    if (ReanimationMayOmit(theReanimationType) && !mReanimations.DataArrayCanAllocate(mPlantReservation + 1)) return nullptr;
+    if (ReanimationMayOmit(theReanimationType) && !mReanimations.DataArrayCanAllocate(mPlantReservation + 1))
+    {
+        return nullptr;
+    }
 	// Release builds must enforce the boundary, including damaged free-list metadata.
 	Reanimation* aReanim = mReanimations.DataArrayTryAlloc();
-	if (aReanim == nullptr) return nullptr;
+	if (aReanim == nullptr)
+	{
+		return nullptr;
+	}
 	aReanim->mRenderOrder = theRenderOrder;
 	aReanim->mReanimationHolder = this;
 	aReanim->ReanimationInitializeType(theX, theY, theReanimationType);

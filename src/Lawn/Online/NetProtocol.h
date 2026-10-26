@@ -214,7 +214,7 @@ const uint16_t	PROTOCOL_VERSION	= 1;
 // Build73: Football boss bites for 60; Ravenous retains normal growth.
 // Build75: lily pads and flower pots can share a tile in either planting order.
 // Build77: butter coating DOT, percentage Scorched Earth and Jalapeno Embers.
-const uint16_t	MOD_BUILD			= 98; // MOD98: aborted starts return the relay room to the lobby; same wire shape.
+const uint16_t	MOD_BUILD			= 99; // Team buffs v2 and single-use Cherry aid cards; requires matching clients.
 // @pvz-online: Build61 splits control buffs; all peers need the new nine-stack snapshot.
 const int ZOMBIE_BUFF_COUNT = RunZombieBuffRules::COUNT;
 

@@ -385,6 +385,10 @@ int PvzpTriangleGroup::AppendTriangleDrawMode(int theDrawMode)
 
 void PvzpTriangleGroup::DrawGroup(Graphics* g)
 {
+	if (mTriangleCount > 0 && mImage == nullptr)
+		// Queued triangles outlive the frame that built them; without a texture they can
+		// never be drawn, and mVertArray is fixed-size.
+		mTriangleCount = 0;
 	if (mImage && mTriangleCount)
 	{
 		// without 3D acceleration, additive blending is messed up

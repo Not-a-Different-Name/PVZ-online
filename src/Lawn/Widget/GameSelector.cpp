@@ -175,7 +175,8 @@ GameSelector::GameSelector(LawnApp* theApp)
 	runButton->SetLabelColor(Sexy::Color(245, 230, 165));
 	runButton->SetLabelHiliteColor(Sexy::Color::White);
 	runButton->SetBkgColor(Sexy::Color(37, 83, 55));
-	runButton->Resize(30, 330, 112, 55);
+	// Keep the entry clear of the trophy drawn by the selector overlay.
+	runButton->Resize(30, 255, 112, 55);
 	AddWidget(runButton);
     AddWidget(new MobileRoomStatus(theApp,this));
 

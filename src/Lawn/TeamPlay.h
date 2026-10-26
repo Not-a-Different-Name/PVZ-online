@@ -20,6 +20,11 @@ public:
     static bool NoteVictory(LawnApp*);
     static bool SaveCoopTransaction(LawnApp*,bool lawn=true);
     static void NoteSharedPlant(LawnApp*,int plant);
+    static float HealthMultiplier(LawnApp*);
+    static float SeedMultiplier(LawnApp*);
+    static bool IsSupportCard(LawnApp*,uint32_t coin);
+    static bool UseSupportCard(LawnApp*,uint32_t coin,int row,int column);
+    static void SpendRestrictedSun(LawnApp*,int amount);
     void Update();
     bool HoldPreparation();
     bool HoldPersonalRewards();
@@ -44,6 +49,7 @@ private:
     bool SyncGoals();
     NetSession* Session()const;
     bool Host()const;
+    bool HasTeammates()const;
     uint32_t Attempt()const;
     TeamWire::Message Message(uint8_t)const;
     bool Send(TeamWire::Message,uint64_t target=0);
@@ -56,6 +62,10 @@ private:
     void GrantRelief();
     void Reply(const TeamProgression::Strike&,uint8_t);
     void Execute(TeamProgression::Receipt&);
+    void ExecuteBlast(TeamProgression::Receipt&);
+    bool HasSupportCard()const;
+    void ExpireSupportCard();
+    void GrantStageBuffs();
     bool Capture(std::vector<unsigned char>&)const;
     bool Restore(const std::vector<unsigned char>&);
     bool CanSupport(uint64_t target,int row,int col,std::string& why)const;

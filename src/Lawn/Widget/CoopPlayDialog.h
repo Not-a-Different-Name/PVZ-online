@@ -56,7 +56,7 @@ class CoopDialog : public LawnDialog {
         if(!coop->pendingCancels.empty())return ModText::Tr("等待队友确认取消，再申请新借用。", "Wait for the teammate to confirm cancellation before borrowing again.");
         if(coop->loanWaiting){int seat=s?s->FindCoopSeat(coop->pendingLoan.target):0;
             return "P"+std::to_string(seat)+ModText::Tr(" · 等待答复：", " · awaiting reply: ")+GetRunPlantName((SeedType)coop->pendingLoan.plant);}
-        if(coop->giftWaiting)return ModText::Tr("已付100阳光，预计到账90；等待确认。", "100 sun paid; expected delivery 90. Awaiting confirmation.");
+        if(coop->giftWaiting)return ModText::Tr("已付100阳光，等待队友到账确认。", "100 sun paid; awaiting delivery confirmation.");
         if(!coop->notice.empty())return coop->notice;
         return coop->Preparing()?ModText::Tr("选队友、选植物，然后发送申请。","Choose a teammate and plant, then send the request."):
             ModText::Tr("奖励或选卡时可申请借用。", "Request a loan during rewards or seed selection.");

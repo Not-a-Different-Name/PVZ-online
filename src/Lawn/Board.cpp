@@ -4453,6 +4453,7 @@ void Board::MouseDownWithPlant(int x, int y, int theClickCount)
 	}
 	else if (mCursorObject->mCursorType == CursorType::CURSOR_TYPE_PLANT_FROM_USABLE_COIN)
 	{
+		if(TeamPlay::UseSupportCard(mApp,uint32_t(mCursorObject->mCoinID),aGridY,aGridX))return;
 		AddPlant(aGridX, aGridY, mCursorObject->mType, mCursorObject->mImitaterType);
 		Coin* aCoin = mCoins.DataArrayTryToGet(mCursorObject->mCoinID);
 		mCursorObject->mCoinID = CoinID::COINID_NULL;
@@ -9464,6 +9465,7 @@ bool Board::TakeSunMoney(int theAmount)
 	if (CanTakeSunMoney(theAmount))
 	{
 		mSunMoney -= theAmount;
+        TeamPlay::SpendRestrictedSun(mApp,theAmount);
 		return true;
 	}
 
