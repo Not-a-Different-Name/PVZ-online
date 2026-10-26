@@ -388,6 +388,10 @@ TodTriangleGroup::TodTriangleGroup()
 //0x4461F0
 void TodTriangleGroup::DrawGroup(Graphics* g)
 {
+	// Queued triangles outlive the frame that built them; without a texture they can never
+	// be drawn, and mVertArray is fixed-size.
+	if (mTriangleCount > 0 && mImage == nullptr)
+		mTriangleCount = 0;
 	if (mImage && mTriangleCount)
 	{
 		// @Patoke: do we want this? if 3D acceleration is off then blending is messed up

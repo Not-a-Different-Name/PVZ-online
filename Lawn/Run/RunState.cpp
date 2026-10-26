@@ -1645,6 +1645,11 @@ bool RunState::Load(int theProfileId, int theMode, int theScene, bool theBackup,
         return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam);
     mTeam=TeamProgression::State{};
     if(aVersion>=25) {std::vector<unsigned char> team;if(!aReader.ReadBlob(team)||!TeamProgression::Decode(team,mTeam))return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam);}
+    // @pvz-online 2026-10-26：一张票不跨进程。MOD98 的单人误开票把 open 票写进了存档，
+    // 以后再进团队房续档时，那张没有原会话时钟与名册的旧票会被当成真票结算（单人局凭空
+    // 得增益、跨关跨模式串流）。读档一律关票——已得的层数原样保留，下一次准备按现役
+    // 名册重新开票。
+    if(mTeam.shared.ballot.open)mTeam.shared.ballot.open=false;
     if(theTeam && (mAdmission.run!=theTeam || mAdmission.phase==Admission::NONE))return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam);
     if(theMode==RUN_MODE_ENDLESS ? (aMode!=RUN_MODE_ENDLESS || (int)aEndlessScene!=theScene) : aMode==RUN_MODE_ENDLESS)return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam);
 
@@ -1739,13 +1744,13 @@ int RunState::GetEffectiveBuffCount(int id) const
 }
 bool RunState::HasUsablePlant(SeedType plant) const
 {
-    return HasPlant(plant) || mTeam.shared.Has((int)plant) || (mLoanLevel==mLevelIndex && mLoanPlant==(int)plant);
+    return HasPlant(plant) || (!IsEndless()&&mTeam.shared.Has((int)plant)) || (mLoanLevel==mLevelIndex && mLoanPlant==(int)plant);
 }
 std::vector<SeedType> RunState::GetUsablePool() const
 {
     auto result=mPool;
-    for(int p=0;p<48;++p)if(mTeam.shared.Has(p)&&!HasPlant((SeedType)p))result.push_back((SeedType)p);
-    if(mLoanLevel==mLevelIndex && mLoanPlant>=0 && !HasPlant((SeedType)mLoanPlant) && !mTeam.shared.Has(mLoanPlant))result.push_back((SeedType)mLoanPlant);
+    for(int p=0;p<48;++p)if((!IsEndless()&&mTeam.shared.Has(p))&&!HasPlant((SeedType)p))result.push_back((SeedType)p);
+    if(mLoanLevel==mLevelIndex && mLoanPlant>=0 && !HasPlant((SeedType)mLoanPlant) && !(!IsEndless()&&mTeam.shared.Has(mLoanPlant)))result.push_back((SeedType)mLoanPlant);
     return result;
 }
 bool RunState::ValidateLoan(SeedType plant,const std::vector<BuffStack>& buffs) const

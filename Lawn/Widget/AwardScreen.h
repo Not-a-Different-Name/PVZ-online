@@ -38,6 +38,10 @@ public:
 	bool								mShowMenuButtonAfterAchievements;	//+GOTY @Patoke: 0xAD
 	int									mAchievementAnimTime;	//+GOTY @Patoke: 0xBC
 	bool								mShowingAchievements;	//+GOTY @Patoke: 0xD8
+	int mAchievementPage = 0;
+	int mAchievementPageDown = 0;
+	int AchievementPageCount() const { return (int(mAchievementItems.size()) + 3) / 4; }
+	void FlipAchievementPage(int delta);
 	std::vector<AchievementScreenItem>	mAchievementItems;		//+GOTY @Patoke: 0xC0
 	int									mRunLevelCount;			// @pvz-online: 通关屏用——闯关一局的关数（构造时取好，回菜单按钮一按 mRunState 就没了）
 
@@ -55,6 +59,8 @@ public:
 	virtual void		Update();
 	virtual void		AddedToManager(WidgetManager* theWidgetManager) { Widget::AddedToManager(theWidgetManager); }
 	virtual void		RemovedFromManager(WidgetManager* theWidgetManager) { Widget::RemovedFromManager(theWidgetManager); }
+	void KeyDown(KeyCode theKey) override;
+	void LostFocus() override;
 	virtual void		KeyChar(char theChar);
 	void				StartButtonPressed();
 	virtual void		MouseDown(int x, int y, int theClickCount);

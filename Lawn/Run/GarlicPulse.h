@@ -17,8 +17,11 @@ inline void OnPlanted(Board* board, Plant* plant)
     Zombie* zombie = nullptr;
     while (board->IterateZombies(zombie))
     {
+        // A sled carries five zombies and the loop below rolls a direction per zombie,
+        // which would scatter the team across rows; balloon zombies are not lane-bound.
         if (zombie->mRow != plant->mRow || zombie->IsDeadOrDying() || zombie->mMindControlled ||
-            zombie->mControlImmune || board->IsRunBossZombie(zombie) || zombie->mZombieType == ZombieType::ZOMBIE_BOSS)
+            zombie->mControlImmune || zombie->IsFlying() || zombie->IsBobsledTeamWithSled() ||
+            board->IsRunBossZombie(zombie) || zombie->mZombieType == ZombieType::ZOMBIE_BOSS)
             continue;
 
         // Keep the normal pool/land boundaries and avoid SwitchLanes' assert

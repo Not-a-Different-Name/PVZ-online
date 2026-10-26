@@ -3182,6 +3182,7 @@ float LawnApp::RunBuffMul(int theBuffId) const
 	{
 		aMul = 1.0f + aDef.mPerStackMul * (float)aStacks;
 	}
+	if(theBuffId==RUN_BUFF_FASTSEED)aMul*=TeamPlay::SeedMultiplier(const_cast<LawnApp*>(this));
 	return aMul < 0.1f ? 0.1f : aMul;
 }
 
@@ -3288,6 +3289,7 @@ float LawnApp::RunPlantUpgradeMul(SeedType thePlant) const
 	{
 		aMul = 1.0f + aDef.mPerStackMul * (float)aStacks;
 	}
+	
 	return aMul < 0.1f ? 0.1f : aMul;
 }
 
@@ -3324,6 +3326,7 @@ float LawnApp::RunPlantUpgradeMulKind(SeedType thePlant, RunPlantUpgradeKind the
 	{
 		aMul = 1.0f + aDef.mPerStackMul * (float)aStacks;
 	}
+	
 	return aMul < 0.1f ? 0.1f : aMul;
 }
 
@@ -3358,6 +3361,7 @@ float LawnApp::RunPlantBuff2Mul(SeedType thePlant) const
 	{
 		aMul = 1.0f + aDef.mPerStackMul * (float)aStacks;
 	}
+	
 	return aMul < 0.1f ? 0.1f : aMul;
 }
 
@@ -3394,6 +3398,7 @@ float LawnApp::RunPlantBuff2MulKind(SeedType thePlant, RunPlantUpgradeKind theKi
 	{
 		aMul = 1.0f + aDef.mPerStackMul * (float)aStacks;
 	}
+	
 	return aMul < 0.1f ? 0.1f : aMul;
 }
 
@@ -4890,6 +4895,8 @@ void LawnApp::UpdateFrames()
 				DoOnlineDialog();
 		}
 	}
+    // Team progression also runs in a pure solo game with no network session.
+    TeamPlay::For(this).Update();
 	// 开局要换场景、动一堆 UI，所以也放在循环外、widget 更新之前——收包链里干了迟早出事。
 	// @pvz-online: 僵尸强化投票（MOD_BUILD 45）：收包（OPEN/VOTE/RESULT）、倒计时、结算、
 	// 结果横幅。排在 UpdateOnlineStart 之前：客户端在同一帧里收到 RESULT 和 RUN_GO 时，
@@ -6942,7 +6949,7 @@ void LawnApp::UpdateRegisterInfo()
 
 
 
-void LawnApp::UpdateCoopPlay(){if(!mCoopPlay)mCoopPlay=std::make_unique<CoopPlay>(this);mCoopPlay->Update();TeamPlay::For(this).Update();}
+void LawnApp::UpdateCoopPlay(){if(!mCoopPlay)mCoopPlay=std::make_unique<CoopPlay>(this);mCoopPlay->Update();}
 void LawnApp::ShowCoopPlay(){if(TeamProgressionAvailable()&&GetDialogCount()==0){ShowTeamProgression(TeamProgressionView::Page::TEAMMATES);return;}ShowCoopPlayLegacy();}
 void LawnApp::ShowCoopPlayLegacy(){if(!mCoopPlay)mCoopPlay=std::make_unique<CoopPlay>(this);mCoopPlay->Show();}
 void LawnApp::ExpireCoopLoan(){if(!mCoopPlay)mCoopPlay=std::make_unique<CoopPlay>(this);mCoopPlay->ExpireLoan();}

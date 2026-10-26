@@ -19,7 +19,7 @@ struct Message {
 inline std::vector<unsigned char> Encode(const Message&m) {
     TeamProgression::Writer w;w.Put(m.src,1);w.Put(m.dst,1);w.Put(m.op,1);w.Put(m.mode,1);
     w.Put(m.seed);w.Put(m.level);w.Put(m.attempt);w.Put(m.revision);w.Put(m.sender,8);w.Put(m.run,8);
-    if(m.op==REPORT) {const auto&p=m.member;w.Put(p.plants,8);w.Put(p.battle,1);w.Put(p.ready,1);w.Put(p.allow,1);w.Put(p.rewardsDone,1);w.Put(p.rows,1);w.Put(p.title,1);}
+    if(m.op==REPORT) {const auto&p=m.member;w.Put(p.plants,8);w.Put(p.battle,1);w.Put(p.ready,1);w.Put(p.allow,1);w.Put(p.rewardsDone,1);w.Put(p.rows,1);w.Put(p.title,1);w.Put(p.hasSupportCard,1);}
     else if(m.op==SHARED){TeamProgression::WriteShared(w,m.shared);for(auto n:m.zombieStacks)w.Put(n,1);w.Put(m.zombieVoted,2);w.Put(m.zombieRounds,1);}
     else if(m.op==VOTE)w.Put(uint8_t(m.choice),1);
     else TeamProgression::WriteStrike(w,m.strike);
@@ -32,7 +32,7 @@ inline bool Decode(const uint8_t*bytes,int count,Message&out) {
     m.seed=r.Get();m.level=r.Get();m.attempt=r.Get();m.revision=r.Get();m.sender=r.Get(8);m.run=r.Get(8);
     if(m.op==REPORT) {
         auto&p=m.member;p.player=m.sender;p.level=m.level;p.attempt=m.attempt;p.plants=r.Get(8);p.battle=uint8_t(r.Get(1));
-        auto ready=r.Get(1),allow=r.Get(1),rewards=r.Get(1);p.rows=uint8_t(r.Get(1));p.title=uint8_t(r.Get(1));if((p.plants&~TeamProgression::PLANTS)||p.battle>TeamProgression::FAILED||ready>1||allow>1||rewards>1||p.rows<1||p.rows>6||p.title>7)return false;
+        auto ready=r.Get(1),allow=r.Get(1),rewards=r.Get(1);p.rows=uint8_t(r.Get(1));p.title=uint8_t(r.Get(1));auto card=r.Get(1);p.hasSupportCard=card!=0;if(card>1||(p.plants&~TeamProgression::PLANTS)||p.battle>TeamProgression::FAILED||ready>1||allow>1||rewards>1||p.rows<1||p.rows>6||p.title>7)return false;
         p.ready=ready!=0;p.allow=allow!=0;p.rewardsDone=rewards!=0;
     } else if(m.op==SHARED){if(!TeamProgression::ReadShared(r,m.shared)||m.shared.run!=m.run)return false;
         for(auto&n:m.zombieStacks)n=uint8_t(r.Get(1));m.zombieVoted=uint16_t(r.Get(2));m.zombieRounds=uint8_t(r.Get(1));if(m.zombieRounds>2)return false;}

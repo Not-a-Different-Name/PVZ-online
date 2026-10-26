@@ -4725,6 +4725,7 @@ void Board::MouseDownWithPlant(int x, int y, int theClickCount)
 	}
 	else if (mCursorObject->mCursorType == CursorType::CURSOR_TYPE_PLANT_FROM_USABLE_COIN)
 	{
+		if(TeamPlay::UseSupportCard(mApp,uint32_t(mCursorObject->mCoinID),aGridY,aGridX))return;
 		AddPlant(aGridX, aGridY, mCursorObject->mType, mCursorObject->mImitaterType);
 		Coin* aCoin = mCoins.DataArrayTryToGet(mCursorObject->mCoinID);
 		mCursorObject->mCoinID = CoinID::COINID_NULL;
@@ -6191,6 +6192,8 @@ bool Board::TrySendSunGift(uint8_t theTargetSeat)
 // 优先级，见 KeyDown 挂钩顺序），其余键不吞。
 bool Board::HandleSunGiftKey(KeyCode theKey)
 {
+	// 观看中不发阳光（2026-10-25 排查）：选择态面板被观看层盖住，看不见的点击会白扣阳光
+	if (mWatchKeyHeld) return false;
 	if (!mApp->IsOnlineGame() || !mApp->IsRunMode()) return false;
 	if (mApp->mOnlineSession == nullptr) return false;
 	bool aSelecting = mSunGiftSelectFrames > 0;
@@ -9794,14 +9797,18 @@ mApp->mOnlineSession);
 	// 结束原因：只有"对面没响应/对面走了"值得给一句提示；自己松手/安静退场不打扰。
 	// 展示完（~2 秒）清回 NONE，避免下一局误弹。
 	NetSession::WatchEnd anEnd = aSession->TakeWatchEnded();
+	if (anEnd != NetSession::WatchEnd::NONE)
+	{
+		// 切换式观看（2026-10-25）：看外收场不再有「松手清账」那一步——任何收场原因
+		// （超时/目标离开/静默 STOP/换流重看失败）都在这儿就地清账，不然 mWatchKeyHeld
+		// 挂着，数字键（选卡/直选席位）会被观看钩子吞掉或劫持，T/E、G 也被隐形挡掉。
+		mWatchKeyHeld = false;
+		mCoopWatchLatched = false;
+	}
 	if (anEnd == NetSession::WatchEnd::TIMEOUT || anEnd == NetSession::WatchEnd::TARGET_LEFT)
 	{
 		mWatchEndSeen = anEnd;
 		mWatchNoticeTimer = 120;
-		// 切换式观看（2026-10-25）：看外收场不再有「松手清账」那一步——在这儿就地收干净，
-		// 不然 mWatchKeyHeld 挂着，数字键（选卡/直选席位）会被观看钩子继续吞掉。
-		mWatchKeyHeld = false;
-		mCoopWatchLatched = false;
 	}
 	if (mWatchNoticeTimer > 0)
 	{
@@ -9945,8 +9952,10 @@ bool Board::HandleBoardWatchKey(KeyCode theKey)
     if(theKey=='R'&&aSession&&aSession->IsWatching()){if(!aSession->BeginWatch(aSession->GetWatchTargetSeat()))PushCustomBanner(ModText::Tr("稍等几秒再刷新","Wait a few seconds before refreshing"));return true;}
 	if (theKey >= '1' && theKey <= '0' + NetProto::MAX_PLAYERS)
 	{
+		// 已实际收场（如静默 STOP 刚进包、旗子还差一帧才清）：不吞选卡键，落回原链
+		if (aSession == nullptr || !aSession->IsWatching()) return false;
 		uint8_t aSeat = (uint8_t)(theKey - '0');
-		if (aSession != nullptr && aSeat != aSession->GetLocalSeat() && aSession->IsSeatOccupied(aSeat))
+		if (aSeat != aSession->GetLocalSeat() && aSession->IsSeatOccupied(aSeat))
 		{
 			if (aSession->BeginWatch(aSeat)) mWatchLastSeat = aSeat;
 		}
@@ -11182,6 +11191,7 @@ bool Board::TakeSunMoney(int theAmount)
 	if (CanTakeSunMoney(theAmount))
 	{
 		mSunMoney -= theAmount;
+        TeamPlay::SpendRestrictedSun(mApp,theAmount);
 		return true;
 	}
 
