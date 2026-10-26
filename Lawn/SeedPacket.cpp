@@ -959,7 +959,9 @@ void SeedBank::Draw(Graphics* g)
 		g->DrawImage(IMAGE_SEEDBANK, IMAGE_SEEDBANK->mWidth - 12, 0, theSrcRect);
 	}
 
-	for (int i = 0; i < mNumPackets; i++)
+	// The chooser draws its own selections. Retried boards may still hold the previous deck.
+	const bool choosing = mApp->mSeedChooserScreen && mBoard->mCutScene && mBoard->mCutScene->mSeedChoosing;
+	for (int i = 0; !choosing && i < mNumPackets; i++)
 	{
 		SeedPacket* aSeedPacket = &mSeedPackets[i];
 		if (aSeedPacket->mPacketType != SeedType::SEED_NONE && aSeedPacket->BeginDraw(g))

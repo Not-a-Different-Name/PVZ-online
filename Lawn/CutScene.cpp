@@ -1379,7 +1379,9 @@ void CutScene::AnimateBoard()
 	// ====================================================================================================
 	// ▲ 将选卡界面移动至顶层显示
 	// ====================================================================================================
-	mApp->mSeedChooserScreen->mParent->BringToFront(mApp->mSeedChooserScreen);
+	// Keep the interactive team overlay above the chooser during the intro.
+	if (!mApp->mTeamProgressionDialog)
+		mApp->mSeedChooserScreen->mParent->BringToFront(mApp->mSeedChooserScreen);
 }
 
 //0x43C140
