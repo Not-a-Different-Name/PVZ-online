@@ -1345,7 +1345,9 @@ void CutScene::AnimateBoard()
 		}
 	}
 
-	mApp->mSeedChooserScreen->mParent->BringToFront(mApp->mSeedChooserScreen.get());
+	// Keep the interactive team overlay above the chooser during the intro.
+	if (!mApp->mTeamProgressionDialog)
+		mApp->mSeedChooserScreen->mParent->BringToFront(mApp->mSeedChooserScreen.get());
 }
 
 void CutScene::ShowShovel()

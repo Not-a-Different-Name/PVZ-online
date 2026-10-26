@@ -148,7 +148,9 @@ void TeamPlay::BeginContext() {
 }
 void TeamPlay::Report() {
     auto*r=app->GetRunState();if(!r)return;Member m;m.player=r->mTeam.player;m.plants=PlantMask(*r);m.level=r->mLevelIndex;m.attempt=Attempt();
-    m.hasSupportCard=HasSupportCard();m.allow=r->mTeam.allow;m.ready=wantsVote;m.rewardsDone=app->mRunIntroHeld&&!r->HasPendingPick()&&!r->IsCatchingUp();m.rows=app->mBoard&&app->mBoard->StageHasPool()?6:5;m.title=uint8_t(TeamGoalsStorage::Title(app));
+    // Personal choices stay complete after this client enters seed selection/battle.
+    // Peers still crossing this stage barrier must not wait for our intro flag to return.
+    m.hasSupportCard=HasSupportCard();m.allow=r->mTeam.allow;m.ready=wantsVote;m.rewardsDone=!r->HasPendingPick()&&!r->IsCatchingUp();m.rows=app->mBoard&&app->mBoard->StageHasPool()?6:5;m.title=uint8_t(TeamGoalsStorage::Title(app));
     m.battle=app->mBoardResult==BOARDRESULT_LOST?FAILED:app->mGameScene==SCENE_PLAYING&&!app->mRunIntroHeld?FIGHTING:PREPARING;
     NetProto::MsgEscapedZombie relay;const bool pendingRelay=Session()&&Session()->PeekPendingEscapedZombie(relay);
     if(m.battle==FIGHTING&&app->mBoard&&!pendingRelay&&!app->mBoard->AreEnemyZombiesOnScreen()&&(app->mBoard->mLevelComplete||app->mBoard->mLevelAwardSpawned)&&
@@ -556,6 +558,8 @@ void TeamPlay::Execute(Receipt& receipt){
     const auto previous=r->mTeam;std::vector<unsigned char> lawn;if(!Capture(lawn))return;
     auto* coin=b->AddCoin(70,110,COIN_USABLE_SEED_PACKET,COIN_MOTION_FROM_PRESENT);
     if(!coin)return;
+    // Present motion auto-collects after 80 frames; aid must wait for an explicit tap.
+    coin->mCoinMotion=COIN_MOTION_FROM_SKY;coin->mVelX=coin->mVelY=0;
     coin->mUsableSeedType=SEED_CHERRYBOMB;coin->mGroundY=110;coin->mDisappearCounter=0;
     r->mTeam.supportCoin=b->mCoins.DataArrayGetID(coin);strike.phase=DELIVERED;
     if(!Save(true)){r->mTeam=previous;if(!Restore(lawn))b->mPaused=true;return;}
