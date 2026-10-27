@@ -793,6 +793,7 @@ private:
 	uint8_t				mSwapRequestSeat;	// 我发出的换位请求发给了谁（SEAT_UNSET = 没在等）
 	int					mSwapRequestTicks;	// 换位请求等答复的剩余帧数（2026-10-15：超时自己收摊，等答复不能没出路）
 	uint8_t				mSwapAskSeat;		// 哪个席位正问我换不换（SEAT_UNSET = 没有）
+	int mSwapAskTicks = 0; // Incoming consent expires independently of an outgoing request.
 	bool				mSwapCommitHandled;	// 中继：COMMIT 已经有人接手（我发的，或对面会发），等广播
 	bool				mAnyAckRejected;	// 收到过"现在不行"（粘着，直到下一次开局）
 	int					mFramesSinceRoomRequest;	// 中继：发了 CREATE/JOIN 之后等了多少帧（10 秒判死）

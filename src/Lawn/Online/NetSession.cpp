@@ -147,6 +147,7 @@ NetSession::NetSession()
 	mSwapRequestSeat = NetProto::SEAT_UNSET;
 	mSwapRequestTicks = 0;
 	mSwapAskSeat = NetProto::SEAT_UNSET;
+	mSwapAskTicks = 0;
 	mSwapCommitHandled = false;
 	mAnyAckRejected = false;
 	mNoticeFrames = 0;
@@ -820,6 +821,12 @@ void NetSession::Update()
 		}
 	}
 
+    // Incoming consent has its own deadline, including while we ask another seat.
+    // Expiry removes the actionable stale prompt; late clicks cannot revive it.
+    if(!IsPreparationActive() && HasIncomingSwapRequest() && --mSwapAskTicks<=0) {
+        mSwapAskSeat=NetProto::SEAT_UNSET;mSwapAskTicks=0;
+        SetNotice(NetText("换位申请已过期。", "The swap request expired.").c_str());
+    }
     if(mRole==Role::HOST && mRoundWaitMask && ++mRoundWaitTicks>=100) {mRoundWaitTicks=0;PublishRoundWait();}
 if(mFlowEnabled && mFlowStartPending && mRole==Role::HOST && IsConnected() &&
     ++mFlowStartTicks>=100 && mLastStartLevelValid){mFlowStartTicks=0;SendFlowStart(mLastStartLevel);}
@@ -1128,6 +1135,7 @@ void NetSession::AnswerSwapRequest(bool theAccept)
 
 	uint8_t aAsker = mSwapAskSeat;
 	mSwapAskSeat = NetProto::SEAT_UNSET;
+	mSwapAskTicks = 0;
 	SendSwapReply(theAccept, aAsker);
 
 	if (theAccept)
@@ -1856,6 +1864,7 @@ void NetSession::ClearSwapState()
 	mSwapRequestSeat = NetProto::SEAT_UNSET;
 	mSwapRequestTicks = 0;
 	mSwapAskSeat = NetProto::SEAT_UNSET;
+	mSwapAskTicks = 0;
 	mSwapCommitHandled = false;
 }
 
@@ -2320,6 +2329,7 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 			{
 				// 主循环看到 HasIncomingSwapRequest 就把面板叫出来问玩家（面板不冻心跳）
 				mSwapAskSeat = aMsg.mSrcSeat;
+				mSwapAskTicks = SWAP_REQUEST_TIMEOUT_FRAMES;
 				NetworkLog("[net] seat %u asks to swap positions", (unsigned)aMsg.mSrcSeat);
 			}
 		}
