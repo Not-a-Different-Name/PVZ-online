@@ -294,7 +294,7 @@ func (s *Server) handleFlowGame(c *Conn, p []byte) {
 	}
 	// Legacy lobby seat toggles cannot arrive after a round started. Current
 	// preparation transactions use type25 and revision-bound consent instead.
-	if r.flow.started && (typ == 10 || typ == 11) {
+	if r.flow.phase != flowLobby && (typ == 10 || typ == 11) {
 		return
 	}
 	if typ == 29 && (len(body) != 4 || body[2] != 1 || body[3] > 3) {

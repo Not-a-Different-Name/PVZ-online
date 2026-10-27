@@ -290,8 +290,17 @@ func (s *Server) handleSwapCommitWithTerm(c *Conn, a, b uint8, term, epoch, requ
 	if r == nil || (r.flow.enabled && term != r.flow.term) {
 		return
 	}
-	if r.flow.enabled && (r.flow.phase != flowSetup || epoch != r.flow.epoch || request == 0 || request != r.flow.prepRequest || r.flow.prepPhase != 3 || r.flow.prepCommitted || !((a == r.flow.prepA && b == r.flow.prepB) || (a == r.flow.prepB && b == r.flow.prepA))) {
-		return
+	if r.flow.enabled {
+		if r.flow.phase == flowLobby {
+			// Lobby consent uses the legacy request/reply, without a preparation
+			// revision. Bind its commit to this round and the sender's old seat;
+			// a repeated commit cannot toggle the completed exchange back.
+			if epoch != r.flow.epoch || request != 0 || a != c.seat {
+				return
+			}
+		} else if r.flow.phase != flowSetup || epoch != r.flow.epoch || request == 0 || request != r.flow.prepRequest || r.flow.prepPhase != 3 || r.flow.prepCommitted || !((a == r.flow.prepA && b == r.flow.prepB) || (a == r.flow.prepB && b == r.flow.prepA)) {
+			return
+		}
 	}
 	if a < 1 || a > maxPlayers || b < 1 || b > maxPlayers || a == b {
 		return
@@ -304,7 +313,7 @@ func (s *Server) handleSwapCommitWithTerm(c *Conn, a, b uint8, term, epoch, requ
 		s.logf("room %s: seat %d tried to swap seats %d/%d it doesn't own - dropped", r.code, c.seat, a, b)
 		return
 	}
-	if r.flow.enabled {
+	if r.flow.enabled && r.flow.phase == flowSetup {
 		r.flow.prepCommitted = true
 	}
 	r.bySeat[a], r.bySeat[b] = cb, ca

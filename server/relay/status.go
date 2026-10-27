@@ -17,7 +17,7 @@ import (
 	"time"
 )
 
-const relayRelease = "2026-10-25-observer-direct1"
+const relayRelease = "2026-10-28-seat-swap1"
 const defaultAdminAddress = "127.0.0.1:27778"
 const connectionLimit = 512
 const roomLimit = 256
