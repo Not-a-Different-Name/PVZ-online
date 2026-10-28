@@ -168,6 +168,7 @@ public:
     void CycleMobileWatch();
     void StopMobileWatch();
     void DrawMobileWatch(Graphics* g);
+    bool IsWatchingView();
     bool QuickChatAvailable();
     void CloseQuickChatPanel();
     bool HandleQuickChatKey(KeyCode key);

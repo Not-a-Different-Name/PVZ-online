@@ -105,7 +105,9 @@ public:
     void DrawString(Graphics* g, int x, int y, std::string_view text, const Color& color, const Rect& clip) override
     {
         if(auto*capture=dynamic_cast<Observer::DrawRecorder*>(g->mDestImage)){
-            capture->Text(std::string(text),x+int(g->mTransX),y+int(g->mTransY),mHeight,false,color,clip);return;
+            // Text commands use a top-left origin and point size on both platforms.
+            capture->Text(std::string(text),x+int(g->mTransX),y-mAscent+int(g->mTransY),
+                int(std::round(mHeight*72.0/96.0)),false,color,clip);return;
         }
         Graphics draw(*g);
         draw.SetColorizeImages(true);

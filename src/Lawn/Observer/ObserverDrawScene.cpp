@@ -22,6 +22,9 @@
 #include "Sexy.TodLib/FilterEffect.h"
 #include "Lawn/ModText.h"
 #endif
+#ifdef __ANDROID__
+#include "graphics/CjkFont.h"
+#endif
 #include <cmath>
 #include <limits>
 #include <algorithm>
@@ -107,8 +110,8 @@ void DrawRecorder::Add(DrawCommand c,Image*image){
   if(it==ids.end()){if(frame.assets.size()>=512){valid=false;return;}c.asset=uint16_t(frame.assets.size());ids.emplace(k,c.asset);frame.assets.push_back(k);}else c.asset=it->second;}
  frame.commands.push_back(std::move(c));
 }
-void DrawRecorder::FillRect(const Rect&r,const Color&c,int m){auto d=Base(DrawOp::Fill,c,m);d.dst=Box(r);Add(d);}
-void DrawRecorder::DrawRect(const Rect&r,const Color&c,int m){auto d=Base(DrawOp::Rect,c,m);d.dst=Box(r);Add(d);}
+void DrawRecorder::FillRect(const Rect&r,const Color&c,int m){if(r.mWidth<=0||r.mHeight<=0)return;auto d=Base(DrawOp::Fill,c,m);d.dst=Box(r);Add(d);}
+void DrawRecorder::DrawRect(const Rect&r,const Color&c,int m){if(r.mWidth<0||r.mHeight<0)return;auto d=Base(DrawOp::Rect,c,m);d.dst=Box(r);Add(d);}
 void DrawRecorder::ClearRect(const Rect&){Fail();}
 void DrawRecorder::DrawLine(double x,double y,double xx,double yy,const Color&c,int m){auto d=Base(DrawOp::Line,c,m);d.values={float(x),float(y),float(xx),float(yy)};Add(d);}
 void DrawRecorder::DrawLineAA(double x,double y,double xx,double yy,const Color&c,int m){auto d=Base(DrawOp::LineAA,c,m);d.values={float(x),float(y),float(xx),float(yy)};Add(d);}
@@ -178,7 +181,7 @@ bool DrawScene::Prepare(const DrawFrame&f)try{RandomGuard randomGuard;if(!Valida
    auto&b=v.mBlendTransform;b.mTransX=t.transform[0];b.mTransY=t.transform[1];b.mSkewX=t.transform[2];b.mSkewY=t.transform[3];b.mScaleX=t.transform[4];b.mScaleY=t.transform[5];b.mFrame=t.transform[6];b.mAlpha=t.transform[7];
   }visual.push_back(std::move(r));
  }
- current=f;images=std::move(next);animations=std::move(visual);predictionAge=0;return true;
+ DrawFrame prepared=f;current=std::move(prepared);images=std::move(next);animations=std::move(visual);predictionAge=0;return true;
 }catch(const std::bad_alloc&){return false;}
 void DrawScene::Clear(){animations.clear();current={};images.clear();predictionAge=0;}
 void DrawScene::Draw(Graphics*g){if(!g)return;auto*dest=g->mDestImage;
@@ -216,7 +219,9 @@ void DrawScene::Draw(Graphics*g){if(!g)return;auto*dest=g->mDestImage;
   case DrawOp::Triangles:dest->BltTrianglesTex(i,reinterpret_cast<const TriVertex(*)[3]>(d.vertices.data()),int(d.vertices.size()/3),clip,color,d.mode,v[0]+x,v[1]+y,d.flags);break;
   case DrawOp::Text:{Graphics text(g?*g:Graphics());text.SetClipRect(clip);text.SetColor(color);
 #ifdef __ANDROID__
-   text.SetFont(FONT_BRIANNETOD16);text.DrawString(d.text,int(v[0]),int(v[1]));
+   auto* font=GetCjkFont(int(std::round(v[2]*96.0/72.0)));
+   if(!font)font=FONT_BRIANNETOD16;
+   text.SetFont(font);text.DrawString(d.text,int(v[0]),int(v[1])+font->GetAscent());
 #else
    ModText::DrawTextWide(&text,ModText::GetFont(int(v[2]),d.flags),int(v[0]),int(v[1]),ModText::WideFromUtf8(d.text.c_str()),color,clip);
 #endif

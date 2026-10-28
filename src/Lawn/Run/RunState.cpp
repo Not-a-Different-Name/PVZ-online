@@ -952,7 +952,8 @@ std::string RunState::CheckpointSummary(int theProfileId, int theMode, int theSc
 {
     RunState saved;
     if(!saved.Load(theProfileId,theMode,theScene))return {};
-    std::string text=ModText::Tr("存档：第 ","Saved: level ")+std::to_string(saved.mLevelIndex+1)+ModText::Tr(" 关","");
+    std::string text=ModText::Tr(saved.IsEndless()?"无尽 第 ":"存档：第 ",saved.IsEndless()?"Endless Level ":"Saved: level ")+
+        std::to_string((saved.IsEndless()?saved.GetPlayingLevelIndex():saved.mLevelIndex)+1)+ModText::Tr(" 关","");
     if(saved.IsEndless() && !saved.IsNewEndless())text+=ModText::Tr("（旧规则，仅进度）"," (legacy, progress only)");
     const auto path=GetCheckpointName(theProfileId,saved.mMode,saved.mEndlessScene);
     std::tm local{};
@@ -1083,7 +1084,7 @@ bool RunState::Save(int theProfileId) const
     std::vector<unsigned char> previousTeamLawn;bool capturedTeam=false;
     if(gLawnApp && gLawnApp->GetRunState()==this && !TeamPlay::PrepareCheckpoint(gLawnApp,previousTeamLawn,capturedTeam)) { mDamageHistory=previousHistory;return false; }
     MkDir(GetAppDataFolder() + "userdata");
-    const auto path=GetCheckpointName(theProfileId,mMode,mEndlessScene,mAdmission.phase!=Admission::NONE?mAdmission.run:0);
+    const auto path=GetCheckpointName(theProfileId,mMode,mEndlessScene,(IsEndless() || mAdmission.phase!=Admission::NONE)?mAdmission.run:0);
     const auto user=GetAppDataFolder()+"userdata/user"+std::to_string(theProfileId)+".dat";
     const bool saved = RunCheckpointIO::Recover(path,user) && RunCheckpointIO::AtomicWrite(path,EncodeCheckpoint());
     if (!saved) { mDamageHistory = previousHistory; if(capturedTeam)gLawnApp->GetRunState()->mTeam.lawn.swap(previousTeamLawn); }
@@ -1098,36 +1099,36 @@ bool RunState::SaveWithPlayer(PlayerInfo& player) const
     std::vector<unsigned char> previousTeamLawn;bool capturedTeam=false;
     if(gLawnApp && gLawnApp->GetRunState()==this && !TeamPlay::PrepareCheckpoint(gLawnApp,previousTeamLawn,capturedTeam)) { mDamageHistory=previousHistory;return false; }
     MkDir(GetAppDataFolder() + "userdata");
-    const bool saved = RunCheckpointIO::Commit(GetCheckpointName(player.mId,mMode,mEndlessScene,mAdmission.phase!=Admission::NONE?mAdmission.run:0),
+    const bool saved = RunCheckpointIO::Commit(GetCheckpointName(player.mId,mMode,mEndlessScene,(IsEndless() || mAdmission.phase!=Admission::NONE)?mAdmission.run:0),
         GetAppDataFolder()+"userdata/user"+std::to_string(player.mId)+".dat",EncodeCheckpoint(),player.EncodeDetails());
     if (!saved) { mDamageHistory = previousHistory; if(capturedTeam)gLawnApp->GetRunState()->mTeam.lawn.swap(previousTeamLawn); }
     if(saved && gLawnApp && gLawnApp->GetRunState()==this)RunHistory::Capture(gLawnApp);
     return saved;
 }
 
-bool RunState::Load(int theProfileId, int theMode, int theScene, bool theBackup, uint64_t theTeam)
+bool RunState::Load(int theProfileId, int theMode, int theScene, bool theBackup, uint64_t theTeam, const std::string& theSuffix)
 {
-    std::string aLoadPath=GetCheckpointName(theProfileId,theMode,theScene,theTeam)+(theBackup?".bak":"");
+    std::string aLoadPath=GetCheckpointName(theProfileId,theMode,theScene,theTeam)+theSuffix+(theBackup?".bak":"");
     if (!gSexyAppBase) return false;
-    if(!theTeam && !theBackup && !gSexyAppBase->FileExists(aLoadPath) && !gSexyAppBase->FileExists(aLoadPath+".txn"))
+    if(!theTeam && theSuffix.empty() && !theBackup && !gSexyAppBase->FileExists(aLoadPath) && !gSexyAppBase->FileExists(aLoadPath+".txn"))
         {
             aLoadPath=GetAppDataFolder()+"userdata/android_run"+std::to_string(theProfileId)+".dat";
-            if(gSexyAppBase->FileExists(aLoadPath+".migrated"))return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam);
+            if(gSexyAppBase->FileExists(aLoadPath+".migrated"))return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam,theSuffix);
         }
 
     if (!RunCheckpointIO::Recover(aLoadPath,
-        GetAppDataFolder()+"userdata/user"+std::to_string(theProfileId)+".dat")) return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam);
+        GetAppDataFolder()+"userdata/user"+std::to_string(theProfileId)+".dat")) return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam,theSuffix);
 	Buffer aBuffer;
 	if (!gSexyAppBase->ReadBufferFromFile(aLoadPath, &aBuffer, false))
 	{
-		return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam);
+		return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam,theSuffix);
 	}
 
 	RunReader aReader((const unsigned char*)aBuffer.GetDataPtr(), aBuffer.GetDataLen());
 	unsigned int aMagic = 0, aVersion = 0, aReserved = 0;
 	if (!aReader.ReadU32(aMagic) || !aReader.ReadU16(aVersion) || !aReader.ReadU16(aReserved))
 	{
-		return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam);
+		return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam,theSuffix);
 	}
 	// v3 才有时长档、v4 才有难度档、v5 才有推车记账（v6 与 v5 的保留位含义相同）。老版本
 	// 占的保留位恒 0，恰好是各自默认档——v2 的档按完整版续、v3 的档按标准难度续，都不作废；
@@ -1146,24 +1147,24 @@ bool RunState::Load(int theProfileId, int theMode, int theScene, bool theBackup,
 	if (aMagic != RUN_CHECKPOINT_MAGIC || (aVersion < 2 || aVersion > RUN_CHECKPOINT_VERSION))
 	{
 		PvzpLogLn("[run] checkpoint magic/version mismatch, ignored");
-		return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam);
+		return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam,theSuffix);
 	}
 	if (aVersion >= 3)
 	{
 		aMode = (int)(aReserved & 0xFF);
 		if (aMode < RUN_MODE_FULL || aMode > RUN_MODE_ENDLESS)
 		{
-			return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam);
+			return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam,theSuffix);
 		}
 		if (aMode == RUN_MODE_ENDLESS && aVersion < 12)
 		{
 			PvzpLogLn("[run] pre-v12 checkpoint claims the endless mode, ignored");
-			return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam);
+			return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam,theSuffix);
 		}
 		if (aVersion < 7 && aMode != RUN_MODE_FULL)
 		{
 			PvzpLogLn("[run] pre-v7 checkpoint with the old mode table, ignored");
-			return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam);
+			return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam,theSuffix);
 		}
 	}
 	if (aVersion >= 4)
@@ -1171,32 +1172,32 @@ bool RunState::Load(int theProfileId, int theMode, int theScene, bool theBackup,
 		aDiff = (int)((aReserved >> 8) & 0xFF);
 		if (aDiff < RUN_DIFF_EASY || aDiff > RUN_DIFF_HIGH)
 		{
-			return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam);
+			return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam,theSuffix);
 		}
 	}
 
 	int aRunSeed = 0, aLevelIndex = 0;
 	if (!aReader.ReadI32(aRunSeed) || !aReader.ReadI32(aLevelIndex))
 	{
-		return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam);
+		return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam,theSuffix);
 	}
 	if (aLevelIndex < 0 || aLevelIndex > LevelCountForMode(aMode))
 	{
-		return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam);
+		return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam,theSuffix);
 	}
 
 	int aFailCounts[RUN_LEVEL_COUNT] = { 0 };
 	for (int i = 0; i < RUN_LEVEL_COUNT; i++)
 	{
 		unsigned int aCount = 0;
-		if (!aReader.ReadU16(aCount)) return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam);
+		if (!aReader.ReadU16(aCount)) return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam,theSuffix);
 		aFailCounts[i] = (int)aCount;
 	}
 
 	unsigned int aPoolCount = 0;
 	if (!aReader.ReadU16(aPoolCount) || aPoolCount > RUN_POOL_MAX)
 	{
-		return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam);
+		return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam,theSuffix);
 	}
 	std::vector<SeedType> aPool;
 	for (unsigned int i = 0; i < aPoolCount; i++)
@@ -1204,7 +1205,7 @@ bool RunState::Load(int theProfileId, int theMode, int theScene, bool theBackup,
 		unsigned int aSeed = 0;
 		if (!aReader.ReadU16(aSeed) || aSeed >= (unsigned int)SeedType::NUM_SEED_TYPES)
 		{
-			return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam);
+			return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam,theSuffix);
 		}
 		aPool.push_back((SeedType)aSeed);
 	}
@@ -1212,7 +1213,7 @@ bool RunState::Load(int theProfileId, int theMode, int theScene, bool theBackup,
 	unsigned int aBuffCount = 0;
 	if (!aReader.ReadU16(aBuffCount) || aBuffCount > RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT + RUN_PLANT_BUFF2_COUNT)
 	{
-		return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam);
+		return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam,theSuffix);
 	}
 	std::vector<BuffStack> aBuffs;
 	for (unsigned int i = 0; i < aBuffCount; i++)
@@ -1220,7 +1221,7 @@ bool RunState::Load(int theProfileId, int theMode, int theScene, bool theBackup,
 		unsigned int aId = 0, aCount = 0;
 		if (!aReader.ReadU16(aId) || !aReader.ReadU16(aCount))
 		{
-			return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam);
+			return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam,theSuffix);
 		}
 		BuffStack aStack;
 		aStack.mId = (unsigned short)aId;
@@ -1255,12 +1256,12 @@ bool RunState::Load(int theProfileId, int theMode, int theScene, bool theBackup,
 		}
 		// @pvz-online: old mine entries become the replacement choices; cap1 prevents misleading legacy stacks.
 		if (aStack.mId >= RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT + RUN_PLANT_BUFF2_COUNT || aStack.mCount == 0)
-			return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam);
+			return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam,theSuffix);
 		if (aStack.mId == RUN_BUFF_COUNT + RUN_UPGRADE_POTATOMINE ||
 			aStack.mId == RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT + RUN_BUFF2_MINEREGROW)
 			aStack.mCount = 1;
         aStack.mCount = (unsigned short)ClampPurpleReplacementStacks(aStack.mId, aStack.mCount);
-		for (const BuffStack& aPrevious : aBuffs) if (aPrevious.mId == aStack.mId) return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam);
+		for (const BuffStack& aPrevious : aBuffs) if (aPrevious.mId == aStack.mId) return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam,theSuffix);
 		aBuffs.push_back(aStack);
 	}
 
@@ -1268,7 +1269,7 @@ bool RunState::Load(int theProfileId, int theMode, int theScene, bool theBackup,
 	unsigned int aMowerUsedRows = 0;
 	if (aVersion >= 5 && !aReader.ReadU16(aMowerUsedRows))
 	{
-		return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam);
+		return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam,theSuffix);
 	}
 
 	// v10 才有高级选项位包；v9 及更老的档读不到，按 标准/标准/关 续。位掩码天然合法
@@ -1276,7 +1277,7 @@ bool RunState::Load(int theProfileId, int theMode, int theScene, bool theBackup,
 	unsigned int aOptions = 0;
 	if (aVersion >= 10 && !aReader.ReadU16(aOptions))
 	{
-		return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam);
+		return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam,theSuffix);
 	}
 
 	// v12 才有场景字段。无尽档的场景必须真落在 0..4——GetLevel 的取模救不了坏场景
@@ -1284,14 +1285,14 @@ bool RunState::Load(int theProfileId, int theMode, int theScene, bool theBackup,
 	unsigned int aEndlessScene = 0;
 	if (aVersion >= 12 && !aReader.ReadU16(aEndlessScene))
 	{
-		return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam);
+		return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam,theSuffix);
 	}
 	if (aMode == RUN_MODE_ENDLESS)
 	{
 		if (aEndlessScene >= (unsigned int)RUN_SCENE_COUNT)
 		{
 			PvzpLogLn("[run] endless checkpoint with a bad scene, ignored");
-			return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam);
+			return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam,theSuffix);
 		}
 	}
 	else
@@ -1304,7 +1305,7 @@ bool RunState::Load(int theProfileId, int theMode, int theScene, bool theBackup,
 	unsigned int aBossFlag = 0;
 	if (aVersion >= 13 && !aReader.ReadU16(aBossFlag))
 	{
-		return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam);
+		return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam,theSuffix);
 	}
 	if (aMode == RUN_MODE_ENDLESS) aBossFlag = 0;
 
@@ -1321,14 +1322,14 @@ bool RunState::Load(int theProfileId, int theMode, int theScene, bool theBackup,
 			unsigned int aStack = 0;
 			if (!aReader.ReadU16(aStack))
 			{
-				return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam);
+				return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam,theSuffix);
 			}
 			if (aStack > 255) aStack = 255;
 			aZombieStacks[i] = (unsigned char)aStack;
 		}
 		if (!aReader.ReadU16(aZombieVotedLevel))
 		{
-			return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam);
+			return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam,theSuffix);
 		}
 	}
 
@@ -1341,7 +1342,7 @@ bool RunState::Load(int theProfileId, int theMode, int theScene, bool theBackup,
 	unsigned int aVouchers = 0;
 	int aAwardedLevel = -1;
 	if (aVersion >= 15 && (!aReader.ReadU16(aVouchers) || aVouchers > 2 ||
-		!aReader.ReadI32(aAwardedLevel) || aAwardedLevel < -1 || aAwardedLevel > aLevelIndex)) return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam);
+		!aReader.ReadI32(aAwardedLevel) || aAwardedLevel < -1 || aAwardedLevel > aLevelIndex)) return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam,theSuffix);
 	mRerollVouchers = (int)aVouchers;
 	mRerollAwardedLevel = aAwardedLevel;
 
@@ -1350,27 +1351,27 @@ bool RunState::Load(int theProfileId, int theMode, int theScene, bool theBackup,
         unsigned count=0;
         if(!aReader.ReadI32(mLoanPlant)||!aReader.ReadI32(mLoanLevel)||!aReader.ReadI32(mLentLevel)||
             !aReader.ReadU16(count)||count>16||mLoanPlant < -1 || mLoanPlant>=48 ||
-            mLoanLevel < -1 || mLoanLevel>aLevelIndex || mLentLevel < -1 || mLentLevel>aLevelIndex)return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam);
-        for(unsigned i=0;i<count;++i){unsigned id=0,stacks=0;if(!aReader.ReadU16(id)||!aReader.ReadU16(stacks)||!stacks)return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam);
-            if(id<RUN_BUFF_COUNT || id>=RUN_BUFF_COUNT+RUN_PLANT_UPGRADE_COUNT+RUN_PLANT_BUFF2_COUNT || GetRunChoicePlant((int)id)!=(SeedType)mLoanPlant)return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam);
-            for(const auto& b:mLoanBuffs)if(b.mId==id)return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam);
+            mLoanLevel < -1 || mLoanLevel>aLevelIndex || mLentLevel < -1 || mLentLevel>aLevelIndex)return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam,theSuffix);
+        for(unsigned i=0;i<count;++i){unsigned id=0,stacks=0;if(!aReader.ReadU16(id)||!aReader.ReadU16(stacks)||!stacks)return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam,theSuffix);
+            if(id<RUN_BUFF_COUNT || id>=RUN_BUFF_COUNT+RUN_PLANT_UPGRADE_COUNT+RUN_PLANT_BUFF2_COUNT || GetRunChoicePlant((int)id)!=(SeedType)mLoanPlant)return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam,theSuffix);
+            for(const auto& b:mLoanBuffs)if(b.mId==id)return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam,theSuffix);
             BuffStack b;b.mId=(unsigned short)id;b.mCount=(unsigned short)ClampPurpleReplacementStacks((int)id,(int)stacks);mLoanBuffs.push_back(b);}
-        if(mLoanPlant<0 && (count || mLoanLevel>=0))return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam);
+        if(mLoanPlant<0 && (count || mLoanLevel>=0))return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam,theSuffix);
     }
     RunState picks;
     if(aVersion>=17) {
         int seed=0; unsigned value=0;
         if(!aReader.ReadI32(picks.mPendingPlantPicks)||!aReader.ReadI32(picks.mPendingBuffPicks)||
-            picks.mPendingPlantPicks<0||picks.mPendingPlantPicks>10000||picks.mPendingBuffPicks<0||picks.mPendingBuffPicks>400000)return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam);
+            picks.mPendingPlantPicks<0||picks.mPendingPlantPicks>10000||picks.mPendingBuffPicks<0||picks.mPendingBuffPicks>400000)return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam,theSuffix);
         for(int i=0;i<RUN_CHOICES;++i) {
             if(!aReader.ReadI32(seed)||seed<(int)SEED_NONE||seed>=RUN_POOL_MAX||!aReader.ReadU16(value)||
-                (value!=RUN_BUFF_CHOICE_NONE&&value>=RUN_BUFF_COUNT+RUN_PLANT_UPGRADE_COUNT+RUN_PLANT_BUFF2_COUNT))return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam);
+                (value!=RUN_BUFF_CHOICE_NONE&&value>=RUN_BUFF_COUNT+RUN_PLANT_UPGRADE_COUNT+RUN_PLANT_BUFF2_COUNT))return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam,theSuffix);
             picks.mPlantChoices[i]=(SeedType)seed; picks.mBuffChoices[i]=(unsigned short)value;
         }
-        if(!aReader.ReadU32(picks.mPickCounter)||!aReader.ReadU32(picks.mPickSalt)||!aReader.ReadU16(value)||value>1)return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam);
+        if(!aReader.ReadU32(picks.mPickCounter)||!aReader.ReadU32(picks.mPickSalt)||!aReader.ReadU16(value)||value>1)return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam,theSuffix);
         picks.mChoicesRolled=value!=0;
         if(!aReader.ReadI32(picks.mPaidRerollCount)||picks.mPaidRerollCount<0||picks.mPaidRerollCount>1000000||
-            !aReader.ReadI32(picks.mCatchUpLevel)||picks.mCatchUpLevel < -1||picks.mCatchUpLevel>LevelCountForMode(aMode))return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam);
+            !aReader.ReadI32(picks.mCatchUpLevel)||picks.mCatchUpLevel < -1||picks.mCatchUpLevel>LevelCountForMode(aMode))return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam,theSuffix);
         auto readSet=[&](unsigned short* values,int& count,unsigned limit) {
             unsigned n=0,id=0;if(!aReader.ReadU16(n)||n>RUN_CHOICES*2)return false;
             count=(int)n;for(unsigned i=0;i<n;++i){if(!aReader.ReadU16(id)||id>=limit)return false;values[i]=(unsigned short)id;}return true;
@@ -1379,7 +1380,7 @@ bool RunState::Load(int theProfileId, int theMode, int theScene, bool theBackup,
         if(!readSet(picks.mPickSeenBuffs,picks.mPickSeenBuffCount,buffLimit)||
             !readSet(picks.mPickCooldownBuffs,picks.mPickCooldownBuffCount,buffLimit)||
             !readSet(picks.mPickSeenPlants,picks.mPickSeenPlantCount,RUN_POOL_MAX)||
-            !readSet(picks.mPickCooldownPlants,picks.mPickCooldownPlantCount,RUN_POOL_MAX))return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam);
+            !readSet(picks.mPickCooldownPlants,picks.mPickCooldownPlantCount,RUN_POOL_MAX))return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam,theSuffix);
     }
 
     mEndlessOptions=0;mEndlessFocusMask=0;mEndlessSnapshotLevel=-1;mEndlessSnapshotPhase=0;
@@ -1390,31 +1391,31 @@ bool RunState::Load(int theProfileId, int theMode, int theScene, bool theBackup,
         if(!aReader.ReadU16(opt)||!EndlessRules::Valid((int)opt)||
             !aReader.ReadU32(lo)||!aReader.ReadU32(hi)||(hi&0xffff0000u)||
             !aReader.ReadI32(mEndlessSnapshotLevel)||mEndlessSnapshotLevel < -1||mEndlessSnapshotLevel>aLevelIndex||
-            !aReader.ReadU16(phase)||phase>5||!aReader.ReadBlob(mEndlessLawn)||!aReader.ReadBlob(mEndlessRetryLawn))return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam);
+            !aReader.ReadU16(phase)||phase>5||!aReader.ReadBlob(mEndlessLawn)||!aReader.ReadBlob(mEndlessRetryLawn))return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam,theSuffix);
         mEndlessOptions=(int)opt;mEndlessFocusMask=(uint64_t(hi)<<32)|lo;mEndlessSnapshotPhase=(int)phase;
         unsigned rounds=0,first=0,second=0;
         if(!aReader.ReadU16(rounds)||rounds>2||!aReader.ReadU16(first)||!aReader.ReadU16(second)||
-            (first!=255&&first>=RUN_ZOMBIE_BUFF_COUNT)||(second!=255&&second>=RUN_ZOMBIE_BUFF_COUNT))return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam);
+            (first!=255&&first>=RUN_ZOMBIE_BUFF_COUNT)||(second!=255&&second>=RUN_ZOMBIE_BUFF_COUNT))return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam,theSuffix);
         mEndlessVoteRounds=(int)rounds;mEndlessVoteIds[0]=(unsigned char)first;mEndlessVoteIds[1]=(unsigned char)second;
     }
     mDamageHistory.clear();
-    if(aVersion>=21) { if(!aReader.ReadBlob(mDamageHistory))return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam); }
+    if(aVersion>=21) { if(!aReader.ReadBlob(mDamageHistory))return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam,theSuffix); }
     else if(aVersion>=20) aReader.ReadStats(mDamageHistory);
     mAdmission=Admission::State{};
-    if(aVersion>=21) {std::vector<unsigned char> bytes;if(!aReader.ReadBlob(bytes)||!Admission::Decode(bytes,mAdmission))return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam);}
+    if(aVersion>=21) {std::vector<unsigned char> bytes;if(!aReader.ReadBlob(bytes)||!Admission::Decode(bytes,mAdmission))return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam,theSuffix);}
     // @pvz-online: constructor/StartNew defaults cannot silently upgrade an older saved run.
     unsigned int crowdRule = CrowdRules::LEGACY;
     if (aVersion >= 22 && (!aReader.ReadU16(crowdRule) || !CrowdRules::Valid(crowdRule)))
-        return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam);
+        return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam,theSuffix);
     mTeam=TeamProgression::State{};
-    if(aVersion>=25) {std::vector<unsigned char> team;if(!aReader.ReadBlob(team)||!TeamProgression::Decode(team,mTeam))return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam);}
+    if(aVersion>=25) {std::vector<unsigned char> team;if(!aReader.ReadBlob(team)||!TeamProgression::Decode(team,mTeam))return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam,theSuffix);}
     // @pvz-online 2026-10-26：一张票不跨进程。MOD98 的单人误开票把 open 票写进了存档，
     // 以后再进团队房续档时，那张没有原会话时钟与名册的旧票会被当成真票结算（单人局凭空
     // 得增益、跨关跨模式串流）。读档一律关票——已得的层数原样保留，下一次准备按现役
     // 名册重新开票。
     if(mTeam.shared.ballot.open)mTeam.shared.ballot.open=false;
-    if(theTeam && (mAdmission.run!=theTeam || mAdmission.phase==Admission::NONE))return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam);
-    if(theMode==RUN_MODE_ENDLESS ? (aMode!=RUN_MODE_ENDLESS || (int)aEndlessScene!=theScene) : aMode==RUN_MODE_ENDLESS)return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam);
+    if(theTeam && (mAdmission.run!=theTeam || (mAdmission.phase==Admission::NONE && aMode!=RUN_MODE_ENDLESS)))return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam,theSuffix);
+    if(theMode==RUN_MODE_ENDLESS ? (aMode!=RUN_MODE_ENDLESS || (int)aEndlessScene!=theScene) : aMode==RUN_MODE_ENDLESS)return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam,theSuffix);
 
     mCrowdRule = static_cast<int>(crowdRule);
 	mRunSeed = aRunSeed;
@@ -1471,7 +1472,7 @@ bool RunState::Load(int theProfileId, int theMode, int theScene, bool theBackup,
 
     if(theBackup) {
         // Quarantine the damaged head before publishing the verified backup, preserving .bak.
-        std::string head=GetCheckpointName(theProfileId,theMode,theScene,theTeam);
+        std::string head=GetCheckpointName(theProfileId,theMode,theScene,theTeam)+theSuffix;
         if(gSexyAppBase->FileExists(head)) {
 #ifdef _WIN32
             if(!MoveFileExA(head.c_str(),(head+".rejected").c_str(),MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))return false;

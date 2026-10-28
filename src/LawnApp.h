@@ -85,6 +85,8 @@ public:
 class LawnApp : public SexyApp
 {
 public:
+    bool mObserverP2P = false;
+    bool SetObserverP2P(bool enabled);
     Observer::InputFence mObserverInput;bool mObserverTextTail=false;
     bool FilterObserverInput(int,int=0,int=0,int=0)override;
     std::unique_ptr<CoopPlay> mCoopPlay;
@@ -105,6 +107,7 @@ public:
     std::unique_ptr<NetSession> mOnlineSession;
     bool mSlideCollect = true;
     bool mHasOnlineStart = false, mOnlineWasConnected = false, mOnlineWaitingStartAck = false;
+    bool mOnlineHoldPrompted = false;
     int mOnlineStartLevel = 0, mOnlineStartSeed = 0, mOnlineStartWaitFrames = 0;
     // 孤儿 setup 相自救的节拍器：房主停在菜单、房间却停在 setup 相（放弃时的 op5 丢了）
     // 时，按这个计数每 200 帧重发一次「回菜单」。
@@ -141,7 +144,7 @@ public:
     void ZombieVoteCloseUI();
     void ResetZombieVote();
     void DisconnectOnline();
-    void AlignRunToHost(int seed, int index, int mode, int difficulty, int scale, int tempo,
+    bool AlignRunToHost(int seed, int index, int mode, int difficulty, int scale, int tempo,
         int zombotany, int scene, int boss, int buffMult, int ladder, int zombieBuff, const uint8_t* stacks,int speedTier=0, int firstWave=0, int endlessOptions=0, int crowdRule=0);
     bool IsOnlineGame();
     bool IsOnlineStartAllowed();
@@ -195,7 +198,8 @@ public:
 	void ShowRunMenu(int endlessScene=-1);
 	void StartRun(int mode, int buffMult = 0, int difficulty = 1, int scale = 1, int tempo = 1, int zombotany = 0, int endlessScene = 0, int bossFlag = 2, int ladder = 0, int zombieBuff = 1,int speedTier=0, int firstWave=0, int endlessOptions=141);
 	bool RunPickPaidReroll(int lockedChoice, unsigned int expectedCounter);
-	void ResumeRun(int mode=-1, int scene=0);
+	void ResumeRun(int mode=-1, int scene=0, uint64_t slot=0);
+    void ChooseEndlessSave();
 	void ShowRunPicks();
 	void StartRunLevel();
 	void RetryRunLevel();

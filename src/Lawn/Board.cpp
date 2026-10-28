@@ -3541,7 +3541,7 @@ void Board::MouseMove(int x, int y)
 void Board::MouseDrag(int x, int y)
 {
     if(mApp->TeamProgressionInputBlocked())return;
-    if (mCoopTouchCaptured || mMobileWatchOpen) return;
+    if (mCoopTouchCaptured || IsWatchingView()) return;
 #ifdef __ANDROID__
 	// @pvz-online: a small movement threshold keeps tapping a card available.
 	if (mTouchSeedDrag &&
@@ -4141,6 +4141,27 @@ void Board::MouseDownCobcannonFire(int x, int y, int theClickCount)
 	ClearCursor();
 }
 
+// Mirror adds a new plant; an upgrade/repair being legal is not an empty slot.
+// Resolve Imitater before checking terrain and preserve the independent support/cover layers.
+static bool MirrorCellIsEmpty(Board* board, int col, int row, SeedType seed)
+{
+    if (board->CanPlantAt(col, row, seed) != PlantingReason::PLANTING_OK) return false;
+    PlantsOnLawn plants;
+    board->GetPlantsOnLawn(col, row, &plants);
+    if (seed == SeedType::SEED_LILYPAD) return !plants.mLilypadPlant;
+    if (seed == SeedType::SEED_FLOWERPOT) return !plants.mFlowerPotPlant;
+    if (seed == SeedType::SEED_PUMPKINSHELL) return !plants.mPumpkinPlant;
+    if (Plant::IsFlying(seed)) return !plants.mFlyingPlant;
+    if (plants.mNormalPlant) return false;
+    if (seed == SeedType::SEED_COBCANNON)
+    {
+        PlantsOnLawn right;
+        board->GetPlantsOnLawn(col + 1, row, &right);
+        if (col + 1 >= MAX_GRID_SIZE_X || right.mNormalPlant || right.mPumpkinPlant || right.mFlyingPlant) return false;
+    }
+    return true;
+}
+
 void Board::MouseDownWithPlant(int x, int y, int theClickCount)
 {
     if(mApp->TeamProgressionInputBlocked())return;
@@ -4349,6 +4370,7 @@ void Board::MouseDownWithPlant(int x, int y, int theClickCount)
 
     const bool createsPlant = mCursorObject->mCursorType == CursorType::CURSOR_TYPE_PLANT_FROM_BANK ||
         mCursorObject->mCursorType == CursorType::CURSOR_TYPE_PLANT_FROM_USABLE_COIN;
+    int mirrorRow = -1;
     if (createsPlant)
     {
         SeedType admissionSeed = mCursorObject->mType;
@@ -4361,9 +4383,13 @@ void Board::MouseDownWithPlant(int x, int y, int theClickCount)
             for (int row = 0; row < MAX_GRID_SIZE_Y; ++row)
                 if (row != aGridY && CanPlantAt(aGridX, row, aPlantingSeedType) == PlantingReason::PLANTING_OK) ++plantCount;
         }
-        else if (mApp->RunMirrorStacks() > 0 &&
-            ((aGridY + 1 < MAX_GRID_SIZE_Y && CanPlantAt(aGridX, aGridY + 1, admissionSeed) == PlantingReason::PLANTING_OK) ||
-             (aGridY > 0 && CanPlantAt(aGridX, aGridY - 1, admissionSeed) == PlantingReason::PLANTING_OK))) ++plantCount;
+        else if (mApp->RunMirrorStacks() > 0)
+        {
+            const SeedType mirrorSeed = admissionSeed == SeedType::SEED_IMITATER ? mCursorObject->mImitaterType : admissionSeed;
+            if (MirrorCellIsEmpty(this, aGridX, aGridY + 1, mirrorSeed)) mirrorRow = aGridY + 1;
+            else if (MirrorCellIsEmpty(this, aGridX, aGridY - 1, mirrorSeed)) mirrorRow = aGridY - 1;
+            if (mirrorRow >= 0) ++plantCount;
+        }
         if (!PreparePlantAnimations(admissionSeed, plantCount))
         {
             DisplayAdvice("\u8bf7\u7a0d\u7b49\u7247\u523b\uff0c\u518d\u6b21\u79cd\u690d\u3002", MessageStyle::MESSAGE_STYLE_HINT_FAST, AdviceType::ADVICE_NONE);
@@ -4487,30 +4513,14 @@ void Board::MouseDownWithPlant(int x, int y, int theClickCount)
 		// 只落 1 株：先试下格、被占/不可种再试上格，都不行就算了。免阳光、不刷 CD、
 		// 不递归（本分支只由玩家点击进）。aSpawnType 用换装后的（Artillery 情境复制株
 		// 也是加农炮）；睡眠态随主株。
-		if (mApp->RunMirrorStacks() > 0)
-		{
-			int aMirrorRow = -1;
-			if (aGridY + 1 < MAX_GRID_SIZE_Y && CanPlantAt(aGridX, aGridY + 1, aSpawnType) == PlantingReason::PLANTING_OK)
-			{
-				aMirrorRow = aGridY + 1;
-			}
-			else if (aGridY - 1 >= 0 && CanPlantAt(aGridX, aGridY - 1, aSpawnType) == PlantingReason::PLANTING_OK)
-			{
-				aMirrorRow = aGridY - 1;
-			}
-			if (aMirrorRow >= 0)
-			{
-				Plant* aMirrorPlant = AddPlant(aGridX, aMirrorRow, aSpawnType, aSpawnImitater);
-				if (aIsAwake)
-				{
-					aMirrorPlant->SetSleeping(false);
-				}
-				else
-				{
-					aMirrorPlant->mWakeUpCounter = aWakeUpCounter;
-				}
-			}
-		}
+        if (mirrorRow >= 0 && MirrorCellIsEmpty(this, aGridX, mirrorRow, aPlantingSeedType))
+        {
+            if (Plant* mirror = AddPlant(aGridX, mirrorRow, aSpawnType, aSpawnImitater))
+            {
+                if (aIsAwake) mirror->SetSleeping(false);
+                else mirror->mWakeUpCounter = aWakeUpCounter;
+            }
+        }
 	}
 	else
 	{
@@ -5027,7 +5037,7 @@ void Board::PickUpTool(GameObjectType theObjectType)
 void Board::MouseDown(int x, int y, int theClickCount)
 {
     if(mApp->TeamProgressionInputBlocked())return;
-    if (mApp->mOnlineSession && mApp->mOnlineSession->RelayBattleHeld()) { mApp->DoOnlineDialog(); return; }
+    if (mApp->mOnlineSession && mApp->mOnlineSession->RelayBattleHeld()) { CoopMouseDown(x,y,theClickCount); return; }
     if(AdmissionBoard::MouseDown(this,x,y,theClickCount))return;
     if (NextWaveControl::MouseDown(this, x, y, theClickCount)) return;
     if (DamageStatsView::MouseDown(this, x, y, theClickCount)) return;
@@ -5272,7 +5282,7 @@ bool Board::CanInteractWithBoardButtons()
 void Board::MouseUp(int x, int y, int theClickCount)
 {
     if(mApp->TeamProgressionInputBlocked())return;
-    if (mApp->mOnlineSession && mApp->mOnlineSession->RelayBattleHeld()) return;
+    if (mApp->mOnlineSession && mApp->mOnlineSession->RelayBattleHeld()) { CoopMouseUp(x,y,theClickCount); return; }
     if(AdmissionBoard::MouseUp(this,x,y,theClickCount))return;
     if (NextWaveControl::MouseUp(this, x, y, theClickCount)) return;
     if (DamageStatsView::MouseUp(this, x, y, theClickCount)) return;
@@ -7544,6 +7554,15 @@ void Board::DrawHouseDoorTop(Graphics* g)
 
 void Board::DrawLevel(Graphics* g)
 {
+	// Endless progression is independent of the engine's repeating scene prototype.
+	if (const RunState* run = mApp->GetRunState(); run && run->IsEndless())
+	{
+		const std::string label = ModText::Format("无尽 第 {} 关", "Endless Level {}", run->GetPlayingLevelIndex() + 1);
+		PvzpDrawString(g, label, HasProgressMeter() ? 593 : 780, 595,
+			ModText::FontFor(Sexy::FONT_HOUSEOFTERROR16, 21), Color(224, 187, 98),
+			DrawStringJustification::DS_ALIGN_RIGHT);
+		return;
+	}
 	std::string aLevelStr;
 	if (mApp->IsAdventureMode())
 	{
@@ -8357,7 +8376,7 @@ void Board::DrawUITop(Graphics* g)
 // Full observation owns the lawn surface; local child buttons must not
 // repaint over the remote picture. Keep the normal modal and clipping rules.
 void Board::DrawAll(Sexy::ModalFlags* flags,Sexy::Graphics* g){
- if(mApp->mOnlineSession&&mApp->mOnlineSession->IsWatchingV2()&&mMobileWatchOpen){
+ if(mApp->mOnlineSession&&mApp->mOnlineSession->IsWatchingV2()&&IsWatchingView()){
   if(mPriority>mWidgetManager->mMinDeferredOverlayPriority)mWidgetManager->FlushDeferredOverlayWidgets(mPriority);
   Sexy::AutoModalFlags scoped(flags,mWidgetFlagsMod);
   Sexy::Graphics clipped(*g);
@@ -8412,7 +8431,7 @@ void Board::Draw(Graphics* g)
             if (!plant->mDead) DrawHealthNumberOverRect(g, plant->mPlantHealth, plant->GetPlantRect());
     DrawRelayedZombieMarkers(g);
     DrawCoopUI(g);
-    if (mMobileWatchOpen) DrawMobileWatch(g);
+    if (IsWatchingView()) DrawMobileWatch(g);
 }
 
 void Board::SetMustacheMode(bool theEnableMustache)
@@ -8578,7 +8597,15 @@ void Board::KeyUp(KeyCode theKey) { if(mApp->TeamProgressionInputBlocked())retur
 void Board::KeyDown(KeyCode theKey)
 {
     if(mApp->TeamProgressionInputBlocked())return;
-    if (mApp->mOnlineSession && mApp->mOnlineSession->RelayBattleHeld()) { mApp->DoOnlineDialog(); return; }
+    if (mApp->mOnlineSession && mApp->mOnlineSession->RelayBattleHeld()) {
+        if(CoopHud::WaitingObserver(this)) {
+            if((theKey==KEYCODE_ESCAPE||theKey=='V')&&mMobileWatchOpen){StopMobileWatch();return;}
+            if(theKey=='V'||(theKey==KEYCODE_RIGHT&&mMobileWatchOpen)){CycleMobileWatch();return;}
+            if(theKey=='R'&&mMobileWatchOpen){auto* s=mApp->mOnlineSession.get();if(!s->ObserverRequestCooldown())s->BeginWatch(s->GetWatchTargetSeat());return;}
+        }
+        if(theKey==KEYCODE_ESCAPE)CoopHud::Action(this,12);
+        return;
+    }
     if(NextWaveControl::KeyDown(this,theKey))return;
     // @pvz-online: use uppercase VK letters; lowercase ASCII aliases collide with F5/F7/NUMPAD2.
     if((theKey=='B') && mApp->IsOnlineGame()){mCoopToolsOpen=false;CloseQuickChatPanel();mSunGiftSelectFrames=0;mApp->ShowCoopPlay();return;}
@@ -8588,7 +8615,7 @@ void Board::KeyDown(KeyCode theKey)
     if (((theKey >= '0' && theKey <= '9') || theKey == 'Q' ||
         theKey == 'H' || theKey == 'J') && mWidgetManager->mIsKeyRepeat)
         return; // A held panel choice must not become a plant after the panel closes.
-    if (mMobileWatchOpen) {
+    if (mMobileWatchOpen && (IsWatchingView() || theKey==KEYCODE_ESCAPE || theKey=='V')) {
         if (theKey == KEYCODE_ESCAPE || theKey == 'V') StopMobileWatch();
         else if (theKey == KEYCODE_RIGHT) CycleMobileWatch();
         return;

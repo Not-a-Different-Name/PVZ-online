@@ -23,10 +23,10 @@ bool NetSession::HasObserverWatchers()const{if(!mObserverBoardActive||!IsConnect
 void NetSession::ObserverV2Tick(){
  const auto now=ObserverNow();
  if(mObserverEpoch!=ObserverEpoch()||mObserverTerm!=mFlowTerm){ClearObserverV2();mObserverEpoch=ObserverEpoch();mObserverTerm=mFlowTerm;}
- if(IsRelay()&&((!mObserverRelay&&now-mObserverQueryAt>=2000)||(mPunchAdvertised&&now-mObserverQueryAt>=25000))){uint8_t p[4];ObserverWireV2::Put32(p,ObserverRevision);SendRaw(0xF023,p,4);mObserverQueryAt=now;}
+ if(IsRelay()&&((!mObserverRelay&&now-mObserverQueryAt>=2000)||(mObserverP2PEnabled&&mPunchAdvertised&&now-mObserverQueryAt>=25000))){uint8_t p[4];ObserverWireV2::Put32(p,ObserverRevision);SendRaw(0xF023,p,4);mObserverQueryAt=now;}
  TickObserverDirect(now);
  if(mObserverWatch){
-  if(!IsSeatOccupied(mWatchTargetSeat)||IsSeatOffline(mWatchTargetSeat)||IsWaitingForNextRound(mWatchTargetSeat)||
+  if(!CanWatchSeat(mWatchTargetSeat)||
     (!mObserverReceived&&now-mObserverPendingAt>90000)){
    EndWatch(true);mWatchEndPending=WatchEnd::TIMEOUT;
   }
@@ -53,7 +53,7 @@ void NetSession::HandleObserver(uint16_t type,const uint8_t*p,int n){
  if(c.op==Op::STOP){auto&v=mObserverViewers[src];if(v.watch==c.watchId&&v.stream==c.boardStream){mPunchLink.Cancel(DirectContext(src,true));v={};mLink.ClearObserverOutput(src);}if(src==mWatchTargetSeat&&c.watchId==mObserverWatch)ClearWatchState(WatchEnd::SILENT);return;}
  if(src!=mWatchTargetSeat||c.watchId!=mObserverWatch)return;
  if(c.op==Op::ACCEPT){if(mObserverAccepted&&c.boardStream!=mObserverRemoteStream){EndWatch(true);return;}mObserverRemoteStream=c.boardStream;mObserverAccepted=true;mObserverAssembler.Context(src,mLocalSeat,mObserverWatch,c.boardStream,ObserverEpoch());}
- if(c.op==Op::BUSY||c.op==Op::UNSUPPORTED){EndWatch(true);mWatchEndPending=WatchEnd::TIMEOUT;}
+ if((c.op==Op::BUSY||c.op==Op::UNSUPPORTED)&&!mObserverReceived){EndWatch(true);mWatchEndPending=WatchEnd::TIMEOUT;}
 }
 bool NetSession::SendObserverDisplay(const std::vector<uint8_t>&body,uint32_t tick){
  if(!ObserverCanCapture())return false;
@@ -89,11 +89,11 @@ uint32_t NetSession::ObserverRequestCooldown()const{auto now=ObserverNow();retur
 // 任何畸形/不允许的情形一律静默——观战永远有 MOD96 快照档兜底。
 
 ObserverDirect::Context NetSession::DirectContext(uint8_t peer,bool producer)const{
- if(peer<1||peer>6)return {};
+ if(!mObserverP2PEnabled||peer<1||peer>6)return {};
  if(producer){const auto&v=mObserverViewers[peer];return {v.watch,v.stream,ObserverEpoch(),mFlowTerm,mLocalSeat,peer};}
  return {mObserverWatch,mObserverRemoteStream,ObserverEpoch(),mFlowTerm,peer,mLocalSeat};
 }
-bool NetSession::IsObserverDirect()const{return mObserverWatch&&mObserverAccepted&&mPunchFailedWatch!=mObserverWatch&&mPunchLink.Ready(DirectContext(mWatchTargetSeat,false));}
+bool NetSession::IsObserverDirect()const{return mObserverP2PEnabled&&mObserverWatch&&mObserverAccepted&&mPunchFailedWatch!=mObserverWatch&&mPunchLink.Ready(DirectContext(mWatchTargetSeat,false));}
 uint64_t NetSession::ObserverDirectInterval()const{return IsObserverDirect()?mPunchLink.Interval(DirectContext(mWatchTargetSeat,false)):2000;}
 bool NetSession::ObserverCanCapture()const{
  if(!HasObserverWatchers())return false;auto now=ObserverNow();
@@ -102,6 +102,7 @@ bool NetSession::ObserverCanCapture()const{
  return false;
 }
 void NetSession::TickObserverDirect(uint64_t now){
+ if(!mObserverP2PEnabled)return;
  if(IsRelay()&&mPunchAdvertised&&(!mPunchRelay||(mObserverWatch&&now-mPunchRenewAt>=120000))&&now-mPunchQueryAt>=2000){
   uint8_t p[5];p[0]=ObserverDirect::OP_CAPABLE;ObserverWireV2::Put32(p+1,ObserverDirect::REVISION);SendRaw(ObserverDirect::CONTROL_TYPE,p,5);mPunchQueryAt=now;
  }
@@ -137,7 +138,7 @@ void NetSession::TickObserverDirect(uint64_t now){
  }
 }
 void NetSession::HandlePunchControl(const uint8_t*p,int n){
- if(!IsConnected()||!p||n<1)return;
+ if(!mObserverP2PEnabled||!IsConnected()||!p||n<1)return;
  if(mTransport==Transport::DIRECT){
   const uint8_t peer=DirectPeerSeat();if(n!=35||p[0]!=4||GetSeatBuild(peer)<97||!ObserverDirect::Get16(p+1))return;
   ObserverDirect::Context c{ObserverDirect::Get32(p+19),ObserverDirect::Get32(p+23),ObserverDirect::Get32(p+27),ObserverDirect::Get32(p+31),0,0};bool producer=false;
@@ -161,4 +162,20 @@ void NetSession::HandlePunchControl(const uint8_t*p,int n){
  if(mObserverWatch&&mObserverAccepted&&offer.peerSeat==mWatchTargetSeat&&c.watch==mObserverWatch&&c.stream==mObserverRemoteStream){c.src=offer.peerSeat;c.dst=mLocalSeat;}
  else{auto&v=mObserverViewers[offer.peerSeat];if(!mObserverBoardActive||IsWaitingForNextRound(mLocalSeat)||!v.watch||v.watch!=c.watch||v.stream!=c.stream)return;c.src=mLocalSeat;c.dst=offer.peerSeat;producer=true;}
  if(!mPunchLink.Open())return;mPunchLink.StartProbe(offer.peerSeat,offer.ip,offer.port,offer.token,ObserverNow(),&c,producer,offer.ttl);
+}
+
+void NetSession::SetObserverP2PEnabled(bool enabled) {
+    if(mObserverP2PEnabled==enabled)return;
+    // Stop only UDP peers. Keep the accepted one-shot subscription and picture:
+    // recreating BEGIN here would hit the relay's existing five-second limit.
+    if(!enabled){
+        if(mObserverWatch)mPunchLink.Cancel(DirectContext(mWatchTargetSeat,false));
+        for(uint8_t seat=1;seat<=6;++seat)
+            if(mObserverViewers[seat].watch)mPunchLink.Cancel(DirectContext(seat,true));
+    }
+    mObserverP2PEnabled=enabled;mPunchLink.Close();mPunchRelay=false;
+    mPunchQueryAt=mPunchAttemptAt=mPunchRenewAt=mObserverDirectAt=0;
+    mPunchAttemptWatch=mPunchFailedWatch=0;mPunchAttempts=0;
+    for(auto& at:mDirectSentAt)at=0;
+    mObserverInbox.erase(std::remove_if(mObserverInbox.begin(),mObserverInbox.end(),[](const ObserverTransfer::Complete& frame){return frame.direct;}),mObserverInbox.end());
 }

@@ -355,12 +355,14 @@ void LawnApp::WriteToRegistry()
 		mPlayerInfo->SaveDetails();
 	}
 
+    RegistryWriteBoolean("ObserverP2PEnabled",mObserverP2P);
 	SexyAppBase::WriteToRegistry();
 }
 
 void LawnApp::ReadFromRegistry()
 {
 	SexyApp::ReadFromRegistry();
+    mObserverP2P=false;RegistryReadBoolean("ObserverP2PEnabled",&mObserverP2P);
     mSlideCollect = ModText::ReadSlideCollect();
 }
 
@@ -707,7 +709,7 @@ void LawnApp::KillStoreScreen()
 void LawnApp::ShowSeedChooserScreen()
 {
     if(mRunState && mRunState->IsNewEndless() && mBoard) {
-        std::string preview=ModText::Format("无尽第 {} 关 · ","Endless level {} / ",mRunState->GetPlayingLevelIndex()+1);
+        std::string preview=ModText::Format("无尽 第 {} 关 · ","Endless Level {} / ",mRunState->GetPlayingLevelIndex()+1);
         preview+=RunState::EndlessThemeName(mRunState->EndlessTheme());
         if(mRunState->IsEndlessBossLevel())preview+=ModText::Tr(" · 本关 BOSS"," / BOSS this level");
         mBoard->PushCustomBanner(preview.c_str());
@@ -772,7 +774,7 @@ void LawnApp::DoBackToMain(bool notifyOnline)
 
 	KillDialog(DIALOG_GAME_OVER);
 	if (notifyOnline && IsOnlineGame() && !IsLocalOnlyMode(mGameMode)) {
-        if(mOnlineSession->IsPrivateRoom())mOnlineSession->Close();
+        if(mOnlineSession->IsPrivateRoom() || mOnlineSession->IsWaitingForNextRound(mOnlineSession->GetLocalSeat()))mOnlineSession->Close();
         else mOnlineSession->SendLevelExit();
     }
 	mMusic->StopAllMusic();
@@ -1785,14 +1787,20 @@ void LawnApp::UpdateFrames()
 		// @pvz-online 语言批：会话层的状态/提示文案跟着 UI 语言走，但那一层要能脱开
 		// 框架单测（nettest 直接编译它的 .cpp），不能自己引用 ModText——语言由这儿每帧
 		// 注入，注入后再 Update（状态行每帧在 Update 末尾重算，改语言下一帧就生效）。
+        mOnlineSession->SetObserverP2PEnabled(mObserverP2P);
 		mOnlineSession->SetTextChinese(ModText::IsChinese());
         mOnlineSession->SetDirectoryStarted(mBoard!=nullptr || mRunState!=nullptr || mOnlineWaitingStartAck);
 		mOnlineSession->Update();
         const bool needsRoom = !mOnlineSession->HasRoundFlow() ||
             !mOnlineSession->IsConnected() || mOnlineSession->NeedsRoundRejoin() ||
             mOnlineSession->IsWaitingForNextRound(mOnlineSession->GetLocalSeat());
-        if (mBoard && needsRoom && mOnlineSession->RelayBattleHeld() && !mOnlineSession->IsReconnecting() && !GetDialog(Dialogs::DIALOG_ONLINE))
-            DoOnlineDialog();
+        const bool promptHeld = mBoard && needsRoom && mOnlineSession->RelayBattleHeld() && !mOnlineSession->IsReconnecting();
+        if (!promptHeld) mOnlineHoldPrompted = false;
+        else if (!mOnlineHoldPrompted) {
+            // Show once per hold, so Back can return to local waiting controls.
+            mOnlineHoldPrompted = true;
+            if (!GetDialog(Dialogs::DIALOG_ONLINE)) DoOnlineDialog();
+        }
         UpdateCoopPlay();
 
         // @pvz-online: the room now contains Start/Seats; keep it open after connection
@@ -3614,3 +3622,11 @@ void LawnApp::UpdateCoopPlay(){if(!mCoopPlay)mCoopPlay=std::make_unique<CoopPlay
 void LawnApp::ShowCoopPlay(){if(TeamProgressionAvailable()&&GetDialogCount()==0){ShowTeamProgression(TeamProgressionView::Page::TEAMMATES);return;}ShowCoopPlayLegacy();}
 void LawnApp::ShowCoopPlayLegacy(){if(!mCoopPlay)mCoopPlay=std::make_unique<CoopPlay>(this);mCoopPlay->Show();}
 void LawnApp::ExpireCoopLoan(){if(!mCoopPlay)mCoopPlay=std::make_unique<CoopPlay>(this);mCoopPlay->ExpireLoan();}
+
+// General local option: persist before changing active observation transport.
+bool LawnApp::SetObserverP2P(bool enabled) {
+    if(!RegistryWriteBoolean("ObserverP2PEnabled",enabled))return false;
+    mObserverP2P=enabled;
+    if(mOnlineSession)mOnlineSession->SetObserverP2PEnabled(enabled);
+    return true;
+}

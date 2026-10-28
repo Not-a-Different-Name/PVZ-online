@@ -1,3 +1,4 @@
+#include "../Widget/EndlessSaveDialog.h"
 #include "../TeamPlay.h"
 #include "Lawn/Widget/PlayerMessageBox.h"
 #include "../../LawnApp.h"
@@ -31,6 +32,8 @@ void LawnApp::ShowRunMenu(int endlessScene)
     if (!IsOnlineStartAllowed() && !(mOnlineSession && mOnlineSession->GetRole() == NetSession::Role::HOST && mOnlineSession->GetState() == NetSession::State::LISTENING))
     { DoOnlineDialog(); return; }
 
+    if(endlessScene>=0){auto* d=new EndlessSaveDialog(this);AddDialog(DIALOG_ONLINE_START,d);int action=d->WaitForResult();if(action==Dialog::ID_YES){ResumeRun(RunState::RUN_MODE_ENDLESS,d->scene,d->selected);return;}if(action!=10)return;}
+
     KillRunFlowScreen();
     KillBoard();
     KillGameSelector();
@@ -46,6 +49,8 @@ void LawnApp::StartRun(int mode, int buffMult, int difficulty, int scale, int te
     if (!IsOnlineStartAllowed() && !(mOnlineSession && mOnlineSession->GetRole() == NetSession::Role::HOST && mOnlineSession->GetState() == NetSession::State::LISTENING))
     { DoOnlineDialog(); return; }
 
+    if(mode==RunState::RUN_MODE_ENDLESS && !EndlessSaves::ArchiveLegacy(mPlayerInfo->mId,endlessScene)){PlayerMessageBox::Show(this,DIALOG_MESSAGE,ModText::Tr("无法开始","Cannot start"),ModText::Tr("请检查可用空间后重试。","Check storage and retry."));return;}
+
     ResetZombieVote();
     KillRunFlowScreen();
     KillBoard();
@@ -53,19 +58,23 @@ void LawnApp::StartRun(int mode, int buffMult, int difficulty, int scale, int te
     mRunState = std::make_unique<RunState>();
     mDamageStats.Reset();
     mRunState->StartNew(Sexy::Rand(), mode, difficulty, scale, tempo, zombotany, endlessScene, bossFlag, buffMult, ladder, zombieBuff,speedTier, firstWave, endlessOptions);
+    if(mRunState->IsEndless())mRunState->mAdmission.run=Admission::NewId();
+    if(mOnlineSession){mOnlineSession->mEndlessStartingResume=false;mOnlineSession->mEndlessStartingLegacy=false;}
     mRunState->BeginStartPicks();
-    mRunState->Save(mPlayerInfo->mId);
+    if(!mRunState->Save(mPlayerInfo->mId) && mRunState->IsEndless()) {
+        ShowGameSelector();PlayerMessageBox::Show(this,DIALOG_MESSAGE,ModText::Tr("无法开始","Cannot start"),ModText::Tr("保存失败，请检查空间后重试。","Save failed. Check storage and retry."));return;
+    }
     EnterRunLevel();
 }
 
-void LawnApp::ResumeRun(int mode,int scene)
+void LawnApp::ResumeRun(int mode,int scene, uint64_t slot)
 {
     ResetZombieVote();
     if (!IsOnlineStartAllowed() && !(mOnlineSession && mOnlineSession->GetRole() == NetSession::Role::HOST && mOnlineSession->GetState() == NetSession::State::LISTENING))
     { DoOnlineDialog(); return; }
 
     auto run = std::make_unique<RunState>();
-    bool compatible = run->Load(mPlayerInfo->mId,mode,scene);
+    bool compatible = slot?EndlessSaves::Load(mPlayerInfo->mId,scene,slot,IsOnlineGame(),*run):run->Load(mPlayerInfo->mId,mode,scene);
     if (run->mMode < RunState::RUN_MODE_FULL || run->mMode > RunState::RUN_MODE_ENDLESS || run->IsComplete() ||
         run->mDiff < RunState::RUN_DIFF_EASY || run->mDiff > RunState::RUN_DIFF_HIGH ||
         run->mScale < RunState::RUN_SCALE_HALF || run->mScale > RunState::RUN_SCALE_QUAD ||
@@ -82,6 +91,9 @@ void LawnApp::ResumeRun(int mode,int scene)
     mRunState = std::move(run);
     if(mRunState->IsEndless() && !mRunState->IsNewEndless())
         PlayerMessageBox::Show(this, Dialogs::DIALOG_MESSAGE, ModText::Tr("旧版无尽存档","Legacy endless save"), ModText::Tr("关数、增益和旧规则保留，需重新布阵。\n想玩新主题和周期BOSS，请新开无尽。","Keep your progress, buffs and old rules.\nRebuild the lawn. For themes and boss cycles,\nstart a new endless run."));
+
+    if(mRunState->IsEndless() && !mRunState->mAdmission.run)mRunState->mAdmission.run=Admission::NewId();
+    if(mOnlineSession){mOnlineSession->mEndlessStartingResume=mRunState->IsEndless();mOnlineSession->mEndlessStartingLegacy=!EndlessSaves::Exists(EndlessSaves::Path(mPlayerInfo->mId,*mRunState)+".joint");}
 
     EnterRunLevel();
 }
@@ -353,3 +365,5 @@ void LawnApp::RefreshRunChoicePlants(int aId, int aBefore)
 		}
 
 }
+
+void LawnApp::ChooseEndlessSave(){auto* d=new EndlessSaveDialog(this,true);AddDialog(DIALOG_ONLINE_START,d);if(d->WaitForResult()==Dialog::ID_YES)ResumeRun(RunState::RUN_MODE_ENDLESS,d->scene,d->selected);}

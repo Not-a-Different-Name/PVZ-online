@@ -3,7 +3,7 @@
 // after exit, including a release delivered into a different scene.
 bool LawnApp::FilterObserverInput(int type,int code,int x,int y){
  bool watching=mBoard&&mOnlineSession&&mOnlineSession->IsWatching()&&
-mBoard->mMobileWatchOpen;
+mBoard->IsWatchingView();
  if(watching&&!mObserverInput.Active()){
   std::bitset<256> keys;std::bitset<64> pointers;
   for(int k=0;k<255;++k)if(mWidgetManager->mKeyDown[k])keys.set(k);

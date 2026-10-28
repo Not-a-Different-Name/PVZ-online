@@ -779,6 +779,9 @@ bool WidgetManager::KeyDown(KeyCode key, bool isRepeat)
 	if ((key >= 0) && (key < 0xFF))
 		mKeyDown[key] = true;
 
+	// A repeated Back/Escape must not act on the widget revealed by its first press.
+	if (key == KEYCODE_ESCAPE && mIsKeyRepeat) { mIsKeyRepeat = previousRepeat; return true; }
+
 	if (mFocusWidget != nullptr)
 		mFocusWidget->KeyDown(key);
 	mIsKeyRepeat = previousRepeat;

@@ -150,7 +150,7 @@ void TeamPlay::Report() {
     auto*r=app->GetRunState();if(!r)return;Member m;m.player=r->mTeam.player;m.plants=PlantMask(*r);m.level=r->mLevelIndex;m.attempt=Attempt();
     // Personal choices stay complete after this client enters seed selection/battle.
     // Peers still crossing this stage barrier must not wait for our intro flag to return.
-    m.hasSupportCard=HasSupportCard();m.allow=r->mTeam.allow;m.ready=wantsVote;m.rewardsDone=!r->HasPendingPick()&&!r->IsCatchingUp();m.rows=app->mBoard&&app->mBoard->StageHasPool()?6:5;m.title=uint8_t(TeamGoalsStorage::Title(app));
+    m.hasSupportCard=HasSupportCard();m.allow=r->mTeam.allow;m.ready=wantsVote;m.rewardsDone=!r->HasPendingPick()&&!r->IsCatchingUp()&&!(Session()&&Session()->mEndlessNeedsAdmission);m.rows=app->mBoard&&app->mBoard->StageHasPool()?6:5;m.title=uint8_t(TeamGoalsStorage::Title(app));
     m.battle=app->mBoardResult==BOARDRESULT_LOST?FAILED:app->mGameScene==SCENE_PLAYING&&!app->mRunIntroHeld?FIGHTING:PREPARING;
     NetProto::MsgEscapedZombie relay;const bool pendingRelay=Session()&&Session()->PeekPendingEscapedZombie(relay);
     if(m.battle==FIGHTING&&app->mBoard&&!pendingRelay&&!app->mBoard->AreEnemyZombiesOnScreen()&&(app->mBoard->mLevelComplete||app->mBoard->mLevelAwardSpawned)&&

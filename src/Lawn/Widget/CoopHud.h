@@ -12,13 +12,26 @@ using namespace Sexy;
 // DamageStats owns the per-board HUD panel lifetime; 1..3 are its statistics pages.
 constexpr int RUN_INFO_PANEL = 4;
 inline bool RunInfoOpen(Board* b) { return b->mApp->mDamageStats.mOpen == RUN_INFO_PANEL; }
-inline bool Watching(Board* b) {
-#ifdef __ANDROID__
-    return b->mMobileWatchOpen;
-#else
-    return b->mWatchKeyHeld;
-#endif
+inline bool Watching(Board* b) { return b->IsWatchingView(); }
+inline bool Held(Board* b) { auto* s=RoomPresentation::Session(b->mApp);return s&&s->RelayBattleHeld(); }
+inline bool WaitingObserver(Board* b) {
+    auto* s=RoomPresentation::Session(b->mApp);
+    return s&&s->IsConnected()&&s->IsWaitingForNextRound(s->GetLocalSeat())&&
+        b->mApp->IsOnlineGame()&&b->mApp->mGameScene==GameScenes::SCENE_PLAYING;
 }
+inline bool HeldControlsAvailable(Board* b) {
+    return Held(b)&&b->mApp->mActive&&!b->mApp->mMinimized&&b->mApp->GetDialogCount()==0;
+}
+inline bool PauseStopsWatch(Board* b) {
+    return b->mPaused&&!(WaitingObserver(b)&&b->mApp->GetDialogCount()==0);
+}
+inline Rect HeldButton(int index) { return Rect(8+index*128,146,120,46); }
+inline bool CanObserveHeld(Board* b) {
+    auto* s=RoomPresentation::Session(b->mApp);if(!WaitingObserver(b))return false;
+    for(uint8_t seat=1;seat<=NetProto::MAX_PLAYERS;++seat)if(s->CanWatchSeat(seat))return true;
+    return false;
+}
+
 inline Rect Shortcut(int i){return Rect(660+i*46,40,44,44);}
 inline Rect Panel(Board* b){return b->mSunGiftSelectFrames>0?Rect(316,90,480,302):Rect(4,b->mChatEmotePage?442:370,792,b->mChatEmotePage?158:230);}
 inline Rect Close(Board* b){return Rect(746,b->mSunGiftSelectFrames>0?96:b->mChatEmotePage?448:376,44,32);}
@@ -76,6 +89,12 @@ inline int Hit(Board* b,int x,int y) {
         if(Rect(665,8,125,46).Contains(x,y))return 6;
         return 0;
     }
+    if(Held(b)) {
+        if(HeldButton(0).Contains(x,y))return CanObserveHeld(b)?5:0;
+        if(HeldButton(1).Contains(x,y))return 11;
+        if(HeldButton(2).Contains(x,y))return 12;
+        return 0; // Held lawn input is consumed without opening a modal or simulating combat.
+    }
     for(int row=0;row<NetProto::MAX_PLAYERS-1;++row) {
         const int seat=AidSeat(b,row);
         if(seat&&AidButton(row).Contains(x,y))return GiftEnabled(b,seat)?300+seat:0;
@@ -111,10 +130,10 @@ inline void WatchNext(Board* b) {
     b->CycleMobileWatch();
 #else
     auto* s=RoomPresentation::Session(b->mApp);if(!s)return;
-    if(s->ObserverRequestCooldown()){b->PushCustomBanner(ModText::Tr("稍等几秒再获取快照","Wait a few seconds before requesting another snapshot"));return;}
+    if(s->ObserverRequestCooldown())return;
     int start=Watching(b)?b->mWatchLastSeat:s->GetLocalSeat();
     for(int n=1;n<=NetProto::MAX_PLAYERS;++n){uint8_t seat=(uint8_t)((start+n-1)%NetProto::MAX_PLAYERS+1);
-        if(seat==s->GetLocalSeat()||!s->IsSeatOccupied(seat)||s->IsSeatOffline(seat))continue;
+        if(!s->CanWatchSeat(seat))continue;
         if(s->BeginWatch(seat)){b->mWatchKeyHeld=true;b->mWatchLastSeat=seat;b->mCoopWatchLatched=true;return;}
     }
     StopWatch(b);
@@ -122,10 +141,12 @@ inline void WatchNext(Board* b) {
 }
 inline void Action(Board* b,int action) {
     auto* app=b->mApp;auto* s=RoomPresentation::Session(app);auto* c=app->mCoopPlay.get();
+    if(action==11&&Held(b)){app->DoOnlineDialog();return;}
+    if(action==12&&Held(b)){StopWatch(b);app->DoNewOptions(false);return;}
+    if(Held(b)&&action!=0&&action!=5&&action!=6&&action!=10)return;
     if(action==6){StopWatch(b);return;}
     if(action==10&&s&&s->IsWatching()){
-        if(s->ObserverRequestCooldown())b->PushCustomBanner(ModText::Tr("稍等几秒再刷新","Wait a few seconds before refreshing"));
-        else s->BeginWatch(s->GetWatchTargetSeat());return;
+        if(!s->ObserverRequestCooldown())s->BeginWatch(s->GetWatchTargetSeat());return;
     }
     if(action==5){b->CloseQuickChatPanel();b->mSunGiftSelectFrames=0;WatchNext(b);return;}
     if(Watching(b))return;
@@ -168,6 +189,18 @@ inline int DrawNotice(Graphics* g,const std::string& text,int id,int y) {
     return height+4;
 }
 inline void Draw(Board* b,Graphics* g) {
+    if(Held(b)) {
+        if(Watching(b))return;
+        SeatUi::Strip(g,Rect(8,90,376,48));
+        const std::string text=WaitingObserver(b)?ModText::Tr("已归队，等下一关；可观看队友","Rejoined; watch teammates until next stage"):
+            ModText::Tr("本机战斗已暂停，可查看房间","Battle on hold; open Room for details");
+        SeatUi::Paragraph(g,text,Rect(16,94,360,40),18,Color(245,230,165));
+        const bool active=HeldControlsAvailable(b);
+        SmallButton(g,HeldButton(0),ModText::Tr("观战","Watch"),active&&CanObserveHeld(b));
+        SmallButton(g,HeldButton(1),ModText::Tr("房间","Room"),active);
+        SmallButton(g,HeldButton(2),ModText::Tr("菜单","Menu"),active);
+        return;
+    }
     if(!b->QuickChatAvailable()||Watching(b)||RunInfoOpen(b))return;
     bool interactive=!b->mPaused&&b->mApp->mActive&&!b->mApp->mMinimized;
     const char* labels[]={ModText::Tr("消息","Chat"),ModText::Tr("表情","Face"),ModText::Tr("阳光","Sun")};
@@ -218,9 +251,12 @@ inline void Draw(Board* b,Graphics* g) {
         noticeY+=DrawNotice(g,Banner(b,index),notice.mId,noticeY);
     }
 }
-inline void WatchControls(Graphics* g) {
-    SmallButton(g,Rect(400,8,120,46),ModText::Tr("刷新","Refresh"),true);
-    SmallButton(g,Rect(530,8,125,46),ModText::Tr("换人","Next"),true);
+inline void WatchControls(Graphics* g,Board* board) {
+    auto* session=RoomPresentation::Session(board->mApp);
+    bool ready=session&&!session->ObserverRequestCooldown(),next=false;
+    if(ready)for(uint8_t seat=1;seat<=NetProto::MAX_PLAYERS;++seat)if(seat!=session->GetWatchTargetSeat()&&session->CanWatchSeat(seat)){next=true;break;}
+    SmallButton(g,Rect(400,8,120,46),ModText::Tr("刷新","Refresh"),ready);
+    SmallButton(g,Rect(530,8,125,46),ModText::Tr("换人","Next"),next);
     SmallButton(g,Rect(665,8,125,46),ModText::Tr("返回","Back"),true);
 }
 }

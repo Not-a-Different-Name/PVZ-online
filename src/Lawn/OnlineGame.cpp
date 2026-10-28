@@ -1,3 +1,4 @@
+#include "Lawn/Run/EndlessSaves.h"
 #include "Run/RunSpeciesRuntime.h"
 #include "TeamPlay.h"
 #include "Run/EndlessLawn.h"
@@ -339,10 +340,10 @@ void LawnApp::UpdateOnlineStart()
 
 		NetworkLog("[run] the host calls us into level index %u (run seed %d)",
 			(unsigned)aStart.mRunLevelIndex, (int)aStart.mRunSeed);
-		AlignRunToHost((int)aStart.mRunSeed, (int)aStart.mRunLevelIndex, (int)aStart.mRunMode, (int)aStart.mRunDiff,
+		if(!AlignRunToHost((int)aStart.mRunSeed, (int)aStart.mRunLevelIndex, (int)aStart.mRunMode, (int)aStart.mRunDiff,
 			(int)aStart.mRunScale, (int)aStart.mRunTempo, (int)aStart.mRunZombotany,
 			(int)aStart.mRunEndlessScene, (int)aStart.mRunBossFlag, (int)aStart.mRunBuffMult,
-			(int)aStart.mRunLadder, (int)aStart.mRunZombieBuff, aStart.mZombieStacks,aStart.mRunSpeedTier, aStart.mRunFirstWave,aStart.mRunEndlessOptions, aStart.mRunCrowdRule);
+			(int)aStart.mRunLadder, (int)aStart.mRunZombieBuff, aStart.mZombieStacks,aStart.mRunSpeedTier, aStart.mRunFirstWave,aStart.mRunEndlessOptions, aStart.mRunCrowdRule)){mOnlineSession->SendStartAck(false);mOnlineSession->PostNotice(ModText::Tr("接入失败，请检查空间后重试。","Could not join. Check storage and retry."));return;}
 		mOnlineRunStartHeld = true;
 		mOnlineRunGo = false;		// 这条是新命令：上一次的放行作废
 		mOnlineSession->SendStartAck();
@@ -451,10 +452,10 @@ void LawnApp::OnlineStartPromptAnswer(bool theAccepted)
 		// 主机的 RUN_GO 放行（见 UpdateOnlineStart / UpdateRunPick）
 		NetworkLog("[run] the host calls us into level index %u (run seed %d, answered)",
 			(unsigned)aMsg.mRunLevelIndex, (int)aMsg.mRunSeed);
-		AlignRunToHost((int)aMsg.mRunSeed, (int)aMsg.mRunLevelIndex, (int)aMsg.mRunMode, (int)aMsg.mRunDiff,
+		if(!AlignRunToHost((int)aMsg.mRunSeed, (int)aMsg.mRunLevelIndex, (int)aMsg.mRunMode, (int)aMsg.mRunDiff,
 			(int)aMsg.mRunScale, (int)aMsg.mRunTempo, (int)aMsg.mRunZombotany,
 			(int)aMsg.mRunEndlessScene, (int)aMsg.mRunBossFlag, (int)aMsg.mRunBuffMult,
-			(int)aMsg.mRunLadder, (int)aMsg.mRunZombieBuff, aMsg.mZombieStacks,aMsg.mRunSpeedTier, aMsg.mRunFirstWave,aMsg.mRunEndlessOptions, aMsg.mRunCrowdRule);
+			(int)aMsg.mRunLadder, (int)aMsg.mRunZombieBuff, aMsg.mZombieStacks,aMsg.mRunSpeedTier, aMsg.mRunFirstWave,aMsg.mRunEndlessOptions, aMsg.mRunCrowdRule)){mOnlineSession->SendStartAck(false);mOnlineSession->PostNotice(ModText::Tr("接入失败，请检查空间后重试。","Could not join. Check storage and retry."));return;}
 		mOnlineRunStartHeld = true;
 		mOnlineRunGo = false;
 		mOnlineSession->SendStartAck();
@@ -716,7 +717,9 @@ void LawnApp::UpdateOnlinePause()
 	{
 		mPauseMenuWasOpen = aNowOpen;
 		mPauseMenuFromPeer = false;
-		mOnlineSession->SendPauseState(aNowOpen);
+		// A waiting spectator's local menu must not pause the fighting team.
+        if (!mOnlineSession->IsWaitingForNextRound(mOnlineSession->GetLocalSeat()) && !mOnlineSession->NeedsRoundRejoin())
+            mOnlineSession->SendPauseState(aNowOpen);
 	}
 
 	// ③ 队友掉线了：他那张"替队友弹的"暂停菜单没人能解（玩家自己没按过），收掉；
@@ -1107,6 +1110,12 @@ void LawnApp::EnterRunLevel()
         mOnlineSession->GetRole() == NetSession::Role::HOST && !mOnlineSession->CanHostStart())
     { DoOnlineDialog(); return; }
 	KillRunFlowScreen();
+    if(mOnlineSession && mOnlineSession->GetRole()==NetSession::Role::HOST && mRunState->IsEndless()) {
+        InitializeAdmissionIdentity();if(!mRunState->mAdmission.run)mRunState->mAdmission.run=Admission::NewId();
+        mRunState->mAdmission.player=mOnlineSession->mCoopToken;mRunState->mTeam.player=mOnlineSession->mCoopToken;mOnlineSession->mEndlessStartRun=mRunState->mAdmission.run;
+        if(mRunState->mAdmission.history.empty())mRunState->mAdmission.history.push_back({mOnlineSession->mCoopToken,0,0});
+    }
+
 	int aLevel = mRunState->GetLevel();
 	int aSeed = mRunState->GetLevelSeed();
 
@@ -1162,7 +1171,7 @@ void LawnApp::EnterRunLevel()
 	EndlessLawn::Enter(this);
 }
 
-void LawnApp::AlignRunToHost(int theRunSeed, int theTargetIndex, int theRunMode, int theRunDiff,
+bool LawnApp::AlignRunToHost(int theRunSeed, int theTargetIndex, int theRunMode, int theRunDiff,
 	int theRunScale, int theRunTempo, int theZombotany, int theEndlessScene, int theBossFlag,
 	int theBuffMult, int theLadder, int theZombieBuff, const uint8_t* theZombieStacks,int theSpeedTier, int theFirstWave, int theEndlessOptions, int theCrowdRule)
 {
@@ -1243,6 +1252,27 @@ void LawnApp::AlignRunToHost(int theRunSeed, int theTargetIndex, int theRunMode,
 		theTargetIndex = 0;
 	}
 
+    const auto& context=mOnlineSession->mEndlessStartContext;
+    const bool paired=theRunMode==RunState::RUN_MODE_ENDLESS && context.run && context.epoch==mOnlineSession->GetReadyEpoch() && context.level==uint32_t(theTargetIndex);
+    mOnlineSession->mEndlessNeedsAdmission=false;
+    if(paired && (context.budget&512)) {
+        RunState restored;bool matched=EndlessSaves::Match(mPlayerInfo->mId,theEndlessScene,context.run,theRunSeed,theTargetIndex,(context.budget&1024)!=0,restored);
+        if(matched && restored.mAdmission.player && restored.mAdmission.player!=mOnlineSession->mCoopToken)matched=false;
+        if(matched && restored.IsNewEndless() && !restored.mEndlessLawn.empty()) {
+            std::vector<unsigned char> native;std::string random;
+            const auto& bytes=restored.mEndlessSnapshotPhase==3?restored.mEndlessRetryLawn:restored.mEndlessLawn;
+            matched=EndlessLawn::Unpack(bytes,native,random);
+        }
+        if(matched && restored.IsNewEndless() && restored.mEndlessLawn.empty() && theTargetIndex>0)matched=false;
+        RunState laterHead;const bool ahead=laterHead.Load(mPlayerInfo->mId,RunState::RUN_MODE_ENDLESS,theEndlessScene,false,context.run) && laterHead.mLevelIndex>theTargetIndex;
+        if((!matched || ahead) && !EndlessSaves::PreserveUnmatched(mPlayerInfo->mId,theEndlessScene,context.run))return false;
+        KillRunFlowScreen(); SetTeamProgressionController(nullptr);mRunState.reset();
+        if(matched){mRunState=std::make_unique<RunState>(std::move(restored)); mRunState->mAdmission.player=mOnlineSession->mCoopToken;mRunState->mTeam.player=mOnlineSession->mCoopToken;}
+        else mOnlineSession->mEndlessNeedsAdmission=true;
+    } else if(paired && mRunState && mRunState->mAdmission.run!=context.run) {
+        KillRunFlowScreen(); SetTeamProgressionController(nullptr);mRunState.reset();
+    }
+
 	if (mRunState != nullptr
 		&& ((mOnlineSession->HasAdmissionOffer(theTargetIndex) && mRunState->mAdmission.run!=mOnlineSession->mAdmissionOffer.run) || mRunState->mRunSeed != theRunSeed || mRunState->mMode != theRunMode
 			|| mRunState->mDiff != theRunDiff
@@ -1262,12 +1292,14 @@ void LawnApp::AlignRunToHost(int theRunSeed, int theTargetIndex, int theRunMode,
 	if (mRunState == nullptr)
 	{
 		mRunState = std::make_unique<RunState>();
-        bool loaded=mRunState->Load(mPlayerInfo->mId,theRunMode,theEndlessScene,false,mOnlineSession->HasAdmissionOffer(theTargetIndex)?mOnlineSession->mAdmissionOffer.run:0);
+        bool loaded=mRunState->Load(mPlayerInfo->mId,theRunMode,theEndlessScene,false,mOnlineSession->HasAdmissionOffer(theTargetIndex)?mOnlineSession->mAdmissionOffer.run:(paired?context.run:0));
         if(!loaded && mOnlineSession->HasAdmissionOffer(theTargetIndex)) {
             loaded=mRunState->Load(mPlayerInfo->mId,theRunMode,theEndlessScene);
             if(loaded && (mRunState->mAdmission.run!=mOnlineSession->mAdmissionOffer.run || mRunState->mAdmission.player!=mOnlineSession->mCoopToken))loaded=false;
         }
-		if (!loaded
+        if(loaded && paired && !mOnlineSession->mEndlessNeedsAdmission && (mRunState->mRunSeed!=theRunSeed || mRunState->mLevelIndex>theTargetIndex) && !EndlessSaves::PreserveUnmatched(mPlayerInfo->mId,theEndlessScene,context.run))return false;
+
+		if (mOnlineSession->mEndlessNeedsAdmission || !loaded
 			|| mRunState->mRunSeed != theRunSeed
 			|| mRunState->mMode != theRunMode
 			|| mRunState->mDiff != theRunDiff
@@ -1313,6 +1345,10 @@ void LawnApp::AlignRunToHost(int theRunSeed, int theTargetIndex, int theRunMode,
 	for (int i = 0; i < RunState::RUN_ZOMBIE_BUFF_COUNT; i++)
 		mRunState->mZombieBuffStacks[i] = theZombieStacks ? theZombieStacks[i] : 0;
 
+    if(paired) {
+        mRunState->mAdmission.run=context.run;mRunState->mAdmission.player=mOnlineSession->mCoopToken;
+        if(mOnlineSession->mEndlessNeedsAdmission){mRunState->mAdmission.phase=Admission::PICKS;mRunState->mAdmission.joined=theTargetIndex;mRunState->mLevelIndex=theTargetIndex;mRunState->mCatchUpLevel=-1;mRunState->mPendingPlantPicks=mRunState->mPendingBuffPicks=0;mRunState->mEndlessLawn.clear();mRunState->mEndlessRetryLawn.clear();mRunState->mEndlessSnapshotLevel=-1;mRunState->mEndlessSnapshotPhase=0;}
+    }
     ApplyAdmissionOffer(theTargetIndex);
     if(initializeStartPicks && mRunState->mAdmission.phase==Admission::NONE && mRunState->mLevelIndex==0)
         mRunState->BeginStartPicks();
@@ -1320,6 +1356,7 @@ void LawnApp::AlignRunToHost(int theRunSeed, int theTargetIndex, int theRunMode,
 	{
 		mRunState->BeginCatchUp(theTargetIndex);
 	}
+    return true;
 }
 
 bool LawnApp::TryKeepEndlessLawn()
@@ -1340,6 +1377,7 @@ bool LawnApp::TryKeepEndlessLawn()
 
 void LawnApp::ReleaseRunIntro()
 {
+    if(mOnlineSession && mOnlineSession->mEndlessNeedsAdmission)return;
     // @pvz-online: admission already consumed its chooser; restarting that intro dereferences it.
     if(mBoard && mRunState && mRunState->IsNewEndless() && mRunState->mAdmission.phase>=Admission::PREPARED && !mSeedChooserScreen) {
         mRunIntroHeld=false;mBoard->mCutScene->mSeedChoosing=false;
@@ -1361,6 +1399,7 @@ void LawnApp::ReleaseRunIntro()
 
 void LawnApp::UpdateRunPick()
 {
+    if(mOnlineSession && mOnlineSession->mEndlessNeedsAdmission)return;
 	if (mRunState == nullptr || (mOnlineSession && mOnlineSession->IsReconnecting())) return;
     if(mRunState->mAdmission.fast || AdmissionBuilding())return;
 
@@ -1469,7 +1508,8 @@ void LawnApp::UpdateRunPick()
 			// 点不重。自己欠的三选一不在这儿做（R6）：人各进各的新草坪，那几屏在 ① 做。
 			// 房里没别人时（一个人开的房 / 队友都走了）没有要等的人：自己清完就点名——
 			// 单人房不通这条的话，这一局到这儿就没人动了（2026-10-03 实机复现）。
-			if (!mOnlineWaitingStartAck && (mOnlineSession->HasCompletedRound() || (mBoardResult==BoardResult::BOARDRESULT_LOST && mOnlineSession->CanHostStart())))
+			// A loss waits for the host retry action; only a completed round advances automatically.
+			if (!mOnlineWaitingStartAck && mOnlineSession->HasCompletedRound())
 			{
 				
             EnterRunLevel();
@@ -1572,6 +1612,7 @@ void LawnApp::DoOnlineDialog()
 	OnlineDialog* aDialog = new OnlineDialog(this);
 	CenterDialog(aDialog, aDialog->mWidth, aDialog->mHeight);
 	AddDialog(Dialogs::DIALOG_ONLINE, aDialog);
+    mWidgetManager->SetFocus(aDialog);
 }
 
 static const int ZOMBIE_VOTE_TIMEOUT_FRAMES = 3000;

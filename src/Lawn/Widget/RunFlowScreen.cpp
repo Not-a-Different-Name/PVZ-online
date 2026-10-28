@@ -1,3 +1,4 @@
+#include "../Run/EndlessSaves.h"
 #include "../CoopPlay.h"
 #include "MobileCoopDraw.h"
 #include "OnlineUiDraw.h"
@@ -108,7 +109,7 @@ RunFlowScreen::RunFlowScreen(LawnApp* app, bool modePage, int endlessScene) : mA
             const char* labels[]={ModText::Tr("完整25关","Full 25"),ModText::Tr("普通10关","Normal 10"),ModText::Tr("快速5关","Quick 5")};
             card->mLabel=labels[i];card->Resize(174+i*174,160,104,115);AddWidget(card);mModeButtons.push_back(card);
         }
-        addButton(15, mEndlessPage?ModText::Tr("开始无尽", "Start endless"):ModText::Tr("无尽", "Endless"), 300, 292, 200, 48);
+        addButton(15, mEndlessPage?ModText::Tr("开始新无尽", "Start new endless"):ModText::Tr("无尽", "Endless"), 300, 292, 200, 48);
         for(int i=0;i<3;++i)addButton(40+i,ModText::Tr(i==0?"轻松 x0.5":i==1?"标准 x1":"高压 x2",i==0?"Easy x0.5":i==1?"Standard x1":"High x2"),122+i*190,400,176,48);
         for (int i = 0; i < 6; ++i)
             mOptionButtons[i] = addButton(20 + i, "", 64 + (i % 2) * 344, 154 + (i / 2) * 74, 328, 54);
@@ -127,7 +128,7 @@ RunFlowScreen::RunFlowScreen(LawnApp* app, bool modePage, int endlessScene) : mA
         mFirstWaveButton=addButton(33,ModText::Tr("首波等待：30 s", "First wave: 30 sec"),64,450,328,44);
         addButton(31, ModText::Tr("上一页", "Previous"), 64, 448, 164, 48);
         addButton(32, ModText::Tr("下一页", "Next"), 572, 448, 164, 48);
-        addButton(13, mEndlessPage?ModText::Tr("继续无尽", "Continue endless"):ModText::Tr("继续闯关", "Continue run"), 310, 510, 180, 48)->SetDisabled(!RunState::HasCheckpoint(app->mPlayerInfo->mId,mEndlessPage?RunState::RUN_MODE_ENDLESS:-1,mEndlessScene));
+        addButton(13, mEndlessPage?ModText::Tr("继续存档", "Continue saved run"):ModText::Tr("继续闯关", "Continue run"), 310, 510, 180, 48)->SetDisabled(mEndlessPage?EndlessSaves::List(app->mPlayerInfo->mId,app->IsOnlineGame()).empty():!RunState::HasCheckpoint(app->mPlayerInfo->mId));
         addButton(28,ModText::Tr("更多设置", "More settings"),90,510,180,48);
     }
     else
@@ -215,7 +216,7 @@ void RunFlowScreen::RefreshOptionLabels()
         const char* cycles[]={ModText::Tr("关","Off"),ModText::Tr("每十关","Every 10"),ModText::Tr("每五关","Every 5")};
         mOptionButtons[4]->mLabel=ModText::Format("周期 BOSS：{}","Boss cycle: {}",cycles[mEndlessOptions&3]);
     }
-    mCheckpointLine=RunState::CheckpointSummary(mApp->mPlayerInfo->mId,mEndlessPage?RunState::RUN_MODE_ENDLESS:-1,mEndlessScene);
+    mCheckpointLine=mEndlessPage?"":RunState::CheckpointSummary(mApp->mPlayerInfo->mId);
     for(auto* button:mModeButtons)if(button->mId==13)button->SetDisabled(mCheckpointLine.empty());
     mOptionButtons[5]->mLabel = ModText::Format("无尽场景：{}", "Endless scene: {}", scenes[mEndlessScene]);
     MarkDirty();
@@ -254,7 +255,7 @@ void RunFlowScreen::Draw(Sexy::Graphics* g)
     }else{
         const auto& run=*mApp->mRunState;
         SeatUi::Strip(g, Sexy::Rect(48,112,704,46));
-        auto state=run.IsEndless()?ModText::Format("无尽第 {} 关","Endless level {}",run.mLevelIndex+1):ModText::Format("第 {} / {} 关","Level {} / {}",run.mLevelIndex+1,run.GetLevelCount());
+        auto state=run.IsEndless()?ModText::Format("无尽 第 {} 关","Endless Level {}",run.GetPlayingLevelIndex()+1):ModText::Format("第 {} / {} 关","Level {} / {}",run.mLevelIndex+1,run.GetLevelCount());
         if(run.mAdmission.phase==Admission::PICKS)state=ModText::Format("加入第 {} 关 · 还需选择 {} 次", "Joining level {} / {} picks left",run.mLevelIndex+1,run.mPendingBuffPicks);
         g->DrawImage(Sexy::IMAGE_COINBANK,64,118);
         g->SetFont(Sexy::FONT_CONTINUUMBOLD14);g->SetColor(Sexy::Color(180,255,90));
@@ -358,7 +359,7 @@ void RunFlowScreen::ButtonDepress(int id)
             MarkDirty();
             return;
         }
-        if (id == 13) mApp->ResumeRun(mEndlessPage?RunState::RUN_MODE_ENDLESS:-1,mEndlessScene);
+        if (id == 13) {if(mEndlessPage)mApp->ChooseEndlessSave();else mApp->ResumeRun();}
         else if(id==15 && !mEndlessPage){mApp->ShowRunMenu(mEndlessScene);return;}
         else if ((id >= 10 && id <= 12) || id == 15)
             mApp->StartRun(id == 15 ? RunState::RUN_MODE_ENDLESS : id - 10, mBuffMult,

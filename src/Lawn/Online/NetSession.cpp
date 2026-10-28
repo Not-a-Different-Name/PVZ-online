@@ -587,6 +587,7 @@ bool NetSession::SendRejoin()
 // theTargetSeat 给 SEAT_UNSET = 发给所有仍在等的人。
 bool NetSession::ResendLastStartLevel(uint8_t theTargetSeat)
 {
+    PublishEndlessStartContext(theTargetSeat);
 	if (mRole != Role::HOST || !mLastStartLevelValid) return false;
 
 	NetProto::MsgStartLevel aMsg = mLastStartLevel;
@@ -831,7 +832,21 @@ void NetSession::Update()
 if(mFlowEnabled && mFlowStartPending && mRole==Role::HOST && IsConnected() &&
     ++mFlowStartTicks>=100 && mLastStartLevelValid){mFlowStartTicks=0;SendFlowStart(mLastStartLevel);}
 	UpdatePreparation();
+    RestorePreparedRejoin();
 	UpdateStatusText();
+}
+
+void NetSession::RestorePreparedRejoin() {
+    if(!mFlowDeferred || !IsRelay() || !IsConnected() || !mFlowEnabled || mFlowLost ||
+       mFlowPhase!=2 || !mReadyEpoch || mFlowEpoch!=mReadyEpoch || IsWaitingForNextRound(mLocalSeat) ||
+       !IsPreparationActive() || mPreparation.phase!=PreparationWire::GO || !mPreparation.revision ||
+       mPreparation.configuredRevision!=mPreparation.revision || !IsSeatSeedsReady(mLocalSeat) ||
+       !(mPreparation.ready&(1u<<mLocalSeat)) || mPreparation.participants[mLocalSeat]!=mCoopToken ||
+       !mLastStartLevelValid || !mLastStartLevel.mIsRun || mLastStartLevel.mRunMode!=3 ||
+       mLastStartLevel.mReadyEpoch!=mReadyEpoch)return;
+    // A former host authored this same START instead of consuming it as a client.
+    // Local saved consent plus the relay's battle phase permits this exact rejoin only.
+    if(mConsumedStartEpoch==mReadyEpoch || mLastStartLevel.mSrcSeat==mLocalSeat)mFlowDeferred=false;
 }
 
 bool NetSession::PollEvent(Event& theEvent)
@@ -846,8 +861,14 @@ bool NetSession::PollEvent(Event& theEvent)
 bool NetSession::TakePendingStartLevel(NetProto::MsgStartLevel& theMsg)
 {
 	if (!mHasPendingStart) return false;
+    if(mPendingStart.mIsRun && mPendingStart.mRunMode==3 && mSeats[mHostSeat].mBuild>=102 &&
+        (!mEndlessStartContext.run || mEndlessStartContext.epoch!=mPendingStart.mReadyEpoch || mEndlessStartContext.level!=mPendingStart.mRunLevelIndex))return false;
+
 
 	theMsg = mPendingStart;
+    if(theMsg.mIsRun && theMsg.mRunMode==3 && mEndlessStartContext.run &&
+       mEndlessStartContext.epoch==theMsg.mReadyEpoch && mEndlessStartContext.level==theMsg.mRunLevelIndex)
+        mLastEndlessStartContext=mEndlessStartContext; // A successor must resend the exact paired identity too.
 	mHasPendingStart = false;
     mConsumedStartEpoch = theMsg.mReadyEpoch;
 	ClearPauseState();		// 这就进场了：上一局的暂停态不带进新棋盘
@@ -1501,12 +1522,7 @@ bool NetSession::SendBoardWatchMsg(uint8_t theSeat, uint8_t theOp)
 
 bool NetSession::BeginWatch(uint8_t theSeat)
 {
-	if (!IsConnected()||ObserverRequestCooldown()) return false;
-	// 席位得是个真上座的号、而且不能是自己——看自己场地没有意义（屏幕本来就在）
-	if (theSeat < 1 || theSeat > NetProto::MAX_PLAYERS
-		|| theSeat == mLocalSeat || !IsSeatOccupied(theSeat))
-		return false;
-
+    if(!CanWatchSeat(theSeat)||ObserverRequestCooldown())return false;
     if(GetSeatBuild(theSeat)<96 || (mTransport!=Transport::DIRECT&&!mObserverRelay))return false;
     if(IsWatching())EndWatch(true);
     if(GetSeatBuild(theSeat)>=96 && (mTransport==Transport::DIRECT || mObserverRelay)) {
@@ -1926,6 +1942,7 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
         if(!AdmissionWire::Decode(aPayload,aPayloadSize,m)||m.dst!=mLocalSeat||!IsSeatOccupied(m.src))break;
         if(m.op==AdmissionWire::HELLO && mRole!=Role::HOST)break;
         if((m.op==AdmissionWire::OFFER||m.op==AdmissionWire::CONTEXT||m.op==AdmissionWire::CANCEL) && m.src!=mHostSeat)break;
+        if(m.op==AdmissionWire::CONTEXT && (m.budget&256)) {mEndlessStartContext=m;break;}
         if(mAdmissionInbox.size()<32)mAdmissionInbox.push_back(m);
         break;
     }
@@ -3442,6 +3459,14 @@ bool NetSession::SendStartLevel(uint8_t theGameMode, uint32_t theLevel, int32_t 
 	//（见 ResendLastStartLevel），那一头不能带"新一局"的副作用。
 	mLastStartLevel = aMsg;
 	mLastStartLevelValid = true;
+    if(theIsRun && theRunMode==3 && mEndlessStartRun) {
+        const auto sameRoundFlags=mLastEndlessStartContext.run==mEndlessStartRun && mLastEndlessStartContext.epoch==mReadyEpoch && mLastEndlessStartContext.level==theRunLevelIndex ? mLastEndlessStartContext.budget&1536u : 0u;
+        mLastEndlessStartContext=AdmissionWire::Message{};mLastEndlessStartContext.op=AdmissionWire::CONTEXT;
+        mLastEndlessStartContext.run=mEndlessStartRun;mLastEndlessStartContext.epoch=mReadyEpoch;mLastEndlessStartContext.level=theRunLevelIndex;
+        mLastEndlessStartContext.budget=256|(mEndlessStartingResume?512:0)|(mEndlessStartingLegacy?1024:0)|sameRoundFlags;
+        PublishEndlessStartContext(theTargetSeat);mEndlessStartingResume=false;mEndlessStartingLegacy=false;
+    }
+
 
 	// 新的一条命令：上一轮"有人说不行"的记账跟着作废，别让它把这一次也毙了。
 	mAnyAckRejected = false;
@@ -3683,4 +3708,10 @@ void NetSession::PublishRoundWait() {
     if(mRole!=Role::HOST || !IsConnected() || !mReadyEpoch)return;
     uint8_t bytes[7];NetProto::Writer w(bytes,sizeof(bytes));w.U8(mLocalSeat);w.U8(0);w.U32(mReadyEpoch);w.U8(mRoundWaitMask);
     Dispatch(NetProto::MSG_ROUND_WAIT,bytes,sizeof(bytes));
+}
+
+void NetSession::PublishEndlessStartContext(uint8_t destination) {
+    if(!mLastEndlessStartContext.run || mLastEndlessStartContext.epoch!=mReadyEpoch)return;
+    for(uint8_t seat=1;seat<=NetProto::MAX_PLAYERS;++seat)if(seat!=mLocalSeat && IsSeatOccupied(seat) &&
+        (destination==NetProto::SEAT_UNSET || destination==seat))SendAdmission(mLastEndlessStartContext,seat);
 }

@@ -158,7 +158,7 @@ void Board::UpdateQuickChat()
 
     if (!QuickChatAvailable())
     {
-        if(!CoopHud::Watching(this)){mCoopTouchCaptured=false;mCoopTouchAction=-1;mCoopTouchPeerLow=mCoopTouchPeerHigh=0;}
+        if(!CoopHud::Watching(this)&&!CoopHud::HeldControlsAvailable(this)){mCoopTouchCaptured=false;mCoopTouchAction=-1;mCoopTouchPeerLow=mCoopTouchPeerHigh=0;}
 
         // 掉线/收摊/不在局里：横幅与冷却一并清掉，别让上一局的话漂进新局面
         // （会话层收包队列由 DiscardLevelPackets/会话复位负责）
@@ -175,7 +175,7 @@ void Board::UpdateQuickChat()
         mChatInputCooldown--;
     if (mSunGiftCooldownFrames > 0)
         mSunGiftCooldownFrames--;
-    if (mPaused || !mApp->mActive || mApp->mMinimized) {
+    if((mPaused&&!CoopHud::HeldControlsAvailable(this))||!mApp->mActive||mApp->mMinimized) {
         mCoopToolsOpen = false;
         mCoopTouchCaptured=false;mCoopTouchAction=-1;mCoopTouchPeerLow=mCoopTouchPeerHigh=0;
         mSunGiftSelectFrames = 0;
@@ -301,7 +301,7 @@ void Board::GiveSunGift(int theAmount, uint8_t theFromSeat)
 }
 int Board::CoopHit(int x,int y){return CoopHud::Hit(this,x,y);}
 bool Board::CoopMouseDown(int x,int y,int clicks) {
-    if((!QuickChatAvailable()&&!CoopHud::Watching(this))||mPaused||!mApp->mActive||mApp->mMinimized||clicks<=0)return false;
+    if((!QuickChatAvailable()&&!CoopHud::Watching(this)&&!CoopHud::HeldControlsAvailable(this))||(mPaused&&!CoopHud::HeldControlsAvailable(this))||!mApp->mActive||mApp->mMinimized||clicks<=0)return false;
     int hit=CoopHit(x,y);if(hit<0)return false;
     // Keep a late release out of lawn input even if focus loss clears HUD capture first.
     mIgnoreMouseUp=true;
@@ -318,7 +318,7 @@ bool Board::CoopMouseUp(int x,int y,int clicks) {
     if(!mCoopTouchCaptured)return false;
     int action=mCoopTouchAction;uint64_t peer=((uint64_t)mCoopTouchPeerHigh<<32)|mCoopTouchPeerLow;
     mCoopTouchCaptured=false;mCoopTouchAction=-1;mCoopTouchPeerLow=mCoopTouchPeerHigh=0;
-    if(clicks<=0||mPaused||!mApp->mActive||mApp->mMinimized||(!QuickChatAvailable()&&!CoopHud::Watching(this))||CoopHit(x,y)!=action)return true;
+    if(clicks<=0||(mPaused&&!CoopHud::HeldControlsAvailable(this))||!mApp->mActive||mApp->mMinimized||(!QuickChatAvailable()&&!CoopHud::Watching(this)&&!CoopHud::HeldControlsAvailable(this))||CoopHit(x,y)!=action)return true;
     if((action>=101&&action<=106)||(action>=301&&action<=306)) {
         auto* s=RoomPresentation::Session(mApp);int seat=action-(action>=301?300:100);
         if(!peer||s->mCoopPeers[seat]!=peer)return true;
