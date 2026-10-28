@@ -35,6 +35,7 @@ public:
     static Sexy::Rect ListArrow(bool right) { return Sexy::Rect(right ? 222 : 24, 466, 72, 44); }
     static Sexy::Rect DetailArrow(bool right) { return Sexy::Rect(right ? 664 : 314, 466, 72, 44); }
     static Sexy::Rect ToolRect(int index) {
+        if (index == 5) return Sexy::Rect(40, 416, 680, 40);
         if (index == 0) return Sexy::Rect(40, 158, 680, 48);
         if (index == 1 || index == 2) return Sexy::Rect(index == 1 ? 40 : 390, 226, 330, 48);
         return Sexy::Rect(40, index == 3 ? 294 : 362, 680, 48);
@@ -112,8 +113,8 @@ public:
         if (tab == 0) {
             for (int index = 0; index < 2; ++index)
                 if (CreatorRect(index).Contains(x, y)) return 510 + index;
-            for (int index = 0; index < 5; ++index)
-                if ((index == 0 || index == 3 || (index == 4 ? online : hasBoard)) &&
+            for (int index = 0; index < 6; ++index)
+                if ((index == 0 || index == 3 || index == 5 || (index == 4 ? online : hasBoard)) &&
                     ToolRect(index).Contains(x, y)) return 500 + index;
         } else {
             auto entries = Entries(run);
@@ -135,7 +136,7 @@ public:
             detailPage = std::max(0, std::min(DetailCount(run) - 1, detailPage + (action == 402 ? -1 : 1)));
     }
     void Draw(Sexy::Graphics* graphics, const RunState* run, bool hasBoard, bool online,
-        bool plantHealth, bool zombieHealth, bool slideCollect, const std::string& language, int down, bool buffsOnly = false, bool teamAvailable = false) {
+        bool plantHealth, bool zombieHealth, bool slideCollect, const std::string& language, int down, bool buffsOnly = false, bool teamAvailable = false, bool observerP2P = false) {
         using namespace Sexy;
         Color titleColor(245, 230, 165), bodyColor(235, 230, 210), muted(175, 175, 165);
         SeatUi::Panel(graphics, Rect(0, 0, 760, 560));
@@ -156,14 +157,11 @@ public:
                 std::string(ModText::Tr("植物生命 J: ", "Plant HP J: ")) + (plantHealth ? on : off),
                 std::string(ModText::Tr("僵尸生命 H: ", "Zombie HP H: ")) + (zombieHealth ? on : off),
                 std::string(ModText::Tr("划取阳光: ", "Slide to collect sun: ")) + (slideCollect ? on : off),
-                ModText::Tr("队友互助 B", "Teamwork B")};
-            for (int index = 0; index < 5; ++index)
+                ModText::Tr("队友互助 B", "Teamwork B"),
+                std::string("P2P") + ModText::Tr("观战: ", " viewing: ") + (observerP2P ? on : off)};
+            for (int index = 0; index < 6; ++index)
                 SeatUi::Button(graphics, ToolRect(index), tools[index].c_str(),
-                    index == 0 || index == 3 || (index == 4 ? online : hasBoard), down == 500 + index);
-            SeatUi::Paragraph(graphics, ModText::Tr(
-                "血量与划取仅影响本机，不改变对局规则。语言重启后完整生效。\n灰色入口：血量需进入关卡，协作需连接队友。",
-                "HP and collection are local only. Restart to fully apply language.\nDisabled: HP needs a lawn; teamwork needs a connection."),
-                Rect(40, 416, 680, 44), 16, muted);
+                    index == 0 || index == 3 || index == 5 || (index == 4 ? online : hasBoard), down == 500 + index);
             const char* creatorLabels[] = {ModText::Tr("B站 UP主主页", "Bilibili creator"), ModText::Tr("爱发电 · 支持作者", "Support on Afdian")};
             const char* creatorUrls[] = {"space.bilibili.com/491197058", "afdian.com/a/pvzol"};
             for (int index = 0; index < 2; ++index) {

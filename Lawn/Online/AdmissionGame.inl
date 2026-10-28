@@ -1,3 +1,4 @@
+#include "../Run/EndlessSaves.h"
 #include "../Run/EndlessLawn.h"
 #include "../SeedPacket.h"
 #include "../Plant.h"
@@ -79,7 +80,7 @@ void LawnApp::ApplyAdmissionOffer(int targetIndex) {
     const auto& offer=mOnlineSession->mAdmissionOffer;
     if(!mOnlineSession->HasAdmissionOffer(targetIndex) || offer.player!=mOnlineSession->mCoopToken || offer.level!=uint32_t(targetIndex) || !offer.run)return;
     auto& state=mRunState->mAdmission;
-    if(state.run==offer.run && state.player==offer.player) {
+    if(state.run==offer.run && state.player==offer.player && !mOnlineSession->mEndlessNeedsAdmission) {
         if(state.phase==Admission::NONE){state.phase=Admission::PLAYED;state.joined=0;mAdmissionDirty=true;}
         int previous=mRunState->mLevelIndex;
         if(targetIndex>previous) {
@@ -92,6 +93,7 @@ void LawnApp::ApplyAdmissionOffer(int targetIndex) {
         }
         return;
     }
+    mOnlineSession->mEndlessNeedsAdmission=false;
     state=Admission::State{};state.run=offer.run;state.player=offer.player;
     state.joined=int(offer.joined);state.totalBudget=state.budget=int(offer.budget);state.phase=Admission::PICKS;
     mRunState->mLevelIndex=targetIndex;mRunState->mCatchUpLevel=-1;
@@ -107,6 +109,7 @@ void LawnApp::ApplyAdmissionOffer(int targetIndex) {
 
 void LawnApp::SendAdmissionStart(uint8_t seat) {
     auto* run=GetRunState();
+    mOnlineSession->mEndlessStartRun=run->mAdmission.run;
     mOnlineSession->SendStartLevel((uint8_t)GAMEMODE_ADVENTURE,(uint32_t)run->GetLevel(),run->GetLevelSeed(),
         true,run->mRunSeed,(uint16_t)run->mLevelIndex,seat,(uint8_t)run->mMode,(uint8_t)run->mDiff,
         (uint8_t)run->mScale,(uint8_t)run->mTempo,(uint8_t)run->mZombotany,(uint8_t)run->mEndlessScene,(uint8_t)run->mBossFlag,
@@ -119,16 +122,25 @@ void LawnApp::UpdateEndlessAdmission() {
     auto& session=*mOnlineSession;
     auto* run=GetRunState();
     const bool endless=run && run->IsNewEndless();
-    if(endless && session.IsConnected() && session.GetRole()==NetSession::Role::HOST && !run->mAdmission.run) {
-        run->mAdmission.run=Admission::NewId();run->mAdmission.player=session.mCoopToken;run->mAdmission.history.push_back({session.mCoopToken,0,0});mAdmissionDirty=true;
+    if(endless && session.IsConnected() && session.GetRole()==NetSession::Role::HOST && (!run->mAdmission.run || !run->mAdmission.player)) {
+        if(!run->mAdmission.run)run->mAdmission.run=Admission::NewId();run->mAdmission.player=session.mCoopToken;run->mAdmission.history.push_back({session.mCoopToken,0,0});mAdmissionDirty=true;
+    }
+    if(endless && session.GetRole()==NetSession::Role::HOST)session.mEndlessStartRun=run->mAdmission.run;
+    if(session.HasReadyRound() && session.mAdmissionValuesEpoch!=session.GetReadyEpoch()) {
+        session.mAdmissionValuesEpoch=session.GetReadyEpoch();session.mAdmissionGrantMask=0;
+        for(int& n:session.mAdmissionValues)n=-1;mAdmissionReportTicks=100;
     }
     // Process OFFER before UpdateOnlineStart can consume its corresponding START_LEVEL.
     auto inbox=std::move(session.mAdmissionInbox);session.mAdmissionInbox.clear();
     for(const auto& m:inbox) {
-        if(m.op==AdmissionWire::OFFER) {session.mAdmissionOffer=m;continue;}
+        if(m.op==AdmissionWire::OFFER) {
+            session.mAdmissionOffer=m;
+            if(endless && session.mEndlessNeedsAdmission && m.run==run->mAdmission.run && m.player==session.mCoopToken && session.HasAdmissionOffer(run->mLevelIndex))ApplyAdmissionOffer(run->mLevelIndex);
+            continue;
+        }
         if(m.op==AdmissionWire::CONTEXT) {
             if(endless && m.epoch==session.GetReadyEpoch() && m.level==uint32_t(run->mLevelIndex) && m.run) {
-                if(!run->mAdmission.run){run->mAdmission.run=m.run;run->mAdmission.player=session.mCoopToken;mAdmissionDirty=true;}
+                if(!run->mAdmission.run && !session.mEndlessNeedsAdmission){run->mAdmission.run=m.run;run->mAdmission.player=session.mCoopToken;mAdmissionDirty=true;}
                 if(run->mAdmission.run==m.run){session.mAdmissionNewMask=uint8_t(m.budget)&session.GetOccupiedMask();session.mGateWanted=m.joined?1:0;}
             }
             continue;
@@ -144,8 +156,16 @@ void LawnApp::UpdateEndlessAdmission() {
             if(m.joined>=Admission::PREPARED)session.mAdmissionNewMask&=uint8_t(~(1u<<m.src));
             continue;
         }
-        if(m.op!=AdmissionWire::HELLO || !session.SupportsAdmission() || !mBoard || run->mLevelIndex==0 ||
-            !session.IsPreparationActive() || (session.GetPreparationPhase()!=PreparationWire::OPEN && session.GetPreparationPhase()!=PreparationWire::WAIT))continue;
+        const bool resumeSetup=m.op==AdmissionWire::HELLO && m.budget==1 && m.run==run->mAdmission.run && m.level==uint32_t(run->mLevelIndex) &&
+            (session.mLastEndlessStartContext.budget&512) && (mGameScene!=SCENE_PLAYING || mRunIntroHeld);
+        const bool admissionOpen=session.IsPreparationActive() && (session.GetPreparationPhase()==PreparationWire::OPEN || session.GetPreparationPhase()==PreparationWire::WAIT);
+        if(m.op!=AdmissionWire::HELLO || !session.SupportsAdmission() || !mBoard || (!resumeSetup && !admissionOpen))continue;
+        if(resumeSetup) {
+            session.mAdmissionNewMask|=uint8_t(1u<<m.src);
+            bool valuesReady=true;
+            for(uint8_t seat=1;seat<=NetProto::MAX_PLAYERS;++seat)if(seat!=m.src && session.IsSeatOccupied(seat) && !session.IsSeatOffline(seat) && !(session.mAdmissionNewMask&(1u<<seat)) && session.mAdmissionValues[seat]<0)valuesReady=false;
+            if(!valuesReady)continue;
+        }
         std::vector<int> values;
         for(uint8_t seat=1;seat<=NetProto::MAX_PLAYERS;++seat)
             if(seat!=m.src && session.IsSeatOccupied(seat) && !session.IsSeatOffline(seat) && !(session.mAdmissionNewMask&(1u<<seat)) && session.mAdmissionValues[seat]>=0)
@@ -157,17 +177,22 @@ void LawnApp::UpdateEndlessAdmission() {
             if(state.history.size()>=Admission::MAX_PLAYERS_HISTORY)continue;
             state.history.push_back({m.player,run->mLevelIndex,Admission::Median(values)});entry=&state.history.back();
         }
+        if(resumeSetup && !(session.mAdmissionGrantMask&(1u<<m.src))) {entry->joined=run->mLevelIndex;entry->budget=Admission::Median(values);}
         // Publish neither a grant nor a start until the durable receipt exists.
         if(!run->Save(mPlayerInfo->mId))continue;
+        session.mAdmissionGrantMask|=uint8_t(1u<<m.src);
         session.mAdmissionNewMask|=uint8_t(1u<<m.src);
         AdmissionWire::Message offer;offer.op=AdmissionWire::OFFER;offer.epoch=session.GetReadyEpoch();
         offer.run=state.run;offer.player=m.player;offer.level=run->mLevelIndex;offer.joined=entry->joined;offer.budget=entry->budget;
         session.SendAdmission(offer,m.src);SendAdmissionStart(m.src);
     }
-    if(session.IsConnected() && session.GetRole()==NetSession::Role::CLIENT && !session.mAdmissionOffer.run && (!session.HasReadyRound() || !endless || !run->mAdmission.run) && ++mAdmissionReportTicks>=100) {
-        mAdmissionReportTicks=0;AdmissionWire::Message hello;hello.op=AdmissionWire::HELLO;session.SendAdmission(hello,session.GetHostSeat());
+    if(session.IsConnected() && session.GetRole()==NetSession::Role::CLIENT && !session.mAdmissionOffer.run && (session.mEndlessNeedsAdmission || !session.HasReadyRound() || !endless || !run->mAdmission.run) && ++mAdmissionReportTicks>=100) {
+        mAdmissionReportTicks=0;AdmissionWire::Message hello;hello.op=AdmissionWire::HELLO;
+        if(session.mEndlessNeedsAdmission && endless){hello.run=run->mAdmission.run;hello.level=run->mLevelIndex;hello.budget=1;}
+        session.SendAdmission(hello,session.GetHostSeat());
     }
     if(!endless || !mBoard)return;
+    if(session.mEndlessNeedsAdmission)return;
     auto& state=run->mAdmission;
     if(state.phase==Admission::PICKS && !run->HasPendingPick()) {state.phase=Admission::DECK;state.fast=false;mAdmissionDirty=true;}
     if(state.fast && state.phase==Admission::PICKS && !mAdmissionDirty) {

@@ -4413,6 +4413,27 @@ void Board::MouseDownCobcannonFire(int x, int y, int theClickCount)
 
 //0x40FD30
 // GOTY @Patoke: 0x4126F0
+// Mirror adds a new plant; an upgrade/repair being legal is not an empty slot.
+// Resolve Imitater before checking terrain and preserve the independent support/cover layers.
+static bool MirrorCellIsEmpty(Board* board, int col, int row, SeedType seed)
+{
+    if (board->CanPlantAt(col, row, seed) != PlantingReason::PLANTING_OK) return false;
+    PlantsOnLawn plants;
+    board->GetPlantsOnLawn(col, row, &plants);
+    if (seed == SeedType::SEED_LILYPAD) return !plants.mLilypadPlant;
+    if (seed == SeedType::SEED_FLOWERPOT) return !plants.mFlowerPotPlant;
+    if (seed == SeedType::SEED_PUMPKINSHELL) return !plants.mPumpkinPlant;
+    if (Plant::IsFlying(seed)) return !plants.mFlyingPlant;
+    if (plants.mNormalPlant) return false;
+    if (seed == SeedType::SEED_COBCANNON)
+    {
+        PlantsOnLawn right;
+        board->GetPlantsOnLawn(col + 1, row, &right);
+        if (col + 1 >= MAX_GRID_SIZE_X || right.mNormalPlant || right.mPumpkinPlant || right.mFlyingPlant) return false;
+    }
+    return true;
+}
+
 void Board::MouseDownWithPlant(int x, int y, int theClickCount)
 {
     if(mApp->TeamProgressionInputBlocked())return;
@@ -4621,6 +4642,7 @@ void Board::MouseDownWithPlant(int x, int y, int theClickCount)
 
     const bool createsPlant = mCursorObject->mCursorType == CursorType::CURSOR_TYPE_PLANT_FROM_BANK ||
         mCursorObject->mCursorType == CursorType::CURSOR_TYPE_PLANT_FROM_USABLE_COIN;
+    int mirrorRow = -1;
     if (createsPlant)
     {
         SeedType admissionSeed = mCursorObject->mType;
@@ -4633,9 +4655,13 @@ void Board::MouseDownWithPlant(int x, int y, int theClickCount)
             for (int row = 0; row < MAX_GRID_SIZE_Y; ++row)
                 if (row != aGridY && CanPlantAt(aGridX, row, aPlantingSeedType) == PlantingReason::PLANTING_OK) ++plantCount;
         }
-        else if (mApp->RunMirrorStacks() > 0 &&
-            ((aGridY + 1 < MAX_GRID_SIZE_Y && CanPlantAt(aGridX, aGridY + 1, admissionSeed) == PlantingReason::PLANTING_OK) ||
-             (aGridY > 0 && CanPlantAt(aGridX, aGridY - 1, admissionSeed) == PlantingReason::PLANTING_OK))) ++plantCount;
+        else if (mApp->RunMirrorStacks() > 0)
+        {
+            const SeedType mirrorSeed = admissionSeed == SeedType::SEED_IMITATER ? mCursorObject->mImitaterType : admissionSeed;
+            if (MirrorCellIsEmpty(this, aGridX, aGridY + 1, mirrorSeed)) mirrorRow = aGridY + 1;
+            else if (MirrorCellIsEmpty(this, aGridX, aGridY - 1, mirrorSeed)) mirrorRow = aGridY - 1;
+            if (mirrorRow >= 0) ++plantCount;
+        }
         if (!PreparePlantAnimations(admissionSeed, plantCount))
         {
             DisplayAdvice(_S("\u8bf7\u7a0d\u7b49\u7247\u523b\uff0c\u518d\u6b21\u79cd\u690d\u3002"), MessageStyle::MESSAGE_STYLE_HINT_FAST, AdviceType::ADVICE_NONE);
@@ -4759,30 +4785,14 @@ void Board::MouseDownWithPlant(int x, int y, int theClickCount)
 		// 只落 1 株：先试下格、被占/不可种再试上格，都不行就算了。免阳光、不刷 CD、
 		// 不递归（本分支只由玩家点击进）。aSpawnType 用换装后的（Artillery 情境复制株
 		// 也是加农炮）；睡眠态随主株。
-		if (mApp->RunMirrorStacks() > 0)
-		{
-			int aMirrorRow = -1;
-			if (aGridY + 1 < MAX_GRID_SIZE_Y && CanPlantAt(aGridX, aGridY + 1, aSpawnType) == PlantingReason::PLANTING_OK)
-			{
-				aMirrorRow = aGridY + 1;
-			}
-			else if (aGridY - 1 >= 0 && CanPlantAt(aGridX, aGridY - 1, aSpawnType) == PlantingReason::PLANTING_OK)
-			{
-				aMirrorRow = aGridY - 1;
-			}
-			if (aMirrorRow >= 0)
-			{
-				Plant* aMirrorPlant = AddPlant(aGridX, aMirrorRow, aSpawnType, aSpawnImitater);
-				if (aIsAwake)
-				{
-					aMirrorPlant->SetSleeping(false);
-				}
-				else
-				{
-					aMirrorPlant->mWakeUpCounter = aWakeUpCounter;
-				}
-			}
-		}
+        if (mirrorRow >= 0 && MirrorCellIsEmpty(this, aGridX, mirrorRow, aPlantingSeedType))
+        {
+            if (Plant* mirror = AddPlant(aGridX, mirrorRow, aSpawnType, aSpawnImitater))
+            {
+                if (aIsAwake) mirror->SetSleeping(false);
+                else mirror->mWakeUpCounter = aWakeUpCounter;
+            }
+        }
 	}
 	else
 	{
@@ -5304,7 +5314,7 @@ void Board::PickUpTool(GameObjectType theObjectType)
 void Board::MouseDown(int x, int y, int theClickCount)
 {
     if(mApp->TeamProgressionInputBlocked())return;
-    if (mApp->mOnlineSession && mApp->mOnlineSession->RelayBattleHeld()) { mApp->DoOnlineDialog(); return; }
+    if (mApp->mOnlineSession && mApp->mOnlineSession->RelayBattleHeld()) { CoopMouseDown(x,y,theClickCount); return; }
     if(AdmissionBoard::MouseDown(this,x,y,theClickCount))return;
     if (NextWaveControl::MouseDown(this, x, y, theClickCount)) return;
     if (DamageStatsView::MouseDown(this, x, y, theClickCount)) return;
@@ -5529,7 +5539,7 @@ bool Board::CanInteractWithBoardButtons()
 void Board::MouseUp(int x, int y, int theClickCount)
 {
     if(mApp->TeamProgressionInputBlocked())return;
-    if (mApp->mOnlineSession && mApp->mOnlineSession->RelayBattleHeld()) return;
+    if (mApp->mOnlineSession && mApp->mOnlineSession->RelayBattleHeld()) { CoopMouseUp(x,y,theClickCount); return; }
     if(AdmissionBoard::MouseUp(this,x,y,theClickCount))return;
     if (NextWaveControl::MouseUp(this, x, y, theClickCount)) return;
     if (DamageStatsView::MouseUp(this, x, y, theClickCount)) return;
@@ -8180,7 +8190,7 @@ void Board::DrawHouseDoorTop(Graphics* g)
 void Board::DrawLevel(Graphics* g)
 {
 	// @pvz-online: 无尽档显示当前关卡数（2026-10-12 用户令）：原行画 "LEVEL 3-1"（引擎原型
-	// 关号——无尽锁场景后只在 5 个原型里循环，看不出打到第几关）。无尽档整行改为「第 n 关」
+	// 关号——无尽锁场景后只在 5 个原型里循环，看不出打到第几关）。显示「无尽 第 n 关」
 	//（n = 闯关关序号，1 起；补发追赶期间 = 目标关，同 GetPlayingLevelIndex 口径）。
 	// 中文档宽字符直绘、英文档回落位图（同 AwardScreen / DrawWatchNotice 的中英分派口径）。
 	// 其余模式一字不动。
@@ -8193,7 +8203,7 @@ void Board::DrawLevel(Graphics* g)
 		if (ModText::IsChinese())
 		{
 			char aBuffer[64];
-			snprintf(aBuffer, sizeof(aBuffer), "第 %d 关", aShownLevel);
+			snprintf(aBuffer, sizeof(aBuffer), "无尽 第 %d 关", aShownLevel);
 			std::wstring aText = ModText::WideFromUtf8(aBuffer);
 			ModText::Font* aFont = ModText::GetFont(16, false);
 			int aTextW = ModText::TextWidth(aFont, aText);
@@ -8202,7 +8212,7 @@ void Board::DrawLevel(Graphics* g)
 		}
 		else
 		{
-			TodDrawString(g, StrFormat("Level %d", aShownLevel), aPosX, aPosY,
+			TodDrawString(g, StrFormat("Endless Level %d", aShownLevel), aPosX, aPosY,
 				Sexy::FONT_HOUSEOFTERROR16, Color(224, 187, 98), DrawStringJustification::DS_ALIGN_RIGHT);
 		}
 		return;
@@ -9101,7 +9111,7 @@ void Board::Draw(Graphics* g)
 	if (IsWatchingView())
 	{
 		DrawBoardWatch(g);
-        CoopHud::WatchControls(g);
+        CoopHud::WatchControls(g,this);
 		return;
 	}
 
@@ -9497,7 +9507,7 @@ void Board::UpdateQuickChat()
 
 	if (!QuickChatAvailable())
 	{
-        if(!CoopHud::Watching(this)){mCoopTouchCaptured=false;mCoopTouchAction=-1;mCoopTouchPeerLow=mCoopTouchPeerHigh=0;}
+        if(!CoopHud::Watching(this)&&!CoopHud::HeldControlsAvailable(this)){mCoopTouchCaptured=false;mCoopTouchAction=-1;mCoopTouchPeerLow=mCoopTouchPeerHigh=0;}
 
 		// 掉线/收摊/不在局里：横幅与冷却一并清掉，别让上一局的话漂进新局面
 		//（会话层收包队列由 DiscardLevelPackets/会话复位负责）
@@ -9510,7 +9520,7 @@ void Board::UpdateQuickChat()
 	if (mChatInputCooldown > 0) mChatInputCooldown--;
 	if (mSunGiftCooldownFrames > 0) mSunGiftCooldownFrames--;	// @pvz-online: 发阳光冷却（MOD_BUILD 38）
 
-    if(mPaused||!mApp->mActive||mApp->mMinimized) {
+    if((mPaused&&!CoopHud::HeldControlsAvailable(this))||!mApp->mActive||mApp->mMinimized) {
         CloseQuickChatPanel();mSunGiftSelectFrames=0;mCoopTouchCaptured=false;mCoopTouchAction=-1;mCoopTouchPeerLow=mCoopTouchPeerHigh=0;
     }
 	if (mChatPanelOpen)
@@ -9548,7 +9558,7 @@ void Board::DrawQuickChat(Graphics* g){DrawCoopUI(g);}
 
 int Board::CoopHit(int x,int y){return CoopHud::Hit(this,x,y);}
 bool Board::CoopMouseDown(int x,int y,int clicks) {
-    if((!QuickChatAvailable()&&!CoopHud::Watching(this))||mPaused||!mApp->mActive||mApp->mMinimized||clicks<=0)return false;
+    if((!QuickChatAvailable()&&!CoopHud::Watching(this)&&!CoopHud::HeldControlsAvailable(this))||(mPaused&&!CoopHud::HeldControlsAvailable(this))||!mApp->mActive||mApp->mMinimized||clicks<=0)return false;
     int hit=CoopHit(x,y);if(hit<0)return false;
     // Keep a late release out of lawn input even if focus loss clears HUD capture first.
     mIgnoreMouseUp=true;
@@ -9565,7 +9575,7 @@ bool Board::CoopMouseUp(int x,int y,int clicks) {
     if(!mCoopTouchCaptured)return false;
     int action=mCoopTouchAction;uint64_t peer=((uint64_t)mCoopTouchPeerHigh<<32)|mCoopTouchPeerLow;
     mCoopTouchCaptured=false;mCoopTouchAction=-1;mCoopTouchPeerLow=mCoopTouchPeerHigh=0;
-    if(clicks<=0||mPaused||!mApp->mActive||mApp->mMinimized||(!QuickChatAvailable()&&!CoopHud::Watching(this))||CoopHit(x,y)!=action)return true;
+    if(clicks<=0||(mPaused&&!CoopHud::HeldControlsAvailable(this))||!mApp->mActive||mApp->mMinimized||(!QuickChatAvailable()&&!CoopHud::Watching(this)&&!CoopHud::HeldControlsAvailable(this))||CoopHit(x,y)!=action)return true;
     if((action>=101&&action<=106)||(action>=301&&action<=306)) {
         auto* s=RoomPresentation::Session(mApp);int seat=action-(action>=301?300:100);
         if(!peer||s->mCoopPeers[seat]!=peer)return true;
@@ -9771,7 +9781,7 @@ void Board::UpdateBoardWatch()
 mApp->mOnlineSession);
     }else mObserverView.reset();
 
-    if(mCoopWatchLatched&&(!mApp->mActive||mApp->mMinimized||mPaused))CoopHud::StopWatch(this);
+    if(mCoopWatchLatched&&(!mApp->mActive||mApp->mMinimized||CoopHud::PauseStopsWatch(this)))CoopHud::StopWatch(this);
 	NetSession* aSession = mApp->mOnlineSession;
 	if (!mApp->IsOnlineGame() || aSession == nullptr || !aSession->IsConnected())
 	{
@@ -9808,7 +9818,7 @@ mApp->mOnlineSession);
 	if (anEnd == NetSession::WatchEnd::TIMEOUT || anEnd == NetSession::WatchEnd::TARGET_LEFT)
 	{
 		mWatchEndSeen = anEnd;
-		mWatchNoticeTimer = 120;
+		mWatchNoticeTimer = 0;
 	}
 	if (mWatchNoticeTimer > 0)
 	{
@@ -9869,7 +9879,7 @@ bool Board::IsWatchingView()
 	NetSession* aSession = mApp->mOnlineSession;
 	return mWatchKeyHeld
 		&& mApp->mGameScene == GameScenes::SCENE_PLAYING
-		&& aSession != nullptr && aSession->IsWatching();
+		&& aSession != nullptr && aSession->IsWatching() && mObserverView && mObserverView->CanDraw(aSession);
 }
 
 // 挑默认观看席位：上次看的还在 → 接着看；否则按席位号最小的"非自己上座者"。
@@ -9879,13 +9889,13 @@ uint8_t Board::PickDefaultWatchSeat()
 	NetSession* aSession = mApp->mOnlineSession;
 	if (aSession == nullptr || !aSession->IsConnected()) return NetProto::SEAT_UNSET;
 	if (mWatchLastSeat != NetProto::SEAT_UNSET && mWatchLastSeat != aSession->GetLocalSeat()
-		&& aSession->IsSeatOccupied(mWatchLastSeat))
+		&& aSession->CanWatchSeat(mWatchLastSeat))
 	{
 		return mWatchLastSeat;
 	}
 	for (uint8_t aSeat = 1; aSeat <= NetProto::MAX_PLAYERS; aSeat++)
 	{
-		if (aSeat != aSession->GetLocalSeat() && aSession->IsSeatOccupied(aSeat)) return aSeat;
+		if (aSession->CanWatchSeat(aSeat)) return aSeat;
 	}
 	return NetProto::SEAT_UNSET;
 }
@@ -9898,7 +9908,7 @@ static uint8_t NextWatchSeat(const NetSession* theSession, uint8_t theAfter)
 	for (int aStep = 1; aStep <= NetProto::MAX_PLAYERS; aStep++)
 	{
 		uint8_t aSeat = (uint8_t)((theAfter + aStep - 1) % NetProto::MAX_PLAYERS + 1);
-		if (aSeat != theSession->GetLocalSeat() && theSession->IsSeatOccupied(aSeat)) return aSeat;
+		if (theSession->CanWatchSeat(aSeat)) return aSeat;
 	}
 	return NetProto::SEAT_UNSET;
 }
@@ -9923,7 +9933,7 @@ bool Board::HandleBoardWatchKey(KeyCode theKey)
 			mWatchKeyHandled = true;
 			uint8_t aSeat = NextWatchSeat(aSession, mWatchLastSeat);
 			if (aSeat != NetProto::SEAT_UNSET && aSession->BeginWatch(aSeat)) mWatchLastSeat = aSeat;
-			else PushCustomBanner(ModText::Tr("稍等几秒再刷新", "Wait a few seconds before refreshing"));
+			
 			return true;
 		}
 		uint8_t aSeat = PickDefaultWatchSeat();
@@ -9939,6 +9949,7 @@ bool Board::HandleBoardWatchKey(KeyCode theKey)
 	}
 
 	if (!mWatchKeyHeld) return false;
+    if(!IsWatchingView()&&theKey!=KeyCode::KEYCODE_ESCAPE)return false;
 
 	// 以下都在"V 还按着"期间（含被超时/离开收场后还没松手的尾巴）
 	if (theKey == KeyCode::KEYCODE_ESCAPE)
@@ -9949,13 +9960,13 @@ bool Board::HandleBoardWatchKey(KeyCode theKey)
 		mWatchRearmBlocked = true;	// 压住 V 自动重复，等真松手（KeyUp/轮询兜底）再解锁
 		return true;
 	}
-    if(theKey=='R'&&aSession&&aSession->IsWatching()){if(!aSession->BeginWatch(aSession->GetWatchTargetSeat()))PushCustomBanner(ModText::Tr("稍等几秒再刷新","Wait a few seconds before refreshing"));return true;}
+    if(theKey=='R'&&aSession&&aSession->IsWatching()){aSession->BeginWatch(aSession->GetWatchTargetSeat());return true;}
 	if (theKey >= '1' && theKey <= '0' + NetProto::MAX_PLAYERS)
 	{
 		// 已实际收场（如静默 STOP 刚进包、旗子还差一帧才清）：不吞选卡键，落回原链
 		if (aSession == nullptr || !aSession->IsWatching()) return false;
 		uint8_t aSeat = (uint8_t)(theKey - '0');
-		if (aSeat != aSession->GetLocalSeat() && aSession->IsSeatOccupied(aSeat))
+		if (aSession->CanWatchSeat(aSeat))
 		{
 			if (aSession->BeginWatch(aSeat)) mWatchLastSeat = aSeat;
 		}
@@ -9987,190 +9998,9 @@ static void WatchDrawCenterTag(Graphics* g, const char* theText, const Color& th
 
 void Board::DrawBoardWatch(Graphics* g)
 {
-    if(mObserverView&&mObserverView->Draw(g,mApp->mOnlineSession))return;
-	const NetSession::ViewSnapshot& aSnap = mRemoteSnapshot;
-
-	// 背景：按自家关卡题材选图（合作局同关）。照 DrawBackdrop 的选图口径，但只铺底——
-	// SOD/挑战叠加/水池波纹这些是"自家棋盘状态"，观看层不带。
-	Image* aBgImage = nullptr;
-	switch (mBackground)
-	{
-	case BackgroundType::BACKGROUND_1_DAY:				aBgImage = Sexy::IMAGE_BACKGROUND1;					break;
-	case BackgroundType::BACKGROUND_2_NIGHT:			aBgImage = Sexy::IMAGE_BACKGROUND2;					break;
-	case BackgroundType::BACKGROUND_3_POOL:				aBgImage = Sexy::IMAGE_BACKGROUND3;					break;
-	case BackgroundType::BACKGROUND_4_FOG:				aBgImage = Sexy::IMAGE_BACKGROUND4;					break;
-	case BackgroundType::BACKGROUND_5_ROOF:				aBgImage = Sexy::IMAGE_BACKGROUND5;					break;
-	case BackgroundType::BACKGROUND_6_BOSS:				aBgImage = Sexy::IMAGE_BACKGROUND6BOSS;				break;
-	case BackgroundType::BACKGROUND_MUSHROOM_GARDEN:	aBgImage = Sexy::IMAGE_BACKGROUND_MUSHROOMGARDEN;	break;
-	case BackgroundType::BACKGROUND_GREENHOUSE:			aBgImage = Sexy::IMAGE_BACKGROUND_GREENHOUSE;		break;
-	case BackgroundType::BACKGROUND_ZOMBIQUARIUM:		aBgImage = Sexy::IMAGE_AQUARIUM1;					break;
-	default:											break;
-	}
-	if (aBgImage != nullptr)
-	{
-		if (aBgImage == Sexy::IMAGE_BACKGROUND_MUSHROOMGARDEN || aBgImage == Sexy::IMAGE_BACKGROUND_GREENHOUSE || aBgImage == Sexy::IMAGE_AQUARIUM1)
-			g->DrawImage(aBgImage, 0, 0);
-		else
-			g->DrawImage(aBgImage, -BOARD_OFFSET, 0);
-	}
-	else
-	{
-		g->SetColor(Color(24, 40, 24, 255));
-		g->FillRect(0, 0, BOARD_WIDTH, BOARD_HEIGHT);
-	}
-
-	// 行/列参考线：帮观众数清格位（行距泳池关 85、其余 100，与 GridToPixel 同口径）
-	int aRows = aSnap.mRows;
-	if (aRows < 1 || aRows > MAX_GRID_SIZE_Y) aRows = StageHas6Rows() ? 6 : 5;
-	const int aRowStep = StageHasPool() ? 85 : 100;
-	const int aLawnTop = GridToPixelY(0, 0);
-	g->SetColor(Color(0, 0, 0, 36));
-	for (int r = 1; r < aRows; r++)
-	{
-		g->FillRect(LAWN_XMIN, aLawnTop + r * aRowStep - 1, MAX_GRID_SIZE_X * 80, 2);
-	}
-	for (int c = 1; c < MAX_GRID_SIZE_X; c++)
-	{
-		g->FillRect(LAWN_XMIN + c * 80 - 1, aLawnTop, 2, aRows * aRowStep);
-	}
-
-	ModText::Font* aFont = ModText::GetFont(12, false);
-
-	// ---- 顶部信息条（有没有快照都画：显示在看谁）----
-	uint8_t aTargetSeat = mApp->mOnlineSession != nullptr ? mApp->mOnlineSession->GetWatchTargetSeat() : NetProto::SEAT_UNSET;
-	std::string aNameUtf8;
-	if (mApp->mOnlineSession != nullptr && mApp->mOnlineSession->IsSeatOccupied(aTargetSeat))
-	{
-		aNameUtf8 = mApp->mOnlineSession->GetSeatName(aTargetSeat);
-	}
-	if (aNameUtf8.empty()) aNameUtf8 = "P" + std::to_string((unsigned)aTargetSeat);
-
-	std::string aLine1 = ModText::Tr("正在观看 ", "Watching ");
-	aLine1 += aNameUtf8;
-	aLine1 += ModText::Tr(" 的场地 · 第 ", "'s lawn · Wave ");
-	aLine1 += std::to_string((int)aSnap.mWave) + "/" + std::to_string((int)aSnap.mWaveTotal);
-	aLine1 += ModText::Tr(" 波", "");
-	std::wstring aTitle = ModText::WideFromUtf8(aLine1.c_str());
-	std::string aHintUtf8 = ModText::Tr("按 1-", "1-");
-	aHintUtf8 += std::to_string((int)NetProto::MAX_PLAYERS);
-	aHintUtf8 += ModText::Tr(" 换人 · 松开 V 或 Esc 返回", " switch · release V / Esc to return");
-	std::wstring aHint = ModText::WideFromUtf8(aHintUtf8.c_str());
-
-	g->SetColor(Color(0, 0, 0, 150));
-	g->FillRect(0, 0, BOARD_WIDTH, 48);
-	ModText::DrawTextWide(g, aFont, 12, 6, aTitle, Color(255, 255, 255, 255), g->mClipRect);
-	ModText::DrawTextWide(g, aFont, 12, 26, aHint, Color(190, 190, 190, 255), g->mClipRect);
-
-	if (!mHasRemoteSnapshot)
-	{
-		std::wstring aText = ModText::WideFromUtf8(ModText::Tr("正在连接队友画面…", "Connecting to teammate's board..."));
-		int aTextW = ModText::TextWidth(aFont, aText);
-		int aBoxX = (BOARD_WIDTH - aTextW) / 2 - 12;
-		g->SetColor(Color(0, 0, 0, 150));
-		g->FillRect(aBoxX, 286, aTextW + 24, 28);
-		ModText::DrawTextWide(g, aFont, aBoxX + 12, 292, aText, Color(255, 255, 255, 255), g->mClipRect);
-		return;
-	}
-
-	// 推车：位图 bit r = 该行兜底还在（待命位 = 屏外左侧 −21，照 LawnMower::Draw 的偏移口径）
-	for (int r = 0; r < aRows; r++)
-	{
-		if ((aSnap.mMowers & (1 << r)) == 0) continue;
-		LawnMowerType aMowerType = LawnMowerType::LAWNMOWER_LAWN;
-		float aMowerY = GetPosYBasedOnRow(-21.0f + 40.0f, r) + 23.0f + 19.0f;
-		if (StageHasRoof())
-		{
-			aMowerType = LawnMowerType::LAWNMOWER_ROOF;
-			aMowerY -= 40.0f;
-		}
-		else if (StageHasPool() && mPlantRow[r] == PlantRowType::PLANTROW_POOL)
-		{
-			aMowerType = LawnMowerType::LAWNMOWER_POOL;
-			aMowerY -= 33.0f;
-		}
-		mApp->mReanimatorCache->DrawCachedMower(g, -21.0f + 6.0f, aMowerY, aMowerType);
-	}
-
-	// 植物：DrawCachedPlant 的坐标口径 = 格左上（与棋盘 Plant 实体一致）
-	for (int i = 0; i < aSnap.mPlantCount; i++)
-	{
-		const NetSession::ViewSnapshot::Plant& aP = aSnap.mPlants[i];
-		if (aP.mRow >= aRows || aP.mCol >= MAX_GRID_SIZE_X) continue;	// 防御坏包
-		if (aP.mSeedType >= SeedType::NUM_SEED_TYPES) continue;
-		int aX = GridToPixelX(aP.mCol, aP.mRow);
-		int aY = GridToPixelY(aP.mCol, aP.mRow);
-		mApp->mReanimatorCache->DrawCachedPlant(g, (float)aX, (float)aY, (SeedType)aP.mSeedType, DrawVariation::VARIATION_NORMAL);
-		if (aP.mHP < 100)
-		{
-			WatchDrawHealthBar(g, aX + 20, aY + 6, 40, 4, aP.mHP);
-		}
-	}
-
-	// 僵尸：缓存图内 reanim 原点在图内 (40,40)（GARGANTUAR 是 (40,60)），照
-	// Zombie::GetPosYBasedOnRow 的口径把原点摆到 行 y−30（气球再抬 30）。
-	// 视觉细节（缩放/微调）以实机 1:1 截图为准。
-	for (int i = 0; i < aSnap.mZombieCount; i++)
-	{
-		const NetSession::ViewSnapshot::Zombie& aZ = aSnap.mZombies[i];
-		if (aZ.mRow >= aRows) continue;
-		if ((int)aZ.mType >= (int)ZombieType::NUM_CACHED_ZOMBIE_TYPES) continue;
-		float aOriginY = GetPosYBasedOnRow((float)aZ.mX + 40.0f, aZ.mRow) - 30.0f;
-		if (aZ.mType == ZombieType::ZOMBIE_BALLOON) aOriginY -= 30.0f;
-		float aPivotY = (aZ.mType == ZombieType::ZOMBIE_GARGANTUAR) ? 60.0f : 40.0f;
-		float aDrawY = aOriginY - aPivotY;
-		ZombieType aViewType=(ZombieType)aZ.mType;
-        const int aFamily=PlantZombies::Family(aViewType);
-        if(aFamily>=0)aViewType=PlantZombies::Form(aFamily,
-            (aZ.mFlags&NetProto::SNAPSHOT_ZFLAG_PLANT_HAT)?PlantZombies::Armor(aViewType):0,
-            (aZ.mFlags&NetProto::SNAPSHOT_ZFLAG_SHIELD)!=0);
-        mApp->mReanimatorCache->DrawCachedZombie(g, (float)aZ.mX - 40.0f, aDrawY, aViewType);
-		if (aZ.mHP < 100)
-		{
-			WatchDrawHealthBar(g, aZ.mX - 25, (int)aDrawY + 2, 50, 5, aZ.mHP);
-		}
-		if ((aZ.mFlags & NetProto::SNAPSHOT_ZFLAG_HELMET) || (aZ.mFlags & NetProto::SNAPSHOT_ZFLAG_SHIELD))
-		{
-			g->SetColor(Color(140, 200, 255, 220));	// 淡蓝小点 = 有甲（头盔/门板）
-			g->FillRect(aZ.mX - 31, (int)aDrawY + 3, 4, 4);
-		}
-		// @pvz-online: 观看端按缓存图原点定位；本机叠加层使用实时实体矩形。
-		if (aZ.mFlags & NetProto::SNAPSHOT_ZFLAG_RELAYED)
-		{
-			int aAX = aZ.mX + 38;
-			int aAY = (int)aOriginY - 9;
-			g->SetColor(Color(35, 30, 20, 230));
-			g->FillRect(aAX, aAY, 18, 18);
-			g->SetColor(Color(255, 215, 70));
-			g->FillRect(aAX + 7, aAY + 2, 4, 8);
-			g->FillRect(aAX + 3, aAY + 8, 12, 3);
-			g->FillRect(aAX + 5, aAY + 11, 8, 3);
-			g->FillRect(aAX + 7, aAY + 14, 4, 2);
-		}
-	}
-
-	// 暂停/清完标记：对方的状态（快照位），中央一行大字
-	if (aSnap.mFlags & NetProto::SNAPSHOT_FLAG_PAUSED)
-	{
-		WatchDrawCenterTag(g, ModText::Tr("对方已暂停", "They paused"), Color(255, 230, 140, 255));
-	}
-	else if (aSnap.mFlags & NetProto::SNAPSHOT_FLAG_COMPLETE)
-	{
-		WatchDrawCenterTag(g, ModText::Tr("对方已清空草坪", "Their lawn is clear"), Color(160, 240, 160, 255));
-	}
+    if(mObserverView)mObserverView->Draw(g,mApp->mOnlineSession);
 }
-
-void Board::DrawWatchNotice(Graphics* g)
-{
-	ModText::Font* aFont = ModText::GetFont(12, false);
-	std::wstring aText = ModText::WideFromUtf8(mWatchEndSeen == NetSession::WatchEnd::TIMEOUT
-		? ModText::Tr("画面暂不可用，请换一位队友", "View unavailable. Choose another teammate.")
-		: ModText::Tr("队友已离开，请换一位", "Teammate left. Choose another."));
-	int aTextW = ModText::TextWidth(aFont, aText);
-	int aBoxX = (BOARD_WIDTH - aTextW) / 2 - 12;
-	g->SetColor(Color(0, 0, 0, 160));
-	g->FillRect(aBoxX, 136, aTextW + 24, 26);
-	ModText::DrawTextWide(g, aFont, aBoxX + 12, 141, aText, Color(255, 200, 200, 255), g->mClipRect);
-}
+void Board::DrawWatchNotice(Graphics*) {}
 
 // @pvz-online: these keys address bank slots, not plant IDs; special tools retain their original inputs.
 bool Board::HasPlantKeyboardControls()
@@ -10237,7 +10067,14 @@ void Board::DrawKeyboardHint(Graphics* g, int theSlot, int theX, int theY)
 void Board::KeyDown(KeyCode theKey)
 {
     if(mApp->TeamProgressionInputBlocked())return;
-    if (mApp->mOnlineSession && mApp->mOnlineSession->RelayBattleHeld()) { mApp->DoOnlineDialog(); return; }
+    if (mApp->mOnlineSession && mApp->mOnlineSession->RelayBattleHeld()) {
+        if(CoopHud::WaitingObserver(this)) {
+            if(theKey>=KEYCODE_NUMPAD0&&theKey<=KEYCODE_NUMPAD9)theKey=static_cast<KeyCode>('0'+theKey-KEYCODE_NUMPAD0);
+            if(HandleBoardWatchKey(theKey))return;
+        }
+        if(theKey==KEYCODE_ESCAPE)CoopHud::Action(this,12);
+        return;
+    }
     if(NextWaveControl::KeyDown(this,theKey))return;
     // @pvz-online: KeyCode is a VK, not a character: lowercase 't' is F5 and 'b' is NUMPAD2.
     // Win32 and SDL both normalize physical letter keys to uppercase; KeyChar handles text separately.

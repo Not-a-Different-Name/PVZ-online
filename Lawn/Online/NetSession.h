@@ -54,15 +54,21 @@ public:
     void SetPersistentPlayer(uint64_t token){mPersistentPlayer=token;mCoopToken=token;}
     std::vector<AdmissionWire::Message> mAdmissionInbox;
     AdmissionWire::Message mAdmissionOffer;
+    // Unreleased MOD102: an endless START is paired with a durable run identity.
+    AdmissionWire::Message mEndlessStartContext,mLastEndlessStartContext;
+    uint64_t mEndlessStartRun=0;
+    bool mEndlessStartingResume=false,mEndlessStartingLegacy=false,mEndlessNeedsAdmission=false;
+    void PublishEndlessStartContext(uint8_t destination);
+
     int mAdmissionValues[NetProto::MAX_PLAYERS+1]{-1,-1,-1,-1,-1,-1,-1};
     uint32_t mAdmissionValuesEpoch=0;
-    uint8_t mAdmissionNewMask=0;
+    uint8_t mAdmissionNewMask=0,mAdmissionGrantMask=0;
     bool mHasCredential=false;
     uint8_t mCredential[16]{};
     int mGateWanted=-1,mGateRetry=0;
     uint32_t mGateEpoch=0,mGateRequest=0,mGateAck=0;
     bool HasAdmissionOffer(int level)const{return mAdmissionOffer.op==AdmissionWire::OFFER && mAdmissionOffer.run && mAdmissionOffer.level==uint32_t(level) && mAdmissionOffer.epoch==mReadyEpoch;}
-    bool SupportsAdmission() const{return mTransport==Transport::RELAY && mHasCredential;}
+    bool SupportsAdmission() const{return (mTransport==Transport::RELAY && mHasCredential) || (mTransport==Transport::DIRECT && IsConnected());}
     bool RequestRoomGate(bool open);
     void CancelPendingAdmissions();
     bool SendAdmission(AdmissionWire::Message message,uint8_t destination);
@@ -514,6 +520,11 @@ public:
     uint32_t ObserverEpoch()const{return mReadyEpoch?mReadyEpoch:1;}
     bool HasObserverWatchers()const;
     bool ObserverCanCapture()const;
+    bool CanWatchSeat(uint8_t seat)const{return IsConnected()&&seat>=1&&seat<=NetProto::MAX_PLAYERS&&seat!=mLocalSeat&&IsSeatOccupied(seat)&&!IsSeatOffline(seat)&&!IsWaitingForNextRound(seat)&&(!mCoopToken||mCoopPeers[seat]!=mCoopToken);}
+    bool ObserverNeedsInitialCapture()const{for(const auto&v:mObserverViewers)if(v.watch&&v.pending)return true;return false;}
+
+    void SetObserverP2PEnabled(bool enabled);
+    bool ObserverP2PEnabled()const{return mObserverP2PEnabled;}
     bool IsObserverDirect()const;
     void StopObserverDirect(){mPunchLink.Cancel(mObserverWatch);mPunchFailedWatch=mObserverWatch;}
     uint64_t ObserverDirectInterval()const;
@@ -534,6 +545,7 @@ private:
     uint32_t mObserverEpoch=0,mObserverTerm=0;
     bool mObserverBoardActive=false,mObserverRelay=false,mObserverAccepted=false,mObserverReceived=false;
     // P2P 打洞（观战第二期 P2P-a）：问候/探测端点发现；画面直连数据通道是 P2P-b。
+    bool mObserverP2PEnabled=false;
     ObserverDirect::DirectLink mPunchLink;
     std::uint64_t mPunchQueryAt=0;
     bool mPunchRelay=false,mPunchAdvertised=false;
@@ -666,6 +678,7 @@ private:
     void HandlePreparation(const PreparationWire::Message& message);
     void PublishPreparation();
     void UpdatePreparation();
+    void RestorePreparedRejoin();
     void PreparationSeatSwapApplied(uint8_t a,uint8_t b);
     uint32_t mReadyEpoch=0;
     bool mSeedsReadySent=false;

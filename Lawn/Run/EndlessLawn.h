@@ -140,7 +140,7 @@ inline void Enter(LawnApp* app) {
     if(app->GetRunState() && app->GetRunState()->mEndlessSnapshotPhase==4 && StopAtLimit(app))return;
     if(app->TryKeepEndlessLawn())return;
     int restored=Restore(app);
-    if(restored==0){app->NewGame();return;}
+    if(restored==0){app->NewGame();if(app->mOnlineSession && app->mOnlineSession->mEndlessNeedsAdmission){app->mRunIntroHeld=true;app->mGameScene=GameScenes::SCENE_LEVEL_INTRO;}return;}
     if(restored>0)return;
     app->DoBackToMain(true);
     app->LawnMessageBox(Dialogs::DIALOG_MESSAGE,ModText::Tr("无法恢复草坪","Cannot restore lawn"),

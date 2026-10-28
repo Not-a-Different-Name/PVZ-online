@@ -415,7 +415,7 @@ public:
 	bool				HasPlant(SeedType theSeedType) const;
 
 	// 检查点读写。Load 失败（文件不在 / 版本不符 / 内容越界）返回 false，对象保持"空局"。
-	bool				Load(int theProfileId, int theMode = -1, int theScene = 0, bool theBackup=false, uint64_t theTeam=0);
+	bool				Load(int theProfileId, int theMode = -1, int theScene = 0, bool theBackup=false, uint64_t theTeam=0, const std::string& theSuffix="");
 	bool				Save(int theProfileId) const;
     bool SaveWithPlayer(PlayerInfo& player) const;
     std::vector<unsigned char> EncodeCheckpoint() const;

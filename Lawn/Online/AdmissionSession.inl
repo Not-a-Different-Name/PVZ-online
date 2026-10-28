@@ -21,13 +21,16 @@ bool NetSession::SendAdmission(AdmissionWire::Message m,uint8_t destination) {
 
 void NetSession::ResetAdmissionNetwork() {
     mAdmissionInbox.clear();mAdmissionOffer=AdmissionWire::Message{};
+    mEndlessStartContext=mLastEndlessStartContext=AdmissionWire::Message{};
+    mEndlessStartRun=0;mEndlessStartingResume=mEndlessStartingLegacy=mEndlessNeedsAdmission=false;
+
     mHasCredential=false;for(auto& n:mCredential)n=0;
-    mGateWanted=-1;mGateEpoch=mGateRequest=mGateAck=0;mAdmissionNewMask=0;
+    mGateWanted=-1;mGateEpoch=mGateRequest=mGateAck=0;mAdmissionNewMask=mAdmissionGrantMask=0;
     mAdmissionValuesEpoch=0;for(int& n:mAdmissionValues)n=-1;
 }
 
 void NetSession::CancelPendingAdmissions() {
-    if(!SupportsAdmission() || mRole!=Role::HOST)return;
+    if(mTransport!=Transport::RELAY || !SupportsAdmission() || mRole!=Role::HOST)return;
     RequestRoomGate(false);
     for(uint8_t seat=1;seat<=NetProto::MAX_PLAYERS;++seat)if(mAdmissionNewMask&(1u<<seat))SendRaw(0xF019,&seat,1);
 }
