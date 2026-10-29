@@ -36,7 +36,7 @@ struct Snapshot {
     Context context;
     Phase phase=Phase::DISABLED;
     Page page=Page::VOTE;
-    bool canAct=false;
+    bool canAct=false,canVote=false,voteOpen=false;
     std::string status,briefTitle,briefSummary,damageSummary;
     std::vector<Choice> choices;
     std::vector<Peer> peers;

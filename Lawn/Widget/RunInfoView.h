@@ -149,7 +149,7 @@ public:
             SeatUi::Button(graphics, TabRect(index, buffsOnly, teamAvailable), labels[index], index == 0 || run, down == 200 + index);
             if (index == tab) { graphics->SetColor(titleColor); auto rect = TabRect(index, buffsOnly, teamAvailable); graphics->DrawRect(rect); }
         }
-        if(buffsOnly&&teamAvailable)SeatUi::Button(graphics,TabRect(4,true,true),ModText::Tr("团队成长","Team"),true,down==550);
+        if(buffsOnly&&teamAvailable)SeatUi::Button(graphics,TabRect(4,true,true),ModText::Tr("全队增益","Team buffs"),true,down==550);
         if (tab == 0) {
             const char* on = ModText::Tr("开", "On");
             const char* off = ModText::Tr("关", "Off");

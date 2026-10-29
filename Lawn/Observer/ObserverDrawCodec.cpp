@@ -38,7 +38,7 @@ bool Unpack(const uint8_t*p,size_t n,std::vector<uint8_t>&out){
 }
 bool EncodeDrawFrame(const DrawFrame&f,std::vector<uint8_t>&out)try{
  if(f.motions.size()>2048||f.animations.size()>512||f.assets.size()>512||f.commands.empty()||f.commands.size()>8192)return false;
- Writer w;w.Put(0x31445750);w.Put(3,2);w.Put(f.flags,1);w.Put(0,1);w.Put(f.sequence,8);w.Put(f.wave,2);w.Put(f.total,2);w.Put(f.assets.size(),2);w.Put(f.commands.size(),2);
+ Writer w;w.Put(0x31445750);w.Put(4,2);w.Put(f.flags,1);w.Put(0,1);w.Put(f.sequence,8);w.Put(f.wave,2);w.Put(f.total,2);w.Put(f.assets.size(),2);w.Put(f.commands.size(),2);
  for(auto&k:f.assets){w.Put(k.kind,1);w.Put(k.id);w.Put(k.item,2);w.Put(k.filters,2);}
  w.Put(f.motions.size(),2);w.Put(f.animations.size(),2);
  for(auto&m:f.motions){w.Put(m.id);w.Put(m.kind,1);w.Float32(m.vx);w.Float32(m.vy);w.Float32(m.ay);w.Float32(m.life);}
@@ -61,7 +61,7 @@ bool EncodeDrawFrame(const DrawFrame&f,std::vector<uint8_t>&out)try{
 }catch(const std::bad_alloc&){out.clear();return false;}
 bool DecodeDrawFrame(const uint8_t*p,size_t n,DrawFrame&out)try{
  std::vector<uint8_t> raw;if(!Unpack(p,n,raw))return false;Reader r{raw};DrawFrame f;
- if(r.Get()!=0x31445750||r.Get(2)!=3)return false;f.flags=uint8_t(r.Get(1));if(r.Get(1))return false;
+ if(r.Get()!=0x31445750||r.Get(2)!=4)return false;f.flags=uint8_t(r.Get(1));if(r.Get(1))return false;
  f.sequence=r.Get(8);f.wave=uint16_t(r.Get(2));f.total=uint16_t(r.Get(2));size_t assets=r.Get(2),commands=r.Get(2);
  if(!r.ok||assets>512||!commands||commands>8192||assets*9+commands*30+4>raw.size()-r.at)return false;
  f.assets.reserve(assets);f.commands.reserve(commands);

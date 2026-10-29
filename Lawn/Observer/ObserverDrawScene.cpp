@@ -30,6 +30,7 @@
 #include <algorithm>
 #include <cstring>
 #include <tuple>
+#include "ObserverReanimationMap.h"
 using namespace Sexy;
 namespace Observer {
 namespace {
@@ -61,14 +62,14 @@ void DrawAssets::Refresh(){
 #include "ObserverAssets.inc"
 #undef OBS_IMAGE
 #undef OBS_FONT
- for(uint32_t i=0;i<gReanimatorDefCount;++i){auto&d=gReanimatorDefArray[i];auto*a=d.mReanimAtlas;if(!a)continue;
-  impl->Add(Raw(a->mMemoryImage),{3,i,0,0});
+ for(uint32_t i=0;i<gReanimatorDefCount;++i){auto&d=gReanimatorDefArray[i];auto*a=d.mReanimAtlas;uint16_t wire=0;if(!a||!ReanimationToWire(i,wire))continue;
+  impl->Add(Raw(a->mMemoryImage),{3,wire,0,0});
 #ifdef __ANDROID__
   int count=int(a->mImageArray.size());
 #else
   int count=a->mImageCount;
 #endif
-  for(int j=0;j<count&&j<1024;++j)impl->Add(a->mImageArray[j].mOriginalImage,{4,i,uint16_t(j),0});
+  for(int j=0;j<count&&j<1024;++j)impl->Add(a->mImageArray[j].mOriginalImage,{4,wire,uint16_t(j),0});
  }
  if(auto*c=Raw(impl->app->mReanimatorCache)){
   for(int i=0;i<NUM_SEED_TYPES;++i)impl->Add(Raw(c->mPlantImages[i]),{6,uint32_t(i),uint16_t(VARIATION_NORMAL),0});
@@ -86,7 +87,7 @@ bool DrawAssets::Identify(Image*p,AssetKey&k){auto it=impl->ids.find(p);if(it==i
 Image* DrawAssets::Resolve(const AssetKey&k){
  auto it=impl->images.find(k);if(it!=impl->images.end())return it->second;
  if(k.filters){auto base=k;int f=(k.filters&3)-1;base.filters>>=2;if(f<0||f>=NUM_FILTER_EFFECTS)return nullptr;auto*p=Resolve(base);return p?FilterEffectGetImage(p,FilterEffect(f)):nullptr;}
- if((k.kind==3||k.kind==4)&&k.id<gReanimatorDefCount){ReanimatorEnsureDefinitionLoaded(ReanimationType(k.id),false);Refresh();it=impl->images.find(k);return it==impl->images.end()?nullptr:it->second;}
+ if(k.kind==3||k.kind==4){ReanimationType type;if(!ReanimationFromWire(k.id,type))return nullptr;ReanimatorEnsureDefinitionLoaded(type,false);Refresh();it=impl->images.find(k);return it==impl->images.end()?nullptr:it->second;}
  if(k.kind>=6&&k.kind<=8&&impl->cached.size()<128){auto*c=Raw(impl->app->mReanimatorCache);if(!c)return nullptr;
   if((k.kind==6&&(k.id>=NUM_SEED_TYPES||k.item>VARIATION_AQUARIUM))||(k.kind==7&&k.id>=NUM_MOWER_TYPES)||(k.kind==8&&k.id>=NUM_CACHED_ZOMBIE_TYPES))return nullptr;
   const auto random=Sexy::GetRandState();
@@ -149,7 +150,8 @@ bool DrawScene::Validate(const DrawFrame&f)const {
  for(auto&m:f.motions)if(m.kind<1||m.kind>3||!m.id||!Finite(m.vx)||!Finite(m.vy)||!Finite(m.ay)||!std::isfinite(m.life)||m.life<0||m.life>60)return false;
  size_t tracks=0;
  for(auto&a:f.animations){
-  tracks+=a.tracks.size();if(tracks>16384||a.type>=gReanimatorDefCount||!a.count||a.loop>5||a.filter>NUM_FILTER_EFFECTS||a.flags>3||!Finite(a.time)||a.time<0||a.time>1||!Finite(a.rate)||!std::all_of(a.matrix.begin(),a.matrix.end(),Finite))return false;
+  ReanimationType type;if(!ReanimationFromWire(a.type,type))return false;
+  tracks+=a.tracks.size();if(tracks>16384||!a.count||a.loop>5||a.filter>NUM_FILTER_EFFECTS||a.flags>3||!Finite(a.time)||a.time<0||a.time>1||!Finite(a.rate)||!std::all_of(a.matrix.begin(),a.matrix.end(),Finite))return false;
   for(auto&t:a.tracks)if(t.index>=1024||t.flags>15||(t.image!=65535&&t.image>=f.assets.size())||t.blend>t.blendTotal||!Finite(t.shakeX)||!Finite(t.shakeY)||!std::all_of(t.transform.begin(),t.transform.end(),Finite))return false;
  }
  size_t vertices=0,text=0;for(auto&k:f.assets)if(k.kind<1||k.kind>9||k.kind==5||k.filters>255)return false;
@@ -166,11 +168,12 @@ bool DrawScene::Prepare(const DrawFrame&f)try{RandomGuard randomGuard;if(!Valida
  for(auto&d:f.commands)if(d.op>=DrawOp::Blt&&d.op<=DrawOp::StretchMirror&&d.op!=DrawOp::Triangles){auto*p=next[d.asset];auto&r=d.src;if(r[0]<0||r[1]<0||r[2]<=0||r[3]<=0||r[0]>p->mWidth-r[2]||r[1]>p->mHeight-r[3])return false;}
  std::vector<std::unique_ptr<Reanimation>> visual;size_t allocatedTracks=0;
  for(auto&a:f.animations){
-  ReanimatorEnsureDefinitionLoaded(ReanimationType(a.type),false);auto&def=gReanimatorDefArray[a.type];
+  ReanimationType type;if(!ReanimationFromWire(a.type,type))return false;
+  ReanimatorEnsureDefinitionLoaded(type,false);auto&def=gReanimatorDefArray[type];
   allocatedTracks+=def.mTracks.count;if(def.mTracks.count<=0||def.mTracks.count>1024||allocatedTracks>32768)return false;
   if(size_t(a.first)+a.count>size_t(def.mTracks.tracks[0].mTransforms.count))return false;
   for(auto&t:a.tracks)if(t.index>=def.mTracks.count||size_t(a.first)+a.count>size_t(def.mTracks.tracks[t.index].mTransforms.count))return false;
-  std::unique_ptr<Reanimation> r(new Reanimation());r->ReanimationInitializeType(0,0,ReanimationType(a.type));
+  std::unique_ptr<Reanimation> r(new Reanimation());r->ReanimationInitializeType(0,0,type);
   r->mFrameStart=a.first;r->mFrameCount=a.count;r->mLoopType=ReanimLoopType(a.loop);r->mAnimTime=a.time;r->mAnimRate=a.rate;
   auto&m=r->mOverlayMatrix;m.m00=a.matrix[0];m.m01=a.matrix[1];m.m02=a.matrix[2];m.m10=a.matrix[3];m.m11=a.matrix[4];m.m12=a.matrix[5];
   r->mColorOverride=ColorOf(a.color);r->mExtraAdditiveColor=ColorOf(a.additive);r->mExtraOverlayColor=ColorOf(a.overlay);
@@ -195,7 +198,13 @@ void DrawScene::Draw(Graphics*g){if(!g)return;auto*dest=g->mDestImage;
   float dx=0,dy=0;if(d.motion){auto&m=current.motions[d.motion-1];if(m.life>0&&age>m.life)continue;
    dx=float(std::clamp(age*m.vx,-4096.0,4096.0));dy=float(std::clamp(age*m.vy+age*age*m.ay*.5,-4096.0,4096.0));}
   const float x=baseX+dx,y=baseY+dy;
-  auto color=ColorOf(d.color);Rect src=RectOf(d.src),dst=RectOf(d.dst),clip=RectOf(d.clip);dst.Offset(int(x),int(y));clip.Offset(int(x),int(y));Image*i=d.asset<images.size()?images[d.asset]:nullptr;const auto&v=d.values;
+  auto color=ColorOf(d.color);Rect src=RectOf(d.src),dst=RectOf(d.dst),clip=RectOf(d.clip);dst.Offset(int(x),int(y));
+  // A viewport edge stays on the screen; only an internal object clip follows
+  // the object. Moving the entire viewport preserved spawn-time half bodies.
+  int left=clip.mX,top=clip.mY,right=left+clip.mWidth,bottom=top+clip.mHeight;
+  left+=int(baseX)+(left==0?0:int(dx));right+=int(baseX)+(right==800?0:int(dx));
+  top+=int(baseY)+(top==0?0:int(dy));bottom+=int(baseY)+(bottom==600?0:int(dy));
+  clip=Rect(left,top,std::max(0,right-left),std::max(0,bottom-top));Image*i=d.asset<images.size()?images[d.asset]:nullptr;const auto&v=d.values;
   clip=clip.Intersection(g->mClipRect).Intersection(Rect(0,0,dest->mWidth,dest->mHeight));
   if(clip.mWidth<=0||clip.mHeight<=0)continue;
   Graphics safe(*g);safe.mTransX=x;safe.mTransY=y;safe.mClipRect=clip;safe.SetColor(color);safe.SetColorizeImages(true);safe.SetDrawMode(d.mode);

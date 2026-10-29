@@ -40,9 +40,10 @@ private:
     uint64_t selected=0,quote=0;
     uint32_t viewRevision=1;
     uint32_t shownBallotRevision=0;
-    int quoteRow=-1,quoteColumn=-1,quoteCost=-1,reportTicks=0,voteTicks=0,saveTicks=0;
+    int quoteRow=-1,quoteColumn=-1,quoteCost=-1,reportTicks=0,saveTicks=0;
     bool wantsVote=false,dirty=false,reportedClear=false,baselineCaptured=false,recoverLawn=false;
     std::string notice;
+    std::string pendingGain;
     TeamGoals::Ledger goals;
     int goalsProfile=-1;
     bool goalsValid=true,goalsPending=false;
@@ -56,6 +57,11 @@ private:
     void Handle(const TeamWire::Message&);
     void Broadcast();
     void Report();
+    bool LocalVoteReady()const;
+    bool VoteDue()const;
+    void TryBeginBallot();
+    void PresentVote();
+    void QueueGain(const TeamProgression::Shared&);
     bool Save(bool lawn=false);
     bool BattleCheckpointReady()const;
     void BeginContext();
