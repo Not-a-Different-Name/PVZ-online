@@ -9,7 +9,8 @@ uint16_t DrawRecorder::Asset(Image* image){
 int DrawRecorder::AnimationStart(Reanimation*r){
  if(!Predicting())return -1;
  if(!r||!r->mDefinition||!r->mTrackInstances||r->mReanimationType<0||uint32_t(r->mReanimationType)>=gReanimatorDefCount||frame.animations.size()>=512){Fail();return -1;}
- VisualAnimation a;a.type=uint16_t(r->mReanimationType);a.first=uint16_t(r->mFrameStart);a.count=uint16_t(r->mFrameCount);
+ uint16_t wire=0;if(!ReanimationToWire(uint32_t(r->mReanimationType),wire)){Fail();return -1;}
+ VisualAnimation a;a.type=wire;a.first=uint16_t(r->mFrameStart);a.count=uint16_t(r->mFrameCount);
  a.loop=uint8_t(r->mLoopType);a.filter=uint8_t(int(r->mFilterEffect)+1);
  a.flags=uint8_t(r->mEnableExtraAdditiveDraw)|(uint8_t(r->mEnableExtraOverlayDraw)<<1);
  a.time=r->mAnimTime;a.rate=r->mAnimRate;

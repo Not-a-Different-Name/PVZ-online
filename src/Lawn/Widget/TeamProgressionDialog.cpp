@@ -128,7 +128,8 @@ int TeamProgressionDialog::EntryCount() const
 std::string TeamProgressionDialog::EntryText() const
 {
     const int index=std::clamp(mSelectedEntry,0,std::max(0,EntryCount()-1));
-    if(EntryCount()==0)return ModText::Tr("暂无此类记录。","No records in this category.");
+    if(EntryCount()==0)return mSnapshot.page==Page::TEAM_EFFECTS&&!mPersonal?
+        ModText::Tr("尚未获得全队增益。","No team buffs earned yet."):ModText::Tr("暂无此类记录。","No records in this category.");
     if(mSnapshot.page==Page::GOALS)
     {
         const auto& goal=mSnapshot.goals[index];
@@ -153,7 +154,7 @@ void TeamProgressionDialog::Layout()
 {
     mControls.clear();
     if(mClosed)return;
-    Add(ControlKind::CLOSE,Rect(660,36,92,48),ModText::Tr("收起","Close"));
+    if(!mSnapshot.voteOpen)Add(ControlKind::CLOSE,Rect(660,36,92,48),ModText::Tr("收起","Close"));
     const char* labels[]={ModText::Tr("团队投票","Vote"),ModText::Tr("全队增益","Effects"),ModText::Tr("队友协作","Team"),ModText::Tr("本关简报","Brief"),ModText::Tr("目标进度","Goals")};
     for(int index=0;index<5;++index)Add(ControlKind::PAGE,Rect(48+index*142,98,136,44),labels[index],index,true,0,0,0,static_cast<int>(mSnapshot.page)==index);
     if(mDetail)
@@ -187,6 +188,8 @@ void TeamProgressionDialog::Layout()
                 Add(ControlKind::CHOICE_DETAILS,Rect(left+width-88,382,80,44),ModText::Tr("详情","Info"),index);
             }
         }
+        Add(ControlKind::VOTE,Rect(588,542,164,40),ModText::Tr("弃权","Abstain"),-1,
+            mSnapshot.canAct&&mSnapshot.canVote);
         return;
     }
     if(mSnapshot.page==Page::TEAM_EFFECTS||mSnapshot.page==Page::GOALS)
@@ -281,7 +284,7 @@ void TeamProgressionDialog::Activate(Control control)
     CancelInput();
     switch(control.kind)
     {
-    case ControlKind::CLOSE: mClosed=true;SetVisible(false);Submit(Action::CLOSE);return;
+    case ControlKind::CLOSE: if(mSnapshot.voteOpen)return;mClosed=true;SetVisible(false);Submit(Action::CLOSE);return;
     case ControlKind::PAGE: Submit(Action::SELECT_PAGE,control.value);return;
     case ControlKind::VOTE: Submit(Action::VOTE,control.value);return;
     case ControlKind::PEER: mSelectedPeer=control.target;mDesiredRow=mDesiredColumn=-1;Submit(Action::SELECT_PEER,0,control.target);return;
@@ -325,7 +328,10 @@ void TeamProgressionDialog::KeyDown(KeyCode key)
 {
     if(mClosed)return;
     Refresh();
-    if(key==KEYCODE_ESCAPE) {Control close;close.kind=ControlKind::CLOSE;Activate(close);return;}
+    if(key==KEYCODE_ESCAPE) {
+        if(mSnapshot.voteOpen){Submit(Action::SELECT_PAGE,int(Page::VOTE));return;}
+        Control close;close.kind=ControlKind::CLOSE;Activate(close);return;
+    }
     if(key==KEYCODE_TAB)
     {
         for(size_t count=0;count<mControls.size();++count)
@@ -440,7 +446,7 @@ void TeamProgressionDialog::Draw(Graphics* graphics)
 {
     if(mClosed)return;
     SeatUi::Panel(graphics,Rect(20,20,760,560));
-    const char* titles[]={ModText::Tr("团队成长","Team growth"),ModText::Tr("本局增益","Run effects"),ModText::Tr("队友协作","Teamwork"),ModText::Tr("本关简报","Stage brief"),ModText::Tr("目标进度","Goal progress")};
+    const char* titles[]={ModText::Tr("团队投票","Team vote"),ModText::Tr("本局增益","Run effects"),ModText::Tr("队友协作","Teamwork"),ModText::Tr("本关简报","Stage brief"),ModText::Tr("目标进度","Goal progress")};
     const int page=std::clamp(static_cast<int>(mSnapshot.page),0,4);
     SeatUi::Text(graphics,titles[page],48,70,588,27,Color(245,230,165));
     if(mDetail)
@@ -473,5 +479,7 @@ void TeamProgressionDialog::Draw(Graphics* graphics)
             control.selected||(mCaptured&&SameControl(mPressed,control))||static_cast<int>(index)==mKeyboard);
     }
     if(!mDetail&&!mCellPicker&&mSnapshot.page==Page::TEAMMATES)DrawMembers(graphics,false);
-    SeatUi::Text(graphics,ModText::Tr("查看时战斗继续", "Battle continues while viewing"),48,567,704,15,Color(185,185,170));
+    SeatUi::Text(graphics,mSnapshot.voteOpen?
+        ModText::Tr("全员投票或弃权后继续", "Continue after everyone votes or abstains"):
+        ModText::Tr("查看时战斗继续", "Battle continues while viewing"),48,567,mSnapshot.voteOpen?528:704,15,Color(185,185,170));
 }

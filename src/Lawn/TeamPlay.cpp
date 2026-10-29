@@ -127,7 +127,7 @@ std::vector<Member> TeamPlay::Members()const {
 void TeamPlay::BeginContext() {
     auto*r=app->GetRunState();if(!r)return;
     if(r->IsEndless()){r->mTeam.shared.stacks[ARSENAL]=0;r->mTeam.shared.plants=0;}auto&s=r->mTeam;auto*n=Session();
-    if(observed!=r||!s.player){observed=r;peers.clear();peerAge.clear();wantsVote=false;baselineCaptured=false;reportedClear=false;quote=0;selected=0;shownBallotRevision=0;reportTicks=0;voteTicks=0;notice.clear();recoverLawn=!s.lawn.empty()&&s.localLevel==r->mLevelIndex&&s.attempt==Attempt();++viewRevision;}
+    if(observed!=r||!s.player){observed=r;peers.clear();peerAge.clear();wantsVote=false;baselineCaptured=false;reportedClear=false;quote=0;selected=0;shownBallotRevision=0;reportTicks=0;notice.clear();pendingGain.clear();recoverLawn=!s.lawn.empty()&&s.localLevel==r->mLevelIndex&&s.attempt==Attempt();++viewRevision;}
     if(!s.player)s.player=app->IsOnlineGame()&&n?n->mCoopToken:Admission::NewId();
     if(app->IsOnlineGame()&&n&&n->mCoopToken!=s.player)n->SetPersistentPlayer(s.player);
     if(app->IsOnlineGame()&&Host()&&!s.shared.run){s.shared.run=r->mAdmission.run?r->mAdmission.run:Admission::NewId();dirty=true;}
@@ -150,7 +150,7 @@ void TeamPlay::Report() {
     auto*r=app->GetRunState();if(!r)return;Member m;m.player=r->mTeam.player;m.plants=PlantMask(*r);m.level=r->mLevelIndex;m.attempt=Attempt();
     // Personal choices stay complete after this client enters seed selection/battle.
     // Peers still crossing this stage barrier must not wait for our intro flag to return.
-    m.hasSupportCard=HasSupportCard();m.allow=r->mTeam.allow;m.ready=wantsVote;m.rewardsDone=!r->HasPendingPick()&&!r->IsCatchingUp()&&!(Session()&&Session()->mEndlessNeedsAdmission);m.rows=app->mBoard&&app->mBoard->StageHasPool()?6:5;m.title=uint8_t(TeamGoalsStorage::Title(app));
+    m.hasSupportCard=HasSupportCard();m.allow=r->mTeam.allow;m.ready=wantsVote&&LocalVoteReady();m.rewardsDone=!r->HasPendingPick()&&!r->IsCatchingUp()&&!(Session()&&Session()->mEndlessNeedsAdmission);m.rows=app->mBoard&&app->mBoard->StageHasPool()?6:5;m.title=uint8_t(TeamGoalsStorage::Title(app));
     m.battle=app->mBoardResult==BOARDRESULT_LOST?FAILED:app->mGameScene==SCENE_PLAYING&&!app->mRunIntroHeld?FIGHTING:PREPARING;
     NetProto::MsgEscapedZombie relay;const bool pendingRelay=Session()&&Session()->PeekPendingEscapedZombie(relay);
     if(m.battle==FIGHTING&&app->mBoard&&!pendingRelay&&!app->mBoard->AreEnemyZombiesOnScreen()&&(app->mBoard->mLevelComplete||app->mBoard->mLevelAwardSpawned)&&
@@ -165,45 +165,98 @@ void TeamPlay::Report() {
 void TeamPlay::Broadcast(){auto*r=app->GetRunState();if(!r||!Host())return;auto m=Message(TeamWire::SHARED);m.shared=r->mTeam.shared;
     for(int i=0;i<RunState::RUN_ZOMBIE_BUFF_COUNT;++i)m.zombieStacks[i]=r->mZombieBuffStacks[i];
     m.zombieVoted=r->mZombieVotedLevel;m.zombieRounds=uint8_t(app->mZombieVoteRoundsDone);Send(m);}
+bool TeamPlay::LocalVoteReady()const {
+    auto*r=app->GetRunState();auto*n=Session();
+    if(!r||!app->mBoard||!app->mRunIntroHeld||r->HasPendingPick()||r->IsCatchingUp()||
+       (n&&(n->mEndlessNeedsAdmission||n->IsWaitingForNextRound(n->GetLocalSeat())))||app->mZombieVoteActive)return false;
+    const int level=r->GetPlayingLevelIndex(),period=RunState::LevelsPerScene(r->mMode);
+    // Keep zombie voting before team voting; a late personal picker keeps that
+    // earlier stage closed, but never delays team ballots on ordinary stages.
+    if(level>0&&period>0&&level%period==0&&r->GetZombieBuffPerScene()>0){
+        if(int(r->mZombieVotedLevel)!=level)return false;
+        const int rounds=app->mZombieVoteRoundsDone?app->mZombieVoteRoundsDone:r->mEndlessVoteRounds;
+        if(rounds>0&&rounds<r->GetZombieBuffPerScene())return false;
+    }
+    return true;
+}
+bool TeamPlay::VoteDue()const {
+    auto*r=app->GetRunState();if(!r)return false;
+    const int previous=r->mLevelIndex?r->LevelForModeIndex(r->mMode,r->mLevelIndex-1):r->GetLevel();
+    return r->mTeam.shared.Due(r->mLevelIndex,r->GetSceneIndex(),(previous-1)/10,r->IsEndless());
+}
+void TeamPlay::TryBeginBallot() {
+    auto*r=app->GetRunState();auto*n=Session();
+    if(!r||!Host()||!HasTeammates()||!n||!n->IsConnected())return;
+    auto&s=r->mTeam.shared;if(!s.run||s.ballot.open||!VoteDue())return;
+    std::vector<Member> members;bool anyReady=false;
+    for(uint8_t seat=1;seat<=6;++seat){
+        if(!n->IsSeatOccupied(seat)||n->IsSeatOffline(seat)||n->IsWaitingForNextRound(seat))continue;
+        const auto player=seat==n->GetLocalSeat()?r->mTeam.player:n->mCoopPeers[seat];
+        auto it=peers.find(player);
+        // Every active player remains on the ballot, including unfinished peers.
+        // Wait for their identity/current pool report, never for all ready flags.
+        if(!player||it==peers.end()||it->second.level!=uint32_t(r->mLevelIndex)||it->second.attempt!=Attempt())return;
+        if(std::any_of(members.begin(),members.end(),[&](const Member&m){return m.player==player;}))return;
+        members.push_back(it->second);anyReady|=it->second.ready&&it->second.rewardsDone;
+    }
+    if(!anyReady||members.size()<2)return;
+    const auto before=s;
+    if(!s.Begin(r->mLevelIndex,members,r->IsEndless(),uint32_t(Admission::NewId())))return;
+    dirty=true;
+    if(!Save()){s=before;return;}
+    notice.clear();++viewRevision;Broadcast();
+}
+void TeamPlay::PresentVote() {
+    auto*r=app->GetRunState();if(!r||!wantsVote||!LocalVoteReady())return;
+    const auto&b=r->mTeam.shared.ballot;
+    if(!b.open&&!VoteDue()){
+        // A capped catalogue may commit a skipped ballot without ever opening.
+        // Close an earlier waiting surface as well as an actual voting surface.
+        if(page==Page::VOTE)TeamPlayUi::Close(app);
+        wantsVote=false;page=Page::TEAM_EFFECTS;return;
+    }
+    if(!app->mTeamProgressionDialog||(b.open&&shownBallotRevision!=b.revision)){
+        TeamPlayUi::Show(app,Page::VOTE);
+        if(app->mTeamProgressionDialog&&b.open)shownBallotRevision=b.revision;
+    }
+}
+void TeamPlay::QueueGain(const Shared&before) {
+    auto*r=app->GetRunState();if(!r||!before.run||before.run!=r->mTeam.shared.run)return;
+    const auto&after=r->mTeam.shared;
+    for(int id=0;id<BUFFS;++id)if(after.stacks[id]>before.stacks[id]){
+        pendingGain=ModText::Tr("全队获得：","Team gained: ")+std::string(Names(id))+" "+
+            std::to_string(after.stacks[id])+ModText::Tr("层"," stack(s)");
+    }
+}
 bool TeamPlay::HoldPersonalRewards() {
     auto*r=app->GetRunState();if(!r)return false;BeginContext();Report();
     auto*n=Session();if(n&&n->IsActive()&&!n->IsConnected())return true;
     if(!app->IsOnlineGame())return false;if(!n||!n->IsConnected())return true;
+    bool waiting=false;
     for(uint8_t seat=1;seat<=6;++seat)if(n->IsSeatOccupied(seat)&&!n->IsSeatOffline(seat)&&!n->IsWaitingForNextRound(seat)){
         const auto id=seat==n->GetLocalSeat()?r->mTeam.player:n->mCoopPeers[seat];auto it=peers.find(id);
-        if(!id||it==peers.end()||!it->second.rewardsDone||it->second.level!=uint32_t(r->mLevelIndex)||it->second.attempt!=Attempt())return true;
+        if(!id||it==peers.end()||!it->second.rewardsDone||it->second.level!=uint32_t(r->mLevelIndex)||it->second.attempt!=Attempt())waiting=true;
     }
-    return false;
+    // Presentation/voting no longer sits behind the all-personal-choices barrier.
+    // Seed selection and battle still wait for the whole team as before.
+    if(waiting&&LocalVoteReady())HoldPreparation();
+    return waiting;
 }
 bool TeamPlay::HoldPreparation() {
-    auto*r=app->GetRunState();if(!r)return false;BeginContext();
-    if(auto*n=Session();n&&n->IsActive()&&!n->IsConnected())return true;
-    // @pvz-online 2026-10-26：团队增益只在真正的联机团队里开票。纯单人（无会话/未连接）
-    // 或房间里只剩自己（队友全离席/等待，含「房空 going in solo」）直接放行——发布版在这里
-    // 开一张看不见的票，单人局被永久冻结在开票帧（MOD98 反馈：冒险第一关卡死/换关 UI 失踪/
-    // 游戏结束无选项/单人出现团队增益，全部同源）。结算与增益同样只在团队里生效（Update）。
-    if(!app->IsOnlineGame()||!HasTeammates())return false;
+    auto*r=app->GetRunState();if(!r)return false;BeginContext();auto*n=Session();
+    if(n&&n->IsActive()&&!n->IsConnected())return true;
     auto&s=r->mTeam.shared;
-    const int previous=r->mLevelIndex?r->LevelForModeIndex(r->mMode,r->mLevelIndex-1):r->GetLevel();
-    const bool due=s.Due(r->mLevelIndex,r->GetSceneIndex(),(previous-1)/10,r->IsEndless());
-    if(!s.run||(!Host()&&!s.ballot.open&&s.votedLevel!=r->mLevelIndex&&due)){wantsVote=true;Report();page=Page::VOTE;return true;}
-    if(!due&&!s.ballot.open)return false;
-    wantsVote=true;Report();
-    if(Host()&&!s.ballot.open&&s.votedLevel!=r->mLevelIndex) {
-        auto members=Members();bool all=!members.empty();auto*n=Session();
-        if(app->IsOnlineGame()&&n)for(uint8_t seat=1;seat<=6;++seat)if(n->IsSeatOccupied(seat)&&!n->IsSeatOffline(seat)&&!n->IsWaitingForNextRound(seat)){
-            auto id=seat==n->GetLocalSeat()?r->mTeam.player:n->mCoopPeers[seat];auto it=peers.find(id);if(!id||it==peers.end()||!it->second.ready||it->second.level!=uint32_t(r->mLevelIndex)||it->second.attempt!=Attempt())all=false;}
-        for(const auto&m:members)if(!m.ready)all=false;
-        if(all){s.Begin(r->mLevelIndex,members,r->IsEndless(),uint32_t(Admission::NewId()));voteTicks=0;dirty=true;if(!Save()){s.ballot.open=false;return true;}Broadcast();}
+    if(!app->IsOnlineGame()||(!HasTeammates()&&!s.ballot.open))return false;
+    if(!VoteDue()&&!s.ballot.open)return false;
+    if(!LocalVoteReady())return true;
+    wantsVote=true;Report();TryBeginBallot();
+    if(s.votedLevel==r->mLevelIndex&&!s.ballot.open){
+        if(page==Page::VOTE)TeamPlayUi::Close(app);
+        wantsVote=false;page=Page::TEAM_EFFECTS;return false;
     }
-    if(s.votedLevel==r->mLevelIndex&&!s.ballot.open){wantsVote=false;return false;}
-    page=Page::VOTE;
-    if(s.ballot.open&&shownBallotRevision!=s.ballot.revision){
-        TeamPlayUi::Show(app,Page::VOTE);
-        if(app->mTeamProgressionDialog)shownBallotRevision=s.ballot.revision;
-    }
-    return true;
+    PresentVote();return true;
 }
+
 void TeamPlay::PrepareBattle() {
     auto*r=app->GetRunState();if(!r||!app->mBoard)return;BeginContext();
     if(r->IsEndless()){r->mTeam.shared.stacks[ARSENAL]=0;r->mTeam.shared.plants=0;}
@@ -293,8 +346,9 @@ void TeamPlay::Handle(const TeamWire::Message&m) {
         if(s.shared.run&&s.shared.run!=m.run)return;
         if(m.shared.term<s.shared.term||(m.shared.term==s.shared.term&&m.shared.revision<s.shared.revision))return;
         if(s.shared.ballot.open!=m.shared.ballot.open||s.shared.ballot.revision!=m.shared.ballot.revision)++viewRevision;
-        if(s.shared.ballot.open&&!m.shared.ballot.open&&page==Page::VOTE){TeamPlayUi::Close(app);page=Page::TEAM_EFFECTS;}
-        s.shared=m.shared;
+        if(!m.shared.ballot.open&&page==Page::VOTE&&
+           (s.shared.ballot.open||m.shared.votedLevel==r->mLevelIndex)){TeamPlayUi::Close(app);page=Page::TEAM_EFFECTS;}
+        const auto previous=s.shared;s.shared=m.shared;QueueGain(previous);
         const int incomingVote=m.zombieVoted==65535?-1:m.zombieVoted,localVote=r->mZombieVotedLevel==65535?-1:r->mZombieVotedLevel;
         if(m.level==uint32_t(r->mLevelIndex)&&m.attempt==Attempt()&&incomingVote>=localVote&&
            (incomingVote!=localVote||m.zombieRounds>=app->mZombieVoteRoundsDone)){
@@ -313,7 +367,10 @@ void TeamPlay::Handle(const TeamWire::Message&m) {
         return;
     }
     if(m.run!=s.shared.run||!m.run)return;
-    if(m.op==TeamWire::VOTE){if(Host()&&m.level==uint32_t(r->mLevelIndex)&&m.attempt==Attempt()&&m.revision==s.shared.ballot.revision&&s.shared.ballot.Vote(m.sender,m.choice)){dirty=true;Broadcast();}return;}
+    if(m.op==TeamWire::VOTE){auto member=peers.find(m.sender);
+        if(Host()&&m.level==uint32_t(r->mLevelIndex)&&m.attempt==Attempt()&&m.revision==s.shared.ballot.revision&&
+           member!=peers.end()&&member->second.ready&&member->second.rewardsDone&&
+           member->second.level==m.level&&member->second.attempt==m.attempt&&s.shared.ballot.Vote(m.sender,m.choice)){dirty=true;Broadcast();}return;}
     const auto&incoming=m.strike;
     if(incoming.target==s.player&&incoming.caster==m.sender){
         const auto before=s;
@@ -441,13 +498,28 @@ void TeamPlay::Update() {
         if(s.outgoing.phase==COMMITTED)Reply(s.outgoing,TeamWire::COMMIT);
         for(const auto&receipt:s.receipts)if(receipt.strike.phase==EXECUTED||receipt.strike.phase==DELIVERED)Reply(receipt.strike,TeamWire::RESULT);
     }
-    if(Host()&&HasTeammates()&&s.shared.ballot.open){
+    TryBeginBallot();
+    if(Host()&&s.shared.ballot.open){
         auto&b=s.shared.ballot;
-        for(size_t i=0;i<6;++i)if(b.players[i]&&n&&app->IsOnlineGame()&&!n->FindCoopSeat(b.players[i])){b.players[i]=0;b.votes[i]=-1;}
-        if(b.Complete()||++voteTicks>=3000){const auto prior=s.shared;s.shared.Resolve(uint32_t(Admission::NewId()));dirty=true;
-            if(Save()){Broadcast();++viewRevision;if(page==Page::VOTE)TeamPlayUi::Close(app);page=Page::TEAM_EFFECTS;Report();}
+        bool complete=true;
+        for(size_t i=0;i<6;++i)if(b.players[i]&&n&&app->IsOnlineGame()){
+            const auto seat=b.players[i]==s.player?n->GetLocalSeat():n->FindCoopSeat(b.players[i]);
+            // A reconnect may restore this same electorate before the final
+            // vote arrives. Do not permanently erase its slot on a transient
+            // offline/waiting report; only active unanswered voters block.
+            if(seat&&!n->IsSeatOffline(seat)&&!n->IsWaitingForNextRound(seat)&&b.votes[i]==-2)complete=false;
+        }
+        if(complete){const auto prior=s.shared;
+            for(size_t i=0;i<6;++i)if(b.players[i]&&b.votes[i]==-2)b.votes[i]=-1;
+            s.shared.Resolve(uint32_t(Admission::NewId()));dirty=true;
+            if(Save()){QueueGain(prior);Broadcast();++viewRevision;if(page==Page::VOTE)TeamPlayUi::Close(app);page=Page::TEAM_EFFECTS;Report();}
             else s.shared=prior;
         }
+    }
+    PresentVote();
+    if(!pendingGain.empty()&&app->mBoard&&app->mGameScene==SCENE_PLAYING&&!app->mRunIntroHeld&&
+       !app->mBoard->mPaused&&!app->mSeedChooserScreen&&app->GetDialogCount()==0){
+        app->mBoard->PushCustomBanner(pendingGain.c_str());pendingGain.clear();
     }
     if(Host()&&HasTeammates()&&s.shared.stacks[RELIEF]&&s.shared.reliefLevel!=r->mLevelIndex){
         const auto members=Members();bool clear=false;for(const auto&p:members)if(p.battle==CLEARED)clear=true;
@@ -475,9 +547,17 @@ Snapshot TeamPlay::Read()const {
     out.phase=s.shared.ballot.open?Phase::VOTING:app->mBoardResult==BOARDRESULT_LOST?Phase::FAILED:app->mGameScene==SCENE_PLAYING?Phase::PLAYING:Phase::PREPARING;
     if(!s.shared.run||(n&&n->IsReconnecting()))out.phase=Phase::RECOVERING;
     out.canAct=s.shared.run&&(!app->IsOnlineGame()||(n&&n->IsConnected()));out.status=notice;
-    if(out.status.empty())out.status=s.shared.ballot.open&&page==Page::VOTE?ModText::Tr("选择一项全队增益，30秒后结算；弃权不计票。", "Choose one team buff. Voting ends after 30 seconds; abstentions do not count."):ModText::Tr("点标签查看增益、与队友协作或查看目标。", "Choose a tab to view buffs, help teammates or check goals.");
-    if(s.shared.ballot.open)for(auto id:s.shared.ballot.choices)if(id<BUFFS){Choice c;c.id=id;c.name=Names(id);c.description=Description(id);c.stacks=s.shared.stacks[id];c.enabled=true;
-        for(size_t i=0;i<6;++i)if(s.shared.ballot.players[i]==s.player&&s.shared.ballot.votes[i]!=-2)c.enabled=false;out.choices.push_back(c);}
+    out.voteOpen=s.shared.ballot.open&&wantsVote&&s.shared.ballot.level==r->mLevelIndex;
+    if(out.voteOpen&&LocalVoteReady())for(size_t i=0;i<6;++i)
+        if(s.shared.ballot.players[i]==s.player&&s.shared.ballot.votes[i]==-2)out.canVote=out.canAct;
+    if(out.status.empty()){
+        if(page==Page::VOTE&&wantsVote)out.status=s.shared.ballot.open?
+            (out.canVote?ModText::Tr("选择一项全队增益，也可弃权。", "Choose one team buff, or abstain."):
+                         ModText::Tr("已投票，等队友完成选择并投票。", "Vote recorded. Waiting for teammates to finish choosing and vote.")):
+            ModText::Tr("等队友进入后开始团队投票。", "Team voting starts when teammates are connected.");
+        else out.status=ModText::Tr("点“全队增益”查看已获得的名称、层数和效果。", "Open Team buffs to see earned buffs, stacks and effects.");
+    }
+    if(s.shared.ballot.open)for(auto id:s.shared.ballot.choices)if(id<BUFFS){Choice c;c.id=id;c.name=Names(id);c.description=Description(id);c.stacks=s.shared.stacks[id];c.enabled=out.canVote;out.choices.push_back(c);}
     for(int id=0;id<BUFFS;++id)if(s.shared.stacks[id]){Effect e;e.id=id;e.stacks=s.shared.stacks[id];e.name=Names(id);e.description=Description(id);e.source=ModText::Tr("全队共享","Shared by the team");out.teamEffects.push_back(e);}
     for(const auto&b:r->mBuffs){Effect e;e.id=b.mId;e.stacks=b.mCount;e.name=GetRunChoiceDisplayName(b.mId);e.description=GetRunChoiceDesc(b.mId);e.source=ModText::Tr("本人获得","Your personal buff");out.personalEffects.push_back(e);}
     for(uint8_t seat=1;seat<=6;++seat){const bool local=!app->IsOnlineGame()?seat==1:n&&seat==n->GetLocalSeat();if(!local&&(!n||!n->IsSeatOccupied(seat)))continue;
@@ -507,7 +587,7 @@ void TeamPlay::Submit(const Intent&i) {
     if(i.action==Action::CLOSE)return;
     if(i.action==Action::SELECT_PAGE&&i.value>=0&&i.value<=int(Page::GOALS)){page=Page(i.value);quote=0;++viewRevision;return;}
     if(i.action==Action::SELECT_PEER){selected=i.target;quote=0;quoteRow=quoteColumn=-1;++viewRevision;return;}
-    if(i.action==Action::VOTE){auto m=Message(TeamWire::VOTE);m.choice=i.value;m.revision=s.shared.ballot.revision;
+    if(i.action==Action::VOTE){if(!Read().canVote)return;auto m=Message(TeamWire::VOTE);m.choice=i.value;m.revision=s.shared.ballot.revision;
         if(Host()){if(s.shared.ballot.Vote(s.player,i.value)){dirty=true;Broadcast();}}
         else if(auto*n=Session())Send(m,n->mCoopPeers[n->GetHostSeat()]);return;}
     if(i.action==Action::SUPPORT_PERMISSION){const bool before=s.allow;s.allow=i.value!=0;if(!Save())s.allow=before;else{Report();++viewRevision;}return;}
