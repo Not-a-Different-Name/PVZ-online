@@ -1,3 +1,4 @@
+#include "../TeamPlay.h"
 #include "../CoopPlay.h"
 #include "../Board.h"
 #include "../Zombie.h"
@@ -1038,7 +1039,7 @@ void SeedChooserScreen::UpdateImitaterButton()
 void SeedChooserScreen::MouseDown(int x, int y, int theClickCount)
 {
 	if (mApp->mOnlineSeedsHeld || mApp->mPreparationEditRequested) return;
-    if(theClickCount>0 && Rect(640,70,140,40).Contains(x,y) && mApp->IsOnlineGame()){mApp->ShowCoopPlay();return;}
+    if(theClickCount>0 && Rect(640,70,140,40).Contains(x,y) && mApp->IsOnlineGame() && !TeamPlayUi::QuickVisible(mApp)){mApp->ShowCoopPlay();return;}
 	Widget::MouseDown(x, y, theClickCount);
 
 	if (mSeedsInFlight > 0)

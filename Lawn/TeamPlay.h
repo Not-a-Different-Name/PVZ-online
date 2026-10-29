@@ -8,6 +8,8 @@ namespace TeamPlayUi {
 void Install(LawnApp*,TeamProgressionView::Controller*);
 void Show(LawnApp*,TeamProgressionView::Page);
 void Close(LawnApp*);
+bool QuickVisible(LawnApp*);
+bool OpenQuick(LawnApp*);
 }
 class TeamPlay final : public TeamProgressionView::Controller {
 public:
@@ -26,6 +28,9 @@ public:
     static bool UseSupportCard(LawnApp*,uint32_t coin,int row,int column);
     static void SpendRestrictedSun(LawnApp*,int amount);
     void Update();
+    TeamProgressionView::Snapshot ReadQuick() const;
+    TeamProgressionView::Snapshot ReadForUi(bool compact) const;
+    uint64_t PlayerPlantMask(uint64_t player) const;
     bool HoldPreparation();
     bool HoldPersonalRewards();
     void PrepareBattle();

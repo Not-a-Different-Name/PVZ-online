@@ -336,7 +336,7 @@ void CoopPlay::Handle(const CoopWire::Event& e) {
         if(!Preparing()||hasIncoming||!run->HasPlant((SeedType)e.plant)||run->mLentLevel==run->mLevelIndex) {
             auto reply=Message(CoopWire::DECLINE);reply.request=e.serial;Send(reply,e.sender);return;
         }
-        incoming=e;hasIncoming=true;incomingTicks=1200;Show();
+        incoming=e;hasIncoming=true;incomingTicks=1200;if(!TeamPlayUi::QuickVisible(app))Show();
     } else if(e.op==CoopWire::OFFER) {
         if(loanWaiting&&Preparing()&&e.sender==pendingLoan.target&&e.request==pendingLoan.serial&&e.plant==pendingLoan.plant) {
             loanWaiting=false;ApplyLoan(e);
@@ -399,6 +399,7 @@ void CoopPlay::Update() {
 
 void CoopPlay::DrawEntry(Graphics* g,int x,int y,int w,int h,bool flat)
 {
+    if(TeamPlayUi::QuickVisible(app))return;
     auto* s=CoopSession(app);if(!s||!s->IsConnected()||!app->GetRunState())return;
     // Pending requests remain discoverable after Hide; hiding is not network cancellation.
     const char* label=hasIncoming?ModText::Tr("植物申请","Loan request"):

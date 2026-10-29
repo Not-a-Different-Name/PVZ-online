@@ -2,12 +2,27 @@
 #include "TeamProgressionDialog.h"
 #include "NextWaveControl.h"
 #include "CoopHud.h"
+#include "TeamQuickBar.h"
+#include <map>
 #include "../Board.h"
 #include "widget/WidgetManager.h"
 #include <algorithm>
 
 using namespace TeamProgressionView;
 using namespace Sexy;
+
+namespace {
+std::map<LawnApp*,TeamQuickBar*> quickBars;
+void RemoveQuick(LawnApp*app){auto it=quickBars.find(app);if(it==quickBars.end())return;auto*bar=it->second;quickBars.erase(it);bar->captured=false;bar->SetVisible(false);if(app->mWidgetManager)app->mWidgetManager->RemoveWidget(bar);app->SafeDeleteWidget(bar);}
+void UpdateQuick(LawnApp*app,Controller*controller){
+    auto it=quickBars.find(app);
+    if(it!=quickBars.end()&&(!it->second->Valid()||!controller)){RemoveQuick(app);it=quickBars.end();}
+    if(!controller||!app->mBoard||!app->GetRunState()||!app->mWidgetManager)return;
+    if(it==quickBars.end()){auto*bar=new TeamQuickBar(app,controller);quickBars[app]=bar;app->mWidgetManager->AddWidget(bar);it=quickBars.find(app);}
+    auto*bar=it->second;bar->SetVisible(bar->Surface());
+    if(bar->mVisible){app->mWidgetManager->BringToFront(bar);bar->Refresh();}else{bar->Collapse();}
+}
+}
 
 struct TeamProgressionUiState:Controller
 {
@@ -82,6 +97,7 @@ void LawnApp::CloseTeamProgressionUi(bool restoreFocus)
 
 void LawnApp::SetTeamProgressionController(Controller* controller)
 {
+    if(!controller)RemoveQuick(this);
     if(controller&&controller==mTeamProgressionController)return;
     mTeamProgressionController=nullptr;
     CloseTeamProgressionUi();
@@ -139,7 +155,9 @@ void LawnApp::UpdateTeamProgressionUi()
 
 namespace TeamPlayUi
 {
-void Install(LawnApp* app,Controller* controller){if(app)app->SetTeamProgressionController(controller);}
+void Install(LawnApp* app,Controller* controller){if(app){app->SetTeamProgressionController(controller);UpdateQuick(app,controller);}}
+bool QuickVisible(LawnApp*app){auto it=quickBars.find(app);return it!=quickBars.end()&&it->second->Surface();}
+bool OpenQuick(LawnApp*app){auto it=quickBars.find(app);if(it==quickBars.end()||!it->second->Base())return false;it->second->OpenFirst();return true;}
 void Show(LawnApp* app,Page page){if(app)app->ShowTeamProgression(page);}
 void Close(LawnApp* app){if(app)app->CloseTeamProgressionUi();}
 }

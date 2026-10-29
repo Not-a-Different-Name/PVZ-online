@@ -99,17 +99,17 @@ struct NetLink::Impl
 
 	void	SetupConnectedSocket(SOCKET theSocket)
 	{
-		// accept() 在 Windows 上会继承监听 socket 的非阻塞标志，connect 前也设过非阻塞，
-		// 所以这里必须显式改回阻塞 + 100ms 超时，否则收包线程会空转。
-		u_long aNonBlocking = 0;
+        // accept/connect may inherit different modes; use one explicit
+        // nonblocking mode for both directions of the connected socket.
+		u_long aNonBlocking = 1;
 		ioctlsocket(theSocket, FIONBIO, &aNonBlocking);
 
 		int aNoDelay = 1;
 		setsockopt(theSocket, IPPROTO_TCP, TCP_NODELAY, (const char*)&aNoDelay, sizeof(aNoDelay));
 
-		int aTimeout = 10;
-		setsockopt(theSocket, SOL_SOCKET, SO_RCVTIMEO, (const char*)&aTimeout, sizeof(aTimeout));
-		setsockopt(theSocket, SOL_SOCKET, SO_SNDTIMEO, (const char*)&aTimeout, sizeof(aTimeout));
+        // Nonblocking I/O keeps partial progress explicit. A timed blocking
+        // Winsock receive must not be retried as if no bytes could be consumed.
+        // RecvExact uses select below; the outbound queue retains short writes.
 	}
 
 	bool	StartThread()
@@ -289,6 +289,11 @@ struct NetLink::Impl
 		{
 			if (mStop) return false;
             if(!FlushWrites())return false;
+            fd_set readable;FD_ZERO(&readable);FD_SET(mSocket,&readable);
+            timeval timeout{};timeout.tv_usec=10000;
+            const int ready=select(0,&readable,nullptr,nullptr,&timeout);
+            if(ready==0)continue;
+            if(ready==SOCKET_ERROR){if(mStop)return false;FailWithError("Connection lost while waiting",WSAGetLastError());return false;}
 
 			int aRead = recv(mSocket, (char*)theBuffer + aGot, theCount - aGot, 0);
 			if (aRead > 0)
@@ -303,10 +308,6 @@ struct NetLink::Impl
 			}
 
 			int anError = WSAGetLastError();
-			// @pvz-online: 997（WSA_IO_PENDING）＝「内部 I/O 还挂着」，是重试类码不是断线码——
-			// 阻塞 socket + SO_RCVTIMEO 的超时竞态下会偶发（2026-10-04 实机日志：正常收包后读到）。
-			// 真断线不掩：没有包进账照样由上层 TIMEOUT_FRAMES 判「连接超时」。
-			if (anError == WSAETIMEDOUT || anError == WSA_IO_PENDING) continue;	// 只是暂时没数据
 			if (anError == WSAEWOULDBLOCK) { Sleep(1); continue; }
 			if (anError == WSAENOTSOCK || anError == WSAEINTR) return false;	// 正在 Close()
 			FailWithError("Connection lost", anError);

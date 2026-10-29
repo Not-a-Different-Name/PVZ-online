@@ -3,6 +3,7 @@
 #include "../Online/RoomPresentation.h"
 #include "../Online/QuickChat.h"
 #include "../CoopPlay.h"
+#include "../TeamPlay.h"
 #include "../Board.h"
 #include "../SeedPacket.h"
 
@@ -95,7 +96,7 @@ inline int Hit(Board* b,int x,int y) {
         if(HeldButton(2).Contains(x,y))return 12;
         return 0; // Held lawn input is consumed without opening a modal or simulating combat.
     }
-    for(int row=0;row<NetProto::MAX_PLAYERS-1;++row) {
+    for(int row=0;!TeamPlayUi::QuickVisible(b->mApp)&&row<NetProto::MAX_PLAYERS-1;++row) {
         const int seat=AidSeat(b,row);
         if(seat&&AidButton(row).Contains(x,y))return GiftEnabled(b,seat)?300+seat:0;
     }
@@ -103,7 +104,7 @@ inline int Hit(Board* b,int x,int y) {
     if(!b->mChatPanelOpen&&b->mSunGiftSelectFrames<=0)return -1;
     if(!Panel(b).Contains(x,y))return -1;
     if(Close().Contains(x,y))return 4;
-    if(Team(b).Contains(x,y))return 7;
+    if(!TeamPlayUi::QuickVisible(b->mApp)&&Team(b).Contains(x,y))return 7;
     if(Watch(b).Contains(x,y))return 5;
     bool sun=b->mSunGiftSelectFrames>0;auto* c=b->mApp->mCoopPlay.get();auto* s=RoomPresentation::Session(b->mApp);
     if(sun) {
@@ -230,11 +231,11 @@ inline void Draw(Board* b,Graphics* g) {
                 } else SeatUi::Paragraph(g,std::to_string(i+1)+" "+ModText::Tr(QuickChat::PHRASES[i],QuickChat::PHRASES_EN[i]),Rect(box.mX+8,box.mY+3,box.mWidth-16,66),16,Color(245,230,165));
             }
         }
-        SmallButton(g,Team(b),ModText::Tr("队友互助","Team"),b->mApp->GetRunState()!=nullptr);
+        if(!TeamPlayUi::QuickVisible(b->mApp))SmallButton(g,Team(b),ModText::Tr("队友互助","Team"),b->mApp->GetRunState()!=nullptr);
         SmallButton(g,Watch(b),ModText::Tr("观战","Watch"),s->HasOtherSeats());
     }
-    int noticeY=90;
-    for(int row=0;row<NetProto::MAX_PLAYERS-1;++row) {
+    int noticeY=TeamPlayUi::QuickVisible(b->mApp)?124:90;
+    for(int row=0;!TeamPlayUi::QuickVisible(b->mApp)&&row<NetProto::MAX_PLAYERS-1;++row) {
         const int seat=AidSeat(b,row);
         if(!seat)break;
         RecipientButton(g,AidButton(row),"P"+std::to_string(seat)+" "+s->GetSeatName((uint8_t)seat)+
