@@ -307,7 +307,22 @@ void LawnApp::UpdateOnlineStart()
 		}
 	}
 
+    const bool preparationReplay=mOnlineSession->IsPendingPreparationReplay();
 	if (!mOnlineSession->TakePendingStartLevel(aStart)) return;
+    // A requeued START can repair authority/ACK state without replacing an
+    // already accepted lawn and its personal choices. Real retries/new epochs
+    // and waiting seats still pass through the normal start transaction.
+    if(preparationReplay && mBoard && IsRunMode() && aStart.mIsRun &&
+        mBoardResult!=BoardResult::BOARDRESULT_LOST && mGameScene==GameScenes::SCENE_LEVEL_INTRO &&
+        (mRunIntroHeld || mOnlineSeedsHeld || mSeedChooserScreen) &&
+        mRunState->mRunSeed==aStart.mRunSeed && mRunState->mMode==aStart.mRunMode &&
+        mRunState->mDiff==aStart.mRunDiff && mRunState->mLevelIndex==aStart.mRunLevelIndex &&
+        mRunState->mEndlessScene==aStart.mRunEndlessScene && mBoard->mLevel==int(aStart.mLevel) &&
+        mRunState->GetLevelSeed()==aStart.mLevelSeed &&
+        (aStart.mRunMode!=RunState::RUN_MODE_ENDLESS ||
+         mRunState->mAdmission.run==mOnlineSession->mLastEndlessStartContext.run)) {
+        mOnlineSession->FinishRoundRejoin();mOnlineSession->SendStartAck();return;
+    }
     if(mOnlineSession->NeedsRoundRejoin() && !mOnlineSession->IsWaitingForNextRound(mOnlineSession->GetLocalSeat())) {
         KillBoard();mGameScene=GameScenes::SCENE_MENU;
         mOnlineSession->FinishRoundRejoin();

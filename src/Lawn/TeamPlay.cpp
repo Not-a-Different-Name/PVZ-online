@@ -60,7 +60,8 @@ bool TeamPlay::Host()const{auto*n=Session();return !n||!n->IsActive()||(n->IsCon
 bool TeamPlay::HasTeammates()const {
     auto*n=Session();
     if(!app->IsOnlineGame()||!n)return false;
-    for(uint8_t seat=1;seat<=6;++seat)if(seat!=n->GetLocalSeat()&&n->IsSeatOccupied(seat)&&!n->IsSeatOffline(seat)&&!n->IsWaitingForNextRound(seat))return true;
+    for(uint8_t seat=1;seat<=6;++seat)if(seat!=n->GetLocalSeat()&&n->IsSeatOccupied(seat)&&!n->IsWaitingForNextRound(seat)&&
+        (!n->IsSeatOffline(seat)||app->mRunIntroHeld))return true;
     return false;
 }
 uint32_t TeamPlay::Attempt()const {
@@ -124,6 +125,11 @@ std::vector<Member> TeamPlay::Members()const {
             (m.player==r->mTeam.player||(seat&&!s->IsSeatOffline(seat)&&!s->IsWaitingForNextRound(seat))))result.push_back(m);}
     return result;
 }
+uint64_t TeamPlay::PlayerPlantMask(uint64_t player)const {
+    auto*r=app->GetRunState();if(!r)return 0;
+    auto found=peers.find(player);
+    return found!=peers.end()&&found->second.level==uint32_t(r->mLevelIndex)&&found->second.attempt==Attempt()?found->second.plants:0;
+}
 void TeamPlay::BeginContext() {
     auto*r=app->GetRunState();if(!r)return;
     if(r->IsEndless()){r->mTeam.shared.stacks[ARSENAL]=0;r->mTeam.shared.plants=0;}auto&s=r->mTeam;auto*n=Session();
@@ -155,7 +161,17 @@ void TeamPlay::Report() {
     NetProto::MsgEscapedZombie relay;const bool pendingRelay=Session()&&Session()->PeekPendingEscapedZombie(relay);
     if(m.battle==FIGHTING&&app->mBoard&&!pendingRelay&&!app->mBoard->AreEnemyZombiesOnScreen()&&(app->mBoard->mLevelComplete||app->mBoard->mLevelAwardSpawned)&&
        (!Session()||!app->IsOnlineGame()||Session()->IsLocalLevelDone()))m.battle=CLEARED;
-    peers[m.player]=m;peerAge[m.player]=0;auto e=Message(TeamWire::REPORT);e.member=m;Send(e);
+    const auto previous=peers.find(m.player);
+    const bool changed=previous==peers.end() || previous->second.level!=m.level ||
+        previous->second.attempt!=m.attempt || previous->second.plants!=m.plants ||
+        previous->second.battle!=m.battle || previous->second.ready!=m.ready ||
+        previous->second.allow!=m.allow || previous->second.rewardsDone!=m.rewardsDone ||
+        previous->second.rows!=m.rows || previous->second.title!=m.title ||
+        previous->second.hasSupportCard!=m.hasSupportCard;
+    peers[m.player]=m;peerAge[m.player]=0;
+    // Barrier polling may call Report several times per frame. Only changes
+    // and the existing periodic heartbeat belong on the reliable connection.
+    if(changed || reportTicks==100){auto e=Message(TeamWire::REPORT);e.member=m;Send(e);}
     if(Host()&&r->mTeam.shared.stacks[ARSENAL]) {
         const uint64_t before=r->mTeam.shared.plants;
         for(const auto&entry:Members())r->mTeam.shared.plants|=entry.plants;
@@ -501,13 +517,15 @@ void TeamPlay::Update() {
     TryBeginBallot();
     if(Host()&&s.shared.ballot.open){
         auto&b=s.shared.ballot;
-        bool complete=true;
+        bool complete=true,unidentified=false;
+        if(n)for(uint8_t seat=1;seat<=6;++seat)
+            if(seat!=n->GetLocalSeat() && n->IsSeatOccupied(seat) && !n->mCoopPeers[seat])unidentified=true;
         for(size_t i=0;i<6;++i)if(b.players[i]&&n&&app->IsOnlineGame()){
             const auto seat=b.players[i]==s.player?n->GetLocalSeat():n->FindCoopSeat(b.players[i]);
-            // A reconnect may restore this same electorate before the final
-            // vote arrives. Do not permanently erase its slot on a transient
-            // offline/waiting report; only active unanswered voters block.
-            if(seat&&!n->IsSeatOffline(seat)&&!n->IsWaitingForNextRound(seat)&&b.votes[i]==-2)complete=false;
+            // Offline/temporarily waiting seats are still reserved for this
+            // player. Only a released or positively replaced seat can abstain
+            // on their behalf; an incomplete reconnect roster proves neither.
+            if(b.votes[i]==-2 && (seat || unidentified))complete=false;
         }
         if(complete){const auto prior=s.shared;
             for(size_t i=0;i<6;++i)if(b.players[i]&&b.votes[i]==-2)b.votes[i]=-1;
@@ -541,7 +559,9 @@ void TeamPlay::Update() {
     if(dirty&&++saveTicks>=100)Save();
     if(!dirty&&reportTicks==100)SyncGoals();
 }
-Snapshot TeamPlay::Read()const {
+Snapshot TeamPlay::Read()const {return ReadForUi(false);}
+Snapshot TeamPlay::ReadQuick()const {return ReadForUi(true);}
+Snapshot TeamPlay::ReadForUi(bool compact)const {
     Snapshot out;auto*r=app->GetRunState();if(!r)return out;const auto&s=r->mTeam;auto*n=Session();
     out.context={s.shared.run,s.player,uint32_t(r->mLevelIndex),Attempt(),s.shared.term,viewRevision};out.page=page;
     out.phase=s.shared.ballot.open?Phase::VOTING:app->mBoardResult==BOARDRESULT_LOST?Phase::FAILED:app->mGameScene==SCENE_PLAYING?Phase::PLAYING:Phase::PREPARING;
@@ -557,9 +577,11 @@ Snapshot TeamPlay::Read()const {
             ModText::Tr("等队友进入后开始团队投票。", "Team voting starts when teammates are connected.");
         else out.status=ModText::Tr("点“全队增益”查看已获得的名称、层数和效果。", "Open Team buffs to see earned buffs, stacks and effects.");
     }
+    if(!compact){
     if(s.shared.ballot.open)for(auto id:s.shared.ballot.choices)if(id<BUFFS){Choice c;c.id=id;c.name=Names(id);c.description=Description(id);c.stacks=s.shared.stacks[id];c.enabled=out.canVote;out.choices.push_back(c);}
     for(int id=0;id<BUFFS;++id)if(s.shared.stacks[id]){Effect e;e.id=id;e.stacks=s.shared.stacks[id];e.name=Names(id);e.description=Description(id);e.source=ModText::Tr("全队共享","Shared by the team");out.teamEffects.push_back(e);}
     for(const auto&b:r->mBuffs){Effect e;e.id=b.mId;e.stacks=b.mCount;e.name=GetRunChoiceDisplayName(b.mId);e.description=GetRunChoiceDesc(b.mId);e.source=ModText::Tr("本人获得","Your personal buff");out.personalEffects.push_back(e);}
+    }
     for(uint8_t seat=1;seat<=6;++seat){const bool local=!app->IsOnlineGame()?seat==1:n&&seat==n->GetLocalSeat();if(!local&&(!n||!n->IsSeatOccupied(seat)))continue;
         Peer p;p.seat=seat;p.player=local?s.player:n->mCoopPeers[seat];p.name=local&&!n?ModText::Tr("我","Me"):n->GetSeatName(seat);p.online=local||!n->IsSeatOffline(seat);
         auto found=peers.find(p.player);p.eligible=found!=peers.end()&&found->second.level==uint32_t(r->mLevelIndex)&&found->second.attempt==Attempt();
@@ -569,6 +591,7 @@ Snapshot TeamPlay::Read()const {
     out.support.pending=s.outgoing.phase>=RESERVED&&s.outgoing.phase<=COMMITTED;
     out.support.enabled=CanSupport(selected,quoteRow,quoteColumn,out.support.reason);
     out.support.canConfirm=out.support.enabled&&quote&&quoteCost==CherryCost();
+    if(compact)return out;
     out.briefTitle=ModText::Tr("本局合作记录","Teamwork this run");out.briefSummary=ModText::Tr("跨场支援完成：","Cross-lawn supports completed: ")+std::to_string(s.supportCount);
     if(const auto*stats=app->mDamageStats.Local())out.damageSummary=ModText::Tr("本人有效伤害：","Your effective damage: ")+std::to_string(stats->mRunDamage.mAll);
     auto total=goals.Total();

@@ -304,6 +304,12 @@ public:
 	// 客户端侧：取出主机发来的开局命令（同时清掉）。没有就返回 false。
 	// 单槽而不是队列：开局命令只有"最新那条"有意义，堆着旧的开局命令没有用处。
 	bool			TakePendingStartLevel(NetProto::MsgStartLevel& theMsg);
+    bool IsPendingPreparationReplay() const {
+        return mHasPendingStart && mConsumedStartEpoch && mPendingStart.mReadyEpoch==mConsumedStartEpoch &&
+            mPendingStart.mReadyEpoch==mReadyEpoch &&
+            (!mFlowEnabled || (!mFlowLost && mFlowPhase==1 && mFlowEpoch==mReadyEpoch)) &&
+            !IsWaitingForNextRound(mLocalSeat);
+    }
 
 	// 客户端侧：告诉主机"开局命令收到、我进场了"（theAccepted=false 是"现在不行"，
 	// 比如人还在关卡里）。只在真的准备进场时发 true——不在主菜单（命令接不了）就别发 true，
