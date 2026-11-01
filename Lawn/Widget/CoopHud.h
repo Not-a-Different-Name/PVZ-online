@@ -65,6 +65,7 @@ inline bool GiftEnabled(Board* b,int seat) {
 }
 inline std::string SunStatus(Board* b) {
     auto* c=b->mApp->mCoopPlay.get();auto* s=RoomPresentation::Session(b->mApp);
+    if(c&&c->giftWaiting&&b->mApp->GetRunState()&&std::any_of(b->mApp->GetRunState()->mTeam.groupGifts.begin(),b->mApp->GetRunState()->mTeam.groupGifts.end(),[](const auto&g){return g.phase==TeamProgression::RESERVED;}))return ModText::Tr("全队阳光送达中","Delivering team sun");
     if(c&&c->giftWaiting)return ModText::Tr("等待P","Awaiting P")+std::to_string(s->FindCoopSeat(c->gift.target))+ModText::Tr("到账回执"," receipt");
     if(b->mSunMoney<100)return ModText::Tr("余额不足100；仍可向队友求援。","Below 100 sun; you can still request aid.");
     int ticks=std::max(b->mSunGiftCooldownFrames,c?c->sunCooldown:0);
@@ -83,8 +84,15 @@ inline int AidSeat(Board* board,int row) {
     }
     return 0;
 }
+inline bool CloseWatchPicker(Board* b){auto&open=b->mApp->mDamageStats.mWatchPickerOpen;if(!open)return false;open=false;return true;}
+inline Rect WatchPeerBox(int row){return Rect(530,62+row*48,260,44);}
+inline int WatchPeerAt(Board* b,int row){auto*s=RoomPresentation::Session(b->mApp);if(!s)return 0;for(int seat=1;seat<=NetProto::MAX_PLAYERS;++seat)if(s->CanWatchSeat((uint8_t)seat)&&row--==0)return seat;return 0;}
 inline int Hit(Board* b,int x,int y) {
     if(Watching(b)) {
+        if(b->mApp->mDamageStats.mWatchPickerOpen){
+            for(int row=0;row<NetProto::MAX_PLAYERS-1;++row){int seat=WatchPeerAt(b,row);if(seat&&WatchPeerBox(row).Contains(x,y))return 400+seat;}
+            if(!Rect(530,8,125,46).Contains(x,y)&&!Rect(400,8,120,46).Contains(x,y)&&!Rect(665,8,125,46).Contains(x,y))return 13;
+        }
         if(Rect(400,8,120,46).Contains(x,y))return 10;
         if(Rect(530,8,125,46).Contains(x,y))return 5;
         if(Rect(665,8,125,46).Contains(x,y))return 6;
@@ -119,6 +127,7 @@ inline int Hit(Board* b,int x,int y) {
     return 0;
 }
 inline void StopWatch(Board* b) {
+    CloseWatchPicker(b);
 #ifdef __ANDROID__
     b->StopMobileWatch();
 #else
@@ -142,6 +151,16 @@ inline void WatchNext(Board* b) {
 }
 inline void Action(Board* b,int action) {
     auto* app=b->mApp;auto* s=RoomPresentation::Session(app);auto* c=app->mCoopPlay.get();
+    if(Watching(b)&&action==13){CloseWatchPicker(b);return;}
+    if(Watching(b)&&action==5){app->mDamageStats.mWatchPickerOpen=!app->mDamageStats.mWatchPickerOpen;return;}
+    if(Watching(b)&&action>=401&&action<=406){
+        uint8_t seat=(uint8_t)(action-400);CloseWatchPicker(b);
+        if(s&&s->CanWatchSeat(seat)&&seat!=s->GetWatchTargetSeat()&&s->BeginWatch(seat)){
+#ifndef __ANDROID__
+            b->mWatchLastSeat=seat;
+#endif
+        }return;
+    }
     if(action==11&&Held(b)){app->DoOnlineDialog();return;}
     if(action==12&&Held(b)){StopWatch(b);app->DoNewOptions(false);return;}
     if(Held(b)&&action!=0&&action!=5&&action!=6&&action!=10)return;
@@ -190,6 +209,7 @@ inline int DrawNotice(Graphics* g,const std::string& text,int id,int y) {
     return height+4;
 }
 inline void Draw(Board* b,Graphics* g) {
+    if(!Watching(b))CloseWatchPicker(b);
     if(Held(b)) {
         if(Watching(b))return;
         SeatUi::Strip(g,Rect(8,90,376,48));
@@ -234,7 +254,7 @@ inline void Draw(Board* b,Graphics* g) {
         if(!TeamPlayUi::QuickVisible(b->mApp))SmallButton(g,Team(b),ModText::Tr("队友互助","Team"),b->mApp->GetRunState()!=nullptr);
         SmallButton(g,Watch(b),ModText::Tr("观战","Watch"),s->HasOtherSeats());
     }
-    int noticeY=TeamPlayUi::QuickVisible(b->mApp)?124:90;
+    int noticeY=TeamPlayUi::QuickVisible(b->mApp)?136:90;
     for(int row=0;!TeamPlayUi::QuickVisible(b->mApp)&&row<NetProto::MAX_PLAYERS-1;++row) {
         const int seat=AidSeat(b,row);
         if(!seat)break;
@@ -256,9 +276,11 @@ inline void Draw(Board* b,Graphics* g) {
 inline void WatchControls(Graphics* g,Board* board) {
     auto* session=RoomPresentation::Session(board->mApp);
     bool ready=session&&!session->ObserverRequestCooldown(),next=false;
-    if(ready)for(uint8_t seat=1;seat<=NetProto::MAX_PLAYERS;++seat)if(seat!=session->GetWatchTargetSeat()&&session->CanWatchSeat(seat)){next=true;break;}
+    if(session)for(uint8_t seat=1;seat<=NetProto::MAX_PLAYERS;++seat)if(session->CanWatchSeat(seat)){next=true;break;}
     SmallButton(g,Rect(400,8,120,46),ModText::Tr("刷新","Refresh"),ready);
-    SmallButton(g,Rect(530,8,125,46),ModText::Tr("换人","Next"),next);
+    SmallButton(g,Rect(530,8,125,46),std::string(ModText::Tr("选人","Players"))+(board->mApp->mDamageStats.mWatchPickerOpen?" -":" +"),next);
     SmallButton(g,Rect(665,8,125,46),ModText::Tr("返回","Back"),true);
+    if(board->mApp->mDamageStats.mWatchPickerOpen)for(int row=0;row<NetProto::MAX_PLAYERS-1;++row){int seat=WatchPeerAt(board,row);if(!seat)break;bool current=seat==session->GetWatchTargetSeat();auto name=session->GetSeatName((uint8_t)seat);if(name.empty())name="P"+std::to_string(seat);SmallButton(g,WatchPeerBox(row),(current?"* ":"")+SeatUi::Fit(name,220,18),current||ready,current);}
+
 }
 }

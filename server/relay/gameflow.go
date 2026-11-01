@@ -216,7 +216,7 @@ func (s *Server) handleFlowProgress(c *Conn, p []byte) {
 	s.publishFlow(r)
 }
 func (s *Server) handleFlowStart(c *Conn, p []byte) {
-	if len(p) != 53 && len(p) != 54 && len(p) != 61 {
+	if len(p) != 53 && len(p) != 54 && len(p) != 61 && len(p) != 62 {
 		s.dropBadControl(c, msgCliFlowStart)
 		return
 	}
@@ -309,7 +309,7 @@ func (s *Server) handleFlowGame(c *Conn, p []byte) {
 		return
 	}
 	if typ == 3 { // Same-round targeted replay only; new rounds use FlowStart.
-		if c != r.host || (len(body) != 45 && len(body) != 46 && len(body) != 53) || binary.LittleEndian.Uint32(body[len(body)-5:]) != r.flow.epoch {
+		if c != r.host || (len(body) != 45 && len(body) != 46 && len(body) != 53 && len(body) != 54) || binary.LittleEndian.Uint32(body[len(body)-5:]) != r.flow.epoch {
 			return
 		}
 	}

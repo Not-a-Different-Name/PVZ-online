@@ -356,7 +356,7 @@ void RunModeDialog::Draw(Graphics* g)
 // 空格/回车当成"点了 Yes"，这页上误触一下就是开出一条时长随机的局。
 void RunModeDialog::KeyDown(KeyCode theKey)
 {
-	(void)theKey;
+    if (theKey == KEYCODE_ESCAPE) ButtonDepress(Dialog::ID_NO);
 }
 
 //0x4572E0 的同一支音效（LawnDialog::ButtonPress），听着还是原版的石头按钮

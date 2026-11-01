@@ -121,7 +121,7 @@ void AchievementsWidget::Update() {
 
 // GOTY @Patoke: 0x401160
 void AchievementsWidget::Draw(Graphics* g) {
-    if(mGrowthPage){if(!mGrowthCollection)mGrowthCollection=std::make_unique<GrowthCollectionView>(mApp);mGrowthCollection->Draw(g);SeatUi::Button(g,Rect(640,22,144,44),ModText::Tr("常规成就","Achievements"),true);return;}
+    if(mGrowthPage){if(!mGrowthCollection)mGrowthCollection=std::make_unique<GrowthCollectionView>(mApp);mGrowthCollection->Draw(g);SeatUi::Button(g,Rect(640,22,144,44),ModText::Tr("常规成就","Back"),true);return;}
 
 	// @pvz-online: vanilla drew the wall once and then 70 hole tiles down a 16150px
 	// surface, with the Bejeweled/Zuma gallery art pinned at y=1125..11250 and the CHINA

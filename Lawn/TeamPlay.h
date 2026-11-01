@@ -24,6 +24,8 @@ public:
     static void NoteSharedPlant(LawnApp*,int plant);
     static float HealthMultiplier(LawnApp*);
     static float SeedMultiplier(LawnApp*);
+    static float BorrowMultiplier(LawnApp*,int seed);
+    static const TeamProgression::Strike* PlantSupport(LawnApp*,uint32_t plant);
     static bool IsSupportCard(LawnApp*,uint32_t coin);
     static bool UseSupportCard(LawnApp*,uint32_t coin,int row,int column);
     static void SpendRestrictedSun(LawnApp*,int amount);
@@ -31,6 +33,7 @@ public:
     TeamProgressionView::Snapshot ReadQuick() const;
     TeamProgressionView::Snapshot ReadForUi(bool compact) const;
     uint64_t PlayerPlantMask(uint64_t player) const;
+    std::vector<uint64_t> SunTargets()const;
     bool HoldPreparation();
     bool HoldPersonalRewards();
     void PrepareBattle();
@@ -45,6 +48,7 @@ private:
     uint64_t selected=0,quote=0;
     uint32_t viewRevision=1;
     uint32_t shownBallotRevision=0;
+    int selectedSeed=2;
     int quoteRow=-1,quoteColumn=-1,quoteCost=-1,reportTicks=0,saveTicks=0;
     bool wantsVote=false,dirty=false,reportedClear=false,baselineCaptured=false,recoverLawn=false;
     std::string notice;
@@ -79,8 +83,9 @@ private:
     void GrantStageBuffs();
     bool Capture(std::vector<unsigned char>&)const;
     bool Restore(const std::vector<unsigned char>&);
-    bool CanSupport(uint64_t target,int row,int col,std::string& why)const;
+    bool CanSupport(uint64_t target,int row,int col,std::string& why,int seed=2)const;
     int CherryCost()const;
-    void StartSupport(uint64_t,int,int);
+    int SupportCost(int seed)const;
+    void StartSupport(uint64_t,int,int,int seed=2);
     std::vector<TeamProgression::Member> Members()const;
 };

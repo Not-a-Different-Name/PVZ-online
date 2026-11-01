@@ -1,3 +1,4 @@
+#include "Lawn/Observer/ObserverIsolation.h"
 #include "Board.h"
 #include "Cutscene.h"
 #include "LawnMower.h"
@@ -10,7 +11,7 @@
 //0x458000
 void LawnMower::LawnMowerInitialize(int theRow)
 {
-    mApp = (LawnApp*)gSexyAppBase;
+    mApp = ObserverIsolation::Active()?gLawnApp:static_cast<LawnApp*>(gSexyAppBase);
     mRow = theRow;
     mPosX = -160.0f;
     mBoard = mApp->mBoard;

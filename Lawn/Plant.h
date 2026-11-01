@@ -322,6 +322,7 @@ public:
     void                    UpdateReanim();
     void                    SpikeRockTakeDamage();
     bool                    IsSpiky();
+    bool                    IsLandKelp() const;
     static /*inline*/ void  PreloadPlantResources(SeedType theSeedType);
     /*inline*/ bool         IsInPlay();
     void                    UpdateNeedsFood() { ; }

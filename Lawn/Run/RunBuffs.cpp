@@ -268,7 +268,7 @@ static const RunPlantUpgradeDef gRunPlantUpgradeDefs[RUN_PLANT_UPGRADE_COUNT] =
 	{ SeedType::SEED_JALAPENO,     "Inferno", "炼狱",      "种植冷却逐层 ×0.8\n（每层）",       "Planting cooldown ×0.8/stack",                       -0.20f, 3, true, RUN_UPGRADE_KIND_COOLDOWN, 2 },
 	{ SeedType::SEED_SPIKEWEED,    "Barbed Spikes", "倒刺", "扎过的僵尸减速 +3 秒\n（每层）",   "Zombies it pricks slowed +3 sec\n(per stack)",       0.00f, 2, false, RUN_UPGRADE_KIND_EFFECT, 2 },
 	{ SeedType::SEED_TORCHWOOD,    "Kindling", "引燃",     "火弹伤害加成 +50%\n（每层）",       "Fire pea damage +50%\n(per stack)",                  0.50f, 2, false, RUN_UPGRADE_KIND_EFFECT, 2 },
-	{ SeedType::SEED_TALLNUT,      "Iron Shell", "耐砸",   "巨人砸击时像地刺王一样耐砸\n（每次 -200 血）", "Survives Gargantuar smashes like a Spikerock\n(-200 HP per smash)", 0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
+	{ SeedType::SEED_TALLNUT,      "Iron Shell", "耐砸",   "巨人每次砸击扣200生命\n厚重壁垒权重降至20%", "Gargantuar smashes deal 200 HP\nMassive Bulwark weight drops to 20%", 0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
 	{ SeedType::SEED_SEASHROOM,    "Brine Spore", "盐孢",  "种植冷却逐层 ×0.8\n（每层）",       "Planting cooldown ×0.8/stack",                       -0.20f, 3, true, RUN_UPGRADE_KIND_COOLDOWN, 2 },
 	{ SeedType::SEED_PLANTERN,     "Lantern Light", "灯火", "照亮范围 +1 格\n（每层）",         "Illumination radius +1 tile\n(per stack)",           0.00f, 2, false, RUN_UPGRADE_KIND_EFFECT, 1 },
 	{ SeedType::SEED_CACTUS,       "Prickly", "锐刺",      "尖刺无限穿透",                       "Spikes pierce all zombies",                          0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
@@ -325,7 +325,7 @@ static const RunPlantUpgradeDef gRunPlantBuff2Defs[RUN_PLANT_BUFF2_COUNT] =
 	{ SeedType::SEED_WALLNUT,       "Thorn Wall", "荆棘之壁",    "啃食者每秒受 40 伤害\n（每层）",        "Biters take 40 damage/sec\n(per stack)",              0.00f, 2, false, RUN_UPGRADE_KIND_EFFECT, 2 },
 	{ SeedType::SEED_POTATOMINE, "Mine Network", "雷区扩散", "爆炸后3x3空格随机埋3雷，子雷继续繁殖", "Blast plants 3 mines in nearby empty tiles; descendants reproduce", 0.0f, 1, false, RUN_UPGRADE_KIND_EFFECT, 3 },
 	{ SeedType::SEED_SNOWPEA,       "Frost Pierce", "寒冰贯通",  "雪豆无限穿透",                        "Frost peas pierce all zombies",                       0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
-	{ SeedType::SEED_CHOMPER,       "Chain Bite", "连锁吞",    "每层额外连吞2次，最多5口\n连锁搜敌范围扩大到前方2格", "Extra 2 bites per stack; up to 5\nChain targets within 2 tiles ahead",   0.00f, 2, false, RUN_UPGRADE_KIND_EFFECT, 2 },
+	{ SeedType::SEED_CHOMPER,       "Chain Bite", "连锁吞",    "每层额外连吞2次，最多5口\n连锁搜敌前方2格；后续追咬2倍速", "Extra 2 bites per stack; up to 5\nChain range 2 tiles; follow-up bites at 2x speed",   0.00f, 2, false, RUN_UPGRADE_KIND_EFFECT, 2 },
 	{ SeedType::SEED_REPEATER,      "Suppress Fire", "火力压制", "攻击间隔 ×0.7\n（每层）",              "Attack interval ×0.7\n(per stack)",                   -0.30f, 2, true, RUN_UPGRADE_KIND_RHYTHM, 2 },
 	{ SeedType::SEED_PUFFSHROOM,    "Death Spore", "亡语孢子",   "被啃掉时原地爆炸\n900 伤害（每层）",     "Explodes when eaten\n900 damage (per stack)",         0.00f, 2, false, RUN_UPGRADE_KIND_EFFECT, 2 },
 	{ SeedType::SEED_SUNSHROOM,     "Boosted Grow", "催长",  "种下后第二次产阳光前长大\n（首产 15、此后 25）", "Grows up before 2nd sun cycle\n(15 first, 25 after)", 0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
@@ -392,12 +392,20 @@ static const RunPlantUpgradeDef gRunPlantBuff2Defs[RUN_PLANT_BUFF2_COUNT] =
     { SeedType::SEED_NONE, "Dense Fumes", "浓雾", "大喷菇和忧郁菇攻击伤害+35%\n每层线性叠加，无层数上限", "Fume-shroom and Gloom-shroom damage +35%\nAdditive per stack; unlimited stacks", 0.35f, 0, false, RUN_UPGRADE_KIND_EFFECT, 2 },
     { SeedType::SEED_NONE, "Roof Peas", "顺坡豌豆", "普通、冰和火豌豆沿屋顶坡面前进\n适用于全部豌豆射手", "Ordinary, ice and fire peas follow roof slopes\nApplies to all pea shooters", 0.0f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
     { SeedType::SEED_GARLIC, "Garlic Pulse", "蒜气冲击", "种下时使本行所有敌人换至相邻可通行道路\n包括冰车和巨人；Boss和免硬控者除外", "On planting, redirect all enemies in this row\nIncludes Zomboni and giants; bosses and control immunity resist", 0.0f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
+    { SeedType::SEED_GATLINGPEA, "Full Auto", "火力全开", "每轮10%概率在2秒内上下各30°扫射150发\n结束立即恢复普通射击；8秒内不再触发；瓜弹生效", "10% per volley: 150 shots in 2s, 30 degrees up/down\nNormal fire resumes immediately; special locks 8s; Melon Rounds applies", 0.0f, 1, false, RUN_UPGRADE_KIND_EFFECT, 3 },
+    { SeedType::SEED_TALLNUT, "Massive Bulwark", "厚重壁垒", "生命 +400%\n耐砸权重降至20%", "Health +400%\nIron Shell weight drops to 20%", 4.0f, 1, false, RUN_UPGRADE_KIND_HEALTH, 3 },
+    { SeedType::SEED_TANGLEKELP, "Dryland Thorns", "旱地缠刺", "可种陆地，攻击和受击同地刺\n水中保留缠绕", "Plant on land: attacks and takes hits like Spikeweed\nStill grabs zombies in water", 0.0f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
 };
 
 const RunPlantUpgradeDef& GetRunPlantBuff2Def(int theIndex)
 {
 	if (theIndex < 0 || theIndex >= RUN_PLANT_BUFF2_COUNT) return gRunPlantBuff2Defs[0];
 	return gRunPlantBuff2Defs[theIndex];
+}
+
+float RunTallNutHealthMultiplier(int stacks)
+{
+    return stacks > 0 ? 1.0f + GetRunPlantBuff2Def(RUN_BUFF2_TALLNUT_VITALITY).mPerStackMul : 1.0f;
 }
 
 int RunPlantBuff2IndexFor(SeedType thePlant)

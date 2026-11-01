@@ -1,6 +1,7 @@
 #pragma once
 #include "../Run/TeamProgressionState.h"
 #include <cstring>
+#include "../Run/RunSpeciesRules.h"
 namespace TeamWire {
 constexpr uint16_t TYPE=28;
 enum Op : uint8_t { REPORT=1, SHARED, VOTE, OFFER, ACCEPT, COMMIT, RESULT, QUERY, CANCEL };
@@ -12,7 +13,7 @@ struct Message {
     TeamProgression::Shared shared;
     TeamProgression::Strike strike;
     int choice=-1;
-    uint8_t zombieStacks[17]{};
+    uint8_t zombieStacks[RunSpeciesRules::COUNT]{};
     uint16_t zombieVoted=65535;
     uint8_t zombieRounds=0;
 };

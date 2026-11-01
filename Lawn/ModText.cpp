@@ -8,6 +8,7 @@
 #include "graphics/MemoryImage.h"
 #include "widget/WidgetManager.h"
 #include <algorithm>
+#include <mutex>
 
 using namespace Sexy;
 
@@ -85,18 +86,36 @@ bool ModText::RegWriteString(const char* theName, const std::string& theValue)
 	return aResult == ERROR_SUCCESS;
 }
 
+namespace {
+struct LanguageCache {
+ std::mutex mutex;
+ int value=ModText::MODLANG_AUTO;
+ DWORD checked=0;
+ bool valid=false;
+};
+LanguageCache& CachedLanguage(){static LanguageCache cache;return cache;}
+}
+
 int ModText::GetLanguageSetting()
 {
-	int aValue = MODLANG_AUTO;
-	RegReadDword("ModLanguage", &aValue);
-	if (aValue != MODLANG_AUTO && aValue != MODLANG_CHINESE && aValue != MODLANG_ENGLISH)
-		aValue = MODLANG_AUTO;
-	return aValue;
+ // Translating the live roster must not open/query/close HKCU for each label.
+ // Keep cross-process preference changes visible, with at most 250 ms delay.
+ auto& cache=CachedLanguage();std::lock_guard<std::mutex> lock(cache.mutex);
+ const DWORD now=GetTickCount();
+ if(!cache.valid||DWORD(now-cache.checked)>=250){
+  int value=MODLANG_AUTO;RegReadDword("ModLanguage",&value);
+  if(value!=MODLANG_AUTO&&value!=MODLANG_CHINESE&&value!=MODLANG_ENGLISH)value=MODLANG_AUTO;
+  cache.value=value;cache.checked=now;cache.valid=true;
+ }
+ return cache.value;
 }
 
 void ModText::SetLanguageSetting(int theLang)
 {
-	RegWriteDword("ModLanguage", theLang);
+ auto& cache=CachedLanguage();std::lock_guard<std::mutex> lock(cache.mutex);
+ RegWriteDword("ModLanguage",theLang);
+ // Always re-read after the write: a failed save must not report a new setting.
+ cache.valid=false;
 }
 
 int ModText::GetLanguage()

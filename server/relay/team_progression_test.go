@@ -10,7 +10,7 @@ import (
 
 // Real loopback relay forwarding, with the current round envelope and original bytes.
 func TestTeamProgressionAndSpeciesPayloadForwarding(t *testing.T) {
- for _, tc := range []struct{typ uint16; size int}{{28,50},{28,221},{28,119},{5,62},{23,42},{23,106}} {
+ for _, tc := range []struct{typ uint16; size int}{{28,50},{28,221},{28,119},{28,229},{28,185},{5,62},{5,63},{23,42},{23,106}} {
   t.Run(fmt.Sprintf("type%d_size%d",tc.typ,tc.size),func(t *testing.T){
    s,_,code,h,g:=flowPair(t);flowBegin(t,s,code,h,g)
    body:=bytes.Repeat([]byte{0xa5},tc.size);body[0],body[1]=1,2

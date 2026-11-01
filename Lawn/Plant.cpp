@@ -1,3 +1,4 @@
+#include "Run/TeamSupportScope.h"
 #include "TeamPlay.h"
 #include "Coin.h"
 #include "Plant.h"
@@ -25,6 +26,7 @@
 #include "../Sexy.TodLib/TodStringFile.h"
 #include "Widget/AchievementsWidget.h"
 #include "Run/RunBuffs.h"
+#include "Run/RunGatlingBarrage.h"
 
 // @pvz-online: 紫卡保留较长种植等待，但以 30 秒封顶避免拖慢成型（2026-10-16 用户定案）。
 PlantDefinition gPlantDefs[SeedType::NUM_SEED_TYPES] = {  //0x69F2B0
@@ -261,7 +263,9 @@ void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, Se
         aBodyReanim->mLoopType = ReanimLoopType::REANIM_LOOP;
         aBodyReanim->mAnimRate = RandRangeFloat(10.0f, 15.0f);
 
-        if (aBodyReanim->TrackExists("anim_idle"))
+        if (IsLandKelp() && aBodyReanim->TrackExists("anim_idle_aquarium"))
+            aBodyReanim->SetFramesForLayer("anim_idle_aquarium");
+        else if (aBodyReanim->TrackExists("anim_idle"))
             aBodyReanim->SetFramesForLayer("anim_idle");
 
         if ((mApp->IsWallnutBowlingLevel() || IsBowlingNut(this)) && aBodyReanim->TrackExists("_ground"))
@@ -614,6 +618,8 @@ void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, Se
     if (theSeedType == SeedType::SEED_GLOOMSHROOM && mApp->RunPlantBuff2Count(theSeedType) > 0)
         mPlantHealth = 1000;
     mPlantHealth = (int)(mPlantHealth * mApp->RunBuffMul(RUN_BUFF_ROOTED) * mApp->RunPlantUpgradeMulKind(theSeedType, RUN_UPGRADE_KIND_HEALTH) + 0.5f);
+    if (theSeedType == SEED_TALLNUT)
+        mPlantHealth = int(mPlantHealth * RunTallNutHealthMultiplier(mApp->RunExtraBuffCount(RUN_BUFF2_TALLNUT_VITALITY)) + 0.5f);
     // @pvz-online: 第二 buff「血量改写」：忧郁菇耐砸的1000为基础生命，先设基值再乘血量加成。
     // 磐石4000和引路蒜20仍在乘法链后绝对覆盖，不改变其他植物规则。
     // 引路蒜 20 + 被吃全行换道（2★，换道在 Zombie::EatPlant → SwitchLanes）。
@@ -746,6 +752,7 @@ void Plant::SetSleeping(bool theIsAsleep)
 //0x45EB10
 int Plant::GetDamageRangeFlags(PlantWeapon thePlantWeapon)
 {
+    if (IsLandKelp()) return 1;
     switch (mSeedType)
     {
     case SeedType::SEED_CACTUS:
@@ -810,9 +817,16 @@ void Plant::SpikeRockTakeDamage()
     }
 }
 
+bool Plant::IsLandKelp() const
+{
+    return mSeedType == SEED_TANGLEKELP && mIsOnBoard && mBoard &&
+        !mBoard->IsPoolSquare(mPlantCol, mRow) &&
+        mApp->RunExtraBuffCount(RUN_BUFF2_KELP_SPIKES) > 0;
+}
+
 bool Plant::IsSpiky()
 {
-    return mSeedType == SeedType::SEED_SPIKEWEED || mSeedType == SeedType::SEED_SPIKEROCK;
+    return mSeedType == SeedType::SEED_SPIKEWEED || mSeedType == SeedType::SEED_SPIKEROCK || IsLandKelp();
 }
 
 // @pvz-online: 「emotional damage」（2026-10-15 用户定案）的条件判定：周围 8 格
@@ -962,6 +976,27 @@ bool Plant::FindTargetAndFire(int theRow, PlantWeapon thePlantWeapon)
     bool aTriSpikeAlways = mSeedType == SeedType::SEED_CACTUS && mApp->RunPlantBuff2Count(SeedType::SEED_CACTUS) > 0;
     if (aZombie == nullptr && mSeedType != SeedType::SEED_GLOOMSHROOM && !aTriSpikeAlways)
         return false;
+
+    // Roll once when a real four-shot volley starts, never from individual rounds.
+    if (mSeedType == SeedType::SEED_GATLINGPEA &&
+        mApp->RunExtraBuffCount(RUN_BUFF2_GATLING_BARRAGE) > 0)
+    {
+        if (mRunPurpleShots > 0) return true;
+        if (mRunPurpleShots == 0 && Sexy::Rand(100) < RunGatlingBarrage::Chance)
+        {
+            mRunPurpleShots = 1;
+            mShootingCounter = 0;
+            EndBlink();
+            if (Reanimation* head = mApp->ReanimationTryToGet(mHeadReanimID))
+            {
+                head->StartBlend(0);
+                head->mLoopType = ReanimLoopType::REANIM_LOOP;
+                head->mAnimRate = 90.0f;
+                head->SetFramesForLayer("anim_shooting");
+            }
+            return true;
+        }
+    }
 
     float aSpeed = PlantShootSpeed(mApp, mSeedType, this);
 
@@ -1255,6 +1290,10 @@ void Plant::StarFruitFire()
 //0x45F8A0
 void Plant::UpdateShooter()
 {
+    // A barrage owns its fixed clock; haste and normal volley scheduling cannot add shots.
+    if (mSeedType == SeedType::SEED_GATLINGPEA && mRunPurpleShots > 0 &&
+        mApp->RunExtraBuffCount(RUN_BUFF2_GATLING_BARRAGE) > 0)
+        return;
     // @pvz-online: continuous fumes owns its fixed clock; normal launch/haste must not add shots.
     if (mSeedType == SeedType::SEED_FUMESHROOM && mApp->RunPlantUpgradeCount(mSeedType) > 0)
         return;
@@ -1755,7 +1794,8 @@ void Plant::SpikeweedAttack()
 
     if (mState != PlantState::STATE_SPIKEWEED_ATTACKING)
     {
-        PlayBodyReanim("anim_attack", ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD, 20, 18.0f);
+        if (IsLandKelp()) PlayIdleAnim(18.0f);
+        else PlayBodyReanim("anim_attack", ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD, 20, 18.0f);
         mApp->PlaySample(SOUND_THROW);
 
         mState = PlantState::STATE_SPIKEWEED_ATTACKING;
@@ -2383,9 +2423,10 @@ void Plant::UpdateChomper()
             if (mChainBitesLeft > 0 && FindTargetZombie(mRow, PlantWeapon::WEAPON_PRIMARY))
             {
                 --mChainBitesLeft;
-                PlayBodyReanim("anim_bite", ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD, 20, 24.0f);
+                // Follow-up bites run at 2x speed; blend and hit timing scale with the animation.
+                PlayBodyReanim("anim_bite", ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD, 10, 48.0f);
                 mState = PlantState::STATE_CHOMPER_BITING;
-                mStateCountdown = 70;
+                mStateCountdown = 35;
             }
             else
             {
@@ -3220,7 +3261,7 @@ void Plant::UpdateAbilities()
     else if (mSeedType == SeedType::SEED_GRAVEBUSTER)                                           UpdateGraveBuster();
     else if (mSeedType == SeedType::SEED_TORCHWOOD)                                             UpdateTorchwood();
     else if (mSeedType == SeedType::SEED_POTATOMINE)                                            UpdatePotato();
-    else if (mSeedType == SeedType::SEED_SPIKEWEED || mSeedType == SeedType::SEED_SPIKEROCK)    UpdateSpikeweed();
+    else if (IsSpiky())    UpdateSpikeweed();
     else if (mSeedType == SeedType::SEED_TANGLEKELP)                                            UpdateTanglekelp();
     else if (mSeedType == SeedType::SEED_SCAREDYSHROOM)                                         UpdateScaredyShroom();
     else if (mSeedType == SeedType::SEED_PUMPKINSHELL)
@@ -3529,6 +3570,8 @@ void Plant::UpdateReanim()
 void Plant::Update()
 {
     DamageStats::Source aDamageSource(mApp->mDamageStats, true);
+    TeamSupportScope::PlantSnapshot supportSnapshot(mApp,this);
+    TeamAttackContext::SeedScope sourceSeed(mSeedType);
     bool doUpdate = false;
     if (IsOnBoard() && mApp->mGameScene == GameScenes::SCENE_LEVEL_INTRO && mApp->IsWallnutBowlingLevel())
         doUpdate = true;
@@ -3573,7 +3616,7 @@ bool Plant::NotOnGround()
 Reanimation* Plant::AttachBlinkAnim(Reanimation* theReanimBody)
 {
     const PlantDefinition& aPlantDef = GetPlantDefinition(mSeedType);
-    LawnApp* aApp = (LawnApp*)gSexyAppBase;
+    LawnApp* aApp = mApp; // Allocate blink animation in this plant's battle.
     Reanimation* aAnimToAttach = theReanimBody;
     const char* aTrackToPlay = "anim_blink";
     const char* aTrackToAttach = nullptr;
@@ -3896,6 +3939,35 @@ void Plant::AnimatePumpkin()
 //0x464820
 void Plant::UpdateShooting()
 {
+    if (mSeedType == SeedType::SEED_GATLINGPEA)
+    {
+        if (mApp->RunExtraBuffCount(RUN_BUFF2_GATLING_BARRAGE) == 0)
+            mRunPurpleShots = 0;
+        else if (mRunPurpleShots < 0)
+            ++mRunPurpleShots;
+        else if (mRunPurpleShots > 0)
+        {
+            if (NotOnGround()) return;
+            const int tick = mRunPurpleShots;
+            if (tick <= RunGatlingBarrage::Duration &&
+                RunGatlingBarrage::ShotsThrough(tick) > RunGatlingBarrage::ShotsThrough(tick - 1))
+                Fire(nullptr, mRow, PlantWeapon::WEAPON_PRIMARY);
+            if (++mRunPurpleShots > RunGatlingBarrage::Duration)
+            {
+                mRunPurpleShots = -RunGatlingBarrage::Recovery;
+                mShootingCounter = 0;
+                mLaunchCounter = 0; // Resume an ordinary volley on the next update; only the special stays locked.
+                if (Reanimation* head = mApp->ReanimationTryToGet(mHeadReanimID))
+                {
+                    head->StartBlend(10);
+                    head->mLoopType = ReanimLoopType::REANIM_LOOP;
+                    head->SetFramesForLayer("anim_head_idle");
+                    head->mAnimRate = 15.0f;
+                }
+            }
+            return;
+        }
+    }
     // @pvz-online: 100 simulation ticks/sec gives exactly five hits, independent of all attack speed.
     if (mSeedType == SeedType::SEED_FUMESHROOM && mApp->RunPlantUpgradeCount(mSeedType) > 0)
     {
@@ -4867,6 +4939,26 @@ void Plant::Draw(Graphics* g)
             }
         }
 
+        if (mSeedType == SeedType::SEED_GATLINGPEA && mRunPurpleShots > 0 &&
+            mApp->RunExtraBuffCount(RUN_BUFF2_GATLING_BARRAGE) > 0 && !NotOnGround())
+        {
+            // Fixed drawing work, no extra projectile/particle allocations for the muzzle flare.
+            int x, y;
+            GetPeaHeadOffset(x, y);
+            x += 47;
+            y -= 22;
+            if (mBoard->GetFlowerPotAt(mPlantCol, mRow)) y -= 5;
+            const Color old = g->GetColor();
+            const int pulse = (mRunPurpleShots / 3) % 2;
+            g->SetColor(Color(255, 150, 35, 180));
+            g->FillRect(x, y - 7, 17 + 7 * pulse, 14);
+            g->DrawLine(x, y, x + 29, y - 11);
+            g->DrawLine(x, y, x + 29, y + 11);
+            g->SetColor(Color(255, 250, 170, 235));
+            g->FillRect(x, y - 3, 22 + 7 * pulse, 6);
+            g->SetColor(old);
+        }
+
         if (mSeedType == SeedType::SEED_MAGNETSHROOM && !DrawMagnetItemsOnTop())
         {
             DrawMagnetItems(g);
@@ -5010,7 +5102,10 @@ void Plant::BurnRow(int theRow)
         {
             aZombie->RemoveColdEffects();
             aZombie->ApplyBurn();
-            if (mApp->RunExtraBuffCount(RUN_BUFF2_EMBERS) > 0) RunDotEffects::Ember(aZombie);
+            if (mApp->RunExtraBuffCount(RUN_BUFF2_EMBERS) > 0){
+                if(TeamAttackContext::snapshot){const auto&s=*TeamAttackContext::snapshot;RunDotEffects::RemoteScorch(aZombie,s.caster,s.id,1,s.scorchMultiplier);}
+                else RunDotEffects::Ember(aZombie);
+            }
         }
     }
 
@@ -5104,6 +5199,8 @@ void Plant::KillAllPlantsNearDoom()
 void Plant::DoSpecial()
 {
     DamageStats::Source aDamageSource(mApp->mDamageStats, true);
+    TeamSupportScope::PlantSnapshot supportSnapshot(mApp,this);
+    TeamAttackContext::SeedScope sourceSeed(mSeedType);
     int aPosX = mX + mWidth / 2;
     int aPosY = mY + mHeight / 2;
     int aDamageRangeFlags = GetDamageRangeFlags(PlantWeapon::WEAPON_PRIMARY);
@@ -5669,6 +5766,18 @@ void Plant::Fire(Zombie* theTargetZombie, int theRow, PlantWeapon thePlantWeapon
     if (mSeedType == SeedType::SEED_GATLINGPEA && mApp->RunPlantBuff2Count(mSeedType) > 0 && Sexy::Rand(100) < 25)
         aProjectile->mProjectileType = ProjectileType::PROJECTILE_MELON;
 
+    if (mSeedType == SeedType::SEED_GATLINGPEA && mRunPurpleShots > 0 &&
+        mApp->RunExtraBuffCount(RUN_BUFF2_GATLING_BARRAGE) > 0)
+    {
+        const int shot = RunGatlingBarrage::ShotsThrough(mRunPurpleShots) - 1;
+        const float angle = RunGatlingBarrage::AngleDegrees(shot, RandRangeFloat(-1.0f, 1.0f)) * PI / 180.0f;
+        // STAR motion already carries planar velocity; source identity distinguishes these peas.
+        aProjectile->mMotionType = ProjectileMotion::MOTION_STAR;
+        aProjectile->mVelX = 3.33f * cosf(angle);
+        aProjectile->mVelY = 3.33f * sinf(angle);
+        return; // Exactly 150 rounds: multishot does not multiply the special barrage.
+    }
+
     // @pvz-online: 第二 buff「Tri-Spike」三向尖刺（仙人掌 #26，docs/06 §8.6，2★ cap1）：持条时
     // 本行上下各补一发同型尖刺——弹体从仙人掌出发、走三线射手同款斜向运动（MOTION_THREEPEATER）
     // 飘向相邻行；该行放不了僵尸（池面/出界/屋顶边列）就不补（RowCanHaveZombies 闸门，同三线
@@ -5940,7 +6049,7 @@ Zombie* Plant::FindTargetZombie(int theRow, PlantWeapon thePlantWeapon, Zombie* 
 
         if (!aZombie->mHasHead || aZombie->IsTangleKelpTarget())
         {
-            if (mSeedType == SeedType::SEED_POTATOMINE || mSeedType == SeedType::SEED_CHOMPER || mSeedType == SeedType::SEED_TANGLEKELP)
+            if (mSeedType == SeedType::SEED_POTATOMINE || mSeedType == SeedType::SEED_CHOMPER || (mSeedType == SeedType::SEED_TANGLEKELP && !IsLandKelp()))
             {
                 continue;
             }
@@ -6026,7 +6135,7 @@ Zombie* Plant::FindTargetZombie(int theRow, PlantWeapon thePlantWeapon, Zombie* 
             }
 
             if ((mSeedType == SeedType::SEED_EXPLODE_O_NUT && aZombie->mZombiePhase == ZombiePhase::PHASE_POLEVAULTER_IN_VAULT) ||
-                (mSeedType == SeedType::SEED_TANGLEKELP && !aZombie->mInPool))
+                (mSeedType == SeedType::SEED_TANGLEKELP && !IsLandKelp() && !aZombie->mInPool))
             {
                 continue;
             }
@@ -6088,7 +6197,9 @@ int Plant::DistanceToClosestZombie()
 void Plant::Die()
 {
     DamageStats::Source aDamageSource(mApp->mDamageStats, true);
-    if (IsOnBoard() && mSeedType == SeedType::SEED_TANGLEKELP)
+    TeamSupportScope::PlantSnapshot supportSnapshot(mApp,this);
+    TeamAttackContext::SeedScope sourceSeed(mSeedType);
+    if (IsOnBoard() && mSeedType == SeedType::SEED_TANGLEKELP && !IsLandKelp())
     {
         Zombie* aZombie = mBoard->ZombieTryToGet(mTargetZombieID);
         if (aZombie)
@@ -6403,6 +6514,7 @@ Rect Plant::GetPlantRect()
 //0x467F90
 Rect Plant::GetPlantAttackRect(PlantWeapon thePlantWeapon)
 {
+    if (IsLandKelp()) return Rect(mX + 20, mY, mWidth - 50, mHeight);
     Rect aRect;
     if (mApp->IsWallnutBowlingLevel() || IsBowlingNut(this))
     {
@@ -6475,7 +6587,7 @@ void Plant::PlayIdleAnim(float theRate)
     Reanimation* aBodyReanim = mApp->ReanimationTryToGet(mBodyReanimID);
     if (aBodyReanim)
     {
-        PlayBodyReanim("anim_idle", ReanimLoopType::REANIM_LOOP, 20, theRate);
+        PlayBodyReanim(IsLandKelp() && aBodyReanim->TrackExists("anim_idle_aquarium") ? "anim_idle_aquarium" : "anim_idle", ReanimLoopType::REANIM_LOOP, 20, theRate);
         if (mApp->IsIZombieLevel())
         {
             aBodyReanim->mAnimRate = 0.0f;
@@ -6502,6 +6614,7 @@ int Plant::CoopMaxHealth()
     else if(mSeedType==SEED_CHOMPER && mApp->RunExtraBuffCount(RUN_BUFF2_DIGEST_HEAL)>0)base=3000;
     else if(mSeedType==SEED_GLOOMSHROOM && mApp->RunPlantBuff2Count(mSeedType)>0)base=1000;
     double value=base*(double)mApp->RunBuffMul(RUN_BUFF_ROOTED)*mApp->RunPlantUpgradeMulKind(mSeedType,RUN_UPGRADE_KIND_HEALTH);
+    if(mSeedType==SEED_TALLNUT)value*=RunTallNutHealthMultiplier(mApp->RunExtraBuffCount(RUN_BUFF2_TALLNUT_VITALITY));
     value=std::max(1.0,std::min((double)2147483647,value+0.5));
     if(mApp->RunPlantBuff2Count(mSeedType)>0) {
         if(mSeedType==SEED_SCAREDYSHROOM)value=4000;

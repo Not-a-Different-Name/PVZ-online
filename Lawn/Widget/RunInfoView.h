@@ -213,6 +213,6 @@ public:
         SeatUi::Text(graphics, ModText::Tr("详情 ", "Detail ") + std::to_string(detailPage + 1) + "/" + std::to_string(DetailCount(run)),
             392, 495, 266, 20, bodyColor, true);
         SeatUi::Text(graphics, ModText::Tr("借入仅本关有效；生效层数按实际规则，不相加。", "Loans last this level; active stacks follow the rules, not addition."),
-            24, 535, 712, 17, muted);
+            24, 535, 712, 17, bodyColor);
     }
 };

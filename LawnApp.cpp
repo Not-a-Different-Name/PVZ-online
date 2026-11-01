@@ -1,3 +1,5 @@
+#include "Lawn/System/PerformanceMonitor.h"
+#include "Lawn/Observer/ObserverIsolation.h"
 #include "Lawn/Run/EndlessSaves.h"
 #include "Lawn/Widget/EndlessSaveDialog.h"
 #include "Lawn/Widget/PlayerMessageBox.h"
@@ -226,6 +228,7 @@ LawnApp::LawnApp()
 //0x44EDD0、0x44EDF0
 LawnApp::~LawnApp()
 {
+ if(!ObserverIsolation::Active())PerformanceMonitor::Shutdown();
     TeamPlay::Detach(this);
 	if (mBoard)
 	{
@@ -340,6 +343,7 @@ LawnApp::~LawnApp()
 //0x44F200
 void LawnApp::Shutdown()
 {
+ if(!ObserverIsolation::Active())PerformanceMonitor::Shutdown();
 	if (!mLoadingThreadCompleted)
 	{
 		mLoadingFailed = true;
@@ -478,6 +482,8 @@ void LawnApp::LostFocus()
 //0x44F480
 void LawnApp::WriteToRegistry()
 {
+    if(ObserverIsolation::Active()){return;}
+
 	if (mPlayerInfo)
 	{
 		ModText::RegWriteString("CurUser", SexyStringToStringFast(mPlayerInfo->mName));
@@ -499,6 +505,8 @@ void LawnApp::ReadFromRegistry()
 // GOTY @Patoke: 0x452800
 bool LawnApp::WriteCurrentUserConfig()
 {
+    if(ObserverIsolation::Active()){return true;}
+
 	if (mPlayerInfo)
 		mPlayerInfo->SaveDetails();
 
@@ -3579,6 +3587,8 @@ void LawnApp::ShowGameSelector()
         return;
     }
 
+    // Close the pick surface before its RunState is released.
+    KillDialog(Dialogs::DIALOG_RUN_PICK);
 	ResetZombieVote();
     RunHistory::Capture(this,RunHistory::LEFT);
 	KillBoard();
@@ -4482,6 +4492,7 @@ void LawnApp::Init()
 	mSawYeti = false;
 
 	SexyApp::Init();
+	PerformanceMonitor::Configure(Sexy::GetAppDataFolder());
 
 	// @pvz-online: 中文覆盖包（2026-10-13 汉化批）——中文模式下加载 pvz_zh.pak，经
 	// PakInterface「末赢」覆盖 main.pak 中的同名资源（字体/图集/字符串）。英文模式
@@ -4906,6 +4917,11 @@ void LawnApp::UpdatePlayTimeStats()
 //0x452650
 void LawnApp::UpdateFrames()
 {
+ PerformanceMonitor::Context(int(mGameScene),mBoard&&mBoard->IsWatchingView());
+ PerformanceMonitor::Scope monitor(PerformanceMonitor::AppUpdate);
+ if(mBoard)monitor.Objects(mBoard->mPlants.mSize,mBoard->mZombies.mSize,mBoard->mProjectiles.mSize);
+ if(monitor.enabled&&mLoadingThreadCompleted&&mEffectSystem&&mEffectSystem->mReanimationHolder&&mEffectSystem->mParticleHolder&&mEffectSystem->mTrailHolder&&mEffectSystem->mAttachmentHolder){auto&e=*mEffectSystem;monitor.Effects(e.mReanimationHolder->mReanimations.mSize,e.mParticleHolder->mParticleSystems.mSize,e.mTrailHolder->mTrails.mSize,e.mAttachmentHolder->mAttachments.mSize);}
+
     if(auto* session=RoomPresentation::Session(this))session->SetLocalNameplate(mPlayerInfo?NameplateCatalog::Equipped(*mPlayerInfo):0);
     UpdateTeamProgressionUi();
     mDamageStats.Update(this);
@@ -7026,4 +7042,11 @@ bool LawnApp::SetObserverP2P(bool enabled) {
     mObserverP2P=enabled;
     if(mOnlineSession)mOnlineSession->SetObserverP2PEnabled(enabled);
     return true;
+}
+
+bool LawnApp::DrawDirtyStuff(){
+ PerformanceMonitor::Scope monitor(PerformanceMonitor::AppDraw);
+ const bool drawn=SexyApp::DrawDirtyStuff();
+ if(drawn)PerformanceMonitor::Presented();else monitor.Cancel();
+ return drawn;
 }

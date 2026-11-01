@@ -372,6 +372,10 @@ else()
     target_link_libraries(${PROJECT_NAME} PRIVATE -static -static-libgcc -static-libstdc++ "${ADDITIONAL_LIBRARY_DEPENDENCIES}")
 endif()
 
-target_sources(LawnProject PRIVATE ../Lawn/Observer/ObserverDrawScene.cpp ../Lawn/Observer/ObserverDrawCodec.cpp)
+target_sources(LawnProject PRIVATE ../Lawn/Observer/ObserverDrawScene.cpp ../Lawn/Observer/ObserverDrawCodec.cpp ../Lawn/Observer/World.cpp)
 
 target_include_directories(LawnProject PRIVATE "..")
+
+if(WIN32)
+ target_link_libraries(LawnProject PRIVATE psapi)
+endif()

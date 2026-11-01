@@ -1,3 +1,4 @@
+#include "Lawn/Observer/ObserverIsolation.h"
 #include "Board.h"
 #include "GridItem.h"
 #include "Challenge.h"
@@ -18,7 +19,7 @@ using namespace Sexy;
 //0x44CFA0
 GridItem::GridItem()
 {
-    mApp = (LawnApp*)gSexyAppBase;
+    mApp = ObserverIsolation::Active()?gLawnApp:static_cast<LawnApp*>(gSexyAppBase);
     mPosX = 0.0f;
     mPosY = 0.0f;
     mBoard = mApp->mBoard;

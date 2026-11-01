@@ -1,3 +1,5 @@
+#include "Lawn/Observer/ObserverIsolation.h"
+#include "Sexy.TodLib/FilterEffect.h"
 #include "MemoryImage.h"
 
 #include "D3DInterface.h"
@@ -127,7 +129,8 @@ MemoryImage::MemoryImage(const MemoryImage& theMemoryImage) :
 }
 
 MemoryImage::~MemoryImage()
-{	
+{
+ if(ObserverIsolation::Active())FilterEffectForgetImage(this);	
 	mApp->RemoveMemoryImage(this);
 	
 	delete [] mBits;

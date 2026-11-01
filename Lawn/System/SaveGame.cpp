@@ -1,3 +1,4 @@
+#include "Lawn/Observer/ObserverIsolation.h"
 #include "../Run/RunSpeciesRuntime.h"
 #include "Music.h"
 #include "SaveGame.h"
@@ -693,6 +694,8 @@ bool LawnLoadGame(Board* theBoard, const std::string& theFilePath)
 //0x4820D0
 bool LawnSaveGame(Board* theBoard, const std::string& theFilePath)
 {
+    if(ObserverIsolation::Active()){return false;}
+
 	theBoard->SyncLegacyWaveHealth();
 	SaveGameContext aContext;
 	aContext.mFailed = false;

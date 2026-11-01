@@ -1528,7 +1528,7 @@ bool NetSession::BeginWatch(uint8_t theSeat)
         static std::atomic<uint32_t> ids{0};
         mObserverWatch=uint32_t(mCoopToken)^uint32_t(++ids)^uint32_t(std::chrono::steady_clock::now().time_since_epoch().count());
         if(!mObserverWatch)mObserverWatch=++ids;
-        mObserverRemoteStream=1;mObserverAccepted=false;mObserverReceived=false;mObserverInbox.clear();
+        mObserverRemoteStream=1;mObserverAccepted=false;mObserverReceived=false;mObserverTries=1;mObserverInbox.clear();
         mObserverRequestAt=mObserverPendingAt=mObserverKeepAt=mObserverLast=ObserverNow();mWatchEndPending=WatchEnd::NONE;
         if(ObserverControl(theSeat,ObserverWireV2::ControlOp::BEGIN,mObserverWatch,1))return true;
         ClearWatchState(WatchEnd::TARGET_LEFT);return false;
@@ -1551,7 +1551,7 @@ void NetSession::ClearWatchState(WatchEnd theReason)
 {
 	bool aWasWatching = IsWatching();
     mPunchLink.Cancel(DirectContext(mWatchTargetSeat,false));mPunchAttemptWatch=mPunchFailedWatch=0;mPunchAttempts=0;mObserverDirectAt=0;
-    mObserverWatch=0;mObserverAccepted=false;mObserverReceived=false;mObserverRemoteStream=0;mObserverInbox.clear();mObserverAssembler.Context(0,0,0,0,0);
+    mObserverWatch=0;mObserverAccepted=false;mObserverReceived=false;mObserverTries=0;mObserverRemoteStream=0;mObserverInbox.clear();mObserverAssembler.Context(0,0,0,0,0);
 	mWatchTargetSeat = NetProto::SEAT_UNSET;
 	mFramesSinceWatchKeepalive = 0;
 	mFramesSinceWatchSnapshot = 0;

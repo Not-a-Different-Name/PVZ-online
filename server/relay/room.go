@@ -633,7 +633,7 @@ func (s *Server) sweepRoom(r *Room, now time.Time) bool {
 				s.clearObserverAssembly(v)
 				v.viewer.observer.clear(s)
 				r.observer[i] = nil
-			} else if v.count > 0 && now.Sub(v.started) > 3*time.Second {
+			} else if observerAssemblyExpired(v, now) {
 				s.clearObserverAssembly(v)
 			}
 		}

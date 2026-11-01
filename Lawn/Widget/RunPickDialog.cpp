@@ -84,7 +84,7 @@ RunPickDialog::RunPickDialog(LawnApp* theApp, RunState* theRun) : LawnDialog(
 			// 按屏格数缺格填 SEED_NONE——空位不取名。名字走 Plant::GetNameString，
 			// SEED_NONE（-1）会读穿植物定义表（GetPlantDefinition 裸下标，Release 断言
 			// 为空）→ 野指针崩。2026-10-10 玩家「深夜泳池第三关」闪退的根因。
-			if (theRun->mPlantChoices[i] != SeedType::SEED_NONE)
+			if (theRun->mPlantChoices[i] >= 0 && theRun->mPlantChoices[i] < RunState::RUN_POOL_MAX)
 			{
 				aLabel = Plant::GetNameString(theRun->mPlantChoices[i]);
 			}
@@ -98,7 +98,7 @@ RunPickDialog::RunPickDialog(LawnApp* theApp, RunState* theRun) : LawnDialog(
 		// TakeBuffChoice 还会再忽略一次哨兵，双保险。植物屏与增益屏同口径（闪退修复
 		// 2026-10-11 前只有增益屏这一道）。
 		bool aEmptySlot = mPlantPick
-			? (theRun->mPlantChoices[i] == SeedType::SEED_NONE)
+			? (theRun->mPlantChoices[i] < 0 || theRun->mPlantChoices[i] >= RunState::RUN_POOL_MAX)
 			: (theRun->mBuffChoices[i] == RunState::RUN_BUFF_CHOICE_NONE);
 		if (aEmptySlot)
 		{
@@ -283,6 +283,8 @@ void RunPickDialog::RemovedFromManager(WidgetManager* theWidgetManager)
 
 void RunPickDialog::Draw(Graphics* g)
 {
+    // A queued draw must never read an old or replaced run transaction.
+    if (!mRun || mApp->GetRunState() != mRun || mRun->mPickCounter != mExpectedCounter) return;
 	LawnDialog::Draw(g);
     if(mApp->mCoopPlay)mApp->mCoopPlay->DrawEntry(g,20,16,140,40);
 
@@ -334,7 +336,7 @@ void RunPickDialog::Draw(Graphics* g)
 			// 空缺格（玩家闪退修复 2026-10-11）：植物候选抽干时缺格填 SEED_NONE，空着不画——
 			// DrawSeedPacket 对 SEED_NONE（-1）会走种子包路径的查表/升级判断（Release 断言为空）。
 			// 与增益屏下面那道哨兵护栏同口径。
-			if (mRun->mPlantChoices[i] == SeedType::SEED_NONE) continue;
+			if (mRun->mPlantChoices[i] < 0 || mRun->mPlantChoices[i] >= RunState::RUN_POOL_MAX) continue;
 			DrawSeedPacket(g, (float)(mColumnX[i] + (mColumnWidth - SEED_PACKET_WIDTH) / 2), (float)mAreaTop,
 				mRun->mPlantChoices[i], SeedType::SEED_NONE, 0.0f, 255, false, false);
 		}
@@ -417,7 +419,7 @@ void RunPickDialog::Draw(Graphics* g)
 
 void RunPickDialog::ButtonDepress(int theId)
 {
-    if(mSubmitted || mApp->GetRunState()!=mRun || mRun->mPickCounter!=mExpectedCounter)return;
+    if(!mRun || mSubmitted || mApp->GetRunState()!=mRun || mRun->mPickCounter!=mExpectedCounter)return;
     if(theId>=150 && theId<153) {
         const int index=theId-150;
         if(!mRun->CanLockChoice(index))return;
@@ -444,6 +446,7 @@ void RunPickDialog::ButtonDepress(int theId)
 
 void RunPickDialog::RefreshRerollLabels()
 {
+    if (!mRun || mApp->GetRunState() != mRun || mRun->mPickCounter != mExpectedCounter) return;
     const int cost=mRun->GetRerollPurchaseCost(mLockedChoice);
     mRefreshButton->mLabel=cost>0 ? ModText::Tr("重摇 -","Reroll -")+LawnApp::GetMoneyString(cost)
         : ModText::Tr("使用重摇券","Use voucher");

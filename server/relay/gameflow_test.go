@@ -65,8 +65,8 @@ func flowBegin(t *testing.T, s *Server, code string, h, g *testClient) {
 	flowWait(t, s, code, func(r *Room) bool { return r.flow.phase == flowBattle })
 }
 
-func TestFlowNineTenAndSeventeenStackStartReplay(t *testing.T) {
-	for _, size := range []int{45, 46, 53} {
+func TestFlowNineTenSeventeenAndEighteenStackStartReplay(t *testing.T) {
+	for _, size := range []int{45, 46, 53, 54} {
 		t.Run(fmt.Sprint(size), func(t *testing.T) {
 			s, _, code, h, g := flowPair(t)
 			body := make([]byte, size)

@@ -1,3 +1,4 @@
+#include "TeamPlay.h"
 #include "Plant.h"
 #include "Board.h"
 #include "Zombie.h"
@@ -5045,7 +5046,9 @@ void Zombie::UpdatePlaying()
             if (mIceShroomTrap)
             {
                 mIceShroomTrap = false;
-                if (mApp->RunPlantBuff2Count(SeedType::SEED_ICESHROOM) > 0)
+                bool frostArmor=mApp->RunPlantBuff2Count(SeedType::SEED_ICESHROOM)>0;
+                if(auto*run=mApp->GetRunState()){auto&freezes=run->mTeam.aidFreezes;auto id=mBoard->mZombies.DataArrayGetID(this);auto it=std::find_if(freezes.begin(),freezes.end(),[&](const auto&f){return f.zombie==id;});if(it!=freezes.end()){frostArmor=it->armor;freezes.erase(it);}}
+                if (frostArmor)
                 {
                     FrostArmorBatch::Pulse(mBoard);
                 }
@@ -6909,7 +6912,7 @@ bool Zombie::CanTargetPlant(Plant* thePlant, ZombieAttackType theAttackType)
             return false;
     }
 
-    if (thePlant->NotOnGround() || thePlant->mSeedType == SeedType::SEED_TANGLEKELP)
+    if (thePlant->NotOnGround() || (thePlant->mSeedType == SeedType::SEED_TANGLEKELP && !thePlant->IsLandKelp()))
         return false;
 
     if (!mInPool && mBoard->IsPoolSquare(thePlant->mPlantCol, thePlant->mRow))
@@ -8805,6 +8808,7 @@ void Zombie::TakeDamage(int theDamage, unsigned int theDamageFlags, int theFixed
         // @pvz-online: 批 18 全局「Precision 所有伤害 +15%」——僵尸受击的总入口，先放大再走
         // 各分支（护盾/头盔/本体的依次分配、HITS_SHIELD_AND_BODY 的重置全吃放大值）。
         // 火力（Firepower）在弹种基数上先乘，这里末梢再乘，两条全局乘性叠加；非闯关自动 1.0。
+        theDamage = RunSpeciesRules::ScalePositive(theDamage,int(1000*TeamPlay::BorrowMultiplier(mApp,TeamAttackContext::sourceSeed)+0.5f));
         theDamage = (int)(theDamage * mApp->RunBuffMul(RUN_BUFF_PRECISION) + 0.5f);
 
         // @pvz-online: 第二 buff「伤口加深」（地刺 #21，docs/06 §8.6）：被扎者——脚下格
@@ -9392,6 +9396,15 @@ void Zombie::HitIceTrap()
     // @pvz-online: 第二 buff「霜甲」（寒冰菇 #14）：标记这次冻结来自寒冰菇——自然解冻时
     // 触发的全场软减速只认它（见 Zombie::Update 的解冻点）。
     mIceShroomTrap = true;
+    if(auto*run=mApp->GetRunState()){
+        auto&freezes=run->mTeam.aidFreezes;auto id=mBoard->mZombies.DataArrayGetID(this);
+        auto it=std::find_if(freezes.begin(),freezes.end(),[&](const auto&f){return f.zombie==id;});
+        if(TeamAttackContext::snapshot&&TeamAttackContext::snapshotOwner==run){
+            bool armor=mApp->RunPlantBuff2Count(SEED_ICESHROOM)>0;
+            if(it!=freezes.end())it->armor=armor;else if(freezes.size()<2048)freezes.push_back({id,armor});
+        }else if(it!=freezes.end())freezes.erase(it);
+    }
+
 
     StopZombieSound();
     if (mZombieType == ZombieType::ZOMBIE_BALLOON)

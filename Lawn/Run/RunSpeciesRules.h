@@ -6,12 +6,13 @@
 namespace RunSpeciesRules {
 enum Id : int {
     GIANT_CHAIN = 10, JACK_DEATH = 11, ARMORED_BALLOON = 12,
-    FAST_ZAMBONI = 13, HEAVY_FOOTBALL = 14, ALL_ARMOR = 15, DIGGER_AMBUSH = 16
+    FAST_ZAMBONI = 13, HEAVY_FOOTBALL = 14, ALL_ARMOR = 15, DIGGER_AMBUSH = 16, POGO_ASSAULT = 17
 };
-constexpr int COUNT = 17;
+constexpr int COUNT = 18;
+constexpr int PRE_POGO_COUNT = 17;
 constexpr int PRE_SPECIES_COUNT = 10;
 inline int MaxStacks(int id) {
-    return id==GIANT_CHAIN ? 2 : id==ARMORED_BALLOON ? 1 : 255;
+    return id==GIANT_CHAIN ? 2 : (id==ARMORED_BALLOON||id==POGO_ASSAULT) ? 1 : 255;
 }
 inline int ClampedStacks(int id, int stacks) {
     return stacks<0 ? 0 : stacks>MaxStacks(id) ? MaxStacks(id) : stacks;
@@ -21,7 +22,9 @@ inline int LinearPermille(int id, int stacks) {
     switch(id) {
     case ARMORED_BALLOON: return 1000+4000*stacks;
     case HEAVY_FOOTBALL: return 1000+2000*stacks;
-    case JACK_DEATH: case FAST_ZAMBONI: case ALL_ARMOR: case DIGGER_AMBUSH:
+    case POGO_ASSAULT: return 1000+1000*stacks;
+    case JACK_DEATH: return 1000+300*stacks;
+    case FAST_ZAMBONI: case ALL_ARMOR: case DIGGER_AMBUSH:
         return 1000+1000*stacks;
     default: return 1000;
     }

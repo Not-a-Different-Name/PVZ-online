@@ -1,3 +1,4 @@
+#include "Lawn/Observer/ObserverIsolation.h"
 //#define SEXY_TRACING_ENABLED
 //#define SEXY_PERF_ENABLED
 //#define SEXY_MEMTRACE
@@ -446,8 +447,8 @@ SexyAppBase::~SexyAppBase()
 	
 	delete mWidgetManager;	
 	delete mResourceManager;
-	delete gFPSImage;
-	gFPSImage = NULL;
+	if(!ObserverIsolation::Active())delete gFPSImage;
+	if(!ObserverIsolation::Active())gFPSImage = NULL;
 	
 	SharedImageMap::iterator aSharedImageItr = mSharedImageMap.begin();
 	while (aSharedImageItr != mSharedImageMap.end())
@@ -1490,6 +1491,8 @@ double SexyAppBase::GetLoadingThreadProgress()
 
 bool SexyAppBase::RegistryWrite(const std::string& theValueName, ulong theType, const uchar* theValue, ulong theLength)
 {
+    if(ObserverIsolation::Active()){return false;}
+
 	if (mRegKey.length() == 0)
 		return false;
 
@@ -1594,6 +1597,8 @@ void SexyAppBase::WriteToRegistry()
 
 bool SexyAppBase::RegistryEraseKey(const SexyString& _theKeyName)
 {
+    if(ObserverIsolation::Active()){return false;}
+
 	std::string theKeyName = SexyStringToStringFast(_theKeyName);
 	if (mRegKey.length() == 0)
 		return false;
@@ -1936,6 +1941,8 @@ void SexyAppBase::ReadFromRegistry()
 
 bool SexyAppBase::WriteBytesToFile(const std::string& theFileName, const void *theData, unsigned long theDataLen)
 {
+    if(ObserverIsolation::Active()){return false;}
+
 	if (mPlayingDemoBuffer)
 	{
 		if (mManualShutdown)
@@ -2002,6 +2009,8 @@ bool SexyAppBase::WriteBytesToFile(const std::string& theFileName, const void *t
 
 bool SexyAppBase::WriteBufferToFile(const std::string& theFileName, const Buffer* theBuffer)
 {
+    if(ObserverIsolation::Active()){return false;}
+
 	return WriteBytesToFile(theFileName,theBuffer->GetDataPtr(),theBuffer->GetDataLen());
 }
 
@@ -2114,6 +2123,8 @@ bool SexyAppBase::FileExists(const std::string& theFileName)
 
 bool SexyAppBase::EraseFile(const std::string& theFileName)
 {
+    if(ObserverIsolation::Active()){return false;}
+
 	if (mPlayingDemoBuffer)
 		return true;
 

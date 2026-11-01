@@ -1,3 +1,5 @@
+#include "TeamAttackContext.h"
+#include "Lawn/Observer/ObserverIsolation.h"
 #include "RunState.h"
 #include "RunHistory.h"
 #include "../TeamPlay.h"
@@ -68,7 +70,7 @@ static const unsigned int RUN_CHECKPOINT_MAGIC = 0x314E5552;	// 'RUN1'
 // v19: independent slots, endless rule bits, lineup mask, hashed lawn/retry snapshots,
 // snapshot phase and completed zombie ballot rounds. Older saves retain endless options 0.
 
-static const unsigned short RUN_CHECKPOINT_VERSION = 25; // v24 appends seven species traits; v23 stores exactly ten.
+static const unsigned short RUN_CHECKPOINT_VERSION = 26; // v24 appends seven species traits; v23 stores exactly ten.
 
 static std::vector<unsigned char>& AppendU16(std::vector<unsigned char>& theData, unsigned int theValue)
 {
@@ -795,14 +797,20 @@ int RunState::GetChoiceWeight(int theId) const
 {
     const int cob = RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT + RUN_BUFF2_TWINCOB;
     const int conversion = RUN_BUFF_COUNT + RUN_UPGRADE_KERNELPULT;
-    int weight = GetRunChoiceWeight(theId) * 16;
-    if (theId == cob) return GetBuffCount(conversion) > 0 ? 1 : 4;
+    // Keep 20% soft exclusions exact even for a base-weight-one three-star trait.
+    int weight = GetRunChoiceWeight(theId) * 80;
+    if (theId == cob) return GetBuffCount(conversion) > 0 ? 5 : 20;
     if (theId == conversion && GetBuffCount(cob) > 0) weight /= 4;
+    const int iron = RUN_BUFF_COUNT + RUN_UPGRADE_TALLNUT;
+    const int vitality = RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT + RUN_BUFF2_TALLNUT_VITALITY;
+    if ((theId == iron && GetBuffCount(vitality) > 0) ||
+        (theId == vitality && GetBuffCount(iron) > 0)) weight /= 5;
     return weight;
 }
 
 int RunState::GetBuffCount(int theBuffId) const
 {
+    if(TeamAttackContext::snapshot && TeamAttackContext::snapshotOwner==this)return TeamAttackContext::SnapshotCount(theBuffId);
 	for (size_t i = 0; i < mBuffs.size(); i++)
 	{
 		if (mBuffs[i].mId == (unsigned short)theBuffId) return (int)mBuffs[i].mCount;
@@ -1024,12 +1032,13 @@ static const ZombieBuffText kZombieBuffTexts[RunState::RUN_ZOMBIE_BUFF_COUNT] = 
 	{ "Soft Resist", "软控缩时", "减速持续时间缩短50%，幅度不变；与BOSS抗性不叠加（最高1层）", "Slow duration -50%; strength unchanged; does not stack with boss resistance (max 1 stack)" },
     { "Inflation", "加价", "所有植物最终种植费用 +25 阳光/层，包括原本免费和被增益降到免费的植物", "Final planting cost +25 sun per stack for every plant, including normally free and buff-discounted plants" },
     { "Giant Lineage", "巨人血统", "巨人改投普通巨人；二层后代也可继续投巨人（最多2层）", "Throw Gargantuars; at stack 2 every child can throw another (max 2)" },
-    { "Explosive Farewell", "死亡惊喜", "小丑移速每层+100%；战斗死亡按原范围爆炸一次", "Jack-in-the-box walk speed +100%/stack; explodes once on combat death" },
+    { "Explosive Farewell", "死亡惊喜", "小丑出怪权重×3，所有场景可出；移速每层+30%；战斗死亡爆炸一次", "Jack pick weight x3, all scenes; walk speed +30%/stack; explodes once on combat death" },
     { "Armored Balloons", "装甲气球", "气球权重×5，气球基础耐久1100；三叶草仍可吹走（最多1层）", "Balloon pick weight x5; balloon base HP 1100; Blover still works (max 1)" },
     { "Fast Zamboni", "极速冰车", "冰车移速每层+100%，本体生命每层+50%", "Zamboni speed +100% and body HP +50% per stack" },
     { "Heavy Football", "重装橄榄", "橄榄本体、防具、攻击每层+200%；体型放大1.5倍", "Football body/armor/attack +200% per stack; visual size x1.5" },
     { "Reinforced Armor", "全面重甲", "所有僵尸防具耐久每层+100%，不增加本体生命", "All zombie armor HP +100% per stack; no body HP increase" },
     { "Digger Ambush", "突袭矿工", "矿工落地立即寻敌，攻击伤害每层+100%", "Diggers seek targets on landing; attack damage +100% per stack" },
+    { "Pogo Assault", "弹簧突击", "蹦蹦权重×5，生命和移速×2（最多1层）", "Pogo pick weight x5, body HP and speed x2 (max 1)" },
 };
 
 static const ZombieBuffText& ZombieBuffTextAt(int theId)
@@ -1315,6 +1324,8 @@ std::vector<unsigned char> RunState::EncodeCheckpoint() const
 
 bool RunState::Save(int theProfileId) const
 {
+    if(ObserverIsolation::Active()){return true;}
+
     const auto previousHistory = mDamageHistory;
     if(gLawnApp && gLawnApp->GetRunState()==this) { gLawnApp->mDamageStats.Flush(); gLawnApp->mDamageStats.CaptureCheckpoint(*this); }
     if(gLawnApp && gLawnApp->GetRunState()==this && !EndlessLawn::Capture(gLawnApp->mBoard)) { mDamageHistory = previousHistory; return false; }
@@ -1330,6 +1341,8 @@ bool RunState::Save(int theProfileId) const
 }
 bool RunState::SaveWithPlayer(PlayerInfo& player) const
 {
+    if(ObserverIsolation::Active()){return true;}
+
     const auto previousHistory = mDamageHistory;
     if(gLawnApp && gLawnApp->GetRunState()==this) { gLawnApp->mDamageStats.Flush(); gLawnApp->mDamageStats.CaptureCheckpoint(*this); }
     if(gLawnApp && gLawnApp->GetRunState()==this && !EndlessLawn::Capture(gLawnApp->mBoard)) { mDamageHistory = previousHistory; return false; }
@@ -1553,7 +1566,7 @@ bool RunState::Load(int theProfileId, int theMode, int theScene, bool theBackup,
 	unsigned int aZombieVotedLevel = RUN_ZOMBIE_VOTED_NONE;
 	if (aVersion >= 14)
 	{
-		const int aSavedCount = aVersion >= 24 ? RUN_ZOMBIE_BUFF_COUNT : aVersion >= 23 ? RunZombieBuffRules::PRE_SPECIES_COUNT : aVersion >= 18 ? RunZombieBuffRules::PRE_TAX_COUNT : RunZombieBuffRules::LEGACY_COUNT;
+		const int aSavedCount = aVersion >= 26 ? RUN_ZOMBIE_BUFF_COUNT : aVersion >= 24 ? RunSpeciesRules::PRE_POGO_COUNT : aVersion >= 23 ? RunZombieBuffRules::PRE_SPECIES_COUNT : aVersion >= 18 ? RunZombieBuffRules::PRE_TAX_COUNT : RunZombieBuffRules::LEGACY_COUNT;
 		for (int i = 0; i < aSavedCount; i++)
 		{
 			unsigned int aStack = 0;
@@ -1730,6 +1743,7 @@ bool RunState::Load(int theProfileId, int theMode, int theScene, bool theBackup,
 
 int RunState::GetEffectiveBuffCount(int id) const
 {
+    if(TeamAttackContext::snapshot && TeamAttackContext::snapshotOwner==this)return TeamAttackContext::SnapshotCount(id);
     int value=GetBuffCount(id);
     int base=RUN_BUFF_COUNT+RUN_PLANT_UPGRADE_COUNT;
     if(id==RUN_BUFF_COUNT+RUN_UPGRADE_SNOWPEA && GetBuffCount(base+RUN_BUFF2_FROSTPIERCE)>0)return value;

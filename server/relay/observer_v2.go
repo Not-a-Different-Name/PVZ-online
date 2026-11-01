@@ -34,7 +34,7 @@ func (o *observerOutput) clear(s *Server) {
 	o.at = 0
 	o.bytes = 0
 }
-func (o *observerOutput) offer(s *Server, frames [][]byte) {
+func (o *observerOutput) offer(s *Server, frames [][]byte) bool {
 	n := 0
 	for _, f := range frames {
 		n += len(f)
@@ -48,11 +48,11 @@ func (o *observerOutput) offer(s *Server, frames [][]byte) {
 		o.pendingBytes = 0
 		if s.observerMemory.Add(int64(n)) > observerMemoryLimit {
 			s.observerMemory.Add(-int64(n))
-			return
+			return false
 		}
 		o.pending = frames
 		o.pendingBytes = n
-		return
+		return true
 	}
 	s.observerMemory.Add(-int64(o.bytes))
 	o.frames = nil
@@ -60,10 +60,11 @@ func (o *observerOutput) offer(s *Server, frames [][]byte) {
 	o.at = 0
 	if s.observerMemory.Add(int64(n)) > observerMemoryLimit {
 		s.observerMemory.Add(-int64(n))
-		return
+		return false
 	}
 	o.frames = frames
 	o.bytes = n
+	return true
 }
 func (o *observerOutput) pop(s *Server) []byte {
 	o.mu.Lock()
@@ -95,16 +96,16 @@ func (o *observerOutput) pop(s *Server) []byte {
 }
 
 type observerSubscription struct {
-	delivered                      bool
-	source, viewer                 *Conn
-	watch, stream, term, epoch     uint32
-	touched, started, rateAt       time.Time
-	spent                          int
-	sequence, last, tick, crc, raw uint32
-	next, count                    uint16
-	data                           []byte
-	frames                         [][]byte
-	memory                         int
+	delivered                          bool
+	source, viewer                     *Conn
+	watch, stream, term, epoch         uint32
+	touched, started, progress, rateAt time.Time
+	spent                              int
+	sequence, last, tick, crc, raw     uint32
+	next, count                        uint16
+	data                               []byte
+	frames                             [][]byte
+	memory                             int
 }
 
 func (s *Server) clearObserverAssembly(v *observerSubscription) {
@@ -171,6 +172,15 @@ func (s *Server) observerBudget(n int) bool {
 	}
 	s.observerBudgetBytes += n
 	return true
+}
+func observerAssemblyExpired(v *observerSubscription, now time.Time) bool {
+	if v.count == 0 {
+		return false
+	}
+	if v.source.observerRevision == observerLocalRevision && v.viewer.observerRevision == observerLocalRevision {
+		return now.Sub(v.started) > 60*time.Second || now.Sub(v.progress) > 12*time.Second
+	}
+	return now.Sub(v.started) > 3*time.Second
 }
 func observerExpired(v *observerSubscription, now time.Time) bool {
 	if v.source.observerRevision == observerLocalRevision && v.viewer.observerRevision == observerLocalRevision {
@@ -252,7 +262,12 @@ func (s *Server) observerLocked(r *Room, c, t *Conn, typ uint16, p []byte, flow 
 			return
 		}
 		v := r.observer[c.seat]
-		fromViewer := v != nil && v.source == t && v.viewer == c
+		// Each endpoint may also be watching the other endpoint. Producer replies
+		// must select the destination viewer's subscription, even when a reverse
+		// subscription exists. STOP may originate at either end; match its full
+		// identity before selecting the viewer side, then try the producer side.
+		fromViewer := (p[3] == 3 || p[3] == 4) && v != nil && v.source == t && v.viewer == c &&
+			v.watch == watch && (p[3] != 4 || v.stream == stream)
 		if !fromViewer {
 			v = r.observer[t.seat]
 		}
@@ -306,7 +321,7 @@ func (s *Server) observerLocked(r *Room, c, t *Conn, typ uint16, p []byte, flow 
 	if seq == 0 || !observerNewer(seq, v.last) || count == 0 || count > 304 || part >= count || raw == 0 || raw > 1024*1024 || (c.observerRevision != observerLocalRevision && raw > 128*1024) || binary.LittleEndian.Uint32(p[28:]) != uint32(len(p)-40) {
 		return
 	}
-	if now.Sub(v.started) > 3*time.Second {
+	if observerAssemblyExpired(v, now) {
 		s.clearObserverAssembly(v)
 	}
 	if part == 0 {
@@ -320,6 +335,7 @@ func (s *Server) observerLocked(r *Room, c, t *Conn, typ uint16, p []byte, flow 
 		v.raw = raw
 		v.crc = crc
 		v.started = now
+		v.progress = now
 	}
 	if v.count == 0 || part != v.next || count != v.count || seq != v.sequence || tick != v.tick || raw != v.raw || crc != v.crc {
 		s.clearObserverAssembly(v)
@@ -327,7 +343,11 @@ func (s *Server) observerLocked(r *Room, c, t *Conn, typ uint16, p []byte, flow 
 	}
 	frame := envelope(p)
 	cost := len(p) - 40 + len(frame)
-	if len(v.data)+len(p)-40 > 64*1024 || s.observerMemory.Add(int64(cost)) > observerMemoryLimit {
+	if len(v.data)+len(p)-40 > 64*1024 {
+		s.clearObserverAssembly(v)
+		return
+	}
+	if s.observerMemory.Add(int64(cost)) > observerMemoryLimit {
 		s.observerMemory.Add(-int64(cost))
 		s.clearObserverAssembly(v)
 		return
@@ -336,6 +356,7 @@ func (s *Server) observerLocked(r *Room, c, t *Conn, typ uint16, p []byte, flow 
 	v.data = append(v.data, p[40:]...)
 	v.frames = append(v.frames, frame)
 	v.next++
+	v.progress = now
 	if v.next != v.count {
 		return
 	}
@@ -366,8 +387,6 @@ func (s *Server) observerLocked(r *Room, c, t *Conn, typ uint16, p []byte, flow 
 			if target == nil || target.source != c || target.delivered || target.viewer.observerRevision != observerLocalRevision || target.stream != v.stream || target.term != term || target.epoch != epoch {
 				continue
 			}
-			target.delivered = true
-			target.last = seq
 			out := make([][]byte, 0, len(frames))
 			for _, original := range frames {
 				f := append([]byte(nil), original...)
@@ -379,7 +398,10 @@ func (s *Server) observerLocked(r *Room, c, t *Conn, typ uint16, p []byte, flow 
 				binary.LittleEndian.PutUint32(f[at+4:], target.watch)
 				out = append(out, f)
 			}
-			target.viewer.observer.offer(s, out)
+			if target.viewer.observer.offer(s, out) {
+				target.delivered = true
+				target.last = seq
+			}
 			select {
 			case <-target.viewer.done:
 				target.viewer.observer.clear(s)

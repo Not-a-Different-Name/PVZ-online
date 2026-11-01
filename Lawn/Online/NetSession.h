@@ -526,6 +526,10 @@ public:
     uint32_t ObserverEpoch()const{return mReadyEpoch?mReadyEpoch:1;}
     bool HasObserverWatchers()const;
     bool ObserverCanCapture()const;
+    static constexpr uint16_t ObserverWorldBuild=106;
+    bool ObserverNeedsWorldSnapshot()const{bool found=false;for(uint8_t seat=1;seat<=6;++seat){const auto&v=mObserverViewers[seat];if(v.watch&&v.pending){if(GetSeatBuild(seat)<ObserverWorldBuild)return false;found=true;}}return found;}
+    void ObserverDisplayReady(uint32_t watch){if(watch==mObserverWatch&&watch)mObserverReceived=true;}
+
     bool CanWatchSeat(uint8_t seat)const{return IsConnected()&&seat>=1&&seat<=NetProto::MAX_PLAYERS&&seat!=mLocalSeat&&IsSeatOccupied(seat)&&!IsSeatOffline(seat)&&!IsWaitingForNextRound(seat)&&(!mCoopToken||mCoopPeers[seat]!=mCoopToken);}
     bool ObserverNeedsInitialCapture()const{for(const auto&v:mObserverViewers)if(v.watch&&v.pending)return true;return false;}
 
@@ -550,6 +554,7 @@ private:
     uint32_t mObserverLocalStream=0,mObserverRemoteStream=0,mObserverWatch=0,mObserverSeq=0;
     uint32_t mObserverEpoch=0,mObserverTerm=0;
     bool mObserverBoardActive=false,mObserverRelay=false,mObserverAccepted=false,mObserverReceived=false;
+    uint8_t mObserverTries=0;
     // P2P 打洞（观战第二期 P2P-a）：问候/探测端点发现；画面直连数据通道是 P2P-b。
     bool mObserverP2PEnabled=false;
     ObserverDirect::DirectLink mPunchLink;

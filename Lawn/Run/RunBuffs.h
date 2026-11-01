@@ -281,6 +281,9 @@ enum RunPlantBuff2Id
 	RUN_BUFF2_SHARED_FUMES, // Both fume/gloom damage +35% per stack, linear, unlimited, 2 stars.
 	RUN_BUFF2_ROOF_PEAS, // Ordinary/ice/fire peas follow roof slopes, one stack, 2 stars.
 	RUN_BUFF2_GARLIC_PULSE, // Garlic placement redirects the whole row; 2 stars, one stack.
+	RUN_BUFF2_GATLING_BARRAGE, // Gatling: 10% per volley, 60 shots/2s, 8s recovery, 3 stars, one stack.
+	RUN_BUFF2_TALLNUT_VITALITY, // 高坚果：厚重壁垒，生命+400%，3星1层，独立于耐砸。
+	RUN_BUFF2_KELP_SPIKES, // 海草：旱地缠刺，陆地地刺规则、水中仍缠绕，2星1层。
 	RUN_PLANT_BUFF2_COUNT
 };
 
@@ -288,6 +291,7 @@ enum RunPlantBuff2Id
 const RunPlantUpgradeDef& GetRunPlantBuff2Def(int theIndex);
 // 这株植物在第二表里的下标；表里没有（含 9 株删条）→ −1。
 int RunPlantBuff2IndexFor(SeedType thePlant);
+float RunTallNutHealthMultiplier(int stacks);
 // 第二表条目是否进抽取池：9 株删条天然不进；其余条目在各自消费端落地批才翻真
 //（未落消费端的条目不出——「抽到了没效果」比「抽不到」更伤）。RunState::RollChoices 过滤用。
 bool RunPlantBuff2InPool(int theIndex);
