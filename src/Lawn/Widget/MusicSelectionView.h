@@ -13,12 +13,13 @@ public:
     bool mError = false;
 
     static Sexy::Rect BackRect() { return Sexy::Rect(632, 26, 104, 44); }
-    static Sexy::Rect RowRect(int index) { return Sexy::Rect(24, 140 + index * 48, 712, 44); }
-    static Sexy::Rect AutoRect() { return Sexy::Rect(24, 456, 100, 44); }
-    static Sexy::Rect PreviewRect() { return Sexy::Rect(136, 456, 100, 44); }
-    static Sexy::Rect ApplyRect() { return Sexy::Rect(248, 456, 100, 44); }
-    static Sexy::Rect BossRect() { return Sexy::Rect(360, 456, 164, 44); }
-    static Sexy::Rect ArrowRect(bool next) { return Sexy::Rect(next ? 644 : 536, 456, 92, 44); }
+    static Sexy::Rect RowRect(int index) { return Sexy::Rect(24, 132 + index * 44, 712, 40); }
+    static Sexy::Rect AutoRect() { return Sexy::Rect(24, 428, 88, 44); }
+    static Sexy::Rect PreviewRect() { return Sexy::Rect(124, 428, 112, 44); }
+    static Sexy::Rect ApplyRect() { return Sexy::Rect(248, 428, 100, 44); }
+    static Sexy::Rect BossRect() { return Sexy::Rect(360, 428, 164, 44); }
+    static Sexy::Rect ArrowRect(bool next) { return Sexy::Rect(next ? 644 : 536, 428, 92, 44); }
+    static Sexy::Rect FooterRect() { return Sexy::Rect(24, 482, 712, 44); }
 
     static std::string TuneName(int tune)
     {
@@ -75,7 +76,7 @@ public:
         }
         SeatUi::Text(graphics, mStatus.empty() ? ModText::Tr(
             "选一首歌，可先「试听」，再点「应用」。", "Select a track, Preview it, then Apply.") : mStatus,
-            24, 447, 712, 15, mError ? Color(255, 140, 120) : body);
+            24, 416, 712, 16, mError ? Color(255, 140, 120) : body);
         SeatUi::Button(graphics, AutoRect(), ModText::Tr("原版", "Auto"), true, down == 200);
         SeatUi::Button(graphics, PreviewRect(), ModText::Tr("试听", "Preview"), mTune > 0, down == 201);
         SeatUi::Button(graphics, ApplyRect(), ModText::Tr("应用", "Apply"), true, down == 202);
@@ -85,6 +86,6 @@ public:
         SeatUi::Paragraph(graphics, ModText::Tr(
             "仅本机战斗生效；开启BOSS音乐后会临时切歌。\n试听不解除暂停；返回不保存。",
             "Local battles only. Enabled boss music temporarily overrides your track.\nPreview keeps the game paused. Back does not save."),
-            Rect(24, 508, 712, 44), 14, muted);
+            FooterRect(), 16, body);
     }
 };

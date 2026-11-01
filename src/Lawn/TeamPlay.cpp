@@ -31,24 +31,33 @@ using namespace TeamProgressionView;
 namespace {
 std::map<LawnApp*,std::unique_ptr<TeamPlay>> controllers;
 const char* Names(int id) {
-    const char* zh[]={"军备共享","胜利驰援","跨场火力","战前补给","坚固阵线","快速整备","阳光接力","末位救援"};
-    const char* en[]={"Shared arsenal","Victory relief","Cross-lawn firepower","Battle supplies","Fortified lines","Quick preparation","Sun relay","Last-seat rescue"};
+    const char* zh[]={"军备共享","胜利驰援","跨场火力","战前补给","坚固阵线","快速整备","阳光接力","末位救援","应急维修","借兵增援","全队补给","冰封支援","烈焰支援","装甲支援"};
+    const char* en[]={"Shared arsenal","Victory relief","Cross-lawn firepower","Battle supplies","Fortified lines","Quick preparation","Sun relay","Last-seat rescue","Emergency repair","Borrowed reinforcements","Team supplies","Ice aid","Flame aid","Armor aid"};
     return id>=0&&id<BUFFS?ModText::Tr(zh[id],en[id]):"";
 }
 std::string Description(int id) {
     switch(id){
-    case ARSENAL:return ModText::Tr("共享全队本局获得的植物与模仿者资格，不含个人增益和临时借卡。无尽禁用。最多1层。", "Share plants and Imitater earned this run, excluding personal buffs and loans. Disabled in endless. Max 1 stack.");
-    case RELIEF:return ModText::Tr("每关首人通关时，仍在战斗的队友每层获得200阳光，并刷新全部种子卡一次。最多3层。", "The first clear gives fighting teammates 200 sun per stack and refreshes all seed packets once. Max 3 stacks.");
-    case FIRE:return ModText::Tr("向队友赠送一张免费一次性樱桃卡，由队友选位使用。每层1爆，继承赠送者强化。付本人一次樱桃费，冷却20秒；每人限持1张，仅本关有效。最多3层。", "Give a free single-use Cherry card; the teammate chooses where to plant it. One blast per stack, using your upgrades. Pay your Cherry cost; 20s cooldown. One held card per player, this stage only. Max 3 stacks.");
-    case SUPPLY:return ModText::Tr("每关开局额外获得50阳光/层。最多3层。重新开始不重复领取。", "Start each stage with 50 extra sun per stack. Max 3 stacks. Retries do not grant it again.");
-    case FORTRESS:return ModText::Tr("全队植物最大生命增加30%/层，保留现有血量比例。最多3层。", "Plants gain 30% maximum health per stack, preserving their health percentage. Max 3 stacks.");
-    case READINESS:return ModText::Tr("种子卡冷却缩短5%/层，不影响植物技能或跨场火力冷却。最多3层。", "Seed packet cooldowns are 5% shorter per stack. Does not affect plant abilities or cross-lawn support. Max 3 stacks.");
-    case RELAY:return ModText::Tr("赠送100阳光，队友收到150/175/200阳光。收到的赠送阳光不能再次赠送，额外奖励不计赠送成就。最多3层。", "Spend 100 sun to give 150/175/200 sun. Gifted sun cannot be gifted again; bonus sun does not count toward gift achievements. Max 3 stacks.");
-    case RESCUE:return ModText::Tr("每关开局为漏怪传递链末位补回已消耗的小推车；不叠加，重新开始不重复补车。最多1层。", "Restore spent lawn mowers for the last player in the zombie relay at each stage start. No extra mowers or retry refreshes. Max 1 stack.");
+    case ARSENAL:return ModText::Tr("共享本局植物和模仿者。无尽禁用。", "Share this run's plants and Imitater. Disabled in endless.");
+    case RELIEF:return ModText::Tr("首人通关后，战斗中的队友获200阳光/层，并刷新种卡。", "First clear gives fighting teammates 200 sun/stack and refreshes seeds.");
+    case FIRE:return ModText::Tr("可以给队友送樱桃卡。每层多一爆。", "Give Cherry cards. One blast per stack.");
+    case SUPPLY:return ModText::Tr("每关开局多50阳光/层。", "Start each stage with 50 extra sun per stack.");
+    case FORTRESS:return ModText::Tr("全队植物生命+30%/层。", "Team plants gain 30% health per stack.");
+    case READINESS:return ModText::Tr("种子卡冷却缩短5%/层。", "Seed cooldowns are 5% shorter per stack.");
+    case RELAY:return ModText::Tr("送100阳光，队友收到150/175/200。", "Give 100 sun; your teammate receives 150/175/200.");
+    case RESCUE:return ModText::Tr("每关为漏怪接力末位补回已用小推车。", "Restore spent mowers for the last relay player each stage.");
+    case REPAIR:return ModText::Tr("收到队友阳光，全场植物回血30%。间隔30秒。", "Receive sun to heal all plants by 30%. 30s interval.");
+    case BORROW:return ModText::Tr("借来的植物攻击+30%。", "Borrowed plants deal 30% more attack damage.");
+    case GROUP_SUN:return ModText::Tr("送一次阳光，其他队友都收到。赠送冷却60秒。", "Give sun to all teammates at once. Gift cooldown: 60s.");
+    case ICE_AID:return ModText::Tr("可以给队友送寒冰菇卡。白天也能立即冰冻。", "Give Ice-shroom cards. Freeze immediately, even by day.");
+    case FIRE_AID:return ModText::Tr("可以给队友送辣椒卡。由队友选行使用。", "Give Jalapeno cards. Your teammate chooses the row.");
+    case ARMOR_AID:return ModText::Tr("可以给队友送南瓜卡，保护关键植物。", "Give Pumpkin cards to protect key plants.");
     default:return "";}
 }
 bool Same(const Context&a,const Context&b){return a.run==b.run&&a.player==b.player&&a.level==b.level&&a.attempt==b.attempt&&a.term==b.term&&a.revision==b.revision;}
 int AddSun(int current,int add){return int(std::min<int64_t>(INT_MAX,int64_t(current)+add));}
+int SupportBuffFor(int seed){switch(seed){case SEED_CHERRYBOMB:return FIRE;case SEED_ICESHROOM:return ICE_AID;case SEED_JALAPENO:return FIRE_AID;case SEED_PUMPKINSHELL:return ARMOR_AID;default:return -1;}}
+bool SnapshotBuffAllowed(int id,int seed){return id==RUN_BUFF_BLAST||id==RUN_BUFF_PRECISION||id==RUN_BUFF_ROOTED||id==RUN_BUFF_FIREPOWER||
+    (id>=RUN_BUFF_COUNT&&id<RUN_BUFF_COUNT+RUN_PLANT_UPGRADE_COUNT+RUN_PLANT_BUFF2_COUNT&&GetRunChoicePlant(id)==SeedType(seed));}
 uint64_t PlantMask(const RunState&r){uint64_t mask=0;for(auto p:r.mPool)if(p>=0&&p<=SEED_IMITATER)mask|=uint64_t(1)<<int(p);return mask;}
 }
 TeamPlay& TeamPlay::For(LawnApp*app){auto&c=controllers[app];if(!c)c=std::make_unique<TeamPlay>(app);return *c;}
@@ -125,6 +134,7 @@ std::vector<Member> TeamPlay::Members()const {
             (m.player==r->mTeam.player||(seat&&!s->IsSeatOffline(seat)&&!s->IsWaitingForNextRound(seat))))result.push_back(m);}
     return result;
 }
+std::vector<uint64_t> TeamPlay::SunTargets()const {std::vector<uint64_t> targets;auto*r=app->GetRunState();if(r)for(const auto&m:Members())if(m.player!=r->mTeam.player&&m.battle==FIGHTING)targets.push_back(m.player);return targets;}
 uint64_t TeamPlay::PlayerPlantMask(uint64_t player)const {
     auto*r=app->GetRunState();if(!r)return 0;
     auto found=peers.find(player);
@@ -140,7 +150,7 @@ void TeamPlay::BeginContext() {
     if(s.localLevel!=r->mLevelIndex||s.attempt!=Attempt()) {
         const bool newLevel=s.localLevel!=r->mLevelIndex;
         ExpireSupportCard();
-        s.localLevel=r->mLevelIndex;s.attempt=Attempt();s.lawn.clear();
+        s.localLevel=r->mLevelIndex;s.attempt=Attempt();s.lawn.clear();s.aidPlants.clear();s.aidFreezes.clear();s.repairCooldown=0;
         if((s.outgoing.phase==RESERVED||s.outgoing.phase==COMMITTED)&&
            (s.outgoing.level!=uint32_t(s.localLevel)||s.outgoing.attempt!=s.attempt))s.outgoing.phase=REJECTED;
         for(auto&receipt:s.receipts)if((receipt.strike.phase==ACCEPTED||receipt.strike.phase==COMMITTED)&&
@@ -295,25 +305,33 @@ void TeamPlay::GrantRelief() {
     b->PushCustomBanner(ModText::Tr("胜利驰援：阳光到账，种子卡已刷新","Victory relief: sun received; seed packets refreshed"));
 }
 int TeamPlay::CherryCost()const{return app->mBoard?app->mBoard->GetCurrentPlantCost(SEED_CHERRYBOMB,SEED_NONE):INT_MAX;}
-bool TeamPlay::CanSupport(uint64_t target,int row,int col,std::string&why)const {
+int TeamPlay::SupportCost(int seed)const{return app->mBoard&&SupportBuffFor(seed)>=0?app->mBoard->GetCurrentPlantCost(SeedType(seed),SEED_NONE):INT_MAX;}
+bool TeamPlay::CanSupport(uint64_t target,int row,int col,std::string&why,int seed)const {
     auto*r=app->GetRunState();auto*n=Session();
     if(!r||!app->mBoard||!n||!app->IsOnlineGame()||!n->IsConnected()||n->IsReconnecting()){why=ModText::Tr("需要在线队友","An online teammate is required");return false;}
     const auto&s=r->mTeam;auto found=peers.find(target);uint8_t seat=n->FindCoopSeat(target);
-    if(!s.shared.stacks[FIRE]||(!r->HasPlant(SEED_CHERRYBOMB)&&!s.shared.Has(SEED_CHERRYBOMB))){why=ModText::Tr("需要跨场火力与樱桃","Cross-lawn firepower and Cherry Bomb are required");return false;}
+    const int buff=SupportBuffFor(seed);
+    if(buff<0||!s.shared.stacks[buff]){why=ModText::Tr("需要对应支援增益","The matching aid buff is required");return false;}
     if(app->mGameScene!=SCENE_PLAYING||app->mRunIntroHeld||app->mBoardResult==BOARDRESULT_LOST||!seat||n->IsSeatOffline(seat)||n->IsWaitingForNextRound(seat)||target==s.player||found==peers.end()||found->second.level!=uint32_t(r->mLevelIndex)||found->second.attempt!=Attempt()||found->second.battle!=FIGHTING||!found->second.allow){why=ModText::Tr("队友须在本关战斗并允许支援","The teammate must be fighting this stage and allow support");return false;}
     if(s.cooldown>0||(s.outgoing.phase>=RESERVED&&s.outgoing.phase<=COMMITTED)){why=ModText::Tr("请等冷却结束或上次支援确认", "Wait for cooldown or the previous support confirmation");return false;}
-    if(found->second.hasSupportCard){why=ModText::Tr("队友已有一张樱桃支援卡","The teammate already holds a Cherry aid card");return false;}
-    if(app->mBoard->mSunMoney<CherryCost()){why=ModText::Tr("阳光不足","Not enough sun");return false;}
-    why=ModText::Tr("确认后赠送樱桃卡，扣除一次樱桃费用","Give a Cherry card for one Cherry Bomb cost");return true;
+    if(found->second.hasSupportCard){why=ModText::Tr("队友已有一张支援卡","The teammate already holds an aid card");return false;}
+    if(app->mBoard->mSunMoney<SupportCost(seed)){why=ModText::Tr("阳光不足","Not enough sun");return false;}
+    why=ModText::Tr("赠送此卡，扣除显示的阳光费用","Give this card for the displayed sun cost");return true;
 }
-void TeamPlay::StartSupport(uint64_t target,int row,int col) {
-    auto*r=app->GetRunState();std::string why;if(!CanSupport(target,row,col,why)){notice=why;return;}
+void TeamPlay::StartSupport(uint64_t target,int row,int col,int seed) {
+    auto*r=app->GetRunState();std::string why;if(!CanSupport(target,row,col,why,seed)){notice=why;return;}
     auto&s=r->mTeam;const auto before=s;auto*b=app->mBoard;const int sun=b->mSunMoney;
     Strike strike;strike.id=++s.serial;strike.caster=s.player;strike.target=target;strike.level=r->mLevelIndex;strike.attempt=Attempt();
-    strike.bursts=s.shared.stacks[FIRE];strike.phase=RESERVED;strike.row=0;strike.column=0;strike.cost=CherryCost();
+    strike.seed=uint8_t(seed);strike.bursts=s.shared.stacks[SupportBuffFor(seed)];strike.phase=RESERVED;strike.row=0;strike.column=0;strike.cost=SupportCost(seed);
+    // Unowned cards keep the base Strike values and an empty combat snapshot.
+    if(r->HasPlant(SeedType(seed))||s.shared.Has(seed)){
     strike.radius=int(std::clamp<double>(115.0*app->RunPlantUpgradeMul(SEED_CHERRYBOMB)+0.5,1,1000000));
     strike.damage=int(std::clamp<double>(1800.0*app->RunBuffMul(RUN_BUFF_BLAST)*app->RunBuffMul(RUN_BUFF_PRECISION)+0.5,1,INT_MAX));strike.scorch=std::clamp(app->RunPlantBuff2Count(SEED_CHERRYBOMB),0,65535);
     strike.scorchMultiplier=int(std::clamp<double>(1000.0*app->RunBuffMul(RUN_BUFF_PRECISION)+0.5,1,INT_MAX));
+    for(int id=0;id<RUN_BUFF_COUNT+RUN_PLANT_UPGRADE_COUNT+RUN_PLANT_BUFF2_COUNT;++id)if(SnapshotBuffAllowed(id,seed)){
+        int count=r->GetEffectiveBuffCount(id);if(count>0)strike.buffs.push_back({uint16_t(id),uint16_t(std::min(255,count))});}
+    }
+    if(strike.buffs.size()>16){notice=ModText::Tr("支援强化过多，未扣费","Too many aid traits; no sun spent");return;}
     if(s.outgoing.phase==DELIVERED||s.outgoing.phase==EXECUTED){
         if(s.sentCards.size()>=Admission::MAX_PLAYERS_HISTORY){
             auto done=std::find_if(s.sentCards.begin(),s.sentCards.end(),[](const Strike&x){return x.phase==EXECUTED;});
@@ -324,13 +342,27 @@ void TeamPlay::StartSupport(uint64_t target,int row,int col) {
     }
     s.outgoing=strike;b->mSunMoney-=strike.cost;SpendRestrictedSun(app,strike.cost);
     if(!Save(true)){s=before;b->mSunMoney=sun;return;}
-    Reply(strike,TeamWire::OFFER);quote=0;++viewRevision;notice=ModText::Tr("已扣阳光，正在送达樱桃支援卡", "Sun paid; delivering the Cherry aid card");
+    Reply(strike,TeamWire::OFFER);quote=0;++viewRevision;notice=ModText::Tr("已扣阳光，正在送达支援卡", "Sun paid; delivering the aid card");
 }
 void TeamPlay::Reply(const Strike&s,uint8_t op){auto m=Message(op);m.strike=s;Send(m,s.caster==m.sender?s.target:s.caster);}
 void TeamPlay::ExecuteBlast(Receipt&receipt) {
     auto*r=app->GetRunState();auto*b=app->mBoard;auto&s=receipt.strike;
     if(!r||!b||s.phase!=DELIVERED)return;
     if(s.level!=uint32_t(r->mLevelIndex)||s.attempt!=Attempt()||app->mBoardResult==BOARDRESULT_LOST||app->mGameScene!=SCENE_PLAYING){const auto before=s;s.phase=REJECTED;if(Save())Reply(s,TeamWire::RESULT);else s=before;return;}
+    if(s.seed!=SEED_CHERRYBOMB){
+        if(s.row>=6||s.column>=9||!b->mPlants.DataArrayCanAllocate()||b->CanPlantAt(s.column,s.row,SeedType(s.seed))!=PLANTING_OK)return;
+        const auto previous=r->mTeam;std::vector<unsigned char> lawn;if(!Capture(lawn))return;
+        const Strike frozen=s;const uint32_t oldCoin=r->mTeam.supportCoin;
+        TeamAttackContext::SnapshotScope snapshot(r,&frozen);
+        DamageStats::RemoteSource source(app->mDamageStats,s.caster,s.id);
+        auto*plant=b->AddPlant(s.column,s.row,SeedType(s.seed),SEED_NONE);if(!plant)return;
+        s.phase=EXECUTED; r->mTeam.aidPlants.push_back({b->mPlants.DataArrayGetID(plant),s});
+        if(auto*card=b->mCoins.DataArrayTryToGet(oldCoin))card->Die();r->mTeam.supportCoin=0;b->ClearCursor();
+        if(plant->mSeedType==SEED_ICESHROOM){plant->SetSleeping(false);plant->DoSpecial();}
+        else if(plant->mSeedType==SEED_JALAPENO)plant->DoSpecial();
+        if(!Save(true)){r->mTeam=previous;if(!Restore(lawn))b->mPaused=true;return;}
+        Reply(s,TeamWire::RESULT);return;
+    }
     const auto previous=r->mTeam;std::vector<unsigned char> lawn;if(!Capture(lawn))return;
     if(auto* card=b->mCoins.DataArrayTryToGet(r->mTeam.supportCoin))card->Die();
     r->mTeam.supportCoin=0;b->ClearCursor();
@@ -398,13 +430,13 @@ void TeamPlay::Handle(const TeamWire::Message&m) {
             return;
         }
         if(m.op!=TeamWire::OFFER||incoming.phase!=RESERVED)return;
-        if(receipt->strike.phase==ACCEPTED||receipt->strike.phase==COMMITTED||receipt->strike.phase==DELIVERED)return;
+        if(receipt->strike.phase==ACCEPTED||receipt->strike.phase==COMMITTED||receipt->strike.phase==DELIVERED){auto rejected=incoming;rejected.phase=REJECTED;Reply(rejected,TeamWire::RESULT);return;}
         receipt->sequence=incoming.id;receipt->strike=incoming;auto&t=receipt->strike;
         const auto peer=peers.find(m.sender);
         const bool valid=app->mBoard&&app->mGameScene==SCENE_PLAYING&&!app->mRunIntroHeld&&app->mBoardResult!=BOARDRESULT_LOST&&s.allow&&!HasSupportCard()&&
             t.level==uint32_t(r->mLevelIndex)&&t.attempt==Attempt()&&m.level==t.level&&m.attempt==t.attempt&&
-            t.bursts==s.shared.stacks[FIRE]&&s.shared.stacks[FIRE]>0&&peer!=peers.end()&&
-            ((peer->second.plants&(uint64_t(1)<<SEED_CHERRYBOMB))||s.shared.Has(SEED_CHERRYBOMB))&&
+            SupportBuffFor(t.seed)>=0&&t.bursts==s.shared.stacks[SupportBuffFor(t.seed)]&&s.shared.stacks[SupportBuffFor(t.seed)]>0&&peer!=peers.end()&&
+            std::all_of(t.buffs.begin(),t.buffs.end(),[&](const SupportBuff&b){return b.count<=255&&SnapshotBuffAllowed(b.id,t.seed);})&&
             t.row<((app->mBoard->StageHasPool())?6:5);
         t.phase=valid?ACCEPTED:REJECTED;
         if(Save())Reply(t,valid?TeamWire::ACCEPT:TeamWire::RESULT);else s=before;return;
@@ -438,7 +470,7 @@ void TeamPlay::Handle(const TeamWire::Message&m) {
         out.phase=incoming.phase;out.allDamage=incoming.allDamage;out.bossDamage=incoming.bossDamage;
         app->mDamageStats.AddSupportDamage(all,boss);dirty=true;
         if(!Save(true)){s=before;if(app->mBoard&&!previousStats.empty())app->mDamageStats.LoadSnapshot(app->mBoard,previousStats.data(),previousStats.size());return;}
-        notice=incoming.phase==DELIVERED?ModText::Tr("樱桃支援卡已送达","Cherry aid card delivered"):ModText::Tr("队友已使用樱桃支援卡","The teammate used the Cherry aid card");
+        notice=incoming.phase==DELIVERED?ModText::Tr("支援卡已送达","Aid card delivered"):ModText::Tr("队友已使用支援卡","The teammate used the aid card");
     }
 }
 void TeamPlay::NoteDamage(LawnApp*app,uint64_t caster,uint64_t strike,int amount,bool boss) {
@@ -483,7 +515,9 @@ void TeamPlay::Update() {
     // 仍为真但没有队友，那种局由 HoldPreparation/结算的 HasTeammates 门挡住。
     if(!r||!app->IsOnlineGame()){observed=nullptr;TeamPlayUi::Install(app,nullptr);return;}
     BeginContext();TeamPlayUi::Install(app,this);auto&s=r->mTeam;auto*n=Session();
-    if(s.cooldown>0&&app->mGameScene==SCENE_PLAYING&&app->mBoard&&!app->mBoard->mPaused)--s.cooldown;
+    if(app->mGameScene==SCENE_PLAYING&&app->mBoard&&!app->mBoard->mPaused&&!app->mRunIntroHeld){if(s.cooldown>0)--s.cooldown;if(s.repairCooldown>0)--s.repairCooldown;}
+    if(app->mBoard)s.aidPlants.erase(std::remove_if(s.aidPlants.begin(),s.aidPlants.end(),[&](const AidPlant&a){auto*p=app->mBoard->mPlants.DataArrayTryToGet(a.plant);return !p||p->mDead||a.strike.level!=uint32_t(r->mLevelIndex)||a.strike.attempt!=Attempt();}),s.aidPlants.end());
+    if(app->mBoard)s.aidFreezes.erase(std::remove_if(s.aidFreezes.begin(),s.aidFreezes.end(),[&](const AidFreeze&f){auto*z=app->mBoard->mZombies.DataArrayTryToGet(f.zombie);return !z||z->mDead||!z->mIceShroomTrap;}),s.aidFreezes.end());
     if(app->mGameScene==SCENE_PLAYING&&app->mBoard&&!app->mRunIntroHeld&&!baselineCaptured){
         if(recoverLawn){
             if(!Restore(s.lawn)){app->mBoard->mPaused=true;notice=ModText::Tr("草坪恢复失败，已保留存档","Lawn recovery failed; the save has been retained");return;}
@@ -587,10 +621,11 @@ Snapshot TeamPlay::ReadForUi(bool compact)const {
         auto found=peers.find(p.player);p.eligible=found!=peers.end()&&found->second.level==uint32_t(r->mLevelIndex)&&found->second.attempt==Attempt();
         if(found!=peers.end()){if(found->second.title)p.name+=" · "+std::string(TeamGoalsStorage::Name(found->second.title-1));p.allowSupport=found->second.allow;p.phase=found->second.battle==FIGHTING?ModText::Tr("战斗中","Fighting"):found->second.battle==CLEARED?ModText::Tr("已通关","Cleared"):found->second.battle==FAILED?ModText::Tr("本关失败","Defeated"):ModText::Tr("准备中","Preparing");}
         p.voteStatus=ModText::Tr("未参与本轮","Not in this vote");for(size_t i=0;i<6;++i)if(s.shared.ballot.players[i]==p.player)p.voteStatus=s.shared.ballot.votes[i]==-2?ModText::Tr("未投票","Not voted"):s.shared.ballot.votes[i]==-1?ModText::Tr("已弃权","Abstained"):ModText::Tr("已投票","Voted");out.peers.push_back(p);}
-    out.support.target=selected;out.support.quoteId=quote;out.support.row=quoteRow;out.support.column=quoteColumn;out.support.cost=CherryCost();out.support.cooldownSeconds=(s.cooldown+99)/100;
+    out.support.target=selected;out.support.quoteId=quote;out.support.row=quoteRow;out.support.column=quoteColumn;out.support.cost=SupportCost(selectedSeed);out.support.cooldownSeconds=(s.cooldown+99)/100;
     out.support.pending=s.outgoing.phase>=RESERVED&&s.outgoing.phase<=COMMITTED;
-    out.support.enabled=CanSupport(selected,quoteRow,quoteColumn,out.support.reason);
-    out.support.canConfirm=out.support.enabled&&quote&&quoteCost==CherryCost();
+    out.support.enabled=CanSupport(selected,quoteRow,quoteColumn,out.support.reason,selectedSeed);
+    out.support.canConfirm=out.support.enabled&&quote&&quoteCost==SupportCost(selectedSeed);
+    for(int seed:{int(SEED_CHERRYBOMB),int(SEED_ICESHROOM),int(SEED_JALAPENO),int(SEED_PUMPKINSHELL)}){SupportOption option;option.seed=seed;option.cost=SupportCost(seed);option.enabled=CanSupport(selected,0,0,option.reason,seed);out.supportOptions.push_back(option);}
     if(compact)return out;
     out.briefTitle=ModText::Tr("本局合作记录","Teamwork this run");out.briefSummary=ModText::Tr("跨场支援完成：","Cross-lawn supports completed: ")+std::to_string(s.supportCount);
     if(const auto*stats=app->mDamageStats.Local())out.damageSummary=ModText::Tr("本人有效伤害：","Your effective damage: ")+std::to_string(stats->mRunDamage.mAll);
@@ -615,9 +650,9 @@ void TeamPlay::Submit(const Intent&i) {
         else if(auto*n=Session())Send(m,n->mCoopPeers[n->GetHostSeat()]);return;}
     if(i.action==Action::SUPPORT_PERMISSION){const bool before=s.allow;s.allow=i.value!=0;if(!Save())s.allow=before;else{Report();++viewRevision;}return;}
     if(i.action==Action::SELECT_CELL){quote=0;quoteRow=i.row;quoteColumn=i.column;++viewRevision;return;}
-    if(i.action==Action::SUPPORT_PREVIEW){std::string why;quoteRow=0;quoteColumn=0;selected=i.target;
-        if(CanSupport(selected,quoteRow,quoteColumn,why)){quote=Admission::NewId();quoteCost=CherryCost();}else{quote=0;notice=why;}++viewRevision;return;}
-    if(i.action==Action::SUPPORT_CONFIRM){if(i.quoteId&&i.quoteId==quote&&i.target==selected&&i.row==quoteRow&&i.column==quoteColumn&&quoteCost==CherryCost())StartSupport(selected,quoteRow,quoteColumn);return;}
+    if(i.action==Action::SUPPORT_PREVIEW){std::string why;quoteRow=0;quoteColumn=0;selected=i.target;selectedSeed=i.value?i.value:int(SEED_CHERRYBOMB);
+        if(CanSupport(selected,quoteRow,quoteColumn,why,selectedSeed)){quote=Admission::NewId();quoteCost=SupportCost(selectedSeed);}else{quote=0;notice=why;}++viewRevision;return;}
+    if(i.action==Action::SUPPORT_CONFIRM){if(i.quoteId&&i.quoteId==quote&&i.target==selected&&i.row==quoteRow&&i.column==quoteColumn&&quoteCost==SupportCost(selectedSeed))StartSupport(selected,quoteRow,quoteColumn,selectedSeed);return;}
     if(i.action==Action::SUN_REQUEST&&app->mCoopPlay)app->mCoopPlay->RequestSun();
     if(i.action==Action::SUN_GIFT&&app->mCoopPlay)app->mCoopPlay->SendGift(i.target,0,true);
     if(i.action==Action::LOAN&&app->mCoopPlay)app->mCoopPlay->Show();
@@ -637,12 +672,15 @@ bool TeamPlay::HasSupportCard()const {
         (receipt.strike.phase==ACCEPTED||receipt.strike.phase==COMMITTED||receipt.strike.phase==DELIVERED))return true;
     return false;
 }
+float TeamPlay::BorrowMultiplier(LawnApp*app,int seed){auto*r=app->GetRunState();return r&&app->IsOnlineGame()&&!TeamAttackContext::snapshot&&r->mTeam.shared.stacks[BORROW]&&r->mLoanLevel==r->mLevelIndex&&r->mLoanPlant==seed?1.3f:1.0f;}
+const Strike* TeamPlay::PlantSupport(LawnApp*app,uint32_t plant){auto*r=app->GetRunState();if(r)for(const auto&a:r->mTeam.aidPlants)if(a.plant==plant&&a.strike.level==uint32_t(r->mLevelIndex)&&a.strike.attempt==r->mTeam.attempt)return &a.strike;return nullptr;}
 float TeamPlay::HealthMultiplier(LawnApp* app){auto*r=app->GetRunState();return r&&app->IsOnlineGame()?1.0f+0.30f*r->mTeam.shared.stacks[FORTRESS]:1.0f;}
 float TeamPlay::SeedMultiplier(LawnApp* app){auto*r=app->GetRunState();return r&&app->IsOnlineGame()?1.0f-0.05f*r->mTeam.shared.stacks[READINESS]:1.0f;}
 void TeamPlay::SpendRestrictedSun(LawnApp* app,int amount){if(auto*r=app->GetRunState())r->mTeam.restrictedSun=std::max(0,r->mTeam.restrictedSun-std::max(0,amount));}
 bool TeamPlay::IsSupportCard(LawnApp* app,uint32_t coin){auto*r=app->GetRunState();return r&&coin&&r->mTeam.supportCoin==coin;}
 bool TeamPlay::UseSupportCard(LawnApp* app,uint32_t coin,int row,int column){
     if(!IsSupportCard(app,coin))return false;
+    if(!app->mBoard||row<0||row>=(app->mBoard->StageHasPool()?6:5)||column<0||column>=9)return true;
     auto& c=For(app);auto*r=app->GetRunState();
     for(auto& receipt:r->mTeam.receipts)if(receipt.strike.phase==DELIVERED&&receipt.strike.level==uint32_t(r->mLevelIndex)&&receipt.strike.attempt==c.Attempt()){
         if(app->mBoard->mPaused||!c.BattleCheckpointReady())return true;
@@ -663,10 +701,10 @@ void TeamPlay::Execute(Receipt& receipt){
     if(!coin)return;
     // Present motion auto-collects after 80 frames; aid must wait for an explicit tap.
     coin->mCoinMotion=COIN_MOTION_FROM_SKY;coin->mVelX=coin->mVelY=0;
-    coin->mUsableSeedType=SEED_CHERRYBOMB;coin->mGroundY=110;coin->mDisappearCounter=0;
+    coin->mUsableSeedType=SeedType(strike.seed);coin->mGroundY=110;coin->mDisappearCounter=0;
     r->mTeam.supportCoin=b->mCoins.DataArrayGetID(coin);strike.phase=DELIVERED;
     if(!Save(true)){r->mTeam=previous;if(!Restore(lawn))b->mPaused=true;return;}
-    b->PushCustomBanner(ModText::Tr("收到樱桃支援卡：点击卡片后选择种植位置","Cherry aid received: tap the card, then choose where to plant"));
+    b->PushCustomBanner(ModText::Tr("收到支援卡：点卡片，再选使用位置","Aid received: tap the card, then choose where to use it"));
     Reply(strike,TeamWire::RESULT);Report();
 }
 void TeamPlay::GrantStageBuffs(){
@@ -694,7 +732,7 @@ void TeamPlay::GrantStageBuffs(){
 void TeamPlay::ExpireSupportCard(){
     auto*r=app->GetRunState();if(!r)return;auto&s=r->mTeam;
     if(s.supportCoin&&app->mBoard){auto*b=app->mBoard;
-        if(auto*coin=b->mCoins.DataArrayTryToGet(s.supportCoin);coin&&coin->mType==COIN_USABLE_SEED_PACKET&&coin->mUsableSeedType==SEED_CHERRYBOMB){
+        if(auto*coin=b->mCoins.DataArrayTryToGet(s.supportCoin);coin&&coin->mType==COIN_USABLE_SEED_PACKET&&SupportBuffFor(coin->mUsableSeedType)>=0){
             if(uint32_t(b->mCursorObject->mCoinID)==s.supportCoin)b->ClearCursor();
             coin->Die();
         }

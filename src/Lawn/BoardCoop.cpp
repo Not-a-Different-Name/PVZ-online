@@ -306,8 +306,8 @@ bool Board::CoopMouseDown(int x,int y,int clicks) {
     // Keep a late release out of lawn input even if focus loss clears HUD capture first.
     mIgnoreMouseUp=true;
     mCoopTouchCaptured=true;mCoopTouchAction=hit;mCoopTouchPeerLow=mCoopTouchPeerHigh=0;
-    if((hit>=101&&hit<=106)||(hit>=301&&hit<=306)) {
-        auto* s=RoomPresentation::Session(mApp);int seat=hit-(hit>=301?300:100);auto token=s->mCoopPeers[seat];mCoopTouchPeerLow=(uint32_t)token;mCoopTouchPeerHigh=(uint32_t)(token>>32);
+    if((hit>=101&&hit<=106)||(hit>=301&&hit<=306)||(hit>=401&&hit<=406)) {
+        auto* s=RoomPresentation::Session(mApp);int seat=hit-(hit>=401?400:hit>=301?300:100);auto token=s->mCoopPeers[seat];mCoopTouchPeerLow=(uint32_t)token;mCoopTouchPeerHigh=(uint32_t)(token>>32);
     }
 #ifdef __ANDROID__
     mTouchSeedDrag=false;mTouchSeedDragMoved=false;
@@ -319,8 +319,8 @@ bool Board::CoopMouseUp(int x,int y,int clicks) {
     int action=mCoopTouchAction;uint64_t peer=((uint64_t)mCoopTouchPeerHigh<<32)|mCoopTouchPeerLow;
     mCoopTouchCaptured=false;mCoopTouchAction=-1;mCoopTouchPeerLow=mCoopTouchPeerHigh=0;
     if(clicks<=0||(mPaused&&!CoopHud::HeldControlsAvailable(this))||!mApp->mActive||mApp->mMinimized||(!QuickChatAvailable()&&!CoopHud::Watching(this)&&!CoopHud::HeldControlsAvailable(this))||CoopHit(x,y)!=action)return true;
-    if((action>=101&&action<=106)||(action>=301&&action<=306)) {
-        auto* s=RoomPresentation::Session(mApp);int seat=action-(action>=301?300:100);
+    if((action>=101&&action<=106)||(action>=301&&action<=306)||(action>=401&&action<=406)) {
+        auto* s=RoomPresentation::Session(mApp);int seat=action-(action>=401?400:action>=301?300:100);
         if(!peer||s->mCoopPeers[seat]!=peer)return true;
     }
     CoopAction(action);return true;

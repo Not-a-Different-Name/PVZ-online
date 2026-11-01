@@ -20,6 +20,8 @@ inline void ApplyInitialHealth(Zombie* z) {
     using namespace RunSpeciesRules;
     if(z->mZombieType==ZombieType::ZOMBIE_ZAMBONI)
         z->mBodyHealth=ScalePositive(z->mBodyHealth,ZamboniHealthPermille(Count(z,FAST_ZAMBONI)));
+    if(z->mZombieType==ZombieType::ZOMBIE_POGO)
+        z->mBodyHealth=ScalePositive(z->mBodyHealth,LinearPermille(POGO_ASSAULT,Count(z,POGO_ASSAULT)));
     if(z->mZombieType==ZombieType::ZOMBIE_FOOTBALL) {
         const int p=LinearPermille(HEAVY_FOOTBALL,Count(z,HEAVY_FOOTBALL));
         z->mBodyHealth=ScalePositive(z->mBodyHealth,p);
@@ -39,7 +41,8 @@ inline int Attack(Zombie* z,int damage) {
 }
 inline float WalkFactor(Zombie* z) {
     const int id=z->mZombieType==ZombieType::ZOMBIE_ZAMBONI ? RunSpeciesRules::FAST_ZAMBONI :
-        z->mZombieType==ZombieType::ZOMBIE_JACK_IN_THE_BOX ? RunSpeciesRules::JACK_DEATH : -1;
+        z->mZombieType==ZombieType::ZOMBIE_JACK_IN_THE_BOX ? RunSpeciesRules::JACK_DEATH :
+        z->mZombieType==ZombieType::ZOMBIE_POGO ? RunSpeciesRules::POGO_ASSAULT : -1;
     return id<0 ? 1.0f : RunSpeciesRules::LinearPermille(id,Count(z,id))/1000.0f;
 }
 inline float VisualScale(Zombie* z) {

@@ -1,3 +1,4 @@
+#include "Lawn/Observer/ObserverIsolation.h"
 #include "../Run/RunSpeciesRuntime.h"
 /*
  * Copyright (C) 2026 Zhou Qiankang <wszqkzqk@qq.com>
@@ -3015,6 +3016,8 @@ bool LawnLoadGame(Board* theBoard, const std::string& theFilePath)
 
 bool LawnSaveGame(Board* theBoard, const std::string& theFilePath)
 {
+    if(ObserverIsolation::Active()){return false;}
+
 	theBoard->SyncLegacyWaveHealth();
 	std::vector<unsigned char> aPayload;
 	if (!WriteChunkV4(aPayload, SAVE4_CHUNK_BOARD_BASE, theBoard)) return false;

@@ -154,10 +154,10 @@ public:
             const char* on = ModText::Tr("开", "On");
             const char* off = ModText::Tr("关", "Off");
             std::string tools[] = {ModText::Tr("文字 / Language: ", "Language: ") + language,
-                std::string(ModText::Tr("植物生命 J: ", "Plant HP J: ")) + (plantHealth ? on : off),
-                std::string(ModText::Tr("僵尸生命 H: ", "Zombie HP H: ")) + (zombieHealth ? on : off),
+                std::string(ModText::Tr("植物生命: ", "Plant HP: ")) + (plantHealth ? on : off),
+                std::string(ModText::Tr("僵尸生命: ", "Zombie HP: ")) + (zombieHealth ? on : off),
                 std::string(ModText::Tr("划取阳光: ", "Slide to collect sun: ")) + (slideCollect ? on : off),
-                ModText::Tr("队友互助 B", "Teamwork B"),
+                ModText::Tr("队友互助", "Teamwork"),
                 std::string("P2P") + ModText::Tr("观战: ", " viewing: ") + (observerP2P ? on : off)};
             for (int index = 0; index < 6; ++index)
                 SeatUi::Button(graphics, ToolRect(index), tools[index].c_str(),
@@ -213,6 +213,6 @@ public:
         SeatUi::Text(graphics, ModText::Tr("详情 ", "Detail ") + std::to_string(detailPage + 1) + "/" + std::to_string(DetailCount(run)),
             392, 495, 266, 20, bodyColor, true);
         SeatUi::Text(graphics, ModText::Tr("借入仅本关有效；生效层数按实际规则，不相加。", "Loans last this level; active stacks follow the rules, not addition."),
-            24, 535, 712, 17, muted);
+            24, 535, 712, 17, bodyColor);
     }
 };

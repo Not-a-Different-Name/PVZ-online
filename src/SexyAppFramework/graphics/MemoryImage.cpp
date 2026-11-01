@@ -1,3 +1,5 @@
+#include "Lawn/Observer/ObserverIsolation.h"
+#include "PvzpLib/FilterEffect.h"
 /*
  * Portions of this file are based on the PopCap Games Framework
  * Copyright (C) 2005-2009 PopCap Games, Inc.
@@ -58,6 +60,7 @@ MemoryImage::MemoryImage(SexyAppBase* theApp)
 
 MemoryImage::~MemoryImage()
 {
+ if(ObserverIsolation::Active())FilterEffectForgetImage(this);
 	mApp->RemoveMemoryImage(this);
 }
 

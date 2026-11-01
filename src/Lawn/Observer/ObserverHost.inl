@@ -19,10 +19,25 @@ mBoard->IsWatchingView();
  if(type==2)return consumed||mObserverTextTail;
  if(type==0&&!consumed)mObserverTextTail=false;
  if(!consumed)return false;
+ // The platform pre-dispatch fence runs before WidgetManager repeat filtering.
+ const bool repeatedKey=type==0&&code>=0&&code<255&&mWidgetManager->mKeyDown[code];
+ const bool repeatedEscape=code==27&&repeatedKey;
  if(type==0||type==1){if(code>=0&&code<255)mWidgetManager->mKeyDown[code]=(type==0);}
  if(!watching)return true;
  if(type==0){
+  if(repeatedEscape)return true;
+  // Local viewing preferences never enter battle input or the snapshot wire.
+  if(code=='H'||code=='J'){
+   if(!repeatedKey){if(code=='H')mBoard->SetZombieHealthVisible(!mBoard->ZombieHealthVisible());else mBoard->SetPlantHealthVisible(!mBoard->PlantHealthVisible());mBoard->MarkDirty();}
+   return true;
+  }
+  const int watchKey=code>=96&&code<=105?'0'+code-96:code;
+  // Match the normal Board route: first close the transient picker, then exit
+  // on a separate press after release. No modal or battle pause is introduced.
+  if(code==27&&mDamageStats.mWatchPickerOpen){mDamageStats.mWatchPickerOpen=false;return true;}
   if(code==27||code=='V')mBoard->StopMobileWatch();else if(code==39)mBoard->CycleMobileWatch();
+  else if(code=='R'){if(!repeatedKey)mOnlineSession->BeginWatch(mOnlineSession->GetWatchTargetSeat());}
+  else if(watchKey>='1'&&watchKey<='0'+NetProto::MAX_PLAYERS){mOnlineSession->BeginWatch(uint8_t(watchKey-'0'));}
 
  }else if(type==1&&code=='V'){
 

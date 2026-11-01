@@ -8,6 +8,7 @@
 #include <sstream>
 #ifdef __ANDROID__
 #include "MobileCoopDraw.h"
+#include "graphics/CjkFont.h"
 #else
 #include "CjkStoneButton.h"
 #endif
@@ -15,9 +16,13 @@
 // @pvz-online: shared readable stone UI; layout and hit regions use the same rectangles.
 namespace SeatUi {
 using namespace Sexy;
+inline _Font* BodyFont(int size) {
+    auto* font=GetCjkUiFont(size);
+    return font?font:ModText::FontFor(FONT_DWARVENTODCRAFT18,size);
+}
 inline int Width(const std::string& text,int size) {
 #ifdef __ANDROID__
-    return ModText::FontFor(FONT_DWARVENTODCRAFT18,size)->StringWidth(text);
+    return BodyFont(size)->StringWidth(text);
 #else
     return ModText::TextWidth(ModText::GetFont(CjkPointSize(size),false),ModText::WideFromUtf8(text.c_str()));
 #endif
@@ -35,7 +40,7 @@ inline void Text(Graphics* g,std::string text,int x,int baseline,int width,int s
     Graphics line(*g);line.ClipRect(x,baseline-size-3,width,size+10);
     text=Fit(text,width,size);
 #ifdef __ANDROID__
-    auto* font=ModText::FontFor(FONT_DWARVENTODCRAFT18,size);
+    auto* font=BodyFont(size);
     line.SetFont(font);line.SetColor(color);
     line.DrawString(text,x+(center?(width-font->StringWidth(text))/2:0),baseline);
 #else

@@ -10,7 +10,7 @@ class TeamProgressionDialog : public Sexy::Widget
 public:
     enum class ControlKind { CLOSE, PAGE, VOTE, CHOICE_DETAILS, PEER, MODE, LIST_PAGE,
         TEXT_PAGE, TEXT_BACK, STATUS_DETAILS, SUN_REQUEST, SUN_GIFT, LOAN, WATCH,
-        SUPPORT_PREVIEW, SUPPORT_CONFIRM, PICK_CELL, CELL, PERMISSION, ENTRY };
+        SUPPORT_PREVIEW, SUPPORT_CONFIRM, PICK_CELL, CELL, PERMISSION, ENTRY, SUPPORT_CARD };
     struct Control
     {
         ControlKind kind;

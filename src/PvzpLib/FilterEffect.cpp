@@ -89,6 +89,14 @@ void HSL_to_RGB(float h, float sl, float l, float& r, float& g, float& b)
 
 ImageFilterMap gFilterMap[FilterEffect::NUM_FILTER_EFFECTS];
 
+void FilterEffectForgetImage(Image* image){
+ // The base image may belong to a short-lived observer cache. Remove derived
+ // entries before its address can be recycled for a different cached frame.
+ for(int i=0;i<NUM_FILTER_EFFECTS;++i){auto it=gFilterMap[i].find(image);if(it==gFilterMap[i].end())continue;
+ auto derived=std::move(it->second);gFilterMap[i].erase(it);derived.reset();
+ }
+}
+
 void FilterEffectInitForApp()
 {
 }

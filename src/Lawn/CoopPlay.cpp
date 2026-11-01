@@ -63,8 +63,18 @@ bool CoopPlay::SendGift(uint64_t token,uint32_t request,bool proactive) {
     auto*b=CoopBoard(app);auto*session=CoopSession(app);auto*run=app->GetRunState();
     const uint8_t seat=session?session->FindCoopSeat(token):0;
     if(!run||!b||!seat||session->IsSeatOffline(seat)||app->mGameScene!=SCENE_PLAYING||app->mRunIntroHeld||app->AdmissionBuilding()||
-       run->mTeam.gift.phase==TeamProgression::RESERVED||run->mTeam.giftCooldown>0||sunCooldown>0||b->mSunGiftCooldownFrames>0||b->mSunMoney-std::min(b->mSunMoney,run->mTeam.restrictedSun)<100){
+       run->mTeam.gift.phase==TeamProgression::RESERVED||std::any_of(run->mTeam.groupGifts.begin(),run->mTeam.groupGifts.end(),[](const auto&g){return g.phase==TeamProgression::RESERVED;})||run->mTeam.giftCooldown>0||sunCooldown>0||b->mSunGiftCooldownFrames>0||b->mSunMoney-std::min(b->mSunMoney,run->mTeam.restrictedSun)<100){
         notice=ModText::Tr("暂不能赠送：队友离线、上次未确认、阳光不足或冷却中", "Cannot give sun: teammate offline, previous gift pending, low sun or cooldown");return false;
+    }
+    if(run->mTeam.shared.stacks[TeamProgression::GROUP_SUN]){
+        const auto targets=TeamPlay::For(app).SunTargets();if(targets.empty()){notice=ModText::Tr("没有可接收阳光的战斗队友","No fighting teammate can receive sun");return false;}
+        const auto before=run->mTeam;const int sun=b->mSunMoney,oldCooldown=sunCooldown,oldBoard=b->mSunGiftCooldownFrames;
+        auto event=Message(CoopWire::SUN_GIFT);if(!event.serial)return false;
+        run->mTeam.groupGifts.clear();for(auto peer:targets){TeamProgression::Gift g;g.peer=peer;g.id=event.serial;g.run=event.run;g.level=event.level;g.attempt=event.attempt;g.proactive=true;g.phase=TeamProgression::RESERVED;run->mTeam.groupGifts.push_back(g);}
+        run->mTeam.coopSerial=event.serial;run->mTeam.giftCooldown=sunCooldown=b->mSunGiftCooldownFrames=6000;b->mSunMoney-=100;
+        if(!TeamPlay::SaveCoopTransaction(app)){run->mTeam=before;b->mSunMoney=sun;sunCooldown=oldCooldown;b->mSunGiftCooldownFrames=oldBoard;notice=ModText::Tr("无法保存，未扣阳光","Could not save; no sun spent");return false;}
+        giftWaiting=true;giftTicks=0;event.result=1;event.request=0;for(auto peer:targets)Send(event,peer);
+        notice=ModText::Tr("已向全队赠送阳光","Sun sent to the team");return true;
     }
     gift=Message(CoopWire::SUN_GIFT);if(!gift.serial)return false;gift.request=request;gift.target=token;gift.result=proactive?1:0;
     const auto before=run->mTeam;const int sun=b->mSunMoney,oldCooldown=sunCooldown,oldBoardCooldown=b->mSunGiftCooldownFrames;
@@ -268,7 +278,21 @@ void CoopPlay::Handle(const CoopWire::Event& e) {
     auto* session=CoopSession(app);auto* run=app->GetRunState();auto* board=CoopBoard(app);
     if(e.op==CoopWire::HELLO)return;
     if(e.op==CoopWire::SUN_RESULT) {
-        if(!run)return;auto&g=run->mTeam.gift;
+        if(!run)return;
+        auto group=std::find_if(run->mTeam.groupGifts.begin(),run->mTeam.groupGifts.end(),[&](const auto&g){return g.phase==TeamProgression::RESERVED&&e.sender==g.peer&&e.request==g.id&&e.run==g.run&&e.level==g.level&&e.attempt==g.attempt;});
+        if(group!=run->mTeam.groupGifts.end()){
+            if(e.plant>200)return;const auto before=run->mTeam;const int sun=board?board->mSunMoney:0,oldCooldown=sunCooldown,oldBoard=board?board->mSunGiftCooldownFrames:0;
+            const bool first=!std::any_of(run->mTeam.groupGifts.begin(),run->mTeam.groupGifts.end(),[](const auto&g){return g.phase==TeamProgression::EXECUTED&&g.actual>0;});
+            group->phase=e.result?TeamProgression::EXECUTED:TeamProgression::REJECTED;group->actual=e.result?e.plant:0;
+            if(e.result&&first)run->mTeam.giftSun=TeamGoals::Add(run->mTeam.giftSun,std::min(90,int(e.plant)));
+            const bool pending=std::any_of(run->mTeam.groupGifts.begin(),run->mTeam.groupGifts.end(),[](const auto&g){return g.phase==TeamProgression::RESERVED;});
+            const bool none=std::none_of(run->mTeam.groupGifts.begin(),run->mTeam.groupGifts.end(),[](const auto&g){return g.phase==TeamProgression::EXECUTED;});
+            const bool refund=!pending&&none&&board&&(uint32_t)run->mRunSeed==e.run&&(uint32_t)run->mLevelIndex==e.level&&CoopAttempt(app)==e.attempt;
+            if(refund){board->mSunMoney=int(std::min<int64_t>(INT_MAX,int64_t(sun)+100));run->mTeam.giftCooldown=sunCooldown=board->mSunGiftCooldownFrames=0;}
+            if(!TeamPlay::SaveCoopTransaction(app,refund)){run->mTeam=before;sunCooldown=oldCooldown;if(board){board->mSunMoney=sun;board->mSunGiftCooldownFrames=oldBoard;}return;}
+            giftWaiting=pending;notice=pending?ModText::Tr("全队赠送：等待其余队友到账","Team gift: awaiting remaining receipts"):refund?ModText::Tr("全队均未收到，已退回100阳光","No teammate received sun; 100 refunded"):ModText::Tr("全队阳光赠送已结算","Team sun gift settled");if(board)board->PushCustomBanner(notice.c_str());return;
+        }
+        auto&g=run->mTeam.gift;
         if(g.phase!=TeamProgression::RESERVED||e.sender!=g.peer||e.request!=g.id||e.run!=g.run||e.level!=g.level||e.attempt!=g.attempt||e.plant>200)return;
         const auto before=run->mTeam;const int sun=board?board->mSunMoney:0,oldCooldown=sunCooldown,oldBoardCooldown=board?board->mSunGiftCooldownFrames:0;
         const bool refunded=!e.result&&board&&(uint32_t)run->mRunSeed==g.run&&(uint32_t)run->mLevelIndex==g.level&&CoopAttempt(app)==g.attempt;
@@ -292,6 +316,7 @@ void CoopPlay::Handle(const CoopWire::Event& e) {
         }
         if(previous==records.end()&&records.size()>=Admission::MAX_PLAYERS_HISTORY){Send(reply,e.sender);return;}
         const auto before=run->mTeam;const int sun=board->mSunMoney;
+        struct HealthBefore {uint32_t id;int health,flash;};std::vector<HealthBefore> healed;
         reply.result=app->mGameScene==SCENE_PLAYING&&!app->mRunIntroHeld&&!app->AdmissionBuilding()&&e.run==(uint32_t)run->mRunSeed&&e.level==(uint32_t)run->mLevelIndex&&e.attempt==CoopAttempt(app)&&
             ((e.result==1&&e.request==0)||(e.result==0&&e.request==requestId&&(requestTicks>0||requestGrace>0)));
         if(reply.result){
@@ -299,10 +324,16 @@ void CoopPlay::Handle(const CoopWire::Event& e) {
             board->mSunMoney=int(std::min<int64_t>(INT_MAX,int64_t(sun)+amount));reply.plant=uint8_t(board->mSunMoney-sun);
             run->mTeam.restrictedSun=int(std::min<int64_t>(INT_MAX,int64_t(std::min(sun,run->mTeam.restrictedSun))+reply.plant));
         }
+        if(reply.result&&reply.plant&&run->mTeam.shared.stacks[TeamProgression::REPAIR]&&run->mTeam.repairCooldown==0){
+            Plant*p=nullptr;while(board->IteratePlants(p))if(!p->mDead&&!p->mSquished&&p->mPlantHealth>0&&p->mPlantHealth<p->mPlantMaxHealth){
+                healed.push_back({board->mPlants.DataArrayGetID(p),p->mPlantHealth,p->mEatenFlashCountdown});
+                p->mPlantHealth=int(std::min<int64_t>(p->mPlantMaxHealth,int64_t(p->mPlantHealth)+std::max<int64_t>(1,int64_t(p->mPlantMaxHealth)*30/100)));p->mEatenFlashCountdown=30;
+            }run->mTeam.repairCooldown=3000;
+        }
         TeamProgression::Gift record;record.peer=e.sender;record.id=e.serial;record.run=e.run;record.level=e.level;record.attempt=e.attempt;record.request=e.request;record.phase=reply.result?TeamProgression::EXECUTED:TeamProgression::REJECTED;record.actual=reply.plant;
         if(previous==records.end())records.push_back(record);else *previous=record;
-        if(!TeamPlay::SaveCoopTransaction(app)){run->mTeam=before;board->mSunMoney=sun;return;}
-        if(reply.result){board->mSunMoney=sun;board->GiveSunGift(reply.plant,e.src);}
+        if(!TeamPlay::SaveCoopTransaction(app)){run->mTeam=before;board->mSunMoney=sun;for(const auto&h:healed)if(auto*p=board->mPlants.DataArrayTryToGet(h.id)){p->mPlantHealth=h.health;p->mEatenFlashCountdown=h.flash;}return;}
+        if(reply.result){board->mSunMoney=sun;board->GiveSunGift(reply.plant,e.src);if(!healed.empty())board->PushCustomBanner(ModText::Tr("应急维修：全场植物回血","Emergency repair: all plants healed"));}
         Send(reply,e.sender);return;
     }
     if(!run||e.run!=(uint32_t)run->mRunSeed||e.level!=(uint32_t)run->mLevelIndex)return;
@@ -366,8 +397,8 @@ void CoopPlay::Handle(const CoopWire::Event& e) {
 void CoopPlay::Update() {
     auto* session=CoopSession(app);auto* run=app->GetRunState();
     if(run){sunCooldown=run->mTeam.giftCooldown;if(auto*b=CoopBoard(app))b->mSunGiftCooldownFrames=sunCooldown;}
-    giftWaiting=run&&run->mTeam.gift.phase==TeamProgression::RESERVED;
-    if(giftWaiting){const auto&g=run->mTeam.gift;gift={};gift.op=CoopWire::SUN_GIFT;gift.serial=g.id;gift.target=g.peer;gift.run=g.run;gift.level=g.level;gift.attempt=g.attempt;gift.request=g.request;gift.result=g.proactive?1:0;}
+    giftWaiting=run&&(run->mTeam.gift.phase==TeamProgression::RESERVED||std::any_of(run->mTeam.groupGifts.begin(),run->mTeam.groupGifts.end(),[](const auto&g){return g.phase==TeamProgression::RESERVED;}));
+    if(giftWaiting){const auto pending=std::find_if(run->mTeam.groupGifts.begin(),run->mTeam.groupGifts.end(),[](const auto&g){return g.phase==TeamProgression::RESERVED;});const auto&g=pending!=run->mTeam.groupGifts.end()?*pending:run->mTeam.gift;gift={};gift.op=CoopWire::SUN_GIFT;gift.serial=g.id;gift.target=g.peer;gift.run=g.run;gift.level=g.level;gift.attempt=g.attempt;gift.request=g.request;gift.result=g.proactive?1:0;}
     if(!run || !session||!session->IsConnected()) {
         if(!run){giftWaiting=false;pendingCancels.clear();}
         else CancelLoanRequest();
@@ -393,7 +424,11 @@ void CoopPlay::Update() {
     }
     if(hasIncoming && (--incomingTicks<=0||!Preparing()))Answer(false);
     if(loanWaiting && (--loanTicks<=0||!Preparing())){CancelLoanRequest();notice=ModText::Tr("借用申请已结束","Loan request ended");}
-    if(giftWaiting && ++giftTicks%100==0)Send(gift,gift.target); // retry same identity; no refund on uncertainty
+    if(giftWaiting && ++giftTicks%100==0){
+        if(std::any_of(run->mTeam.groupGifts.begin(),run->mTeam.groupGifts.end(),[](const auto&g){return g.phase==TeamProgression::RESERVED;})){
+            for(const auto&g:run->mTeam.groupGifts)if(g.phase==TeamProgression::RESERVED){auto event=gift;event.serial=g.id;event.target=g.peer;event.run=g.run;event.level=g.level;event.attempt=g.attempt;event.request=g.request;event.result=g.proactive?1:0;Send(event,g.peer);}
+        }else Send(gift,gift.target);
+    } // retry same identity; no refund on uncertainty
     CoopWire::Event event;while(session->TakeCoop(event))Handle(event);
 }
 

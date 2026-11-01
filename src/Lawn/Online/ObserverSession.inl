@@ -26,9 +26,14 @@ void NetSession::ObserverV2Tick(){
  if(IsRelay()&&((!mObserverRelay&&now-mObserverQueryAt>=2000)||(mObserverP2PEnabled&&mPunchAdvertised&&now-mObserverQueryAt>=25000))){uint8_t p[4];ObserverWireV2::Put32(p,ObserverRevision);SendRaw(0xF023,p,4);mObserverQueryAt=now;}
  TickObserverDirect(now);
  if(mObserverWatch){
-  if(!CanWatchSeat(mWatchTargetSeat)||
-    (!mObserverReceived&&now-mObserverPendingAt>90000)){
+  if(!CanWatchSeat(mWatchTargetSeat)||(!mObserverReceived&&now-mObserverPendingAt>=60000)){
    EndWatch(true);mWatchEndPending=WatchEnd::TIMEOUT;
+  }else if(!mObserverReceived&&now-mObserverLast>=12000){
+   if(mObserverTries>=3){EndWatch(true);mWatchEndPending=WatchEnd::TIMEOUT;}
+   else if(!ObserverRequestCooldown()){
+    const auto start=mObserverPendingAt;const auto tries=mObserverTries;const auto seat=mWatchTargetSeat;
+    if(BeginWatch(seat)){mObserverPendingAt=start;mObserverTries=uint8_t(tries+1);}
+   }
   }
  }
  // The authenticated gameplay connection already supplies liveness. No observer
@@ -41,7 +46,7 @@ void NetSession::HandleObserver(uint16_t type,const uint8_t*p,int n){
     (mTransport==Transport::DIRECT&&p[0]!=DirectPeerSeat())||(IsRelay()&&!mObserverRelay))return;
  const uint8_t src=p[0];const auto now=ObserverNow();
  if(type==31){if(!mObserverWatch||!mObserverAccepted||src!=mWatchTargetSeat)return;ObserverTransfer::Complete complete;
-  const auto progress=mObserverAssembler.Progress();if(mObserverAssembler.Accept(p,n,now,complete)){mObserverLast=now;mObserverReceived=true;if(mObserverInbox.size()>=2)mObserverInbox.pop_front();mObserverInbox.push_back(std::move(complete));}if(mObserverAssembler.Progress()!=progress)mObserverLast=now;return;}
+  const auto progress=mObserverAssembler.Progress();if(mObserverAssembler.Accept(p,n,now,complete)){mObserverLast=now;if(mObserverInbox.size()>=2)mObserverInbox.pop_front();mObserverInbox.push_back(std::move(complete));}if(mObserverAssembler.Progress()!=progress)mObserverLast=now;return;}
  ObserverWireV2::Control c;if(!ObserverWireV2::DecodeControl(p+2,n-2,c)||c.roundEpoch!=ObserverEpoch()||c.features!=ObserverRevision||c.flags||c.budgetKbps!=24*1024)return;
  using Op=ObserverWireV2::ControlOp;
  if(c.op==Op::BEGIN){
@@ -53,13 +58,13 @@ void NetSession::HandleObserver(uint16_t type,const uint8_t*p,int n){
  if(c.op==Op::STOP){auto&v=mObserverViewers[src];if(v.watch==c.watchId&&v.stream==c.boardStream){mPunchLink.Cancel(DirectContext(src,true));v={};mLink.ClearObserverOutput(src);}if(src==mWatchTargetSeat&&c.watchId==mObserverWatch)ClearWatchState(WatchEnd::SILENT);return;}
  if(src!=mWatchTargetSeat||c.watchId!=mObserverWatch)return;
  if(c.op==Op::ACCEPT){if(mObserverAccepted&&c.boardStream!=mObserverRemoteStream){EndWatch(true);return;}mObserverRemoteStream=c.boardStream;mObserverAccepted=true;mObserverAssembler.Context(src,mLocalSeat,mObserverWatch,c.boardStream,ObserverEpoch());}
- if((c.op==Op::BUSY||c.op==Op::UNSUPPORTED)&&!mObserverReceived){EndWatch(true);mWatchEndPending=WatchEnd::TIMEOUT;}
+ if((c.op==Op::BUSY||c.op==Op::UNSUPPORTED)&&!mObserverReceived){mObserverAccepted=false;mObserverLast=now;mObserverInbox.clear();mObserverAssembler.Reset();}
 }
 bool NetSession::SendObserverDisplay(const std::vector<uint8_t>&body,uint32_t tick){
  if(!ObserverCanCapture())return false;
  bool directSent=false;const auto now=ObserverNow();
  for(uint8_t seat=1;seat<=6;++seat){auto c=DirectContext(seat,true);
-  if(c.Valid()&&mPunchLink.Writable(c)&&now-mDirectSentAt[seat]>=mPunchLink.Interval(c)){
+  if(GetSeatBuild(seat)<ObserverWorldBuild&&c.Valid()&&mPunchLink.Writable(c)&&now-mDirectSentAt[seat]>=mPunchLink.Interval(c)){
    if(mPunchLink.Queue(c,body,tick,now)){mDirectSentAt[seat]=now;directSent=true;}
   }
  }
@@ -98,7 +103,7 @@ uint64_t NetSession::ObserverDirectInterval()const{return IsObserverDirect()?mPu
 bool NetSession::ObserverCanCapture()const{
  if(!HasObserverWatchers())return false;auto now=ObserverNow();
  if(mLink.ObserverWritable())for(auto&v:mObserverViewers)if(v.watch&&v.pending)return true;
- for(uint8_t peer=1;peer<=6;++peer){auto c=DirectContext(peer,true);if(c.Valid()&&mPunchLink.Writable(c)&&now-mDirectSentAt[peer]>=mPunchLink.Interval(c))return true;}
+ for(uint8_t peer=1;peer<=6;++peer){auto c=DirectContext(peer,true);if(GetSeatBuild(peer)<ObserverWorldBuild&&c.Valid()&&mPunchLink.Writable(c)&&now-mDirectSentAt[peer]>=mPunchLink.Interval(c))return true;}
  return false;
 }
 void NetSession::TickObserverDirect(uint64_t now){
@@ -132,7 +137,7 @@ void NetSession::TickObserverDirect(uint64_t now){
  while(mPunchLink.Take(frame)){
   auto c=DirectContext(mWatchTargetSeat,false);
   if(!mObserverWatch||!mObserverAccepted||!(frame.context==c)||mPunchFailedWatch==mObserverWatch||!mPunchLink.Ready(c))continue;
-  mObserverDirectAt=mObserverLast=now;mObserverReceived=true;mPunchAttempts=0;
+  mObserverDirectAt=mObserverLast=now;mPunchAttempts=0;
   ObserverTransfer::Complete out{c.src,c.dst,c.watch,c.stream,frame.sequence,frame.tick,c.epoch,ObserverWireV2::Get32(frame.data.data()+1),std::move(frame.data),true};
   if(mObserverInbox.size()>=2)mObserverInbox.pop_front();mObserverInbox.push_back(std::move(out));
  }

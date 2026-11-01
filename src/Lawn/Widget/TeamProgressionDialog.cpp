@@ -1,3 +1,4 @@
+#include "../Run/TeamProgressionState.h"
 #include "TeamProgressionDialog.h"
 #include "NameplateDraw.h"
 #include "NameplatePresentation.h"
@@ -222,22 +223,23 @@ void TeamProgressionDialog::Layout()
             const auto& peer=mSnapshot.peers[index];
             Add(ControlKind::PEER,Rect(48+(index%3)*240,212+(index/3)*56,224,50),"",index,peer.player!=0,peer.player,0,0,peer.player==mSelectedPeer);
         }
-        const char* modes[]={ModText::Tr("阳光","Sun"),ModText::Tr("借用","Loan"),ModText::Tr("观战","Watch"),ModText::Tr("樱桃支援","Cherry aid")};
+        const char* modes[]={ModText::Tr("阳光","Sun"),ModText::Tr("借用","Loan"),ModText::Tr("观战","Watch"),ModText::Tr("支援卡","Aid cards")};
         for(int index=0;index<4;++index)Add(ControlKind::MODE,Rect(48+index*178,332,166,44),modes[index],index,true,0,0,0,index==mMode);
         if(mMode==0)
         {
             Add(ControlKind::SUN_REQUEST,Rect(48,500,276,44),ModText::Tr("请求阳光","Request sun"),0,CanAct());
-            Add(ControlKind::SUN_GIFT,Rect(476,500,276,44),ModText::Tr("赠送阳光","Give sun"),0,CanTarget(),mSelectedPeer);
+            Add(ControlKind::SUN_GIFT,Rect(476,500,276,44),std::any_of(mSnapshot.teamEffects.begin(),mSnapshot.teamEffects.end(),[](const Effect&e){return e.id==TeamProgression::GROUP_SUN;})?ModText::Tr("全队阳光100","Team sun 100"):ModText::Tr("赠送阳光100","Give 100 sun"),0,CanTarget(),mSelectedPeer);
         }
         if(mMode==1)Add(ControlKind::LOAN,Rect(440,500,312,44),ModText::Tr("打开借用目录","Open loan catalog"),0,CanTarget(),mSelectedPeer);
         if(mMode==2)Add(ControlKind::WATCH,Rect(440,500,312,44),ModText::Tr("查看队友草坪","Watch teammate"),0,CanTarget(),mSelectedPeer);
         if(mMode==3)
         {
-            Add(ControlKind::SUPPORT_PREVIEW,Rect(256,500,196,44),ModText::Tr("核对花费","Check cost"),0,CanTarget()&&!mSnapshot.support.pending,mSelectedPeer);
-            Add(ControlKind::SUPPORT_CONFIRM,Rect(464,500,288,44),mSnapshot.support.pending?ModText::Tr("待确认","Pending"):ModText::Tr("赠送樱桃卡","Give Cherry card"),mSnapshot.support.cost,CanSupport(),mSelectedPeer,mSnapshot.support.quoteId,
-                std::clamp(mSnapshot.support.row,-1,5)*9+std::clamp(mSnapshot.support.column,-1,8));
+            for(size_t index=0;index<mSnapshot.supportOptions.size()&&index<4;++index){const auto&option=mSnapshot.supportOptions[index];
+                std::string label=std::string(GetRunPlantName(SeedType(option.seed)))+" "+std::to_string(option.cost);
+                Add(ControlKind::SUPPORT_CARD,Rect(48+(index%2)*360,388+(index/2)*56,344,48),label,option.seed,CanTarget()&&option.enabled,mSelectedPeer);
+            }
             const auto own=std::find_if(mSnapshot.peers.begin(),mSnapshot.peers.end(),[this](const Peer& peer){return peer.player==mSnapshot.context.player;});
-            if(own!=mSnapshot.peers.end())Add(ControlKind::PERMISSION,Rect(48,440,244,44),own->allowSupport?ModText::Tr("撤回我的许可","Revoke my consent"):ModText::Tr("允许支援我","Allow aid to me"),own->allowSupport?0:1,CanAct(),mSnapshot.context.player);
+            if(own!=mSnapshot.peers.end())Add(ControlKind::PERMISSION,Rect(48,500,244,44),own->allowSupport?ModText::Tr("接收支援 开","Accept aid ON"):ModText::Tr("接收支援 关","Accept aid OFF"),own->allowSupport?0:1,CanAct(),mSnapshot.context.player);
         }
         return;
     }
@@ -316,6 +318,9 @@ void TeamProgressionDialog::Activate(Control control)
     case ControlKind::SUN_GIFT:Submit(Action::SUN_GIFT,0,control.target);return;
     case ControlKind::LOAN:Submit(Action::LOAN,0,control.target);return;
     case ControlKind::WATCH:Submit(Action::WATCH,0,control.target);return;
+    case ControlKind::SUPPORT_CARD:{
+        Submit(Action::SUPPORT_PREVIEW,control.value,control.target,0,0,0);Refresh();
+        if(mSnapshot.support.canConfirm)Submit(Action::SUPPORT_CONFIRM,control.value,control.target,mSnapshot.support.quoteId,0,0);return;}
     case ControlKind::SUPPORT_PREVIEW:Submit(Action::SUPPORT_PREVIEW,0,control.target,0,mDesiredRow,mDesiredColumn);return;
     case ControlKind::SUPPORT_CONFIRM:
         Submit(Action::SUPPORT_CONFIRM,0,control.target,control.quote,0,0);return;
@@ -426,16 +431,14 @@ void TeamProgressionDialog::DrawPeers(Graphics* graphics) const
 {
     if(mMode==3)
     {
-        const auto& support=mSnapshot.support;
-        const std::string quote=ModText::Tr("消耗阳光：","Sun cost: ")+std::to_string(support.cost)+
-            ModText::Tr(" · 剩余冷却 "," · Cooldown ")+std::to_string(support.cooldownSeconds);
-        Lines(graphics,quote,Rect(312,388,440,48),18,Color(245,230,165));
-        Lines(graphics,support.reason,Rect(312,440,440,48),16,Color(225,225,205));
-        SeatUi::Text(graphics,ModText::Tr("队友自行放置支援卡","Teammate places the card"),48,412,244,18,Color(235,230,210));
+        const auto&support=mSnapshot.support;
+        const std::string info=ModText::Tr("本人付费，队友免费使用。共用冷却 ","You pay; teammate uses free. Shared cooldown ")+std::to_string(support.cooldownSeconds)+"s";
+        Lines(graphics,info,Rect(310,500,442,44),16,Color(245,230,165));
     }
     else
     {
-        const char* descriptions[]={ModText::Tr("选队友赠送阳光：付100，通常到账90；阳光接力提高到账量。赠送阳光不能再次赠送。", "Give sun: pay 100, normally receive 90; Sun relay increases delivery. Gifted sun cannot be gifted again."),
+        const bool groupSun=std::any_of(mSnapshot.teamEffects.begin(),mSnapshot.teamEffects.end(),[](const Effect&e){return e.id==TeamProgression::GROUP_SUN;});
+        const char* descriptions[]={groupSun?ModText::Tr("付100阳光，其他战斗队友都能收到。赠送冷却60秒。","Pay 100 sun for all fighting teammates. Gift cooldown: 60s."):ModText::Tr("选队友赠送阳光：付100，通常到账90；阳光接力提高到账量。赠送阳光不能再次赠送。", "Give sun: pay 100, normally receive 90; Sun relay increases delivery. Gifted sun cannot be gifted again."),
             ModText::Tr("选队友，再打开借用目录申请植物。", "Choose a teammate, then open the loan catalog."),
             ModText::Tr("选择队友查看草坪；你自己的战斗仍会继续。","Choose a teammate to watch. Your own battle continues.")};
         Lines(graphics,descriptions[mMode],Rect(48,404,704,80),20,Color(235,230,210));

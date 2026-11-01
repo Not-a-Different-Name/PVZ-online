@@ -51,6 +51,7 @@ class CjkFont final : public _Font
     std::shared_ptr<FontData> data;
     std::shared_ptr<RasterCache> cache = std::make_shared<RasterCache>();
     float scale;
+    int textHeight;
     Glyph& GetGlyph(char32_t cp)
     {
         auto found = cache->glyphs.find(cp);
@@ -74,13 +75,13 @@ class CjkFont final : public _Font
         return glyph;
     }
 public:
-    CjkFont(std::shared_ptr<FontData> fontData, int height) : data(std::move(fontData))
+    CjkFont(std::shared_ptr<FontData> fontData, int height, bool emSize = false) : data(std::move(fontData)), textHeight(height)
     {
-        scale = stbtt_ScaleForPixelHeight(&data->info, height);
+        scale = emSize ? stbtt_ScaleForMappingEmToPixels(&data->info, height) : stbtt_ScaleForPixelHeight(&data->info, height);
         int ascent, descent, gap;
         stbtt_GetFontVMetrics(&data->info, &ascent, &descent, &gap);
         mAscent = static_cast<int>(std::ceil(ascent * scale));
-        mHeight = height;
+        mHeight = emSize ? static_cast<int>(std::ceil((ascent - descent) * scale)) : height;
         mAscentPadding = 0;
         mLineSpacingOffset = static_cast<int>(std::ceil(gap * scale));
     }
@@ -107,7 +108,7 @@ public:
         if(auto*capture=dynamic_cast<Observer::DrawRecorder*>(g->mDestImage)){
             // Text commands use a top-left origin and point size on both platforms.
             capture->Text(std::string(text),x+int(g->mTransX),y-mAscent+int(g->mTransY),
-                int(std::round(mHeight*72.0/96.0)),false,color,clip);return;
+                int(std::round(textHeight*72.0/96.0)),false,color,clip);return;
         }
         Graphics draw(*g);
         draw.SetColorizeImages(true);
@@ -132,15 +133,18 @@ public:
 std::map<int, std::unique_ptr<CjkFont>>* fonts = new std::map<int, std::unique_ptr<CjkFont>>;
 }
 
-_Font* GetCjkFont(int height)
+static _Font* GetFontAtHeight(int height, bool emSize)
 {
     static auto data = std::make_shared<FontData>();
     if (!data->valid) return nullptr;
     height = std::clamp(height, 10, 72);
-    auto& font = (*fonts)[height];
-    if (!font) font = std::make_unique<CjkFont>(data, height);
+    auto& font = (*fonts)[emSize ? -height : height];
+    if (!font) font = std::make_unique<CjkFont>(data, height, emSize);
     return font.get();
 }
+
+_Font* GetCjkFont(int height) { return GetFontAtHeight(height, false); }
+_Font* GetCjkUiFont(int height) { return GetFontAtHeight(height, true); }
 
 void ClearCjkFonts() { fonts->clear(); }
 }

@@ -26,6 +26,7 @@ struct Peer {
 };
 struct Effect { int id=-1,stacks=0; std::string name,description,source; };
 struct Goal { std::string name,description,progress; int progressPermille=0; bool earned=false; };
+struct SupportOption {int seed=2,cost=0;bool enabled=false;std::string reason;};
 struct Support {
     uint64_t target=0, quoteId=0;
     int row=-1,column=-1,cost=0,cooldownSeconds=0;
@@ -43,6 +44,7 @@ struct Snapshot {
     std::vector<Effect> teamEffects,personalEffects;
     std::vector<Goal> goals;
     Support support;
+    std::vector<SupportOption> supportOptions;
 };
 struct Intent {
     Action action=Action::CLOSE;

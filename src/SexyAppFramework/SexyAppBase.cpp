@@ -1,3 +1,4 @@
+#include "Lawn/Observer/ObserverIsolation.h"
 /*
  * Portions of this file are based on the PopCap Games Framework
  * Copyright (C) 2005-2009 PopCap Games, Inc.
@@ -416,8 +417,8 @@ SexyAppBase::~SexyAppBase()
 	mDialogMap.clear();
 	mDialogList.clear();
 
-	delete gFPSImage;
-	gFPSImage = nullptr;
+	if(!ObserverIsolation::Active())delete gFPSImage;
+	if(!ObserverIsolation::Active())gFPSImage = nullptr;
 
 	SharedImageMap::iterator aSharedImageItr = mSharedImageMap.begin();
 	while (aSharedImageItr != mSharedImageMap.end())
@@ -1007,6 +1008,8 @@ double SexyAppBase::GetLoadingThreadProgress()
 
 bool SexyAppBase::RegistryWrite(const std::string& theValueName, uint32_t theType, const uchar* theValue, uint32_t theLength)
 {
+    if(ObserverIsolation::Active()){return false;}
+
 	if (mRegKey.length() == 0)
 		return false;
 
@@ -1098,6 +1101,8 @@ void SexyAppBase::WriteToRegistry()
 
 bool SexyAppBase::RegistryEraseKey(const std::string& _theKeyName)
 {
+    if(ObserverIsolation::Active()){return false;}
+
 	std::string theKeyName = _theKeyName;
 	if (mRegKey.length() == 0)
 		return false;
@@ -1365,6 +1370,8 @@ void SexyAppBase::ReadFromRegistry()
 
 bool SexyAppBase::WriteBytesToFile(const std::string& theFileName, const void *theData, unsigned long theDataLen)
 {
+    if(ObserverIsolation::Active()){return false;}
+
 	if ((mPlayingDemoBuffer) && IsOnPrimaryThread())
 	{
 		if (mManualShutdown)
@@ -1415,6 +1422,8 @@ bool SexyAppBase::WriteBytesToFile(const std::string& theFileName, const void *t
 
 bool SexyAppBase::WriteBufferToFile(const std::string& theFileName, const Buffer* theBuffer)
 {
+    if(ObserverIsolation::Active()){return false;}
+
 	return WriteBytesToFile(theFileName,theBuffer->GetDataPtr(),theBuffer->GetDataLen());
 }
 
@@ -1534,6 +1543,8 @@ bool SexyAppBase::FileExists(const std::string& theFileName)
 
 bool SexyAppBase::EraseFile(const std::string& theFileName)
 {
+    if(ObserverIsolation::Active()){return false;}
+
 	if (mPlayingDemoBuffer)
 		return true;
 

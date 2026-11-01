@@ -127,7 +127,7 @@ void AchievementsWidget::Update() {
 }
 
 void AchievementsWidget::Draw(Graphics* g) {
-    if(mGrowthPage){if(!mGrowthCollection)mGrowthCollection=std::make_unique<GrowthCollectionView>(mApp);mGrowthCollection->Draw(g);SeatUi::Button(g,Rect(640,22,144,44),ModText::Tr("常规成就","Achievements"),true);return;}
+    if(mGrowthPage){if(!mGrowthCollection)mGrowthCollection=std::make_unique<GrowthCollectionView>(mApp);mGrowthCollection->Draw(g);SeatUi::Button(g,Rect(640,22,144,44),ModText::Tr("常规成就","Back"),true);return;}
 
 	g->DrawImage(IMAGE_SELECTORSCREEN_ACHIEVEMENTS_BG, 0, 0);
 

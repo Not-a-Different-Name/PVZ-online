@@ -1,0 +1,5 @@
+# MOD109 sources
+
+MOD109 adds base support cards without plant ownership, opt-out support receiving, Dryland Thorns for Kelp and a separate Tall-nut health trait. It includes MOD105–108 battle watching, compact teammate actions, save recovery, cooperation and stability changes. PC and MuMu native tests each passed 311 checks, Full Auto each passed 16 checks, and independent PC+MuMu live flow passed 41 checks. These are controlled native engine scenarios, not physical handset or six-household long-game certification. The Android APK rebuilds native code and reuses source-identical Java/resources from the verified complete package. SOURCE-MAP.json records the accepted files and keeps the previous remote history.
+
+PC: VS2022 MSVC x86, CMake/Ninja Release. Extract Source-Dependencies.zip beside the checkout to supply third_party. Android: SDK36/min24, NDK28.2.13676358, arm64, CMake3.22.1 and Gradle8.12. Licensed dependencies are retained; signed full player packages are in Releases. No player data, credentials or signing keys are included.

@@ -46,6 +46,8 @@ public:
     int mSetting = DEFAULT_SETTING;
     int mOpen = 0, mPage = 0, mPressed = -1;
     bool mCaptured = false;
+    // Transient HUD selection state; never serialized into a battle or save.
+    bool mWatchPickerOpen = false;
     bool mSettingsError = false;
     bool mPartial = false;
     bool mActive = false;

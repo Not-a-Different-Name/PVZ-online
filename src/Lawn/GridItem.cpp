@@ -1,3 +1,4 @@
+#include "Lawn/Observer/ObserverIsolation.h"
 /*
  * Copyright (C) 2026 Zhou Qiankang <wszqkzqk@qq.com>
  *
@@ -39,7 +40,7 @@ using namespace Sexy;
 
 GridItem::GridItem()
 {
-	mApp = (LawnApp*)gSexyAppBase;
+	mApp = ObserverIsolation::Active()?gLawnApp:static_cast<LawnApp*>(gSexyAppBase);
 	mPosX = 0.0f;
 	mPosY = 0.0f;
 	mBoard = mApp->mBoard;

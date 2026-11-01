@@ -1,3 +1,5 @@
+#include "Lawn/System/PerformanceMonitor.h"
+#include "Lawn/Observer/ObserverIsolation.h"
 #include "Lawn/Widget/PlayerMessageBox.h"
 #include "Lawn/Widget/NextWaveControl.h"
 #include "Lawn/Widget/OnlineSeatDialog.h"
@@ -190,6 +192,7 @@ LawnApp::LawnApp()
 
 LawnApp::~LawnApp()
 {
+ if(!ObserverIsolation::Active())PerformanceMonitor::Shutdown();
     TeamPlay::Detach(this);
 	if (mOnlineSession) mOnlineSession->Close();
 	KillRunFlowScreen();
@@ -238,6 +241,9 @@ LawnApp::~LawnApp()
 	mEffectSystem.reset();
 	mReanimatorCache.reset();
 
+	// An observer app borrows process-wide definitions and fonts from the real app.
+	if(!ObserverIsolation::Active())
+	{
 	FilterEffectDisposeForApp();
 	PvzpParticleFreeDefinitions();
 	ReanimatorFreeDefinitions();
@@ -247,10 +253,12 @@ LawnApp::~LawnApp()
 
 	mResourceManager->DeleteResources("");
 	Sexy::ClearCjkFonts();
+	}
 }
 
 void LawnApp::Shutdown()
 {
+ if(!ObserverIsolation::Active())PerformanceMonitor::Shutdown();
 	if (!mLoadingThreadCompleted)
 	{
 		mLoadingFailed = true;
@@ -349,6 +357,8 @@ void LawnApp::LostFocus()
 
 void LawnApp::WriteToRegistry()
 {
+    if(ObserverIsolation::Active()){return;}
+
 	if (mPlayerInfo)
 	{
 		RegistryWriteString("CurUser", mPlayerInfo->mName);
@@ -368,6 +378,8 @@ void LawnApp::ReadFromRegistry()
 
 bool LawnApp::WriteCurrentUserConfig()
 {
+    if(ObserverIsolation::Active()){return true;}
+
 	if (mPlayerInfo)
 		mPlayerInfo->SaveDetails();
 
@@ -1356,6 +1368,7 @@ void LawnApp::Init()
 	mSawYeti = false;
 
 	SexyApp::Init();
+	PerformanceMonitor::Configure(Sexy::GetAppDataFolder());
 
 	if (mShutdown) // MakeWindow() failed
 		return;
@@ -1779,6 +1792,11 @@ void LawnApp::UpdatePlayTimeStats()
 
 void LawnApp::UpdateFrames()
 {
+ PerformanceMonitor::Context(int(mGameScene),mBoard&&mBoard->IsWatchingView());
+ PerformanceMonitor::Scope monitor(PerformanceMonitor::AppUpdate);
+ if(mBoard)monitor.Objects(mBoard->mPlants.mSize,mBoard->mZombies.mSize,mBoard->mProjectiles.mSize);
+ if(monitor.enabled&&mLoadingThreadCompleted&&mEffectSystem&&mEffectSystem->mReanimationHolder&&mEffectSystem->mParticleHolder&&mEffectSystem->mTrailHolder&&mEffectSystem->mAttachmentHolder){auto&e=*mEffectSystem;monitor.Effects(e.mReanimationHolder->mReanimations.mSize,e.mParticleHolder->mParticleSystems.mSize,e.mTrailHolder->mTrails.mSize,e.mAttachmentHolder->mAttachments.mSize);}
+
     if(auto* session=RoomPresentation::Session(this))session->SetLocalNameplate(mPlayerInfo?NameplateCatalog::Equipped(*mPlayerInfo):0);
     UpdateTeamProgressionUi();
     mDamageStats.Update(this);
@@ -3629,4 +3647,11 @@ bool LawnApp::SetObserverP2P(bool enabled) {
     mObserverP2P=enabled;
     if(mOnlineSession)mOnlineSession->SetObserverP2PEnabled(enabled);
     return true;
+}
+
+bool LawnApp::DrawDirtyStuff(){
+ PerformanceMonitor::Scope monitor(PerformanceMonitor::AppDraw);
+ const bool drawn=SexyApp::DrawDirtyStuff();
+ if(drawn)PerformanceMonitor::Presented();else monitor.Cancel();
+ return drawn;
 }

@@ -1,3 +1,4 @@
+#include "Lawn/Observer/ObserverIsolation.h"
 #include "Run/RunSpeciesRuntime.h"
 #include "TeamPlay.h"
 #include "Run/RunSpeciesRules.h"
@@ -108,8 +109,8 @@ Board::Board(LawnApp* theApp)
 	try { mZombies.DataArrayInitialize(2048U, "zombies"); }
 	catch (const std::bad_alloc&) { mZombies.DataArrayInitialize(1024U, "zombies"); PvzpLogLn("[capacity] zombies: using original 1024-slot pool"); }
 	mPlants.DataArrayInitialize(1024U, "plants");
-	try { mProjectiles.DataArrayInitialize(4096U, "projectiles"); }
-	catch (const std::bad_alloc&) { mProjectiles.DataArrayInitialize(2048U, "projectiles"); PvzpLogLn("[capacity] projectiles: using original 2048-slot pool"); }
+	try { mProjectiles.DataArrayInitialize(ObserverIsolation::Active()?256U:4096U, "projectiles"); }
+	catch (const std::bad_alloc&) { mProjectiles.DataArrayInitialize(ObserverIsolation::Active()?128U:2048U, "projectiles"); PvzpLogLn("[capacity] projectiles: using original 2048-slot pool"); }
 	mCoins.DataArrayInitialize(1024U, "coins");
 	mLawnMowers.DataArrayInitialize(32U, "lawnmowers");
 	mGridItems.DataArrayInitialize(128U, "griditems");
@@ -372,6 +373,8 @@ int Board::CountUntriggerLawnMowers()
 
 void Board::TryToSaveGame()
 {
+    if(ObserverIsolation::Active()){return;}
+
     if(mApp->GetRunState() && mApp->GetRunState()->IsNewEndless()) {
         mApp->GetRunState()->Save(mApp->mPlayerInfo->mId);return;
     }
@@ -2667,6 +2670,9 @@ bool Board::CanZombieSpawnOnLevel(ZombieType theZombieType, int theLevel)
 		// 房主设、全员对齐（AlignRunToHost 无条件覆盖）——各客户端建场时在这里读到同值。
 		RunState* aRunState = gLawnApp->GetRunState();
 		bool aZombotany = aRunState != nullptr && aRunState->mZombotany != 0;
+        // Death Surprise unlocks natural Jacks in every run scene; row/budget gates stay below.
+        if (theZombieType == ZombieType::ZOMBIE_JACK_IN_THE_BOX && aRunState != nullptr &&
+            aRunState->ZombieBuffCount(RunSpeciesRules::JACK_DEATH) > 0) return true;
 		// @pvz-online: 无尽名单快速解锁（2026-10-10 用户定案"快点解锁"）。无尽锁死一个场景、
 		// 原型按 关序号%5 轮转，若按引擎关号查名单，永远只有本场景 5 格。改查"虚拟关号"：
 		// 先吃满本场景 5 格，此后每 2 关多解锁一格，到雾场景末格封顶（索引 19，2026-10-12 起；
@@ -2903,6 +2909,15 @@ ZombieType Board::PickZombieType(int theZombiePoints, int theWaveIndex, ZombiePi
             if(run) aPickWeight=RunSpeciesRules::ScalePositive(aPickWeight,
                 RunSpeciesRules::LinearPermille(RunSpeciesRules::ARMORED_BALLOON,
                     run->ZombieBuffCount(RunSpeciesRules::ARMORED_BALLOON)));
+        }
+        if (mApp->IsRunMode() && aZombieType == ZombieType::ZOMBIE_POGO &&
+            mApp->GetRunState()->ZombieBuffCount(RunSpeciesRules::POGO_ASSAULT) > 0)
+            aPickWeight = RunSpeciesRules::ScalePositive(aPickWeight, 5000);
+        // Fixed unlock multiplier, never multiply again for additional speed stacks.
+        if (mApp->IsRunMode() && aZombieType == ZombieType::ZOMBIE_JACK_IN_THE_BOX) {
+            auto* run = mApp->GetRunState();
+            if (run && run->ZombieBuffCount(RunSpeciesRules::JACK_DEATH) > 0)
+                aPickWeight = RunSpeciesRules::ScalePositive(aPickWeight, 3000);
         }
         aZombieWeightArray[aPickCount].mItem = aZombieType;
 		aZombieWeightArray[aPickCount].mWeight = aPickWeight;
@@ -3243,6 +3258,15 @@ PlantingReason Board::CanPlantAt(int theGridX, int theGridY, SeedType theSeedTyp
 	Plant* aNormalPlant = aPlantOnLawn.mNormalPlant;
 	if (theSeedType == SeedType::SEED_LILYPAD || theSeedType == SeedType::SEED_TANGLEKELP || theSeedType == SeedType::SEED_SEASHROOM)
 	{
+        // Kelp needs its own trait on every non-water tile, including stacked supports.
+        if (theSeedType == SEED_TANGLEKELP && !IsPoolSquare(theGridX, theGridY))
+        {
+            if (mApp->RunExtraBuffCount(RUN_BUFF2_KELP_SPIKES) == 0)
+                return PlantingReason::PLANTING_ONLY_IN_POOL;
+            if (aUnderPlant && !(StageHasRoof() && aHasFlowerPot))
+                return PlantingReason::PLANTING_NEEDS_GROUND;
+            return aNormalPlant ? PlantingReason::PLANTING_NOT_HERE : PlantingReason::PLANTING_OK;
+        }
 		// A pot supports a lily on land/roofs; a lily supports a pot on water.
 		const bool aStackedAquatic = aHasFlowerPot && aHasLilypad;
 		if (!IsPoolSquare(theGridX, theGridY) && (!mApp->IsRunMode() || StageHasRoof()) &&
@@ -4211,7 +4235,8 @@ void Board::MouseDownWithPlant(int x, int y, int theClickCount)
 		{
 			if (aReason == PlantingReason::PLANTING_ONLY_IN_POOL)
 			{
-				DisplayAdvice(("[ADVICE_TANGLEKELP_ON_WATER]"), MessageStyle::MESSAGE_STYLE_HINT_FAST, AdviceType::ADVICE_PLANT_TANGLEKELP_ON_WATER);
+				if (mApp->IsRunMode()) DisplayAdvice(ModText::Tr("需要旱地缠刺词条才能在陆地种海草", "Dryland Thorns is required to plant Kelp on land"), MessageStyle::MESSAGE_STYLE_HINT_FAST, AdviceType::ADVICE_PLANT_TANGLEKELP_ON_WATER);
+				else DisplayAdvice(("[ADVICE_TANGLEKELP_ON_WATER]"), MessageStyle::MESSAGE_STYLE_HINT_FAST, AdviceType::ADVICE_PLANT_TANGLEKELP_ON_WATER);
 			}
 		}
 		else if (aPlantingSeedType == SeedType::SEED_SEASHROOM)
@@ -5838,6 +5863,8 @@ void Board::PuzzleSaveStreak()
 
 void Board::ZombiesWon(Zombie* theZombie, bool theFromPeer)
 {
+    if(ObserverIsolation::Active()){mApp->mBoardResult=BoardResult::BOARDRESULT_LOST;mApp->mGameScene=GameScenes::SCENE_ZOMBIES_WON;return;}
+
 	if (mApp->mGameScene == GameScenes::SCENE_ZOMBIES_WON)
 		return;
 
@@ -7406,6 +7433,21 @@ void Board::DrawGameObjects(Graphics* g)
 		}
 	}
 
+    // Shared final overlays are also used by the isolated observation lawn.
+    if (gShowZombieHealthNumbers)
+        for (Zombie* zombie : mZombies) {
+            if (zombie->mDead || zombie->IsDeadOrDying()) continue;
+            const Rect rect = zombie->GetZombieRect(); int line = 0;
+            DrawHealthNumberOverRect(g, zombie->mBodyHealth, rect, line++);
+            if (zombie->mHelmHealth > 0) DrawHealthNumberOverRect(g, zombie->mHelmHealth, rect, line++);
+            if (zombie->mShieldHealth > 0) DrawHealthNumberOverRect(g, zombie->mShieldHealth, rect, line++);
+            if (zombie->mFlyingHealth > 0) DrawHealthNumberOverRect(g, zombie->mFlyingHealth, rect, line++);
+        }
+    if (gShowPlantHealthNumbers)
+        for (Plant* plant : mPlants)
+            if (!plant->mDead) DrawHealthNumberOverRect(g, plant->mPlantHealth, plant->GetPlantRect());
+    DrawRelayedZombieMarkers(g);
+
 }
 
 bool Board::HasProgressMeter()
@@ -8417,19 +8459,6 @@ void Board::Draw(Graphics* g)
 
 	mDrawCount++;
 	DrawGameObjects(g);
-    if (gShowZombieHealthNumbers)
-        for (Zombie* zombie : mZombies) {
-            if (zombie->mDead || zombie->IsDeadOrDying()) continue;
-            const Rect rect = zombie->GetZombieRect(); int line = 0;
-            DrawHealthNumberOverRect(g, zombie->mBodyHealth, rect, line++);
-            if (zombie->mHelmHealth > 0) DrawHealthNumberOverRect(g, zombie->mHelmHealth, rect, line++);
-            if (zombie->mShieldHealth > 0) DrawHealthNumberOverRect(g, zombie->mShieldHealth, rect, line++);
-            if (zombie->mFlyingHealth > 0) DrawHealthNumberOverRect(g, zombie->mFlyingHealth, rect, line++);
-        }
-    if (gShowPlantHealthNumbers)
-        for (Plant* plant : mPlants)
-            if (!plant->mDead) DrawHealthNumberOverRect(g, plant->mPlantHealth, plant->GetPlantRect());
-    DrawRelayedZombieMarkers(g);
     DrawCoopUI(g);
     if (IsWatchingView()) DrawMobileWatch(g);
 }
@@ -8596,6 +8625,7 @@ void Board::KeyUp(KeyCode theKey) { if(mApp->TeamProgressionInputBlocked())retur
 
 void Board::KeyDown(KeyCode theKey)
 {
+    if(theKey==KEYCODE_ESCAPE && CoopHud::Watching(this) && CoopHud::CloseWatchPicker(this))return;
     if(mApp->TeamProgressionInputBlocked())return;
     if (mApp->mOnlineSession && mApp->mOnlineSession->RelayBattleHeld()) {
         if(CoopHud::WaitingObserver(this)) {
@@ -10832,6 +10862,11 @@ void Board::DrawRelayedZombieMarkers(Graphics* g)
         Rect body = zombie->GetZombieRect();
         int x = body.mX + body.mWidth / 2 - 9;
         int y = body.mY - 24;
+        // Keep the relay badge beside the complete health-number column.
+        if (ZombieHealthVisible()) {
+            x = body.mX - 22;
+            if (x < 0) x = body.mX + body.mWidth + 4;
+        }
         if (x + 18 <= 0 || x >= BOARD_WIDTH || y + 18 <= 0 || y >= BOARD_HEIGHT) continue;
         marker.SetColor(Color(35, 30, 20, 230)); marker.FillRect(x, y, 18, 18);
         marker.SetColor(Color(255, 215, 70));

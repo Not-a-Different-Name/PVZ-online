@@ -1,3 +1,4 @@
+#include "Lawn/Observer/ObserverIsolation.h"
 /*
  * Copyright (C) 2026 Zhou Qiankang <wszqkzqk@qq.com>
  *
@@ -30,7 +31,7 @@
 
 void LawnMower::LawnMowerInitialize(int theRow)
 {
-	mApp = (LawnApp*)gSexyAppBase;
+	mApp = ObserverIsolation::Active()?gLawnApp:static_cast<LawnApp*>(gSexyAppBase);
 	mRow = theRow;
 	mPosX = -160.0f;
 	mBoard = mApp->mBoard;

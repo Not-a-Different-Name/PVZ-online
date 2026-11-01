@@ -158,6 +158,7 @@ void DamageStats::AlignLevel(int level)
 
 void DamageStats::BeginLevel(Board* board)
 {
+    mWatchPickerOpen = false;
     LoadSettings();
     auto* app = board->mApp;
     auto* run = app->GetRunState();

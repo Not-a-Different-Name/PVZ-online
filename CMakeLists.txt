@@ -334,5 +334,5 @@ elseif (IOS)
 	endif()
 endif()
 
-target_sources(pvz-portable PRIVATE src/Lawn/Observer/ObserverDrawScene.cpp src/Lawn/Observer/ObserverDrawCodec.cpp)
+target_sources(pvz-portable PRIVATE src/Lawn/Observer/ObserverDrawScene.cpp src/Lawn/Observer/ObserverDrawCodec.cpp src/Lawn/Observer/World.cpp)
 

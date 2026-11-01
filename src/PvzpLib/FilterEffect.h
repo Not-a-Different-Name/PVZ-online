@@ -45,6 +45,7 @@ enum FilterEffect : int32_t
 typedef std::map<Image*, std::unique_ptr<Image>> ImageFilterMap;
 extern ImageFilterMap gFilterMap[FilterEffect::NUM_FILTER_EFFECTS];
 
+void FilterEffectForgetImage(Image*);
 void                FilterEffectInitForApp();
 void                FilterEffectDisposeForApp();
 void                FilterEffectDoLumSat(MemoryImage* theImage, float theLum, float theSat);

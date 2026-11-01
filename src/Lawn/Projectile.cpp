@@ -1,3 +1,4 @@
+#include "Run/TeamAttackContext.h"
 /*
  * Copyright (C) 2026 Zhou Qiankang <wszqkzqk@qq.com>
  *
@@ -219,8 +220,7 @@ Plant* Projectile::FindCollisionTargetPlant()
 			if (aPlant->mSeedType == SeedType::SEED_PUFFSHROOM ||
 				aPlant->mSeedType == SeedType::SEED_SUNSHROOM ||
 				aPlant->mSeedType == SeedType::SEED_POTATOMINE ||
-				aPlant->mSeedType == SeedType::SEED_SPIKEWEED ||
-				aPlant->mSeedType == SeedType::SEED_SPIKEROCK ||
+				aPlant->IsSpiky() ||
 				aPlant->mSeedType == SeedType::SEED_LILYPAD)  // zombie peas cannot hit low plants
 				continue;
 		}
@@ -529,6 +529,7 @@ bool Projectile::IsZombieHitBySplash(Zombie* theZombie)
 void Projectile::DoSplashDamage(Zombie* theZombie)
 {
     DamageStats::Source aDamageSource(mApp->mDamageStats, true);
+    TeamAttackContext::SeedScope sourceSeed(mRunSourceSeed);
 	const ProjectileDefinition& aProjectileDef = GetProjectileDef();
 
 	int aZombiesGetSplashed = 0;
@@ -718,6 +719,12 @@ void Projectile::UpdateLobMotion()
 }
 
 // @pvz-online: no new projectile/save fields; all copies and torchwood conversions retain the rule.
+static bool IsGatlingBarrage(const Projectile* projectile)
+{
+    return projectile->mRunSourceSeed == SeedType::SEED_GATLINGPEA &&
+        projectile->mMotionType == ProjectileMotion::MOTION_STAR;
+}
+
 static bool FollowsRoofSlope(const Projectile* projectile)
 {
     return projectile->mBoard->StageHasRoof() &&
@@ -726,7 +733,8 @@ static bool FollowsRoofSlope(const Projectile* projectile)
          projectile->mProjectileType == ProjectileType::PROJECTILE_FIREBALL) &&
         (projectile->mMotionType == ProjectileMotion::MOTION_STRAIGHT ||
          projectile->mMotionType == ProjectileMotion::MOTION_BACKWARDS ||
-         projectile->mMotionType == ProjectileMotion::MOTION_THREEPEATER) &&
+         projectile->mMotionType == ProjectileMotion::MOTION_THREEPEATER ||
+         IsGatlingBarrage(projectile)) &&
         projectile->mApp->RunExtraBuffCount(RUN_BUFF2_ROOF_PEAS) > 0;
 }
 
@@ -769,7 +777,7 @@ void Projectile::UpdateNormalMotion()
 		mPosX += mVelX;
 		mShadowY += mVelY;
 
-		if (mVelY != 0.0f)
+		if (mVelY != 0.0f && !IsGatlingBarrage(this))
 		{
 			mRow = mBoard->PixelToGridYKeepOnBoard(mPosX, mPosY);
 		}
@@ -832,6 +840,13 @@ void Projectile::UpdateNormalMotion()
         const float slopeChange = mBoard->GetPosYBasedOnRow(mPosX, mRow) - oldRoofY;
         mPosY += slopeChange;
         mShadowY += slopeChange;
+    }
+    if (IsGatlingBarrage(this))
+    {
+        // Resolve the physical row after slope movement, using the shot's ground projection.
+        mRow = mBoard->PixelToGridYKeepOnBoard((int)mPosX, (int)(mShadowY - 17.0f));
+        mRenderOrder = Board::MakeRenderOrder(RenderLayer::RENDER_LAYER_PROJECTILE, mRow, 0);
+        if (mPosY < -40.0f || mPosY > BOARD_HEIGHT + 40.0f) { Die(); return; }
     }
 	CheckForCollision();
 	CheckForHighGround();
@@ -942,6 +957,7 @@ Zombie* Projectile::FindHuntTarget()
 void Projectile::UpdatePurpleWave()
 {
     DamageStats::Source aDamageSource(mApp->mDamageStats, true);
+    TeamAttackContext::SeedScope sourceSeed(mRunSourceSeed);
     ++mProjectileAge;
     mPosX += 6.0f;
     mX = (int)mPosX;
@@ -969,6 +985,7 @@ void Projectile::UpdatePurpleWave()
 void Projectile::DoImpact(Zombie* theZombie)
 {
     DamageStats::Source aDamageSource(mApp->mDamageStats, true);
+    TeamAttackContext::SeedScope sourceSeed(mRunSourceSeed);
 	PlayImpactSound(theZombie);
 
 	// @pvz-online: split only original Snow Pea shots; piercing collision dedup prevents repeats.
@@ -1199,6 +1216,7 @@ void Projectile::DoImpact(Zombie* theZombie)
 void Projectile::Update()
 {
     DamageStats::Source aDamageSource(mApp->mDamageStats, true);
+    TeamAttackContext::SeedScope sourceSeed(mRunSourceSeed);
     // @pvz-online: delayed salvos use the normal cob trajectory once released.
     if (mRunLaunchDelay > 0)
     {

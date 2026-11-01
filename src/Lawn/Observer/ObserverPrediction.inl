@@ -34,18 +34,41 @@ bool DrawRecorder::AnimationTrack(Graphics*g,Reanimation*r,int animation,int tra
  return FloatRoundToInt(x.mFrame)>=0&&std::clamp(FloatRoundToInt(x.mAlpha*c.mAlpha),0,255)>0&&
   (x.mImage|| (x.mFont&&x.mText&&*x.mText)||!strcmp(r->mDefinition->mTracks.tracks[track].mName,"fullscreen"));
 }
+// A snapshot must not hold one instantaneous footstep velocity for seconds.
+// Average the current animation range, including its full-last-frame dwell.
+static float ObserverGroundSpeed(Reanimation* a,float scale){
+ const auto& track=a->mDefinition->mTracks.tracks[a->FindTrackIndex("_ground")];
+ const int first=a->mFrameStart,count=a->mFrameCount;
+ if(count<2||first<0||first+count>track.mTransforms.count)return 0;
+ const auto* t=track.mTransforms.mTransforms;
+ const bool full=a->mLoopType==REANIM_LOOP_FULL_LAST_FRAME||a->mLoopType==REANIM_PLAY_ONCE_FULL_LAST_FRAME||a->mLoopType==REANIM_PLAY_ONCE_FULL_LAST_FRAME_AND_HOLD;
+ return (t[first+count-1].mTransX-t[first].mTransX)*a->mAnimRate*scale*.01f/(full?count:count-1);
+}
 void DrawRecorder::RenderItemMotion(Board*b,const RenderItem&r){
  motion=0;if(!Predicting())return;
  Motion m;
  switch(r.mRenderObjectType){
  case RENDER_ITEM_ZOMBIE:case RENDER_ITEM_ZOMBIE_SHADOW:{
   auto*z=r.mZombie;m.kind=1;m.id=b->mZombies.DataArrayGetID(z);
-  if(!z->mDead&&!z->mIsEating&&!z->IsImmobilizied()){
-   float speed=z->mVelX;if(z->IsMovingAtChilledSpeed())speed*=0.5f;
+  if(!z->IsDeadOrDying()&&!z->ZombieNotWalking()){
+   const bool chilled=z->IsMovingAtChilledSpeed();
+   float speed=z->mVelX;
    auto*a=b->mApp->ReanimationTryToGet(z->mBodyReanimID);
-   if(a&&a->TrackExists("_ground")&&z->mZombieType!=ZOMBIE_ZAMBONI&&z->mZombieType!=ZOMBIE_CATAPULT&&z->mZombieType!=ZOMBIE_BALLOON)
-    speed=a->GetTrackVelocity("_ground")*z->mScaleZombie;
-   m.vx=(z->IsWalkingBackwards()?1.f:-1.f)*speed*RunSpeciesEffects::WalkFactor(z)*100.f;
+   const bool chilledVelocity=z->IsBouncingPogo()||z->mZombiePhase==PHASE_BALLOON_FLYING||z->mZombiePhase==PHASE_DOLPHIN_RIDING||z->mZombiePhase==PHASE_SNORKEL_WALKING_IN_POOL||z->mZombieType==ZOMBIE_CATAPULT;
+   const bool rawVelocity=z->mZombieType==ZOMBIE_ZAMBONI||z->mZombiePhase==PHASE_DIGGER_TUNNELING||z->mZombiePhase==PHASE_DOLPHIN_IN_JUMP||z->IsBobsledTeamWithSled()||z->mZombiePhase==PHASE_POLEVAULTER_IN_VAULT||z->mZombiePhase==PHASE_SNORKEL_INTO_POOL;
+   if(a&&!chilledVelocity&&!rawVelocity&&a->TrackExists("_ground"))speed=ObserverGroundSpeed(a,z->mScaleZombie);
+   else if(!rawVelocity&&chilled)speed*=.4f;
+   if(z->mZombieType==ZOMBIE_ZAMBONI&&b->IsRunBossZombie(z)){
+    if(chilled)speed*=.4f;
+    else {if(z->mFetidSlowCounter>0)speed*=1.f-.2f*b->mApp->RunPlantBuff2Count(SEED_FUMESHROOM);if(z->mFrostArmorCounter>0)speed*=.65f;}
+   }
+   float barbed=1.f;
+   if(z->mRunBarbedCounter>0&&z->CanBeChilled()){
+    float existing=chilled?.5f:1.f;
+    if(!chilled){if(z->mFetidSlowCounter>0)existing*=1.f-.2f*b->mApp->RunPlantBuff2Count(SEED_FUMESHROOM);if(z->mFrostArmorCounter>0)existing*=.65f;}
+    if(existing>.8f)barbed=.8f/existing;
+   }
+   m.vx=(z->IsWalkingBackwards()||z->mZombiePhase==PHASE_DANCER_DANCING_IN?1.f:-1.f)*speed*barbed*RunSpeciesEffects::WalkFactor(z)*100.f;
   }break;}
  case RENDER_ITEM_PROJECTILE:case RENDER_ITEM_PROJECTILE_SHADOW:{
   auto*p=r.mProjectile;m.kind=r.mRenderObjectType==RENDER_ITEM_PROJECTILE?2:3;m.id=b->mProjectiles.DataArrayGetID(p);
