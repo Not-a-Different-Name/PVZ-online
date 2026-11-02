@@ -9,6 +9,8 @@
 #include "widget/WidgetManager.h"
 #include <algorithm>
 #include <mutex>
+#include <map>
+#include <memory>
 
 using namespace Sexy;
 
@@ -17,9 +19,12 @@ class ModText::Font
 {
 public:
 	HFONT	mHFont;
+    HDC mMeasureDC=nullptr;
+    std::mutex mMeasureMutex;
     int mPointSize=16; bool mBold=false;
 	int		mHeight;
 	int		mAscent;
+    ~Font(){if(mMeasureDC)DeleteDC(mMeasureDC);if(mHFont)DeleteObject(mHFont);}
 };
 
 // ── 语言档 ─────────────────────────────────────────────────────────────
@@ -166,20 +171,15 @@ static const wchar_t* ModTextCjkFace()
 	return aFace;
 }
 
-static const int MODTEXT_FONT_CACHE = 16;
-
 ModText::Font* ModText::GetFont(int thePointSize, bool theBold)
 {
-	static ModText::Font* sFonts[MODTEXT_FONT_CACHE] = { NULL };
-	static int sPointSizes[MODTEXT_FONT_CACHE] = { 0 };
-	static bool sBolds[MODTEXT_FONT_CACHE] = { false };
-	static int sCount = 0;
-
-	for (int i = 0; i < sCount; i++)
-	{
-		if (sPointSizes[i] == thePointSize && sBolds[i] == theBold)
-			return sFonts[i];
-	}
+    // Keep every requested style stable for the process lifetime. The previous
+    // sixteen-slot table allocated an uncached HFONT on every later lookup.
+    static std::map<std::pair<int,bool>,std::unique_ptr<ModText::Font>> fonts;
+    static std::mutex fontsMutex;
+    std::lock_guard<std::mutex> lock(fontsMutex);
+    const auto key=std::make_pair(thePointSize,theBold);
+    if(auto found=fonts.find(key);found!=fonts.end())return found->second.get();
 
 	ModText::Font* aFont = new ModText::Font();
 	aFont->mHeight = 0;
@@ -195,6 +195,10 @@ ModText::Font* ModText::GetFont(int thePointSize, bool theBold)
 	aLogFont.lfPitchAndFamily = DEFAULT_PITCH | FF_DONTCARE;
 	wcscpy_s(aLogFont.lfFaceName, LF_FACESIZE, ModTextCjkFace());
 	aFont->mHFont = CreateFontIndirectW(&aLogFont);
+    // Wrapping measures many prefixes. Reuse a private measuring DC instead of
+    // acquiring and releasing the window DC for every prefix of every line.
+    aFont->mMeasureDC=CreateCompatibleDC(nullptr);
+    if(aFont->mMeasureDC)SelectObject(aFont->mMeasureDC,aFont->mHFont);
     aFont->mPointSize=thePointSize;aFont->mBold=theBold;
 
 	TEXTMETRICW aMetrics;
@@ -206,13 +210,7 @@ ModText::Font* ModText::GetFont(int thePointSize, bool theBold)
 	aFont->mHeight = aMetrics.tmHeight;
 	aFont->mAscent = aMetrics.tmAscent;
 
-	if (sCount < MODTEXT_FONT_CACHE)
-	{
-		sFonts[sCount] = aFont;
-		sPointSizes[sCount] = thePointSize;
-		sBolds[sCount] = theBold;
-		sCount++;
-	}
+    fonts.emplace(key,std::unique_ptr<ModText::Font>(aFont));
 	return aFont;
 }
 
@@ -229,6 +227,11 @@ int ModText::Ascent(Font* theFont)
 int ModText::TextWidth(Font* theFont, const std::wstring& theText)
 {
 	if (theFont == NULL || theText.empty()) return 0;
+    if(theFont->mMeasureDC){
+        std::lock_guard<std::mutex> lock(theFont->mMeasureMutex);
+        SIZE size{};GetTextExtentPoint32W(theFont->mMeasureDC,theText.c_str(),int(theText.size()),&size);
+        return int(size.cx);
+    }
 	HDC aDC = ::GetDC(gSexyAppBase->mHWnd);
 	HFONT anOldFont = (HFONT)SelectObject(aDC, theFont->mHFont);
 	SIZE aSize = { 0, 0 };

@@ -6829,7 +6829,8 @@ void Board::UpdateIce()
 			}
 
 			int anAlpha = ClampInt(mIceTimer[aRow] / 10, 0, 255);
-			aParticleIce->OverrideColor(nullptr, Color(255, 255, 255, anAlpha));
+			// Missing sparkles must not stop the ice gameplay timer or crash on expiry.
+			if (aParticleIce) aParticleIce->OverrideColor(nullptr, Color(255, 255, 255, anAlpha));
 		}
 	}
 }

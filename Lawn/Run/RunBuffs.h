@@ -284,6 +284,7 @@ enum RunPlantBuff2Id
 	RUN_BUFF2_GATLING_BARRAGE, // Gatling: 10% per volley, 60 shots/2s, 8s recovery, 3 stars, one stack.
 	RUN_BUFF2_TALLNUT_VITALITY, // 高坚果：厚重壁垒，生命+400%，3星1层，独立于耐砸。
 	RUN_BUFF2_KELP_SPIKES, // 海草：旱地缠刺，陆地地刺规则、水中仍缠绕，2星1层。
+	RUN_BUFF2_GLOBAL_GOLD, // 吸金磁：全屏吸金，每次收取全场钱币，3星1层。
 	RUN_PLANT_BUFF2_COUNT
 };
 

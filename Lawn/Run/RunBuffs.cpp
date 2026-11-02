@@ -392,9 +392,10 @@ static const RunPlantUpgradeDef gRunPlantBuff2Defs[RUN_PLANT_BUFF2_COUNT] =
     { SeedType::SEED_NONE, "Dense Fumes", "浓雾", "大喷菇和忧郁菇攻击伤害+35%\n每层线性叠加，无层数上限", "Fume-shroom and Gloom-shroom damage +35%\nAdditive per stack; unlimited stacks", 0.35f, 0, false, RUN_UPGRADE_KIND_EFFECT, 2 },
     { SeedType::SEED_NONE, "Roof Peas", "顺坡豌豆", "普通、冰和火豌豆沿屋顶坡面前进\n适用于全部豌豆射手", "Ordinary, ice and fire peas follow roof slopes\nApplies to all pea shooters", 0.0f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
     { SeedType::SEED_GARLIC, "Garlic Pulse", "蒜气冲击", "种下时使本行所有敌人换至相邻可通行道路\n包括冰车和巨人；Boss和免硬控者除外", "On planting, redirect all enemies in this row\nIncludes Zomboni and giants; bosses and control immunity resist", 0.0f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
-    { SeedType::SEED_GATLINGPEA, "Full Auto", "火力全开", "每轮10%概率在2秒内上下各30°扫射150发\n结束立即恢复普通射击；8秒内不再触发；瓜弹生效", "10% per volley: 150 shots in 2s, 30 degrees up/down\nNormal fire resumes immediately; special locks 8s; Melon Rounds applies", 0.0f, 1, false, RUN_UPGRADE_KIND_EFFECT, 3 },
+    { SeedType::SEED_GATLINGPEA, "Full Auto", "火力全开", "每轮10%概率在2秒内上下各30°扫射150发穿透弹\n结束即恢复普通射击；8秒内不再触发；瓜弹生效", "10% per volley: 150 piercing shots in 2s, +/-30 degrees\nNormal fire resumes immediately; special locks 8s; Melon Rounds applies", 0.0f, 1, false, RUN_UPGRADE_KIND_EFFECT, 3 },
     { SeedType::SEED_TALLNUT, "Massive Bulwark", "厚重壁垒", "生命 +400%\n耐砸权重降至20%", "Health +400%\nIron Shell weight drops to 20%", 4.0f, 1, false, RUN_UPGRADE_KIND_HEALTH, 3 },
     { SeedType::SEED_TANGLEKELP, "Dryland Thorns", "旱地缠刺", "可种陆地，攻击和受击同地刺\n水中保留缠绕", "Plant on land: attacks and takes hits like Spikeweed\nStill grabs zombies in water", 0.0f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
+    { SeedType::SEED_GOLD_MAGNET, "Global Magnet", "全屏吸金", "每次吸取全场银币、金币和钻石\n取消单次5枚上限，充能间隔不变", "Each pull collects all silver, gold and diamonds\nNo five-coin limit; recharge unchanged", 0.0f, 1, false, RUN_UPGRADE_KIND_EFFECT, 3 },
 };
 
 const RunPlantUpgradeDef& GetRunPlantBuff2Def(int theIndex)

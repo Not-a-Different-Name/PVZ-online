@@ -2507,6 +2507,13 @@ bool LawnApp::TryKeepEndlessLawn()
 void LawnApp::ReleaseRunIntro()
 {
     if(mOnlineSession && mOnlineSession->mEndlessNeedsAdmission)return;
+    // Reset a completed retained lawn before the admission shortcut can start play.
+	if (mBoard != nullptr && mRunState != nullptr && mRunState->IsEndless()
+		&& mBoardResult != BoardResult::BOARDRESULT_LOST
+		&& (mBoard->mLevelComplete || mBoard->mLevelAwardSpawned))
+	{
+		mBoard->InitEndlessRunStage();
+	}
     // @pvz-online: admission already consumed its chooser; restarting that intro dereferences it.
     if(mBoard && mRunState && mRunState->IsNewEndless() && mRunState->mAdmission.phase>=Admission::PREPARED && !mSeedChooserScreen) {
         mRunIntroHeld=false;mBoard->mCutScene->mSeedChoosing=false;
@@ -2514,12 +2521,6 @@ void LawnApp::ReleaseRunIntro()
         mBoard->mShowShovel=true;mBoard->Move(0,0);mBoard->mSeedBank->Move(10,0);
         mBoard->mSeedBank->mCutSceneDarken=0;StartPlaying();return;
     }
-	if (mBoard != nullptr && mRunState != nullptr && mRunState->IsEndless()
-		&& mBoardResult != BoardResult::BOARDRESULT_LOST
-		&& (mBoard->mLevelComplete || mBoard->mLevelAwardSpawned))
-	{
-		mBoard->InitEndlessRunStage();
-	}
 // @pvz-online: restarting an intro requires its scene as well as a cleared hold flag.
     mGameScene = GameScenes::SCENE_LEVEL_INTRO;
 	mRunIntroHeld = false;
@@ -5867,6 +5868,8 @@ TodParticleSystem* LawnApp::AddTodParticle(float theX, float theY, int theRender
 
 ParticleSystemID LawnApp::ParticleGetID(TodParticleSystem* theParticle)
 {
+	// Optional visual allocation can fail at either system or emitter capacity.
+	if (!theParticle) return ParticleSystemID::PARTICLESYSTEMID_NULL;
 	return (ParticleSystemID)mEffectSystem->mParticleHolder->mParticleSystems.DataArrayGetID(theParticle);
 }
 

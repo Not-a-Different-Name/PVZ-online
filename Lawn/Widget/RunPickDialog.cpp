@@ -16,6 +16,11 @@
 #include "../ModText.h"
 #include "../System/PlayerInfo.h"
 #include <cstdio>
+#include <map>
+#include <array>
+#include <memory>
+#include <tuple>
+#include "graphics/MemoryImage.h"
 
 // ── 中文描述这一档 ──────────────────────────────────────────────────────
 // 引擎自带的字体全是位图字体，没有中文字形，所以这一屏的中文说明走 ModText 的宽字符
@@ -56,6 +61,40 @@ static int RunPickDescWidth(ModText::Font* theFont, const char* theUtf8)
 		aStart = aBreak + 1;
 	}
 	return aMax;
+}
+
+
+namespace {
+struct LineExtent {int next=0,maximum=1;};
+struct CatalogLayout {int width=-1;std::map<int,LineExtent> lines;};
+CatalogLayout& Catalog(ModText::Font* font){
+ static std::map<std::pair<ModText::Font*,int>,CatalogLayout> layouts;
+ return layouts[{font,ModText::GetLanguage()}];
+}
+int CatalogWidth(ModText::Font* font){
+ auto& layout=Catalog(font);if(layout.width>=0)return layout.width;
+ int result=0;for(int id=0;id<RUN_BUFF_COUNT+RUN_PLANT_UPGRADE_COUNT+RUN_PLANT_BUFF2_COUNT;++id){
+  if(id>=RUN_BUFF_COUNT+RUN_PLANT_UPGRADE_COUNT&&!RunPlantBuff2InPool(id-RUN_BUFF_COUNT-RUN_PLANT_UPGRADE_COUNT))continue;
+  result=std::max(result,RunPickDescWidth(font,GetRunChoiceDesc(id)));
+  // The caller adds12 then caps at220; wider catalogue entries cannot matter.
+  if(result>=208){result=208;break;}
+ }return layout.width=result;
+}
+int CatalogLines(ModText::Font* font,int width,int fittingLines){
+ auto& extent=Catalog(font).lines[width];
+ // Once one entry exceeds this height, the constructor must grow. Resume later
+ // only if a subsequent dialog can fit the lower bound already measured.
+ while(extent.next<RUN_BUFF_COUNT+RUN_PLANT_UPGRADE_COUNT+RUN_PLANT_BUFF2_COUNT&&extent.maximum<=fittingLines){
+  const int id=extent.next++;
+  if(id>=RUN_BUFF_COUNT+RUN_PLANT_UPGRADE_COUNT&&!RunPlantBuff2InPool(id-RUN_BUFF_COUNT-RUN_PLANT_UPGRADE_COUNT))continue;
+  extent.maximum=std::max(extent.maximum,ModText::WrapLineCount(font,GetRunChoiceDesc(id),width));
+ }return extent.maximum;
+}
+using CardKey=std::tuple<int,int,int,int,int,unsigned long,ModText::Font*>;
+struct CardImage {CardKey key{};std::unique_ptr<Sexy::MemoryImage> image;};
+// No object/save layout change. Each dialog owns at most three images; erase on
+// destruction so repeated picks cannot retain cards from earlier dialogs.
+std::map<const RunPickDialog*,std::array<CardImage,3>> cards;
 }
 
 RunPickDialog::RunPickDialog(LawnApp* theApp, RunState* theRun) : LawnDialog(
@@ -154,12 +193,7 @@ RunPickDialog::RunPickDialog(LawnApp* theApp, RunState* theRun) : LawnDialog(
 	{
 		// 全池静态测量（增益屏列宽按全池最长说明）：三段 id 都测，第二表里未进池的
 		// 条目跳过（不会上屏，不参与定宽）。
-		for (int i = 0; i < RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT + RUN_PLANT_BUFF2_COUNT; i++)
-		{
-			if (i >= RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT && !RunPlantBuff2InPool(i - RUN_BUFF_COUNT - RUN_PLANT_UPGRADE_COUNT)) continue;
-			int aWidth = RunPickDescWidth(aCjkFont, GetRunChoiceDesc(i));
-			if (aWidth > aTargetColumn) aTargetColumn = aWidth;
-		}
+		aTargetColumn = CatalogWidth(aCjkFont);
 		aTargetColumn += 12; // 两侧各留一点白
 		// 列宽目标封顶：英文说明是长句（"Sky sun falls 20% faster, up to 4 stacks"），
 		// 按显式行宽推目标会一路把弹窗顶着长到整屏宽——封顶后交给折行处理
@@ -189,13 +223,7 @@ RunPickDialog::RunPickDialog(LawnApp* theApp, RunState* theRun) : LawnDialog(
 		}
 		else
 		{
-			int aMaxLines = 1;
-			for (int j = 0; j < RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT + RUN_PLANT_BUFF2_COUNT; j++)
-			{
-				if (j >= RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT && !RunPlantBuff2InPool(j - RUN_BUFF_COUNT - RUN_PLANT_UPGRADE_COUNT)) continue;
-				int aLines = ModText::WrapLineCount(aCjkFont, GetRunChoiceDesc(j), mColumnWidth - 4);
-				if (aLines > aMaxLines) aMaxLines = aLines;
-			}
+			int aMaxLines = CatalogLines(aCjkFont,mColumnWidth-4,(mAreaHeight-6)/aFitLineHeight-2);
 			aNeededArea = (aMaxLines + 2) * aFitLineHeight + 6;
 		}
 		bool aWidthDone = mColumnWidth >= aTargetColumn || mWidth >= 580;
@@ -213,6 +241,7 @@ RunPickDialog::RunPickDialog(LawnApp* theApp, RunState* theRun) : LawnDialog(
 
 RunPickDialog::~RunPickDialog()
 {
+    cards.erase(this);
 	for(auto* button:mLockButtons)delete button;
 	for (int i = 0; i < 3; i++) delete mChoiceButtons[i];
 	delete mSkipButton;
@@ -346,6 +375,14 @@ void RunPickDialog::Draw(Graphics* g)
 			// 空缺格（防御，方案 §2.4）：空着不画——这一列什么都不出现
 			if (aBuffId == RunState::RUN_BUFF_CHOICE_NONE) continue;
 
+            auto& cached=cards[this][i];
+            const CardKey key{aBuffId,mRun->GetBuffCount(aBuffId),ModText::GetLanguage(),mColumnWidth,mAreaHeight,
+                mColors[Dialog::COLOR_LINES].ToInt(),RunPickCjkFont()};
+            if(!cached.image||cached.key!=key){
+                cached.key=key;cached.image=std::make_unique<Sexy::MemoryImage>(mApp);
+                cached.image->Create(mColumnWidth,mAreaHeight);
+                Sexy::Graphics tile(cached.image.get());tile.Translate(-mColumnX[i],-mAreaTop);
+                auto render=[&](Sexy::Graphics* g){
 			// 效果说明贴着各自的按钮画：三列各说各的，不用让人去猜哪句话配哪个名字。
 			// 中文走 ModText 宽字符直绘，按列宽断行、逐行居中。
 			ModText::Font* aFont = RunPickCjkFont();
@@ -413,6 +450,9 @@ void RunPickDialog::Draw(Graphics* g)
 			int aCountX = mColumnX[i] + (mColumnWidth - ModText::TextWidth(aFont, aCountText)) / 2;
 			ModText::DrawTextWide(g, aFont, aCountX, aCountY, aCountText,
 				mColors[Dialog::COLOR_LINES], g->mClipRect);
+                };render(&tile);
+            }
+            g->DrawImage(cached.image.get(),mColumnX[i],mAreaTop);
 		}
 	}
 }
