@@ -2634,6 +2634,8 @@ PvzpParticleSystem* LawnApp::AddPvzpParticle(float theX, float theY, int theRend
 
 ParticleSystemID LawnApp::ParticleGetID(PvzpParticleSystem* theParticle)
 {
+	// Optional visual allocation can fail at either system or emitter capacity.
+	if (!theParticle) return ParticleSystemID::PARTICLESYSTEMID_NULL;
 	return (ParticleSystemID)mEffectSystem->mParticleHolder->mParticleSystems.DataArrayGetID(theParticle);
 }
 

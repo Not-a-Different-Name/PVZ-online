@@ -2808,6 +2808,24 @@ Coin* Plant::FindGoldMagnetTarget()
 
 void Plant::GoldMagnetFindTargets()
 {
+    // The base magnet already searches the whole board but has five item slots.
+    // Use the normal independent coin-collection animation for an unlimited pull;
+    // collected coins immediately stop being eligible, including for other magnets.
+    if (mApp->RunExtraBuffCount(RUN_BUFF2_GLOBAL_GOLD) > 0)
+    {
+        const bool goldTouch = mApp->RunPlantBuff2Count(SeedType::SEED_GOLD_MAGNET) > 0;
+        Coin* coin = nullptr;
+        while (mBoard->IterateCoins(coin))
+        {
+            if (!coin->IsMoney() || coin->mCoinMotion == CoinMotion::COIN_MOTION_FROM_PRESENT ||
+                coin->mIsBeingCollected || coin->mCoinAge < 50) continue;
+            if (goldTouch && coin->mType == CoinType::COIN_SILVER) coin->mType = CoinType::COIN_GOLD;
+            coin->Collect();
+            if (goldTouch) mBoard->AddSunMoney(10);
+        }
+        return;
+    }
+
 	if (GetFreeMagnetItem() == nullptr)
 	{
 		PVZP_ASSERT(false);
@@ -5679,6 +5697,7 @@ void Plant::Fire(Zombie* theTargetZombie, int theRow, PlantWeapon thePlantWeapon
         const float angle = RunGatlingBarrage::AngleDegrees(shot, RandRangeFloat(-1.0f, 1.0f)) * PI / 180.0f;
         // STAR motion already carries planar velocity; source identity distinguishes these peas.
         aProjectile->mMotionType = ProjectileMotion::MOTION_STAR;
+        aProjectile->mPricklyHitsLeft = -1; // Full Auto rounds pierce; ordinary volleys retain their normal collision rule.
         aProjectile->mVelX = 3.33f * cosf(angle);
         aProjectile->mVelY = 3.33f * sinf(angle);
         return; // Exactly 150 rounds: multishot does not multiply the special barrage.

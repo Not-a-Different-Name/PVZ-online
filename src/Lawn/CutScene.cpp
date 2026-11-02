@@ -504,6 +504,10 @@ void CutScene::PlaceStreetZombies()
 	if (mPlacedZombies)
 		return;
 
+	// Rebuilding an intro must replace saved or previously placed preview actors.
+	// Combat and relayed zombies have different wave markers and remain untouched.
+	mBoard->RemoveCutsceneZombies();
+	mBoard->ProcessDeleteQueue();
 	mPlacedZombies = true;
 	if (mApp->IsFinalBossLevel())
 		return;
