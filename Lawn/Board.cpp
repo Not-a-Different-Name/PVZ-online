@@ -7809,6 +7809,43 @@ void Board::DrawGameObjects(Graphics* g)
 	std::sort(aRenderList, aRenderList + aRenderItemCount, RenderItemSortFunc);
 
 	TodHesitationTrace("end sort, start draw");
+	auto drawWorldLabels = [&]() {
+	// @pvz-online: 血量数字叠加层（画在全部渲染项之后，独立两个开关）
+	if (gShowZombieHealthNumbers)
+	{
+		Zombie* aZombie = nullptr;
+		while (IterateZombies(aZombie))
+		{
+			if (!aZombie->IsDeadOrDying())
+			{
+				// @pvz-online: 主体数字在底行；防具（头盔/盾牌/气球，>0 才算）自下往上依次叠行
+				// （2026-10-04 用户指令：防具也显示血量）
+				Rect aZombieRect = aZombie->GetZombieRect();
+				int aLine = 0;
+				DrawHealthNumberOverRect(g, aZombie->mBodyHealth, aZombieRect, aLine++);
+				if (aZombie->mHelmHealth > 0)
+					DrawHealthNumberOverRect(g, aZombie->mHelmHealth, aZombieRect, aLine++);
+				if (aZombie->mShieldHealth > 0)
+					DrawHealthNumberOverRect(g, aZombie->mShieldHealth, aZombieRect, aLine++);
+				if (aZombie->mFlyingHealth > 0)
+					DrawHealthNumberOverRect(g, aZombie->mFlyingHealth, aZombieRect, aLine++);
+			}
+		}
+	}
+	if (gShowPlantHealthNumbers)
+	{
+		Plant* aPlant = nullptr;
+		while (IteratePlants(aPlant))
+		{
+			if (!aPlant->mDead)
+			{
+				DrawHealthNumberOverRect(g, aPlant->mPlantHealth, aPlant->GetPlantRect());
+			}
+		}
+	}
+
+	DrawRelayedZombieMarkers(g);
+	};
 	for (int i = 0; i < aRenderItemCount; i++)
 	{
 		RenderItem& aRenderItem = aRenderList[i];
@@ -7988,6 +8025,7 @@ void Board::DrawGameObjects(Graphics* g)
 			break;
 		
 		case RenderObjectType::RENDER_ITEM_TOP_UI:
+			drawWorldLabels(); // World labels remain below controls and screen fades.
 			DrawUITop(g);
 			break;
 			
@@ -8009,41 +8047,7 @@ void Board::DrawGameObjects(Graphics* g)
 		}
 	}
 
-	// @pvz-online: 血量数字叠加层（画在全部渲染项之后，独立两个开关）
-	if (gShowZombieHealthNumbers)
-	{
-		Zombie* aZombie = nullptr;
-		while (IterateZombies(aZombie))
-		{
-			if (!aZombie->IsDeadOrDying())
-			{
-				// @pvz-online: 主体数字在底行；防具（头盔/盾牌/气球，>0 才算）自下往上依次叠行
-				// （2026-10-04 用户指令：防具也显示血量）
-				Rect aZombieRect = aZombie->GetZombieRect();
-				int aLine = 0;
-				DrawHealthNumberOverRect(g, aZombie->mBodyHealth, aZombieRect, aLine++);
-				if (aZombie->mHelmHealth > 0)
-					DrawHealthNumberOverRect(g, aZombie->mHelmHealth, aZombieRect, aLine++);
-				if (aZombie->mShieldHealth > 0)
-					DrawHealthNumberOverRect(g, aZombie->mShieldHealth, aZombieRect, aLine++);
-				if (aZombie->mFlyingHealth > 0)
-					DrawHealthNumberOverRect(g, aZombie->mFlyingHealth, aZombieRect, aLine++);
-			}
-		}
-	}
-	if (gShowPlantHealthNumbers)
-	{
-		Plant* aPlant = nullptr;
-		while (IteratePlants(aPlant))
-		{
-			if (!aPlant->mDead)
-			{
-				DrawHealthNumberOverRect(g, aPlant->mPlantHealth, aPlant->GetPlantRect());
-			}
-		}
-	}
 
-	DrawRelayedZombieMarkers(g);
 	TodHesitationTrace("end draw");
 }
 
@@ -8833,10 +8837,15 @@ void Board::DrawUIBottom(Graphics* g)
 
 	if (mApp->mGameScene != GameScenes::SCENE_ZOMBIES_WON)
 	{
+		// During play, card controls belong above actors; intro and time-stop
+		// retain their original choreography and above-UI ordering.
+		if (mApp->mGameScene != GameScenes::SCENE_PLAYING || mTimeStopCounter > 0)
+		{
 		if (mSeedBank->BeginDraw(g))
 		{
 			mSeedBank->Draw(g);
 			mSeedBank->EndDraw(g);
+		}
 		}
 
 		if (mAdvice->mMessageStyle == MessageStyle::MESSAGE_STYLE_SLOT_MACHINE)
@@ -9042,6 +9051,13 @@ bool Board::IsScaryPotterDaveTalking()
 //0x41AA40
 void Board::DrawUITop(Graphics* g)
 {
+	// First-row giants and other tall actors must stay behind the seed bank.
+	if (mApp->mGameScene == GameScenes::SCENE_PLAYING && mTimeStopCounter == 0 && mSeedBank->BeginDraw(g))
+	{
+		mSeedBank->Draw(g);
+		mSeedBank->EndDraw(g);
+	}
+
 	if (StageHasFog())
 	{
 		DrawTopRightUI(g);
