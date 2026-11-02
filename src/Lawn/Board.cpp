@@ -7234,6 +7234,22 @@ void Board::DrawGameObjects(Graphics* g)
 
 	std::sort(aRenderList, aRenderList + aRenderItemCount, RenderItemSortFunc);
 
+	auto drawWorldLabels = [&]() {
+    // Shared final overlays are also used by the isolated observation lawn.
+    if (gShowZombieHealthNumbers)
+        for (Zombie* zombie : mZombies) {
+            if (zombie->mDead || zombie->IsDeadOrDying()) continue;
+            const Rect rect = zombie->GetZombieRect(); int line = 0;
+            DrawHealthNumberOverRect(g, zombie->mBodyHealth, rect, line++);
+            if (zombie->mHelmHealth > 0) DrawHealthNumberOverRect(g, zombie->mHelmHealth, rect, line++);
+            if (zombie->mShieldHealth > 0) DrawHealthNumberOverRect(g, zombie->mShieldHealth, rect, line++);
+            if (zombie->mFlyingHealth > 0) DrawHealthNumberOverRect(g, zombie->mFlyingHealth, rect, line++);
+        }
+    if (gShowPlantHealthNumbers)
+        for (Plant* plant : mPlants)
+            if (!plant->mDead) DrawHealthNumberOverRect(g, plant->mPlantHealth, plant->GetPlantRect());
+    DrawRelayedZombieMarkers(g);
+	};
 	for (int i = 0; i < aRenderItemCount; i++)
 	{
 		RenderItem& aRenderItem = aRenderList[i];
@@ -7413,6 +7429,7 @@ void Board::DrawGameObjects(Graphics* g)
 			break;
 
 		case RenderObjectType::RENDER_ITEM_TOP_UI:
+			drawWorldLabels(); // World labels remain below controls and screen fades.
 			DrawUITop(g);
 			break;
 
@@ -7434,20 +7451,7 @@ void Board::DrawGameObjects(Graphics* g)
 		}
 	}
 
-    // Shared final overlays are also used by the isolated observation lawn.
-    if (gShowZombieHealthNumbers)
-        for (Zombie* zombie : mZombies) {
-            if (zombie->mDead || zombie->IsDeadOrDying()) continue;
-            const Rect rect = zombie->GetZombieRect(); int line = 0;
-            DrawHealthNumberOverRect(g, zombie->mBodyHealth, rect, line++);
-            if (zombie->mHelmHealth > 0) DrawHealthNumberOverRect(g, zombie->mHelmHealth, rect, line++);
-            if (zombie->mShieldHealth > 0) DrawHealthNumberOverRect(g, zombie->mShieldHealth, rect, line++);
-            if (zombie->mFlyingHealth > 0) DrawHealthNumberOverRect(g, zombie->mFlyingHealth, rect, line++);
-        }
-    if (gShowPlantHealthNumbers)
-        for (Plant* plant : mPlants)
-            if (!plant->mDead) DrawHealthNumberOverRect(g, plant->mPlantHealth, plant->GetPlantRect());
-    DrawRelayedZombieMarkers(g);
+
 
 }
 
@@ -8155,10 +8159,15 @@ void Board::DrawUIBottom(Graphics* g)
 
 	if (mApp->mGameScene != GameScenes::SCENE_ZOMBIES_WON)
 	{
+		// During play, card controls belong above actors; intro and time-stop
+		// retain their original choreography and above-UI ordering.
+		if (mApp->mGameScene != GameScenes::SCENE_PLAYING || mTimeStopCounter > 0)
+		{
 		if (mSeedBank->BeginDraw(g))
 		{
 			mSeedBank->Draw(g);
 			mSeedBank->EndDraw(g);
+		}
 		}
 
 		if (mAdvice->mMessageStyle == MessageStyle::MESSAGE_STYLE_SLOT_MACHINE)
@@ -8353,6 +8362,13 @@ bool Board::IsScaryPotterDaveTalking()
 
 void Board::DrawUITop(Graphics* g)
 {
+	// First-row giants and other tall actors must stay behind the seed bank.
+	if (mApp->mGameScene == GameScenes::SCENE_PLAYING && mTimeStopCounter == 0 && mSeedBank->BeginDraw(g))
+	{
+		mSeedBank->Draw(g);
+		mSeedBank->EndDraw(g);
+	}
+
 	if (StageHasFog())
 	{
 		DrawTopRightUI(g);

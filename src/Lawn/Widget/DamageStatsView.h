@@ -10,8 +10,8 @@ namespace DamageStatsView
 {
 using namespace Sexy;
 
-// Below the sun shortcut: keep the shovel and every seed slot unobstructed.
-inline Rect BuffEntry() { return Rect(752, 88, 44, 44); }
+// Left margin below the team entry, outside all plantable columns.
+inline Rect BuffEntry() { return Rect(0, 154, 40, 44); }
 inline RunInfoView& BuffView()
 {
     // No board/run pointers are retained. Opening always resets this local-only view.

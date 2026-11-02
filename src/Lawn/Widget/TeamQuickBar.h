@@ -52,7 +52,7 @@ public:
  const TeamProgressionView::Peer* Peer(uint64_t player)const{auto it=std::find_if(snapshot.peers.begin(),snapshot.peers.end(),[&](const auto&p){return p.player==player;});return it==snapshot.peers.end()?nullptr:&*it;}
  void Add(Kind k,Sexy::Rect box,const std::string&label,bool enabled=true,uint64_t target=0,int value=0,uint64_t stamp=0){buttons.push_back({k,box,label,target,stamp,value,enabled});}
  bool CompactBattle()const{return app->mGameScene==GameScenes::SCENE_PLAYING&&!app->mRunIntroHeld&&!rosterOpen;}
- Sexy::Rect RosterBox()const{return CompactBattle()?Sexy::Rect(0,90,40,58):Sexy::Rect(4,88,180,44);}
+ Sexy::Rect RosterBox()const{if(CompactBattle())return Sexy::Rect(0,90,40,58);if(!rosterOpen&&app->mSeedChooserScreen)return Sexy::Rect(528,138,180,44);return Sexy::Rect(4,88,180,44);}
  Sexy::Rect Popup()const{return Sexy::Rect(4,188,458,plants||details||supports?302:174);}
  bool LoanActive()const{return run->mLoanLevel==run->mLevelIndex&&run->mLoanPlant>=0;}
  std::vector<int> PlantList()const{std::vector<int> seeds;auto mask=TeamPlay::For(app).PlayerPlantMask(selected);for(int i=0;i<48;++i)if(mask&(uint64_t(1)<<i))seeds.push_back(i);return seeds;}

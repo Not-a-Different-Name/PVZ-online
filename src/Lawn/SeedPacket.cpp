@@ -964,6 +964,11 @@ void SeedBank::Draw(Graphics* g)
 	else
 	{
 		int aExtraWidth = mBoard->GetSeedBankExtraWidth();
+		// Preserve rounded frame edges while making cooling/empty slot interiors
+		// opaque in battle, preparation and time-stop alike.
+		Graphics backing(*g);
+		backing.SetColor(Color(91, 44, 17));
+		backing.FillRect(6, 4, IMAGE_SEEDBANK->GetWidth() + aExtraWidth - 12, IMAGE_SEEDBANK->GetHeight() - 8);
 		Rect theSrcRect(IMAGE_SEEDBANK->mWidth - aExtraWidth - 12, 0, aExtraWidth + 12, IMAGE_SEEDBANK->mHeight);
 		g->DrawImage(IMAGE_SEEDBANK, 0, 0);
 		g->DrawImage(IMAGE_SEEDBANK, IMAGE_SEEDBANK->mWidth - 12, 0, theSrcRect);
