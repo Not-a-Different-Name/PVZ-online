@@ -5,6 +5,7 @@
 #include "Run/RunSpeciesRules.h"
 #include <memory>
 #include <new>
+#include <unordered_set>
 #include "Run/EndlessLawn.h"
 #include "Widget/NextWaveControl.h"
 #include "CoopPlay.h"
@@ -7059,6 +7060,75 @@ void Board::SetTutorialState(TutorialState theTutorialState)
 	mTutorialState = theTutorialState;
 }
 
+// @pvz-online: [attachhold] 诊断——attachment 分配当时判定是谁的字段（僵尸/子弹/金币/reanim 轨道），
+// 记下持有者的池 ID 与类型。之后若它成了孤儿，就能分辨持有者是「已释放」「已死仍在池」还是「活着但字段
+// 指向了别的 attachment」。只读字段，不改任何游戏状态。
+static Board* gAttachDiagBoard = nullptr;
+
+template <typename T>
+static bool ResolveAttachHolderInPool(DataArray<T>& thePool, uintptr_t theAddress, size_t theFieldOffset, unsigned int& theHolderId, T*& theHolder)
+{
+	typedef typename DataArray<T>::DataArrayItem Item;
+	const uintptr_t aBegin = (uintptr_t)thePool.mBlock;
+	const uintptr_t aEnd = aBegin + sizeof(Item) * thePool.mMaxSize;
+	if (thePool.mBlock == nullptr || theAddress < aBegin || theAddress >= aEnd) return false;
+	Item* aItem = (Item*)(aBegin + (theAddress - aBegin) / sizeof(Item) * sizeof(Item));
+	if ((uintptr_t)&aItem->mItem + theFieldOffset != theAddress) return false;  // 落在池里但不是 mAttachmentID 字段
+	theHolderId = aItem->mID;
+	theHolder = &aItem->mItem;
+	return true;
+}
+
+static void ResolveAttachHolder(uintptr_t theAddress, AttachOriginDiag& theOrigin)
+{
+	Board* aBoard = gAttachDiagBoard;
+	if (aBoard == nullptr || gLawnApp == nullptr || gLawnApp->mBoard != aBoard) return;
+	Zombie* aZombie = nullptr;
+	if (ResolveAttachHolderInPool(aBoard->mZombies, theAddress, offsetof(Zombie, mAttachmentID), theOrigin.mHolderId, aZombie))
+	{
+		theOrigin.mHolderKind = ATTACH_HOLDER_ZOMBIE;
+		theOrigin.mHolderSubtype = (int)aZombie->mZombieType;
+		return;
+	}
+	Projectile* aProjectile = nullptr;
+	if (ResolveAttachHolderInPool(aBoard->mProjectiles, theAddress, offsetof(Projectile, mAttachmentID), theOrigin.mHolderId, aProjectile))
+	{
+		theOrigin.mHolderKind = ATTACH_HOLDER_PROJECTILE;
+		theOrigin.mHolderSubtype = (int)aProjectile->mProjectileType;
+		return;
+	}
+	Coin* aCoin = nullptr;
+	if (ResolveAttachHolderInPool(aBoard->mCoins, theAddress, offsetof(Coin, mAttachmentID), theOrigin.mHolderId, aCoin))
+	{
+		theOrigin.mHolderKind = ATTACH_HOLDER_COIN;
+		theOrigin.mHolderSubtype = (int)aCoin->mType;
+		return;
+	}
+	auto& aReanimPool = aBoard->mApp->mEffectSystem->mReanimationHolder->mReanimations;
+	Reanimation* aReanim = nullptr;
+	while (aReanimPool.IterateNext(aReanim))
+	{
+		if (aReanim->mTrackInstances == nullptr || aReanim->mDefinition == nullptr) continue;
+		const uintptr_t aBegin = (uintptr_t)aReanim->mTrackInstances;
+		const uintptr_t aEnd = aBegin + sizeof(ReanimatorTrackInstance) * aReanim->mDefinition->mTracks.count;
+		if (theAddress < aBegin || theAddress >= aEnd) continue;
+		theOrigin.mHolderKind = ATTACH_HOLDER_REANIM_TRACK;
+		theOrigin.mHolderId = aReanimPool.DataArrayGetID(aReanim);
+		theOrigin.mHolderSubtype = (int)aReanim->mReanimationType;
+		return;
+	}
+}
+
+// 孤儿的持有者现状：freed = 持有者已从池释放；dead = 已死仍在池；replaced = 还活着但字段已指向别处
+// （或已清零）；reused 不会出现——池 ID 带代数键，换了对象 ID 就对不上，记为 freed。
+template <typename T>
+static const char* AttachHolderState(DataArray<T>& thePool, unsigned int theHolderId)
+{
+	T* aHolder = thePool.DataArrayTryToGet(theHolderId);
+	if (aHolder == nullptr) return "freed";
+	return aHolder->mDead ? "dead" : "replaced";
+}
+
 //0x415920
 void Board::UpdateGame()
 {
@@ -7098,6 +7168,233 @@ void Board::UpdateGame()
 			mCurrentWave, mMainCounter, mZombies.mSize, mZombies.mMaxSize, mPlants.mSize, mPlants.mMaxSize,
 			mProjectiles.mSize, mProjectiles.mMaxSize, mCoins.mSize, mCoins.mMaxSize,
 			aReanims.mSize, aReanims.mMaxSize, aAttachments.mSize, aAttachments.mMaxSize);
+	}
+
+	// @pvz-online: R2 诊断——reanim 池的类型分布。默认关闭，PVZ_REANIM_STATS=1 时每 500 帧输出一次。
+	// 只遍历池读取字段，不创建/销毁任何对象、不触碰游戏状态与随机数。
+	{
+		static const bool aReanimStatsOn = []() {
+			const char* aValue = getenv("PVZ_REANIM_STATS");
+			return aValue != nullptr && aValue[0] == '1';
+		}();
+		if (aReanimStatsOn && mMainCounter % 500 == 0)
+		{
+			auto& aPool = mApp->mEffectSystem->mReanimationHolder->mReanimations;
+			int aTypeCounts[160] = { 0 };
+			int aAttachCount = 0, aDeadCount = 0, aUnknownType = 0;
+			unsigned int aTotal = 0;
+			Reanimation* aPoolReanim = nullptr;
+			while (aPool.IterateNext(aPoolReanim))
+			{
+				if (aPoolReanim == nullptr) continue;
+				++aTotal;
+				if (aPoolReanim->mDead) ++aDeadCount;
+				if (aPoolReanim->mIsAttachment) ++aAttachCount;
+				const unsigned int aType = (unsigned int)aPoolReanim->mReanimationType;
+				if (aType < 160) ++aTypeCounts[aType];
+				else ++aUnknownType;
+			}
+			// 取前 8 名（插入排序，n=160，成本可忽略且只在开关打开时执行）
+			int aTopType[8] = { -1, -1, -1, -1, -1, -1, -1, -1 };
+			int aTopCount[8] = { 0 };
+			for (int aType = 0; aType < 160; ++aType)
+			{
+				if (aTypeCounts[aType] == 0) continue;
+				for (int aSlot = 0; aSlot < 8; ++aSlot)
+				{
+					if (aTypeCounts[aType] > aTopCount[aSlot])
+					{
+						for (int aMove = 7; aMove > aSlot; --aMove)
+						{
+							aTopType[aMove] = aTopType[aMove - 1];
+							aTopCount[aMove] = aTopCount[aMove - 1];
+						}
+						aTopType[aSlot] = aType;
+						aTopCount[aSlot] = aTypeCounts[aType];
+						break;
+					}
+				}
+			}
+			std::string aTopText;
+			for (int aSlot = 0; aSlot < 8 && aTopType[aSlot] >= 0; ++aSlot)
+				aTopText += StrFormat(" t%d:%d", aTopType[aSlot], aTopCount[aSlot]);
+			TodLog("[reanimstats] frame %d total %u/%u attach %d dead %d unknown %d | top%s",
+				mMainCounter, aTotal, aPool.mMaxSize, aAttachCount, aDeadCount, aUnknownType, aTopText.c_str());
+
+			// @pvz-online: 本区间内的创建次数（读完清零）。用于区分「加载存档时一次性创建」
+			// 与「运行中持续创建」——只看池内容快照无法区分这两者。
+			unsigned int aAllocCounts[160] = { 0 };
+			ReanimTakeAllocCounts(aAllocCounts, 160);
+			unsigned int aAllocTotal = 0;
+			for (int aType = 0; aType < 160; ++aType) aAllocTotal += aAllocCounts[aType];
+			int aAllocTopType[6] = { -1, -1, -1, -1, -1, -1 };
+			unsigned int aAllocTopCount[6] = { 0 };
+			for (int aType = 0; aType < 160; ++aType)
+			{
+				if (aAllocCounts[aType] == 0) continue;
+				for (int aSlot = 0; aSlot < 6; ++aSlot)
+				{
+					if (aAllocCounts[aType] > aAllocTopCount[aSlot])
+					{
+						for (int aMove = 5; aMove > aSlot; --aMove)
+						{
+							aAllocTopType[aMove] = aAllocTopType[aMove - 1];
+							aAllocTopCount[aMove] = aAllocTopCount[aMove - 1];
+						}
+						aAllocTopType[aSlot] = aType;
+						aAllocTopCount[aSlot] = aAllocCounts[aType];
+						break;
+					}
+				}
+			}
+			std::string aAllocText;
+			for (int aSlot = 0; aSlot < 6 && aAllocTopType[aSlot] >= 0; ++aSlot)
+				aAllocText += StrFormat(" t%d:%u", aAllocTopType[aSlot], aAllocTopCount[aSlot]);
+			TodLog("[reanimalloc] frame %d created %u | top%s",
+				mMainCounter, aAllocTotal, aAllocText.c_str());
+		}
+	}
+
+	// @pvz-online: S2 诊断——Attachment 池构成。实测 attachments 全程 4096/4096 顶满，
+	// 但只有几十个 reanim 带 mIsAttachment，怀疑池里大量对象是死的或空的却未回收。
+	// 只遍历读取字段，不创建/销毁、不碰随机数。默认关闭（PVZ_REANIM_STATS=1）。
+	{
+		static const bool aAttachStatsOn = []() {
+			const char* aValue = getenv("PVZ_REANIM_STATS");
+			return aValue != nullptr && aValue[0] == '1';
+		}();
+		if (aAttachStatsOn && mMainCounter % 500 == 0)
+		{
+			auto& aAttachPool = mApp->mEffectSystem->mAttachmentHolder->mAttachments;
+			unsigned int aAttachTotal = 0, aAttachDead = 0, aAttachEmpty = 0, aAttachUsed = 0;
+			unsigned int aEffectHist[17] = { 0 };
+			unsigned int aEffSum = 0;
+			Attachment* aAtt = nullptr;
+			while (aAttachPool.IterateNext(aAtt))
+			{
+				if (aAtt == nullptr) continue;
+				++aAttachTotal;
+				if (aAtt->mDead) ++aAttachDead;
+				const int aNumEffects = aAtt->mNumEffects;
+				if (aNumEffects <= 0) ++aAttachEmpty;
+				else { ++aAttachUsed; aEffSum += (unsigned int)aNumEffects; }
+				if (aNumEffects >= 0 && aNumEffects <= 16) ++aEffectHist[aNumEffects];
+			}
+			TodLog("[attachstats] frame %d total %u/%u dead %u empty %u used %u effSum %u | n0=%u n1=%u n2=%u n3+%u max16=%u",
+				mMainCounter, aAttachTotal, aAttachPool.mMaxSize, aAttachDead, aAttachEmpty,
+				aAttachUsed, aEffSum, aEffectHist[0], aEffectHist[1], aEffectHist[2],
+				aEffectHist[3] + aEffectHist[4] + aEffectHist[5] + aEffectHist[6] + aEffectHist[7] +
+				aEffectHist[8] + aEffectHist[9] + aEffectHist[10] + aEffectHist[11] + aEffectHist[12] +
+				aEffectHist[13] + aEffectHist[14] + aEffectHist[15], aEffectHist[16]);
+
+			// @pvz-online: S2 补充——宿主分布。收集四类持有者（僵尸/子弹/金币/reanim 轨道）
+			// 与 attachment 之间 EFFECT_ATTACHMENT 嵌套里的 AttachmentID，逐个对照池中存活对象。
+			// 只一层判定：被孤儿 reanim/attachment 持有的仍记为 held。
+			std::unordered_set<unsigned int> aByOwner, aByReanim, aByAttach;
+			Zombie* aHoldZombie = nullptr;
+			while (IterateZombies(aHoldZombie))
+				if (aHoldZombie->mAttachmentID) aByOwner.insert((unsigned int)aHoldZombie->mAttachmentID);
+			Projectile* aHoldProjectile = nullptr;
+			while (IterateProjectiles(aHoldProjectile))
+				if (aHoldProjectile->mAttachmentID) aByOwner.insert((unsigned int)aHoldProjectile->mAttachmentID);
+			Coin* aHoldCoin = nullptr;
+			while (IterateCoins(aHoldCoin))
+				if (aHoldCoin->mAttachmentID) aByOwner.insert((unsigned int)aHoldCoin->mAttachmentID);
+			Reanimation* aHoldReanim = nullptr;
+			while (mApp->mEffectSystem->mReanimationHolder->mReanimations.IterateNext(aHoldReanim))
+			{
+				if (aHoldReanim->mDead || aHoldReanim->mTrackInstances == nullptr || aHoldReanim->mDefinition == nullptr) continue;
+				for (int aTrack = 0; aTrack < aHoldReanim->mDefinition->mTracks.count; ++aTrack)
+					if (aHoldReanim->mTrackInstances[aTrack].mAttachmentID)
+						aByReanim.insert((unsigned int)aHoldReanim->mTrackInstances[aTrack].mAttachmentID);
+			}
+			aAtt = nullptr;
+			while (aAttachPool.IterateNext(aAtt))
+			{
+				if (aAtt->mDead) continue;
+				for (int i = 0; i < aAtt->mNumEffects && i < MAX_EFFECTS_PER_ATTACHMENT; ++i)
+					if (aAtt->mEffectArray[i].mEffectType == EFFECT_ATTACHMENT)
+						aByAttach.insert(aAtt->mEffectArray[i].mEffectID);
+			}
+
+			unsigned int aHeldOwner = 0, aHeldReanim = 0, aHeldAttach = 0, aOrphan = 0;
+			unsigned int aOrphanByEffect[4] = { 0 };  // 孤儿首个效果的类型：粒子/轨迹/reanim/attachment
+			unsigned int aOrphanParticle[256] = { 0 };
+			std::map<std::string, unsigned int> aOrphanOrigins;
+			auto& aParticlePool = mApp->mEffectSystem->mParticleHolder->mParticleSystems;
+			aAtt = nullptr;
+			while (aAttachPool.IterateNext(aAtt))
+			{
+				if (aAtt->mDead) continue;
+				const unsigned int aId = aAttachPool.DataArrayGetID(aAtt);
+				if (aByOwner.count(aId)) { ++aHeldOwner; continue; }
+				if (aByReanim.count(aId)) { ++aHeldReanim; continue; }
+				if (aByAttach.count(aId)) { ++aHeldAttach; continue; }
+				++aOrphan;
+				{
+					// 出生记录反查：持有者种类+类型+现状+首效果，如 "Z23:freed:p45"
+					const AttachOriginDiag* aOrigin = AttachOriginLookup(aId);
+					std::string aKey;
+					if (aOrigin == nullptr) aKey = "norecord";
+					else
+					{
+						const char* aEff = aOrigin->mEffectType == EFFECT_PARTICLE ? "p" : aOrigin->mEffectType == EFFECT_TRAIL ? "t" : aOrigin->mEffectType == EFFECT_REANIM ? "r" : "a";
+						switch (aOrigin->mHolderKind)
+						{
+						case ATTACH_HOLDER_ZOMBIE:     aKey = StrFormat("Z%d:%s", aOrigin->mHolderSubtype, AttachHolderState(mZombies, aOrigin->mHolderId)); break;
+						case ATTACH_HOLDER_PROJECTILE: aKey = StrFormat("P%d:%s", aOrigin->mHolderSubtype, AttachHolderState(mProjectiles, aOrigin->mHolderId)); break;
+						case ATTACH_HOLDER_COIN:       aKey = StrFormat("C%d:%s", aOrigin->mHolderSubtype, AttachHolderState(mCoins, aOrigin->mHolderId)); break;
+						case ATTACH_HOLDER_REANIM_TRACK:
+						{
+							Reanimation* aHolderReanim = mApp->mEffectSystem->mReanimationHolder->mReanimations.DataArrayTryToGet(aOrigin->mHolderId);
+							aKey = StrFormat("R%d:%s", aOrigin->mHolderSubtype, aHolderReanim == nullptr ? "freed" : aHolderReanim->mDead ? "dead" : "replaced");
+							break;
+						}
+						default: aKey = "unknown"; break;
+						}
+						aKey += StrFormat(":%s%d", aEff, aOrigin->mEffectSubtype);
+					}
+					++aOrphanOrigins[aKey];
+				}
+				if (aAtt->mNumEffects <= 0) continue;
+				const AttachEffect& aFirst = aAtt->mEffectArray[0];
+				if ((unsigned int)aFirst.mEffectType < 4) ++aOrphanByEffect[aFirst.mEffectType];
+				if (aFirst.mEffectType == EFFECT_PARTICLE)
+				{
+					TodParticleSystem* aSystem = aParticlePool.DataArrayTryToGet(aFirst.mEffectID);
+					if (aSystem != nullptr && (unsigned int)aSystem->mEffectType < 256) ++aOrphanParticle[aSystem->mEffectType];
+				}
+			}
+			std::string aOrphanTop;
+			for (int aSlot = 0; aSlot < 5; ++aSlot)
+			{
+				int aBest = -1;
+				for (int aType = 0; aType < 256; ++aType)
+					if (aOrphanParticle[aType] > 0 && (aBest < 0 || aOrphanParticle[aType] > aOrphanParticle[aBest])) aBest = aType;
+				if (aBest < 0) break;
+				aOrphanTop += StrFormat(" p%d:%u", aBest, aOrphanParticle[aBest]);
+				aOrphanParticle[aBest] = 0;
+			}
+			TodLog("[attachhold] frame %d alive %u | owner %u reanim %u attach %u orphan %u | orphan first particle %u trail %u reanim %u attach %u | top%s",
+				mMainCounter, aAttachTotal - aAttachDead, aHeldOwner, aHeldReanim, aHeldAttach, aOrphan,
+				aOrphanByEffect[EFFECT_PARTICLE], aOrphanByEffect[EFFECT_TRAIL], aOrphanByEffect[EFFECT_REANIM],
+				aOrphanByEffect[EFFECT_ATTACHMENT], aOrphanTop.c_str());
+
+			// 孤儿出生记录：按数量取前 8
+			std::vector<std::pair<unsigned int, std::string>> aOriginRank;
+			for (auto& aEntry : aOrphanOrigins) aOriginRank.push_back({ aEntry.second, aEntry.first });
+			std::sort(aOriginRank.begin(), aOriginRank.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+			std::string aOriginText;
+			for (size_t i = 0; i < aOriginRank.size() && i < 8; ++i)
+				aOriginText += StrFormat(" %s=%u", aOriginRank[i].second.c_str(), aOriginRank[i].first);
+			TodLog("[attachorigin] frame %d orphan %u |%s", mMainCounter, aOrphan, aOriginText.c_str());
+			AttachOriginPrune();
+		}
+		if (aAttachStatsOn && gAttachDiagBoard != this)
+		{
+			gAttachDiagBoard = this;
+			AttachOriginSetResolver(ResolveAttachHolder);
+		}
 	}
 	UpdateSunSpawning();
 	UpdateZombieSpawning();

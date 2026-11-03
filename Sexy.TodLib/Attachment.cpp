@@ -5,6 +5,9 @@
 #include "TodParticle.h"
 #include "EffectSystem.h"
 #include "graphics/Graphics.h"
+#include <cstdlib>
+#include <iterator>
+#include <unordered_map>
 
 Attachment::Attachment()
 {
@@ -860,6 +863,55 @@ AttachEffect* FindFirstAttachment(AttachmentID& theAttachmentID)
 	return (aAttachment->mNumEffects == 0) ? nullptr : &aAttachment->mEffectArray[0];
 }
 
+static std::unordered_map<unsigned int, AttachOriginDiag> gAttachOrigins;
+static AttachOriginResolver gAttachOriginResolver = nullptr;
+
+void AttachOriginSetResolver(AttachOriginResolver theResolver)
+{
+	gAttachOriginResolver = theResolver;
+}
+
+bool AttachOriginDiagEnabled()
+{
+	static const bool aOn = []() {
+		const char* aValue = getenv("PVZ_REANIM_STATS");
+		return aValue != nullptr && aValue[0] == '1';
+	}();
+	return aOn;
+}
+
+const AttachOriginDiag* AttachOriginLookup(unsigned int theAttachmentID)
+{
+	auto aIt = gAttachOrigins.find(theAttachmentID);
+	return aIt == gAttachOrigins.end() ? nullptr : &aIt->second;
+}
+
+void AttachOriginPrune()
+{
+	if (gEffectSystem == nullptr || gEffectSystem->mAttachmentHolder == nullptr) return;
+	auto& aPool = gEffectSystem->mAttachmentHolder->mAttachments;
+	for (auto aIt = gAttachOrigins.begin(); aIt != gAttachOrigins.end();)
+		aIt = aPool.DataArrayTryToGet(aIt->first) == nullptr ? gAttachOrigins.erase(aIt) : std::next(aIt);
+}
+
+static void AttachOriginRecord(unsigned int theAttachmentID, AttachmentID* theHolder, EffectType theEffectType, unsigned int theDataID)
+{
+	int aSubtype = -1;
+	if (theEffectType == EffectType::EFFECT_PARTICLE)
+	{
+		TodParticleSystem* aSystem = gEffectSystem->mParticleHolder->mParticleSystems.DataArrayTryToGet(theDataID);
+		if (aSystem) aSubtype = (int)aSystem->mEffectType;
+	}
+	else if (theEffectType == EffectType::EFFECT_REANIM)
+	{
+		Reanimation* aReanim = gEffectSystem->mReanimationHolder->mReanimations.DataArrayTryToGet(theDataID);
+		if (aReanim) aSubtype = (int)aReanim->mReanimationType;
+	}
+	AttachOriginDiag aOrigin = { (uintptr_t)theHolder, theEffectType, aSubtype, ATTACH_HOLDER_UNKNOWN, 0U, -1 };
+	if (gAttachOriginResolver) gAttachOriginResolver(aOrigin.mHolderAddress, aOrigin);
+	gAttachOrigins[theAttachmentID] = aOrigin;
+}
+
 //0x405540
 AttachEffect* CreateEffectAttachment(AttachmentID& theAttachmentID, EffectType theEffectType, unsigned int theDataID, float theOffsetX, float theOffsetY)
 {
@@ -874,6 +926,8 @@ AttachEffect* CreateEffectAttachment(AttachmentID& theAttachmentID, EffectType t
 			return nullptr;
 		}
 		theAttachmentID = (AttachmentID)gEffectSystem->mAttachmentHolder->mAttachments.DataArrayGetID(aAttachment);
+		if (AttachOriginDiagEnabled())
+			AttachOriginRecord((unsigned int)theAttachmentID, &theAttachmentID, theEffectType, theDataID);
 	}
 
 	// Both limits matter: total attachment slots and effects in this parent.

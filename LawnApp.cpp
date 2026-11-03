@@ -7051,6 +7051,9 @@ bool LawnApp::SetObserverP2P(bool enabled) {
 
 bool LawnApp::DrawDirtyStuff(){
  PerformanceMonitor::Scope monitor(PerformanceMonitor::AppDraw);
+ // @pvz-online: 采样器的 app_draw 行此前恒为 plants/zombies/bullets=0（只有 UpdateFrames 调了 Objects），
+ // 导致绘制耗时无法与同屏实体数对应。这里补上，仅写采样记录，不参与渲染与逻辑。
+ if(mBoard)monitor.Objects(mBoard->mPlants.mSize,mBoard->mZombies.mSize,mBoard->mProjectiles.mSize);
  const bool drawn=SexyApp::DrawDirtyStuff();
  if(drawn)PerformanceMonitor::Presented();else monitor.Cancel();
  return drawn;
