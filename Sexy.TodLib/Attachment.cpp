@@ -711,6 +711,7 @@ void AttachmentDetachCrossFadeParticleType(AttachmentID& theAttachmentID, Partic
 	TOD_ASSERT(theParticleEffect >= 0 && theParticleEffect < gParticleDefCount);
 	TodParticleDefinition* aDefinition = &gParticleDefArray[(int)theParticleEffect];
 
+	bool aDetached = false;
 	for (int i = 0; i < aAttachment->mNumEffects; i++)
 	{
 		AttachEffect* aAttachEffect = &aAttachment->mEffectArray[i];
@@ -728,9 +729,25 @@ void AttachmentDetachCrossFadeParticleType(AttachmentID& theAttachmentID, Partic
 				{
 					aParticleSystem->ParticleSystemDie();
 				}
-				theAttachmentID = AttachmentID::ATTACHMENTID_NULL;
+				// @pvz-online: 已处理的粒子移出效果表，下面收尾时不会再碰它（交叉淡出的那份要继续活着）。
+				int aNumEffectsRemaining = aAttachment->mNumEffects - i - 1;
+				if (aNumEffectsRemaining > 0)
+					memmove(aAttachEffect, aAttachEffect + 1, aNumEffectsRemaining * sizeof(AttachEffect));
+				aAttachment->mNumEffects--;
+				i--;
+				aDetached = true;
 			}
 		}
+	}
+
+	// @pvz-online: 原实现只把持有者的 ID 清零，attachment 本身既不标死也不回收——之后没人再调它的
+	// Update，它永远发现不了粒子已死，成为孤儿常驻池中并随存档累积（实测地刨僵尸破土/丢镐时每只漏一个，
+	// 无尽长局可把 4096 的池顶满，此后新僵尸挂不上任何特效）。ID 清零后表上剩下的效果本来也不会再被
+	// 绘制或更新，这里让它们随 attachment 一起死亡回收，画面不变。与 AttachmentDetach 清零即 Detach 对齐。
+	if (aDetached)
+	{
+		theAttachmentID = AttachmentID::ATTACHMENTID_NULL;
+		aAttachment->AttachmentDie();
 	}
 }
 
@@ -883,6 +900,12 @@ AttachEffect* AttachReanim(AttachmentID& theAttachmentID, Reanimation* theReanim
 	if (aAttachEffect == nullptr)
 	{
 		// Keep essential body/head animation alive for its existing owner.
+		// @pvz-online: 但纯装饰类 reanim（金币/银币/阳光/溅射等 MayOmit 白名单）没有外部
+		// ID 持有者——它们的唯一引用就是这次挂载。挂不上若不销毁，就会永久驻留池中、
+		// 每帧被 EffectSystem::Update() 真的 Update（mIsAttachment 未置位），累积成数千个。
+		// 与 AttachParticle / AttachTrail 的既有做法对齐：失败即销毁无主装饰。
+		if (!theReanimation->mIsAttachment && ReanimationMayOmit(theReanimation->mReanimationType))
+			theReanimation->ReanimationDie();
 		return nullptr;
 	}
 
