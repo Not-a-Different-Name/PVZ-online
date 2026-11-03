@@ -127,6 +127,10 @@ public:
     Reanimation*                    AllocReanimation(float theX, float theY, int theRenderOrder, ReanimationType theReanimationType);
 };
 
+// @pvz-online: 提升为外部可见——Attachment.cpp 挂载失败时、SaveGame.cpp 读档修剪时需要用同一份白名单
+// 判断「该 reanim 是否属于无主的装饰类特效」（可安全销毁）。避免多处各存一份名单。
+bool ReanimationMayOmit(ReanimationType type);
+
 // ====================================================================================================
 // ★ 【动画器时间】
 // ----------------------------------------------------------------------------------------------------
