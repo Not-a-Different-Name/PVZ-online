@@ -263,5 +263,9 @@ void                                ReanimationCreateAtlas(ReanimatorDefinition*
 void                                ReanimationPreload(ReanimationType theReanimationType);
 void                                BlendTransform(ReanimatorTransform* theResult, const ReanimatorTransform& theTransform1, const ReanimatorTransform& theTransform2, float theBlendFactor);
 
+// @pvz-online: 诊断用——取走并清零「按类型的 reanim 创建次数」。
+// 只由 PVZ_REANIM_STATS 开关下的统计日志调用，不参与游戏逻辑。
+void                                ReanimTakeAllocCounts(unsigned int* theOutCounts, int theMaxTypes);
+
 #endif
 

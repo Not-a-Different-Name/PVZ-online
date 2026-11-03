@@ -1157,12 +1157,31 @@ bool ReanimationHolder::MakeRoomForPlant(unsigned int count)
     return false;
 }
 
+// @pvz-online: 诊断用——按类型累计 reanim 创建次数。只供 PVZ_REANIM_STATS 诊断读取，
+// 不参与游戏逻辑、不消耗随机数、不影响联机确定性。
+static unsigned int gReanimAllocCounts[160] = { 0 };
+
+void ReanimTakeAllocCounts(unsigned int* theOutCounts, int theMaxTypes)
+{
+	if (theOutCounts == nullptr) return;
+	const int aCount = theMaxTypes < 160 ? theMaxTypes : 160;
+	for (int i = 0; i < aCount; ++i)
+	{
+		theOutCounts[i] = gReanimAllocCounts[i];
+		gReanimAllocCounts[i] = 0;
+	}
+}
+
 Reanimation* ReanimationHolder::AllocReanimation(float theX, float theY, int theRenderOrder, ReanimationType theReanimationType)
 {
     if (ReanimationMayOmit(theReanimationType) && !mReanimations.DataArrayCanAllocate(mPlantReservation + 1)) return nullptr;
 	// Release builds must enforce the boundary, including damaged free-list metadata.
 	Reanimation* aReanim = mReanimations.DataArrayTryAlloc();
 	if (aReanim == nullptr) return nullptr;
+	{
+		const unsigned int aCountType = (unsigned int)theReanimationType;
+		if (aCountType < 160) ++gReanimAllocCounts[aCountType];
+	}
 	aReanim->mRenderOrder = theRenderOrder;
 	aReanim->mReanimationHolder = this;
 	aReanim->ReanimationInitializeType(theX, theY, theReanimationType);
