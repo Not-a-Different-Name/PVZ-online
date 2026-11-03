@@ -765,6 +765,8 @@ void LawnApp::EndLevel()
 	if (IsAdventureMode())
 	{
 		NewGame();
+		// NewGame owns run preparation; falling through builds a second lawn/chooser.
+		return;
 	}
 
 	mFirstTimeGameSelector = true;

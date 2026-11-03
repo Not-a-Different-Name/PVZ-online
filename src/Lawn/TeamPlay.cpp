@@ -285,6 +285,12 @@ bool TeamPlay::HoldPreparation() {
 
 void TeamPlay::PrepareBattle() {
     auto*r=app->GetRunState();if(!r||!app->mBoard)return;BeginContext();
+    // Restore retry sun before StartPlaying records the new endless baseline.
+    // A same-attempt lawn recovery must retain its actual saved balance.
+    const auto& baseline=r->mTeam;
+    if(!baselineCaptured && !recoverLawn && !baseline.baselinePackets.empty() &&
+       baseline.baselinePackets.size()%14==0 && baseline.localLevel==r->mLevelIndex)
+        app->mBoard->mSunMoney=baseline.baselineSun;
     if(r->IsEndless()){r->mTeam.shared.stacks[ARSENAL]=0;r->mTeam.shared.plants=0;}
     Plant* plant=nullptr;while(app->mBoard->IteratePlants(plant))plant->RefreshRunMaxHealth();
     // Weights selected after personal rewards must affect this stage, not the next one.
