@@ -1,0 +1,49 @@
+{
+  "build": 110,
+  "cliProtocol": 1,
+  "base": "MOD110 R1",
+  "files": [
+    {
+      "path": "tools/cli/build.py",
+      "sha256": "67563275c2ae604fd4c3ba6e4e87234976fec7169645ce5812ea36dac80da244"
+    },
+    {
+      "path": "tools/cli/cli.cmake",
+      "sha256": "0b141a25b597828c047d62ba523eb98f9adf0a6e158e0c4864505fb1df647752"
+    },
+    {
+      "path": "tools/cli/engine.cpp",
+      "sha256": "c13ec6b8b4e9299e7d84f550d0e1b18da6f7e76174ea5408cab7f8bd8a8f909f"
+    },
+    {
+      "path": "tools/cli/example_agent.py",
+      "sha256": "b11dd2de7d4629a5271f78c501955db5efdab09f14b2283ff14cfe5abaa8923d"
+    },
+    {
+      "path": "tools/cli/package.py",
+      "sha256": "95c7b2e4fa80e9ce31e0ebb05daeb4f649dae0d852057b63dbdc4c4b358a2788"
+    },
+    {
+      "path": "tools/cli/pvz-cli.py",
+      "sha256": "d8df06179ecbbc74d63ed6790281dd646a50d5c02e367d35707bcbea95e94077"
+    },
+    {
+      "path": "tools/cli/README.md",
+      "sha256": "08ee15210a3826ed745a710f19040f5a122dca30e715ba72c86caf0c7ed6ee1f"
+    },
+    {
+      "path": "Lawn/TeamPlay.cpp",
+      "sha256": "84fa66a060cb0f8a9e1f32f9b0a00788b411679d84e398d5b2aad53c4893ba6f"
+    },
+    {
+      "path": "LawnApp.cpp",
+      "sha256": "45d0d912b2f40eca0e8bdb31d60f422702a659450849dc1219a4bdde1f83be06"
+    },
+    {
+      "path": "README.md",
+      "sha256": "efa85abd05867715d1dc3550a455acb1e0e7461cb9adc2160a52cc69e0bf3544"
+    }
+  ],
+  "guiPlayerPackagesUpdated": false,
+  "androidPlayerPackageUpdated": false
+}
