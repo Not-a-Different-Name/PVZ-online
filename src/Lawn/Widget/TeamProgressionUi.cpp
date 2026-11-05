@@ -20,7 +20,7 @@ void UpdateQuick(LawnApp*app,Controller*controller){
     if(!controller||!app->mBoard||!app->GetRunState()||!app->mWidgetManager)return;
     if(it==quickBars.end()){auto*bar=new TeamQuickBar(app,controller);quickBars[app]=bar;app->mWidgetManager->AddWidget(bar);it=quickBars.find(app);}
     auto*bar=it->second;bar->SetVisible(bar->Surface());
-    if(bar->mVisible){if(app->mWidgetManager->mWidgets.back()!=bar)app->mWidgetManager->BringToFront(bar);}else if(bar->selected||bar->captured){bar->Collapse();}
+    if(bar->mVisible){if((app->mWidgetManager->mWidgets.empty() || app->mWidgetManager->mWidgets.back()!=bar))app->mWidgetManager->BringToFront(bar);}else if(bar->selected||bar->captured){bar->Collapse();}
 }
 }
 

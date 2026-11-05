@@ -23,6 +23,7 @@
 
 #include "Music.h"
 #include "SaveGame.h"
+#include "EffectPoolCleanup.h"
 #include "../Board.h"
 #include "../Run/RunDotEffects.h"
 #include "../Run/RunWaveHitSave.h"
@@ -2186,8 +2187,7 @@ static bool WriteChunkV4(std::vector<unsigned char>& thePayload, uint32_t theChu
 	aFieldWriter.OpenMemory(0x4000);
 	PortableSaveContext aFieldContext(aFieldWriter);
 	aSyncFn(aFieldContext, theBoard);
-	if (aFieldContext.mFailed)
-		return false;
+	if (aFieldContext.mFailed){PvzpLogLn("[save] portable chunk {} rejected during write",theChunkType);return false;}
 
 	DataWriter aChunkWriter;
 	aChunkWriter.OpenMemory(0x200);
@@ -2452,6 +2452,11 @@ static bool LawnLoadGameV4(Board* theBoard, const std::string& theFilePath)
 	if (aCrc != aHeader.mPayloadCrc)
 		return false;
 
+	// Dispose the previous graph before reusing saved IDs in any effect pool.
+	// Otherwise old attachment/system destructors can kill newly restored objects
+	// in a different pool as TLV chunks are loaded one by one.
+	theBoard->mApp->mEffectSystem->EffectSystemFreeAll();
+
 	TLVReader aReader(aPayload, aHeader.mPayloadSize);
 	theBoard->mRelayedZombieIds.clear(); // Older v4 saves have no marker chunk.
 	bool aBaseLoaded = false;
@@ -2484,6 +2489,7 @@ static bool LawnLoadGameV4(Board* theBoard, const std::string& theFilePath)
 	if (!RunDotEffects::LoadTrailer(theBoard, aBuffer.GetDataPtr(), static_cast<size_t>(aBuffer.GetDataLen()))) return false;
 	if (!RunWaveHitSave::LoadTrailer(theBoard, aBuffer.GetDataPtr(), static_cast<size_t>(aBuffer.GetDataLen()), sizeof(SaveFileHeaderV4) + aHeader.mPayloadSize)) return false;
     if (!RunSpeciesRuntime::LoadTrailer(theBoard,aBuffer.GetDataPtr(),static_cast<size_t>(aBuffer.GetDataLen()))) return false;
+	EffectPoolCleanup::AfterLoad(theBoard, theFilePath);
 	theBoard->mApp->mGameScene = GameScenes::SCENE_PLAYING;
 	return true;
 }
@@ -3010,6 +3016,7 @@ bool LawnLoadGame(Board* theBoard, const std::string& theFilePath)
 	if (!RunDotEffects::LoadTrailer(theBoard, aContext.mBuffer.GetDataPtr(), static_cast<size_t>(aContext.mBuffer.GetDataLen()))) return false;
 	if (!RunWaveHitSave::LoadTrailer(theBoard, aContext.mBuffer.GetDataPtr(), static_cast<size_t>(aContext.mBuffer.GetDataLen()), static_cast<size_t>(aContext.mBuffer.mReadBitPos / 8))) return false;
     if (!RunSpeciesRuntime::LoadTrailer(theBoard,aContext.mBuffer.GetDataPtr(),static_cast<size_t>(aContext.mBuffer.GetDataLen()))) return false;
+	EffectPoolCleanup::AfterLoad(theBoard, theFilePath);
 	theBoard->mApp->mGameScene = GameScenes::SCENE_PLAYING;
 	return true;
 }

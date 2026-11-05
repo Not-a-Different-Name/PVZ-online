@@ -5863,7 +5863,8 @@ void Board::PuzzleSaveStreak()
 
 void Board::ZombiesWon(Zombie* theZombie, bool theFromPeer)
 {
-    if(ObserverIsolation::Active()){mApp->mBoardResult=BoardResult::BOARDRESULT_LOST;mApp->mGameScene=GameScenes::SCENE_ZOMBIES_WON;return;}
+    // A speculative observer lawn has no authority to end the real match.
+    if(ObserverIsolation::Active()){if(theZombie)theZombie->DieNoLoot();return;}
 
 	if (mApp->mGameScene == GameScenes::SCENE_ZOMBIES_WON)
 		return;

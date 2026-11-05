@@ -92,6 +92,7 @@ static void PruneDeadEffects(Attachment* theAttachment)
 
 Attachment::Attachment()
 {
+    for(auto& effect:mEffectArray)effect={}; // new slot must not serialize stale effect fields
 	mNumEffects = 0;
 	mDead = false;
 }
@@ -612,7 +613,10 @@ void Attachment::AttachmentDie()
 	if (gEffectSystem->mReanimationHolder) aReanimations = &gEffectSystem->mReanimationHolder->mReanimations;
 	if (gEffectSystem->mAttachmentHolder) aAttachments = &gEffectSystem->mAttachmentHolder->mAttachments;
 
-	for (int i = 0; i < mNumEffects; i++)
+	// Clear the outgoing count before recursion: old saves may contain cycles.
+    const int aEffectCount = mNumEffects < 0 ? 0 : mNumEffects > MAX_EFFECTS_PER_ATTACHMENT ? MAX_EFFECTS_PER_ATTACHMENT : mNumEffects;
+    mNumEffects = 0;
+	for (int i = 0; i < aEffectCount; i++)
 	{
 		AttachEffect* aAttachEffect = &mEffectArray[i];
 		switch (aAttachEffect->mEffectType)
@@ -984,6 +988,12 @@ AttachEffect* AttachReanim(AttachmentID& theAttachmentID, Reanimation* theReanim
 	if (aAttachEffect == nullptr)
 	{
 		// Keep essential body/head animation alive for its existing owner.
+		// @pvz-online: 但纯装饰类 reanim（金币/银币/阳光/溅射等 MayOmit 白名单）没有外部
+		// ID 持有者——它们的唯一引用就是这次挂载。挂不上若不销毁，就会永久驻留池中、
+		// 每帧被 EffectSystem::Update() 真的 Update（mIsAttachment 未置位），累积成数千个。
+		// 与 AttachParticle / AttachTrail 的既有做法对齐：失败即销毁无主装饰。
+		if (!theReanimation->mIsAttachment && ReanimationMayOmit(theReanimation->mReanimationType))
+			theReanimation->ReanimationDie();
 		return nullptr;
 	}
 

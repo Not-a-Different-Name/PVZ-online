@@ -3655,6 +3655,7 @@ bool LawnApp::SetObserverP2P(bool enabled) {
 
 bool LawnApp::DrawDirtyStuff(){
  PerformanceMonitor::Scope monitor(PerformanceMonitor::AppDraw);
+ if(mBoard)monitor.Objects(mBoard->mPlants.mSize,mBoard->mZombies.mSize,mBoard->mProjectiles.mSize);
  const bool drawn=SexyApp::DrawDirtyStuff();
  if(drawn)PerformanceMonitor::Presented();else monitor.Cancel();
  return drawn;

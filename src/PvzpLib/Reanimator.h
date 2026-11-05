@@ -269,4 +269,7 @@ void                                ReanimationCreateAtlas(ReanimatorDefinition*
 void                                ReanimationPreload(ReanimationType theReanimationType);
 void                                BlendTransform(ReanimatorTransform* theResult, const ReanimatorTransform& theTransform1, const ReanimatorTransform& theTransform2, float theBlendFactor);
 
+// Shared optional-effect ownership policy for attachment failure and validated load cleanup.
+bool ReanimationMayOmit(ReanimationType type);
+
 #endif

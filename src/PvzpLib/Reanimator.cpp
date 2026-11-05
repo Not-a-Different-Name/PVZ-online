@@ -1172,7 +1172,7 @@ void ReanimationHolder::InitializeHolder()
 }
 
 // Optional effects leave four slots for a complete Threepeater planting.
-static bool ReanimationMayOmit(ReanimationType type)
+bool ReanimationMayOmit(ReanimationType type)
 {
     switch (type)
     {
