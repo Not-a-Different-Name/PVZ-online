@@ -29,6 +29,7 @@
 #include <algorithm>
 #include <vector>
 #include <climits>
+#include "EffectPoolCleanup.h"
 
 static const char* FILE_COMPILE_TIME_STRING = "Feb 16 200923:03:38";
 static const unsigned int SAVE_FILE_MAGIC_NUMBER = 0xFEEDDEAD;
@@ -449,181 +450,6 @@ static bool PreflightSavedPools(const SaveGameContext& theSource, Board* theBoar
 	return !aScan.mFailed;
 }
 
-// @pvz-online: 读档后修剪无主 attachment。Attachment 只在持有者驱动的 Update() 里才会发现效果
-// 已失效并把自己标死；持有者消失时若漏调 AttachmentDie，它就再也不被 Update、永不回收，并随
-// SyncDataArray 整池写进存档（实测历史存档 98.5%~100% 的存活 attachment 无主，挂的粒子早已不存在，
-// 池可顶满 4096 导致新僵尸挂不上任何特效）。
-// 可达集合：僵尸/子弹/金币的 mAttachmentID（池遍历含已死仍在池中的）+ 存活 reanim 各轨道的
-// mAttachmentID 为根，再沿「可达 attachment」里的 EFFECT_ATTACHMENT 向下展开——只从可达者展开，
-// 互相引用的孤儿不会彼此保活。不可达的存活 attachment 调 AttachmentDie()：效果一并死亡、自身 mDead，
-// 下一帧由 EffectSystem::ProcessDeleteQueue 回收。必须先于 reanim 修剪：它会让挂件 reanim 死亡。
-static void TrimOrphanAttachmentsAfterLoad(Board* theBoard)
-{
-	auto& aAttachPool = theBoard->mApp->mEffectSystem->mAttachmentHolder->mAttachments;
-	std::unordered_set<unsigned int> aReachable;
-	std::vector<unsigned int> aPending;
-	unsigned int aRootOwner = 0, aRootTrack = 0;
-	auto aRoot = [&](AttachmentID theId, unsigned int& theCounter)
-	{
-		if (theId == AttachmentID::ATTACHMENTID_NULL) return;
-		Attachment* aAttachment = aAttachPool.DataArrayTryToGet((unsigned int)theId);
-		if (aAttachment == nullptr || aAttachment->mDead) return;
-		if (aReachable.insert((unsigned int)theId).second) { aPending.push_back((unsigned int)theId); ++theCounter; }
-	};
-
-	Zombie* aZombie = nullptr;
-	while (theBoard->mZombies.IterateNext(aZombie))
-		aRoot(aZombie->mAttachmentID, aRootOwner);
-	Projectile* aProjectile = nullptr;
-	while (theBoard->mProjectiles.IterateNext(aProjectile))
-		aRoot(aProjectile->mAttachmentID, aRootOwner);
-	Coin* aCoin = nullptr;
-	while (theBoard->mCoins.IterateNext(aCoin))
-		aRoot(aCoin->mAttachmentID, aRootOwner);
-	Reanimation* aReanim = nullptr;
-	while (theBoard->mApp->mEffectSystem->mReanimationHolder->mReanimations.IterateNext(aReanim))
-	{
-		if (aReanim->mDead || aReanim->mTrackInstances == nullptr || aReanim->mDefinition == nullptr) continue;
-		for (int aTrack = 0; aTrack < aReanim->mDefinition->mTracks.count; ++aTrack)
-			aRoot(aReanim->mTrackInstances[aTrack].mAttachmentID, aRootTrack);
-	}
-
-	while (!aPending.empty())
-	{
-		Attachment* aParent = aAttachPool.DataArrayTryToGet(aPending.back());
-		aPending.pop_back();
-		if (aParent == nullptr) continue;
-		for (int i = 0; i < aParent->mNumEffects && i < MAX_EFFECTS_PER_ATTACHMENT; ++i)
-		{
-			if (aParent->mEffectArray[i].mEffectType != EffectType::EFFECT_ATTACHMENT) continue;
-			const unsigned int aChildId = aParent->mEffectArray[i].mEffectID;
-			Attachment* aChild = aAttachPool.DataArrayTryToGet(aChildId);
-			if (aChild != nullptr && !aChild->mDead && aReachable.insert(aChildId).second)
-				aPending.push_back(aChildId);
-		}
-	}
-
-	std::vector<Attachment*> aOrphans;
-	unsigned int aAlive = 0;
-	Attachment* aAttachment = nullptr;
-	while (aAttachPool.IterateNext(aAttachment))
-	{
-		if (aAttachment->mDead) continue;
-		++aAlive;
-		if (!aReachable.count(aAttachPool.DataArrayGetID(aAttachment)))
-			aOrphans.push_back(aAttachment);
-	}
-	for (Attachment* aOrphan : aOrphans)
-		aOrphan->AttachmentDie();
-	TodLog("[save] attachment trim after load: pool %u/%u, alive %u, roots owner %u track %u, reachable %u, trimmed %u",
-		aAttachPool.mSize, aAttachPool.mMaxSize, aAlive, aRootOwner, aRootTrack,
-		(unsigned int)aReachable.size(), (unsigned int)aOrphans.size());
-}
-
-// @pvz-online: 读档后修剪残留 reanim。存档用 SyncDataArray 整块序列化 reanim 池，历史累积的
-// 无主对象会随之长期留存。调用时 SyncReanimation 已完成（mDefinition 与 mTrackInstances 已重新
-// 绑定，~Reanimation 会调 ReanimationDie 并遍历 tracks），持有者字段也已全部读回。
-// 判据：类型属于 MayOmit 白名单（金币/阳光/溅射等装饰类）或 REANIM_ZOMBIE（历史版本残留的
-// 僵尸 body），**且**不在全局持有集合里。持有集合收集所有读档后有效的 ReanimationID 字段，
-// 外加存活 attachment 里的 EFFECT_REANIM——漏掉任何一个字段都会误删（如睡眠蘑菇的 Zzz、
-// 割草机卷走中的僵尸、报纸路障的独立帽子）。遍历池用 IterateNext，已死但仍在池中的持有者也算。
-static void TrimOrphanReanimationsAfterLoad(Board* theBoard)
-{
-	std::unordered_set<unsigned int> aHeld;
-	auto aHold = [&aHeld](ReanimationID theId) { if (theId != ReanimationID::REANIMATIONID_NULL) aHeld.insert((unsigned int)theId); };
-
-	Zombie* aZombie = nullptr;
-	while (theBoard->mZombies.IterateNext(aZombie))
-	{
-		aHold(aZombie->mBodyReanimID);
-		aHold(aZombie->mBossFireBallReanimID);
-		aHold(aZombie->mSpecialHeadReanimID);
-		aHold(aZombie->mPaperHelmReanimID);
-		aHold(aZombie->mZombatarHeadReanimID);
-		aHold(aZombie->mMoweredReanimID);
-	}
-	// 只为日志对比旧判据：旧判据白名单只看 !mIsAttachment，僵尸只看「存活」僵尸（IterateZombies
-	// 跳过 mDead）的字段。新判据把已死仍在池中的僵尸也算持有者——它们下一帧清理时自己会 RemoveReanimation。
-	std::unordered_set<unsigned int> aHeldByLiveZombies;
-	aZombie = nullptr;
-	while (theBoard->IterateZombies(aZombie))
-		for (ReanimationID aId : { aZombie->mBodyReanimID, aZombie->mBossFireBallReanimID, aZombie->mSpecialHeadReanimID,
-			aZombie->mPaperHelmReanimID, aZombie->mZombatarHeadReanimID, aZombie->mMoweredReanimID })
-			if (aId != ReanimationID::REANIMATIONID_NULL) aHeldByLiveZombies.insert((unsigned int)aId);
-	Plant* aPlant = nullptr;
-	while (theBoard->mPlants.IterateNext(aPlant))
-	{
-		aHold(aPlant->mBodyReanimID);
-		aHold(aPlant->mHeadReanimID);
-		aHold(aPlant->mHeadReanimID2);
-		aHold(aPlant->mHeadReanimID3);
-		aHold(aPlant->mBlinkReanimID);
-		aHold(aPlant->mLightReanimID);
-		aHold(aPlant->mSleepingReanimID);
-	}
-	LawnMower* aLawnMower = nullptr;
-	while (theBoard->mLawnMowers.IterateNext(aLawnMower))
-		aHold(aLawnMower->mReanimID);
-	GridItem* aGridItem = nullptr;
-	while (theBoard->mGridItems.IterateNext(aGridItem))
-		aHold(aGridItem->mGridItemReanimID);
-	for (int aRow = 0; aRow < MAX_GRID_SIZE_Y; ++aRow)
-		for (int i = 0; i < 12; ++i)
-			aHold(theBoard->mFwooshID[aRow][i]);
-	aHold(theBoard->mChallenge->mReanimChallenge);
-	for (int i = 0; i < 6; ++i)
-		aHold(theBoard->mChallenge->mReanimClouds[i]);
-	aHold(theBoard->mCursorObject->mReanimCursorID);
-	for (int i = 0; i < MAX_MESSAGE_LENGTH; ++i)
-		aHold(theBoard->mAdvice->mTextReanimID[i]);
-	aHold(theBoard->mApp->mCrazyDaveReanimID);
-	aHold(theBoard->mApp->mCrazyDaveBlinkReanimID);
-	Attachment* aAttachment = nullptr;
-	while (theBoard->mApp->mEffectSystem->mAttachmentHolder->mAttachments.IterateNext(aAttachment))
-	{
-		if (aAttachment->mDead) continue;
-		for (int i = 0; i < aAttachment->mNumEffects && i < MAX_EFFECTS_PER_ATTACHMENT; ++i)
-			if (aAttachment->mEffectArray[i].mEffectType == EffectType::EFFECT_REANIM)
-				aHeld.insert(aAttachment->mEffectArray[i].mEffectID);
-	}
-
-	auto& aReanimPool = theBoard->mApp->mEffectSystem->mReanimationHolder->mReanimations;
-	std::vector<Reanimation*> aTrimList;
-	unsigned int aPoolCount = 0, aTrimZombie = 0, aKeptOldRuleWouldTrim = 0, aOldRuleTotal = 0;
-	// 「旧判据会删、新判据保留」按类型拆开：S1 点名的两类误伤（割草卷走、睡眠 Zzz）单列，
-	// 读档时刻难以人为制造，靠这行日志在实际存档里留证。
-	unsigned int aKeptZombie = 0, aKeptMowered = 0, aKeptSleeping = 0, aKeptOther = 0;
-	Reanimation* aPoolItem = nullptr;
-	while (aReanimPool.IterateNext(aPoolItem))
-	{
-		++aPoolCount;
-		const bool aZombieType = aPoolItem->mReanimationType == ReanimationType::REANIM_ZOMBIE;
-		if (!aZombieType && !ReanimationMayOmit(aPoolItem->mReanimationType)) continue;
-		const unsigned int aId = aReanimPool.DataArrayGetID(aPoolItem);
-		const bool aOldRuleWouldTrim = aZombieType ? !aHeldByLiveZombies.count(aId) : !aPoolItem->mIsAttachment;
-		if (aOldRuleWouldTrim) ++aOldRuleTotal;
-		if (aHeld.count(aId))
-		{
-			if (aOldRuleWouldTrim)
-			{
-				++aKeptOldRuleWouldTrim;
-				if (aZombieType) ++aKeptZombie;
-				else if (aPoolItem->mReanimationType == ReanimationType::REANIM_LAWN_MOWERED_ZOMBIE) ++aKeptMowered;
-				else if (aPoolItem->mReanimationType == ReanimationType::REANIM_SLEEPING) ++aKeptSleeping;
-				else ++aKeptOther;
-			}
-			continue;
-		}
-		aTrimList.push_back(aPoolItem);
-		if (aZombieType) ++aTrimZombie;
-	}
-	for (Reanimation* aTrim : aTrimList)
-		aReanimPool.DataArrayFree(aTrim);
-	TodLog("[save] reanim trim after load: pool %u, trimmed %u (zombie %u), held set %u, old rule would trim %u (kept now %u: zombie %u mowered %u sleeping %u other %u)",
-		aPoolCount, (unsigned int)aTrimList.size(), aTrimZombie, (unsigned int)aHeld.size(), aOldRuleTotal, aKeptOldRuleWouldTrim,
-		aKeptZombie, aKeptMowered, aKeptSleeping, aKeptOther);
-}
-
 //0x4819D0
 void SyncBoard(SaveGameContext& theContext, Board* theBoard)
 {
@@ -686,13 +512,6 @@ void SyncBoard(SaveGameContext& theContext, Board* theBoard)
 	theContext.SyncBytes(theBoard->mChallenge, sizeof(Challenge));
 	theContext.SyncBytes(theBoard->mApp->mMusic, sizeof(Music));
 
-	// @pvz-online: 修剪必须在 Challenge / CursorObject / MessageWidget 读回之后——它们的
-	// ReanimationID 字段是持有集合的一部分，读回前还是读档前的旧值。
-	if (theContext.mReading && !theContext.mFailed)
-	{
-		TrimOrphanAttachmentsAfterLoad(theBoard);
-		TrimOrphanReanimationsAfterLoad(theBoard);
-	}
 
 	if (theContext.mReading)
 	{
@@ -872,6 +691,8 @@ bool LawnLoadGame(Board* theBoard, const std::string& theFilePath)
 	if (!RunDotEffects::LoadTrailer(theBoard, aContext.mBuffer.GetDataPtr(), static_cast<size_t>(aContext.mBuffer.GetDataLen()))) return false;
 	if (!RunWaveHitSave::LoadTrailer(theBoard, aContext.mBuffer.GetDataPtr(), static_cast<size_t>(aContext.mBuffer.GetDataLen()), waveHitBaseEnd)) return false;
     if (!RunSpeciesRuntime::LoadTrailer(theBoard,aContext.mBuffer.GetDataPtr(),static_cast<size_t>(aContext.mBuffer.GetDataLen()))) return false;
+	// Trim only after the entire native save and every trailer validated.
+	EffectPoolCleanup::AfterLoad(theBoard, theFilePath);
 	theBoard->mApp->mGameScene = GameScenes::SCENE_PLAYING;
 	return true;
 }

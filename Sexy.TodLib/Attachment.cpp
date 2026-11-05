@@ -11,6 +11,7 @@
 
 Attachment::Attachment()
 {
+    for(auto& effect:mEffectArray)effect={}; // new slot must not serialize stale effect fields
 	mNumEffects = 0;
 	mDead = false;
 }
@@ -533,7 +534,10 @@ void Attachment::AttachmentDie()
 	if (gEffectSystem->mReanimationHolder) aReanimations = &gEffectSystem->mReanimationHolder->mReanimations;
 	if (gEffectSystem->mAttachmentHolder) aAttachments = &gEffectSystem->mAttachmentHolder->mAttachments;
 
-	for (int i = 0; i < mNumEffects; i++)
+	// Clear the outgoing count before recursion: old saves may contain cycles.
+    const int aEffectCount = mNumEffects < 0 ? 0 : mNumEffects > MAX_EFFECTS_PER_ATTACHMENT ? MAX_EFFECTS_PER_ATTACHMENT : mNumEffects;
+    mNumEffects = 0;
+	for (int i = 0; i < aEffectCount; i++)
 	{
 		AttachEffect* aAttachEffect = &mEffectArray[i];
 		switch (aAttachEffect->mEffectType)
@@ -714,43 +718,45 @@ void AttachmentDetachCrossFadeParticleType(AttachmentID& theAttachmentID, Partic
 	TOD_ASSERT(theParticleEffect >= 0 && theParticleEffect < gParticleDefCount);
 	TodParticleDefinition* aDefinition = &gParticleDefArray[(int)theParticleEffect];
 
-	bool aDetached = false;
-	for (int i = 0; i < aAttachment->mNumEffects; i++)
+	for (int i = 0; i < aAttachment->mNumEffects;)
 	{
 		AttachEffect* aAttachEffect = &aAttachment->mEffectArray[i];
-		if (aAttachEffect->mEffectType == EffectType::EFFECT_PARTICLE)
+		if (aAttachEffect->mEffectType != EffectType::EFFECT_PARTICLE)
 		{
-			TodParticleSystem* aParticleSystem = gEffectSystem->mParticleHolder->mParticleSystems.DataArrayTryToGet(aAttachEffect->mEffectID);
-			if (aParticleSystem && aParticleSystem->mParticleDef == aDefinition)
-			{
-				if (theCrossFadeName)
-				{
-					aParticleSystem->mIsAttachment = false;
-					aParticleSystem->CrossFade(theCrossFadeName);
-				}
-				else
-				{
-					aParticleSystem->ParticleSystemDie();
-				}
-				// @pvz-online: 已处理的粒子移出效果表，下面收尾时不会再碰它（交叉淡出的那份要继续活着）。
-				int aNumEffectsRemaining = aAttachment->mNumEffects - i - 1;
-				if (aNumEffectsRemaining > 0)
-					memmove(aAttachEffect, aAttachEffect + 1, aNumEffectsRemaining * sizeof(AttachEffect));
-				aAttachment->mNumEffects--;
-				i--;
-				aDetached = true;
-			}
+			i++;
+			continue;
 		}
+
+		TodParticleSystem* aParticleSystem = gEffectSystem->mParticleHolder->mParticleSystems.DataArrayTryToGet(aAttachEffect->mEffectID);
+		if (aParticleSystem && aParticleSystem->mParticleDef == aDefinition)
+		{
+			if (theCrossFadeName)
+			{
+				aParticleSystem->mIsAttachment = false;
+				aParticleSystem->CrossFade(theCrossFadeName);
+			}
+			else
+			{
+				aParticleSystem->ParticleSystemDie();
+			}
+
+			// Remove the effect entry immediately so the parent attachment ownership remains consistent.
+			int aNumEffectsRemaining = aAttachment->mNumEffects - i - 1;
+			if (aNumEffectsRemaining > 0)
+			{
+				memmove(aAttachEffect, aAttachEffect + 1, aNumEffectsRemaining * sizeof(AttachEffect));
+			}
+			aAttachment->mNumEffects--;
+			continue;
+		}
+
+		i++;
 	}
 
-	// @pvz-online: 原实现只把持有者的 ID 清零，attachment 本身既不标死也不回收——之后没人再调它的
-	// Update，它永远发现不了粒子已死，成为孤儿常驻池中并随存档累积（实测地刨僵尸破土/丢镐时每只漏一个，
-	// 无尽长局可把 4096 的池顶满，此后新僵尸挂不上任何特效）。ID 清零后表上剩下的效果本来也不会再被
-	// 绘制或更新，这里让它们随 attachment 一起死亡回收，画面不变。与 AttachmentDetach 清零即 Detach 对齐。
-	if (aDetached)
+	if (aAttachment->mNumEffects == 0)
 	{
+		aAttachment->mDead = true;
 		theAttachmentID = AttachmentID::ATTACHMENTID_NULL;
-		aAttachment->AttachmentDie();
 	}
 }
 
@@ -884,6 +890,12 @@ const AttachOriginDiag* AttachOriginLookup(unsigned int theAttachmentID)
 {
 	auto aIt = gAttachOrigins.find(theAttachmentID);
 	return aIt == gAttachOrigins.end() ? nullptr : &aIt->second;
+}
+
+void AttachOriginClear()
+{
+	gAttachOrigins.clear();
+	gAttachOriginResolver = nullptr;
 }
 
 void AttachOriginPrune()

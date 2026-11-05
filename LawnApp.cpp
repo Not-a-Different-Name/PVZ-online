@@ -1233,6 +1233,14 @@ void LawnApp::UpdateOnlineSeeds()
     if (mBoard && IsLocalOnlyMode(mGameMode)) return; // @pvz-online: local garden/tree only.
     if(mCoopPlay && mCoopPlay->Blocking())return;
 	if (!mOnlineSeedsHeld) return;
+    // Waiting UI can outlive its lawn/session during leave, retry or teardown.
+    if(!mOnlineSession || !mBoard){
+        mOnlineSeedsHeld=false;
+        KillDialog(Dialogs::DIALOG_ONLINE_SWAP);
+        KillDialog(Dialogs::DIALOG_ONLINE_START);
+        return;
+    }
+
     if(AdmissionBuilding())return;
 
 	// @pvz-online MOD_BUILD 39：重连期断的是我自己的线，不是"队友没了"——放行条件

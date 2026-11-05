@@ -1178,6 +1178,7 @@ Reanimation* ReanimationHolder::AllocReanimation(float theX, float theY, int the
 	// Release builds must enforce the boundary, including damaged free-list metadata.
 	Reanimation* aReanim = mReanimations.DataArrayTryAlloc();
 	if (aReanim == nullptr) return nullptr;
+	if (AttachOriginDiagEnabled())
 	{
 		const unsigned int aCountType = (unsigned int)theReanimationType;
 		if (aCountType < 160) ++gReanimAllocCounts[aCountType];

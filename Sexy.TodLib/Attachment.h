@@ -99,6 +99,7 @@ typedef void (*AttachOriginResolver)(uintptr_t theHolderAddress, AttachOriginDia
 void                        AttachOriginSetResolver(AttachOriginResolver theResolver);
 bool                        AttachOriginDiagEnabled();
 const AttachOriginDiag*     AttachOriginLookup(unsigned int theAttachmentID);
+void                        AttachOriginClear(); // discard diagnostic records at a new main board
 void                        AttachOriginPrune();  // 丢弃池里已不存在的 attachment 的记录
 
 class AttachmentHolder
