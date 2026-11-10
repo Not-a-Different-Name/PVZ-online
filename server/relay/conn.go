@@ -21,21 +21,26 @@ type outMsg struct {
 }
 
 type Conn struct {
-	observer          observerOutput
-	observerCap       bool
-	observerRevision  uint32
-	observerRequestAt time.Time
-	punch             punchConnState
-	created           time.Time
-	credential        [16]byte
-	flow              bool
-	controlStart      time.Time
-	controlCount      int
-	srv               *Server
-	nc                net.Conn
-	send              chan outMsg
-	done              chan struct{}
-	closeOnce         sync.Once
+	watchIdentity, watchJoinRound uint32
+	watchReserved                 uint8
+	watchDeadline                 time.Time
+	watchSlot                     uint8
+	watchRoster                   []byte
+	observer                      observerOutput
+	observerCap                   bool
+	observerRevision              uint32
+	observerRequestAt             time.Time
+	punch                         punchConnState
+	created                       time.Time
+	credential                    [16]byte
+	flow                          bool
+	controlStart                  time.Time
+	controlCount                  int
+	srv                           *Server
+	nc                            net.Conn
+	send                          chan outMsg
+	done                          chan struct{}
+	closeOnce                     sync.Once
 
 	room atomic.Pointer[Room] // 所属房间（未进房为 nil）
 	seat uint8                // 当前席位（1..6；未分配为 0）—— 持 srv.mu 改
@@ -178,6 +183,10 @@ func (s *Server) handle(c *Conn, typ uint16, payload []byte) {
 			return
 		}
 		switch typ {
+		case msgCliWatchJoin:
+			s.handleWatchJoin(c, payload)
+		case msgCliWatchRole:
+			s.handleWatchRole(c, payload)
 		case 0xF023:
 			s.handleObserverCapability(c, payload)
 		case 0xF024:

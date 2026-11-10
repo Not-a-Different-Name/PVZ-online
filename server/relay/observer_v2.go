@@ -202,7 +202,7 @@ func (s *Server) observerLocked(r *Room, c, t *Conn, typ uint16, p []byte, flow 
 		return
 	default:
 	}
-	if !c.observerCap || !t.observerCap || c.build < 94 || t.build < 94 || r.bySeat[c.seat] != c || r.bySeat[t.seat] != t || c.left.Load() || t.left.Load() || c.replaced.Load() || t.replaced.Load() {
+	if !c.observerCap || !t.observerCap || c.build < 94 || t.build < 94 || r.watchPeer(c.watchRoute()) != c || r.watchPeer(t.watchRoute()) != t || c.left.Load() || t.left.Load() || c.replaced.Load() || t.replaced.Load() {
 		return
 	}
 	term, epoch := uint32(0), uint32(1)
@@ -211,7 +211,7 @@ func (s *Server) observerLocked(r *Room, c, t *Conn, typ uint16, p []byte, flow 
 		epoch = r.flow.epoch
 	}
 	for i, v := range r.observer {
-		if v != nil && (observerExpired(v, now) || v.term != term || v.epoch != epoch || r.bySeat[v.source.seat] != v.source || r.bySeat[v.viewer.seat] != v.viewer) {
+		if v != nil && (observerExpired(v, now) || v.term != term || v.epoch != epoch || r.watchPeer(v.source.watchRoute()) != v.source || r.watchPeer(v.viewer.watchRoute()) != v.viewer) {
 			s.clearObserverAssembly(v)
 			v.viewer.observer.clear(s)
 			r.observer[i] = nil
@@ -240,10 +240,14 @@ func (s *Server) observerLocked(r *Room, c, t *Conn, typ uint16, p []byte, flow 
 			return
 		}
 		if p[3] == 1 { // Viewer -> source; a reconnect wait seat can watch, never produce.
-			if r.roundWaitMask&(1<<t.seat) != 0 {
+			if t.watchSlot != 0 || r.roundWaitMask&(1<<t.seat) != 0 {
 				return
 			}
-			if modern && !c.observerRequestAt.IsZero() && now.Sub(c.observerRequestAt) < 5*time.Second {
+			cooldown := 5 * time.Second
+			if c.build >= watchRoomBuild && t.build >= watchRoomBuild {
+				cooldown = 2 * time.Second
+			}
+			if modern && !c.observerRequestAt.IsZero() && now.Sub(c.observerRequestAt) < cooldown {
 				reply := append([]byte(nil), p...)
 				reply[0], reply[1], reply[3] = p[1], p[0], 6
 				s.enqueue(c, envelope(reply))
@@ -252,16 +256,16 @@ func (s *Server) observerLocked(r *Room, c, t *Conn, typ uint16, p []byte, flow 
 			if modern {
 				c.observerRequestAt = now
 			}
-			old := r.observer[c.seat]
+			old := r.observer[c.watchRoute()]
 			if old != nil {
 				s.clearObserverAssembly(old)
 				c.observer.clear(s)
 			}
-			r.observer[c.seat] = &observerSubscription{source: t, viewer: c, watch: watch, stream: stream, term: term, epoch: epoch, touched: now}
+			r.observer[c.watchRoute()] = &observerSubscription{source: t, viewer: c, watch: watch, stream: stream, term: term, epoch: epoch, touched: now}
 			s.enqueue(t, envelope(p))
 			return
 		}
-		v := r.observer[c.seat]
+		v := r.observer[c.watchRoute()]
 		// Each endpoint may also be watching the other endpoint. Producer replies
 		// must select the destination viewer's subscription, even when a reverse
 		// subscription exists. STOP may originate at either end; match its full
@@ -269,7 +273,7 @@ func (s *Server) observerLocked(r *Room, c, t *Conn, typ uint16, p []byte, flow 
 		fromViewer := (p[3] == 3 || p[3] == 4) && v != nil && v.source == t && v.viewer == c &&
 			v.watch == watch && (p[3] != 4 || v.stream == stream)
 		if !fromViewer {
-			v = r.observer[t.seat]
+			v = r.observer[t.watchRoute()]
 		}
 		if v == nil || v.watch != watch || (!fromViewer && (v.source != c || v.viewer != t)) {
 			return
@@ -294,7 +298,7 @@ func (s *Server) observerLocked(r *Room, c, t *Conn, typ uint16, p []byte, flow 
 			}
 			s.clearObserverAssembly(v)
 			v.viewer.observer.clear(s)
-			r.observer[v.viewer.seat] = nil
+			r.observer[v.viewer.watchRoute()] = nil
 		case 5, 6:
 			if fromViewer {
 				return
@@ -305,10 +309,10 @@ func (s *Server) observerLocked(r *Room, c, t *Conn, typ uint16, p []byte, flow 
 		s.enqueue(t, envelope(p))
 		return
 	}
-	if len(p) < 41 || len(p) > 256 || p[2] != 2 || p[3] != 1 || r.roundWaitMask&(1<<c.seat) != 0 {
+	if len(p) < 41 || len(p) > 256 || p[2] != 2 || p[3] != 1 || c.watchSlot != 0 || r.roundWaitMask&(1<<c.seat) != 0 {
 		return
 	}
-	v := r.observer[t.seat]
+	v := r.observer[t.watchRoute()]
 	if v == nil || v.source != c || v.viewer != t || binary.LittleEndian.Uint32(p[4:]) != v.watch || binary.LittleEndian.Uint32(p[8:]) != v.stream || binary.LittleEndian.Uint32(p[20:]) != epoch {
 		return
 	}
@@ -394,7 +398,7 @@ func (s *Server) observerLocked(r *Room, c, t *Conn, typ uint16, p []byte, flow 
 				if flow {
 					at += 10
 				}
-				f[at+1] = target.viewer.seat
+				f[at+1] = target.viewer.watchRoute()
 				binary.LittleEndian.PutUint32(f[at+4:], target.watch)
 				out = append(out, f)
 			}

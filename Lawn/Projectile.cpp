@@ -620,7 +620,8 @@ void Projectile::UpdateLobMotion()
 
 	Plant* aPlant = nullptr;
 	Zombie* aZombie = nullptr;
-	if (mProjectileType == ProjectileType::PROJECTILE_BASKETBALL || mProjectileType == ProjectileType::PROJECTILE_ZOMBIE_PEA)
+	if ((mProjectileType == ProjectileType::PROJECTILE_BASKETBALL && mDamageRangeFlags == 0) ||
+        mProjectileType == ProjectileType::PROJECTILE_ZOMBIE_PEA)
 	{
 		aPlant = FindCollisionTargetPlant();
 	}

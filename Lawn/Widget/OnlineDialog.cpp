@@ -1,6 +1,7 @@
 #include "../../SexyAppFramework/Common.h"
 #include "OnlineDialog.h"
 #include "RoomDirectoryDialog.h"
+#include "WatchRoomDialog.h"
 #include "RunHistoryDialog.h"
 #include "OnlineSeatDialog.h"
 #include "OnlineRoomLayout.h"
@@ -125,6 +126,7 @@ OnlineDialog::OnlineDialog(LawnApp* theApp) :
     Sexy::MkDir(Sexy::GetAppDataFolder()+"userdata");
     RelayNodes::SetCatalogCachePath(Sexy::GetAppDataFolder()+"userdata/relay-nodes.bin");
 
+    mWatchButton=MakeOnlineButton(1220,this,ModText::Tr("观众","Spectators"));
     mDirectoryButton=MakeOnlineButton(OnlineDialog_Directory,this,ModText::Tr("公开房间","Public rooms"));
     mHistoryButton=MakeOnlineButton(OnlineDialog_History,this,ModText::Tr("最近记录","Recent runs"));
     mVisibilityButton=MakeOnlineButton(OnlineDialog_Visibility,this,ModText::Tr("公开房间","Public room"));
@@ -142,7 +144,7 @@ OnlineDialog::~OnlineDialog()
     if(mApp->mOnlineSession)mCreation.Cancel(*mApp->mOnlineSession);
     delete mPasteButton;delete mCopyCodeButton;delete mCopyInviteButton;delete mShareButton;
     delete mLocalPageButton;delete mServerPageButton;delete mSoloButton;
-	delete mDirectoryButton;delete mHistoryButton;delete mVisibilityButton;
+	delete mWatchButton;delete mDirectoryButton;delete mHistoryButton;delete mVisibilityButton;
 	delete mHostButton;
 	delete mJoinButton;
 	delete mCloseButton;
@@ -163,7 +165,7 @@ void OnlineDialog::Resize(int x,int y,int width,int height)
     using namespace OnlineRoomLayout;
     mPasteButton->Resize(Paste());mCopyCodeButton->Resize(CopyCode());mCopyInviteButton->Resize(CopyInvite());mShareButton->Resize(Share());
     mLocalPageButton->Resize(LocalPage());mServerPageButton->Resize(ServerPage());mSoloButton->Resize(Solo());
-    mDirectoryButton->Resize(40,480,260,46);mHistoryButton->Resize(552,34,168,42);mVisibilityButton->Resize(480,440,232,32);
+    mWatchButton->Resize(390,34,150,42);mDirectoryButton->Resize(40,480,260,46);mHistoryButton->Resize(552,34,168,42);mVisibilityButton->Resize(480,440,232,32);
     mHostButton->Resize(DirectHost());mJoinButton->Resize(DirectJoin());
     mCreateRoomButton->Resize(Create());mJoinRoomButton->Resize(Join());
     mCloseButton->Resize(Close());mDisconnectButton->Resize(Disconnect());
@@ -178,7 +180,7 @@ void OnlineDialog::AddedToManager(WidgetManager* theWidgetManager)
 	LawnDialog::AddedToManager(theWidgetManager);
     AddWidget(mPasteButton);AddWidget(mCopyCodeButton);AddWidget(mCopyInviteButton);AddWidget(mShareButton);
     AddWidget(mLocalPageButton);AddWidget(mServerPageButton);AddWidget(mSoloButton);
-	AddWidget(mDirectoryButton);AddWidget(mHistoryButton);AddWidget(mVisibilityButton);
+	AddWidget(mWatchButton);AddWidget(mDirectoryButton);AddWidget(mHistoryButton);AddWidget(mVisibilityButton);
 	AddWidget(mHostButton);
 	AddWidget(mJoinButton);
 	AddWidget(mCloseButton);
@@ -200,7 +202,7 @@ void OnlineDialog::RemovedFromManager(WidgetManager* theWidgetManager)
 	LawnDialog::RemovedFromManager(theWidgetManager);
     RemoveWidget(mPasteButton);RemoveWidget(mCopyCodeButton);RemoveWidget(mCopyInviteButton);RemoveWidget(mShareButton);
     RemoveWidget(mLocalPageButton);RemoveWidget(mServerPageButton);RemoveWidget(mSoloButton);
-	RemoveWidget(mDirectoryButton);RemoveWidget(mHistoryButton);RemoveWidget(mVisibilityButton);
+	RemoveWidget(mWatchButton);RemoveWidget(mDirectoryButton);RemoveWidget(mHistoryButton);RemoveWidget(mVisibilityButton);
 	RemoveWidget(mHostButton);
 	RemoveWidget(mJoinButton);
 	RemoveWidget(mCloseButton);
@@ -273,6 +275,7 @@ void OnlineDialog::Update()
     mSoloButton->Resize(anActive?Rect(40,440,420,32):OnlineRoomLayout::Solo());
     mSoloButton->SetLabel(mConfirmSolo?ModText::Tr("确认退房并单人开始","Confirm: leave and play solo"):
         anActive?ModText::Tr("返回单人游戏","Switch to solo"):ModText::Tr("单人游戏","Play solo"));
+    mWatchButton->mVisible=anActive&&aSession->SupportsWatchRoom();
     mDirectoryButton->mVisible=server;mDirectoryButton->SetDisabled(!server||allocating);
     mHistoryButton->SetLabel(anActive&&aSession->IsPrivateRoom()?ModText::Tr("复制邀请","Copy invite"):ModText::Tr("最近记录","Recent runs"));
     mVisibilityButton->mVisible=anActive&&aSession->IsRelay()&&!aSession->IsPrivateRoom()&&aSession->IsHostSeat()&&!aSession->mDirectoryStarted;
@@ -331,6 +334,7 @@ void OnlineDialog::KeyDown(KeyCode key) {
 
 void OnlineDialog::ButtonDepress(int theId)
 {
+    if(theId==1220){WatchRoomUi::Open(mApp);return;}
     if(theId==OnlineDialog_Paste){PasteInvite();return;}
     if(theId>=OnlineDialog_CopyCode&&theId<=OnlineDialog_Share){const RoomShareUi::Action actions[]={RoomShareUi::Action::CopyCode,RoomShareUi::Action::CopyInvite,RoomShareUi::Action::Share};mTransfer.Start(actions[theId-OnlineDialog_CopyCode],mApp->mOnlineSession,mLocalIpText);return;}
     if(theId==OnlineDialog_LocalPage||theId==OnlineDialog_ServerPage) {

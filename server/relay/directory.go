@@ -30,7 +30,10 @@ func (s *Server) handlePublish(c *Conn, p []byte) {
 		return
 	}
 	r.public = p[2] != 0
-	r.started = p[3] != 0
+	if !r.flow.started {
+		r.started = p[3] != 0
+	}
+	s.publishWatchRoster(r)
 	s.enqueue(c, encodeFrame(msgSrvPublished, []byte{1, 0, p[2], p[3]}))
 }
 
@@ -52,7 +55,7 @@ func (s *Server) handleList(c *Conn, p []byte) {
 		limit = legacyDirectoryLimit
 	}
 	offset := int(binary.LittleEndian.Uint16(p[4:]))
-	if (version != 1 && version != 2) || offset >= limit || offset%directoryPageSize != 0 {
+	if (version != 1 && version != 2 && version != 4) || offset >= limit || offset%directoryPageSize != 0 {
 		s.dropBadControl(c, msgCliList)
 		return
 	}
@@ -66,7 +69,7 @@ func (s *Server) handleList(c *Conn, p []byte) {
 	now := time.Now()
 	codes := make([]string, 0, len(s.rooms))
 	for code, r := range s.rooms {
-		if r.public && !r.started && r.host != nil && !r.host.left.Load() && (!r.gateManaged || r.joinOpen) {
+		if r.public && r.host != nil && !r.host.left.Load() && (version == 4 || (!r.started && (!r.gateManaged || r.joinOpen))) {
 			codes = append(codes, code)
 		}
 	}
@@ -111,7 +114,18 @@ func (s *Server) handleList(c *Conn, p []byte) {
 		out.raw(r.host.name[:])
 		out.u16(r.host.build)
 		out.u8(players)
+		if version == 4 {
+			if r.started || (r.gateManaged && !r.joinOpen) {
+				flags |= 4
+			}
+			if r.watchingRoom() {
+				flags |= 8
+			}
+		}
 		out.u8(flags)
+		if version == 4 {
+			out.u8(r.viewerSlotsUsed())
+		}
 	}
 	// A single bounded response ends the browser connection, including on old servers' empty pages.
 	s.enqueueAndClose(c, encodeFrame(msgSrvDirectory, out.b))

@@ -81,6 +81,7 @@ class Zombie : public GameObject
 public:
     // @pvz-online: only red-eye/football run bosses use this marker; preserve raw save object layout.
     static const int RUN_BOSS_MARKER = -1;
+    static const int CHOMPER_COPY_MARKER = -2;
     enum
     {
         ZOMBIE_WAVE_DEBUG = -1,

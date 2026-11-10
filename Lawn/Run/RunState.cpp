@@ -805,6 +805,10 @@ int RunState::GetChoiceWeight(int theId) const
     const int vitality = RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT + RUN_BUFF2_TALLNUT_VITALITY;
     if ((theId == iron && GetBuffCount(vitality) > 0) ||
         (theId == vitality && GetBuffCount(iron) > 0)) weight /= 5;
+    const int homing = RUN_BUFF_COUNT + RUN_UPGRADE_STARFRUIT;
+    const int doubleStar = RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT + RUN_BUFF2_STAR_DOUBLE;
+    if ((theId == homing && GetBuffCount(doubleStar) > 0) ||
+        (theId == doubleStar && GetBuffCount(homing) > 0)) weight /= 5;
     return weight;
 }
 

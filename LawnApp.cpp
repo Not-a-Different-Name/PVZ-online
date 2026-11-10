@@ -11,6 +11,7 @@
 #include <corecrt.h>
 #include <time.h>
 #include "LawnApp.h"
+#include "Lawn/Widget/WatchRoomDialog.h"
 #include "Lawn/System/NameplateCatalog.h"
 #include "Lawn/Online/RoomPresentation.h"
 #include "Lawn/Run/RunHistory.h"
@@ -645,7 +646,7 @@ void LawnApp::PreNewGame(GameMode theGameMode, bool theLookForSavedGame)
 // @pvz-online: 联机三连问。没有会话 = 单机，一律走原版行为，联机代码不参与。
 bool LawnApp::IsOnlineGame()
 {
-	return mOnlineSession != nullptr && mOnlineSession->IsConnected();
+	return mOnlineSession != nullptr && mOnlineSession->IsConnected() && !mOnlineSession->InWatchRoom();
 }
 
 // @pvz-online: 本地场景（花园 / 智慧树 / 开场教学 / 试玩演示）。这四个 GameMode 不进协议、
@@ -978,6 +979,7 @@ void LawnApp::UpdateOnlineStart()
     if (IsOnlineStartLobby())
     {
         ShowOnlineStartPrompt(aStart);
+        if(mOnlineSession->ConsumeWatchPromotion(aStart.mReadyEpoch))OnlineStartPromptAnswer(true);
         return;
     }
 
@@ -1298,7 +1300,7 @@ void LawnApp::UpdateOnlineSeeds()
 	// @pvz-online: 两道门共用这一个开合（R7）。卡池>10 拦的是选卡界面的关屏（Let's Rock），
 	// 放行 = 再走一遍关屏（这一遍门会放行）。卡池≤10 的关卡没有选卡界面（"选卡"是草坪上
 	// 的三选一屏，门在 UpdateRunPick 的 ①），放行 = 解冻 + 开场——和那道门口的收口对上。
-	if (mBoard != nullptr && mBoard->ChooseSeedsOnCurrentLevel() && mSeedChooserScreen != nullptr)
+	if (!mRunIntroHeld && mBoard->ChooseSeedsOnCurrentLevel() && mSeedChooserScreen != nullptr)
 	{
 		mSeedChooserScreen->CloseSeedChooser();
 	}
@@ -1554,6 +1556,7 @@ void LawnApp::UpdateOnlineEvents()
 			break;
 
 		case NetSession::EventType::PEER_JOINED:
+            if(mOnlineSession->SupportsWatchRoom() && mBoard)break;
             // A fresh join during battle waits for the next stage, without replaying waves.
             if(IsRunMode() && mBoard && mGameScene==GameScenes::SCENE_PLAYING &&
                 !mRunIntroHeld && !mOnlineRunStartHeld && !mOnlineWaitingStartAck &&
@@ -1700,8 +1703,12 @@ void LawnApp::UpdateOnlineEnd()
 	}
 
 	// ② 全队清完
-	if (localClear && mOnlineSession->TakeAllLevelsDone())
-	{
+	if (localClear && mOnlineSession->CanTakeAllLevelsDone())
+    {
+        // Commit the run checkpoint before acknowledging this round to the relay.
+        if (IsRunMode() && !TeamPlay::NoteVictory(this)) return;
+        if (!mOnlineSession->TakeAllLevelsDone()) return;
+
 		// 等到齐了：那句"等队友们"当场撤掉——棋盘还要当换关的背景 / 三选一屏的地，
 		// 别让它挂在那儿过期。
 		if (mOnlineWaitingAdviceOn && mBoard != nullptr)
@@ -1718,7 +1725,6 @@ void LawnApp::UpdateOnlineEnd()
 			if (IsRunMode())
 			{
 				TodLog("[net] every lawn is clear - the run moves on");
-                if(!TeamPlay::NoteVictory(this))return;
 				AwardRunRerollVoucher();
 				ExpireCoopLoan();
         if(EndlessLawn::StopAtLimit(this))return;
@@ -2514,6 +2520,7 @@ bool LawnApp::TryKeepEndlessLawn()
 // 都得从这儿走，别漏——漏一处就是一场一个字都不刷的关。
 void LawnApp::ReleaseRunIntro()
 {
+    if (!mBoard || !mRunState) return;
     if(mOnlineSession && mOnlineSession->mEndlessNeedsAdmission)return;
     // Reset a completed retained lawn before the admission shortcut can start play.
 	if (mBoard != nullptr && mRunState != nullptr && mRunState->IsEndless()
@@ -2530,6 +2537,14 @@ void LawnApp::ReleaseRunIntro()
         mBoard->mSeedBank->mCutSceneDarken=0;StartPlaying();return;
     }
 // @pvz-online: restarting an intro requires its scene as well as a cleared hold flag.
+    if (!mSeedChooserScreen) {
+        ShowSeedChooserScreen();
+        if (mOnlineSeedsHeld) return;
+    }
+    if (mBoard->ChooseSeedsOnCurrentLevel()) {
+        mBoard->mSeedBank->mNumPackets = mBoard->GetNumSeedsInBank();
+        mBoard->mSeedBank->UpdateWidth();
+    }
     mGameScene = GameScenes::SCENE_LEVEL_INTRO;
 	mRunIntroHeld = false;
 	mBoard->mCutScene->StartLevelIntro();
@@ -2630,7 +2645,11 @@ void LawnApp::UpdateRunPick()
 		// 选卡全进了池、能直接开打的状态。进关前写的那一版留不住这几株——续关读回来
 		// 池子缺选卡、选择屏又不再出现，这就是"从主界面继续丢掉初始两株"的根因。
 		mRunState->Save(mPlayerInfo->mId);
-		ShowSeedChooserScreen();
+        if (!mSeedChooserScreen) ShowSeedChooserScreen();
+        if (mOnlineSeedsHeld) {
+            EnsureSeedsWaitDialog(this);
+            return;
+        }
 
 		// @pvz-online: "都确定才开场"（R7）。卡池≤10 的关卡全场不开选卡界面，按不了
 		// Let's Rock、也就没有那道关屏门（TryHoldSeedChooserForTeammates）——这道门口
@@ -3287,7 +3306,17 @@ int LawnApp::OnlineSeatMultiplierForSeat(uint8_t theSeat)
 {
 	if (!IsOnlineGame() || mOnlineSession == nullptr) return 1;
 
-	int aSeatCount = mOnlineSession->GetOccupiedSeatCount();
+	if(mOnlineSession->SupportsWatchRoom()) {
+        int count=0,rank=0;
+        for(uint8_t seat:mOnlineSession->WatchCombatOrder()) {
+            if(!seat || mOnlineSession->IsSeatOffline(seat) || mOnlineSession->IsWaitingForNextRound(seat))continue;
+            ++count;
+            if(seat==theSeat)rank=count;
+        }
+        if(!rank || count<2)return 1;
+        return std::clamp(1<<(count-rank),2,32);
+    }
+    int aSeatCount = mOnlineSession->GetOccupiedSeatCount();
 	if (aSeatCount < 2) return 1;
 
 	int aRank = 0;
@@ -4947,6 +4976,7 @@ void LawnApp::UpdateFrames()
 		mOnlineSession->SetTextChinese(ModText::IsChinese());
         mOnlineSession->SetDirectoryStarted(mBoard!=nullptr || mRunState!=nullptr || mOnlineWaitingStartAck);
 		mOnlineSession->Update();
+        WatchRoomUi::Update(this);
         const bool needsRoom = !mOnlineSession->HasRoundFlow() ||
             !mOnlineSession->IsConnected() || mOnlineSession->NeedsRoundRejoin() ||
             mOnlineSession->IsWaitingForNextRound(mOnlineSession->GetLocalSeat());

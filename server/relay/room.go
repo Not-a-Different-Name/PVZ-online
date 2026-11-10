@@ -26,19 +26,24 @@ type seatHold struct {
 }
 
 type Room struct {
-	observer      [7]*observerSubscription
-	flow          roundFlow
-	public        bool
-	started       bool
-	gateManaged   bool
-	joinOpen      bool
-	gateRequest   uint32
-	gateEpoch     uint32
-	roundWaitMask uint8
-	code          string
-	host          *Conn
-	hostSeat      uint8 // 房主坐哪一席（建房 = 1；换位跟着换；房主重连时重绑）
-	bySeat        [maxPlayers + 1]*Conn
+	viewerRequestID uint32
+	watchIdentity   uint32
+	watchOrder      []uint8
+	observer        [watchRouteMax + 1]*observerSubscription
+	viewers         [watchRoomLimit]roomViewer
+	viewerHolds     [watchRoomLimit]seatHold
+	flow            roundFlow
+	public          bool
+	started         bool
+	gateManaged     bool
+	joinOpen        bool
+	gateRequest     uint32
+	gateEpoch       uint32
+	roundWaitMask   uint8
+	code            string
+	host            *Conn
+	hostSeat        uint8 // 房主坐哪一席（建房 = 1；换位跟着换；房主重连时重绑）
+	bySeat          [maxPlayers + 1]*Conn
 	// 席位保留：非体面断开的席位在这儿挂着，等本人 REJOIN 回来。
 	// until 零值 = 没保留。hostSeat 的保留过期 = 房主不会回来了，散房。
 	holds [maxPlayers + 1]seatHold
@@ -236,6 +241,21 @@ func (s *Server) handleJoinFrom(c *Conn, version, build uint16, name, rawCode []
 		s.enqueue(c, encodeFrame(msgSrvReject, encodeReject(rejectRoomNotFound)))
 		return
 	}
+	if r.host != nil && r.host.build >= watchRoomBuild && r.host.build != build {
+		s.enqueue(c, encodeFrame(msgSrvReject, encodeReject(rejectBuildMismatch)))
+		return
+	}
+	if r.watchingRoom() && (r.started || r.gateManaged && !r.joinOpen || r.lowestFreeSeat(time.Now()) == 0) && r.host.build == build && (!directory || r.public) {
+		slot := r.freeViewer()
+		if slot == 0 {
+			s.enqueue(c, encodeFrame(msgSrvReject, encodeReject(rejectRoomFull)))
+			return
+		}
+		c.build = build
+		copy(c.name[:], name)
+		s.addRoomViewer(r, c, slot)
+		return
+	}
 	if directory && (!r.public || r.started || r.host == nil || r.host.build != build) {
 		s.enqueue(c, encodeFrame(msgSrvReject, encodeReject(rejectJoinClosed)))
 		return
@@ -377,6 +397,11 @@ func (s *Server) handleRejoin(c *Conn, version, build uint16, name, rawCode []by
 	}
 	now := time.Now()
 	old := r.bySeat[seat]
+	if build >= watchRoomBuild && r.flow.started {
+		if s.rejoinCombatAsViewer(r, c, old, seat, name, build, now) {
+			return
+		}
+	}
 	fast := old != nil
 	if fast {
 		if old.build >= secureBuild && !sameCredential(old.credential, c.credential) {
@@ -454,6 +479,13 @@ func (s *Server) forward(c *Conn, typ uint16, payload []byte) {
 	if r.flow.enabled && r.flow.started {
 		return
 	}
+	if typ == 30 || typ == 31 {
+		s.routeObserver(r, c, typ, payload, false)
+		return
+	}
+	if c.watchSlot != 0 {
+		return
+	}
 	src := payload[0]
 	if src != c.seat {
 		s.logf("dropped %#x with bogus src %d (connection sits at seat %d)", typ, src, c.seat)
@@ -467,10 +499,6 @@ func (s *Server) forward(c *Conn, typ uint16, payload []byte) {
 	t := r.bySeat[dst]
 	if t == nil {
 		s.logf("dropped %#x to empty seat %d", typ, dst)
-		return
-	}
-	if typ == 30 || typ == 31 {
-		s.observerLocked(r, c, t, typ, payload, false)
 		return
 	}
 	if typ == 3 || typ == 14 {
@@ -521,6 +549,11 @@ func (s *Server) removeConn(c *Conn, reason uint8) {
 	s.clearObserverConn(r, c)
 	s.punchDrop(r, c)
 	c.room.Store(nil)
+	if c.watchSlot != 0 {
+		s.removeRoomViewer(r, c)
+		return
+	}
+	s.releaseWatchReservation(r, c)
 	seat := c.seat
 	if seat >= 1 && seat <= maxPlayers && r.bySeat[seat] == c {
 		r.bySeat[seat] = nil
@@ -545,12 +578,13 @@ func (s *Server) removeConn(c *Conn, reason uint8) {
 	}
 
 	if r.host == c {
-		if graceful && s.privateHost && r.flow.enabled {
+		if graceful && (s.privateHost || c.build >= watchRoomBuild) && r.flow.enabled {
 			r.host = nil
 			r.holds[seat] = seatHold{}
 			r.broadcast(s, nil, encodeFrame(msgSrvPeerLeave, encodePeerLeave(seat, reason)))
 			s.electFlowHost(r)
 			if r.empty() {
+				s.closeRoomViewers(r, roomClosedHostLeft)
 				delete(s.rooms, r.code)
 				return
 			}
@@ -574,6 +608,7 @@ func (s *Server) removeConn(c *Conn, reason uint8) {
 			return
 		}
 		s.logf("room %s closed (host left)", r.code)
+		s.closeRoomViewers(r, roomClosedHostLeft)
 		for i := 1; i <= maxPlayers; i++ {
 			if o := r.bySeat[i]; o != nil {
 				o.room.Store(nil)
@@ -627,9 +662,10 @@ func (s *Server) sweepOnce(now time.Time) {
 
 // sweepRoom 结算一个房间里过期的保留；返回 true = 这个房间该删了。调用方持 s.mu。
 func (s *Server) sweepRoom(r *Room, now time.Time) bool {
+	s.settleWatchAdmissions(r, now)
 	for i, v := range r.observer {
 		if v != nil {
-			if observerExpired(v, now) || r.bySeat[v.source.seat] != v.source || r.bySeat[v.viewer.seat] != v.viewer || v.term != r.flow.term && r.flow.enabled || v.epoch != r.flow.epoch && r.flow.enabled {
+			if observerExpired(v, now) || r.watchPeer(v.source.watchRoute()) != v.source || r.watchPeer(v.viewer.watchRoute()) != v.viewer || v.term != r.flow.term && r.flow.enabled || v.epoch != r.flow.epoch && r.flow.enabled {
 				s.clearObserverAssembly(v)
 				v.viewer.observer.clear(s)
 				r.observer[i] = nil
@@ -649,6 +685,7 @@ func (s *Server) sweepRoom(r *Room, now time.Time) bool {
 				s.enqueueAndClose(c, encodeFrame(msgSrvRoomClosed, encodeRoomClosed(roomClosedNoBattlePlayers)))
 			}
 		}
+		s.closeRoomViewers(r, roomClosedNoBattlePlayers)
 		s.logf("room %s closed (all combatants gone; reconnect grace ended)", r.code)
 		return true
 	}
@@ -664,6 +701,7 @@ func (s *Server) sweepRoom(r *Room, now time.Time) bool {
 		}
 		if uint8(seat) == r.hostSeat && r.host == nil {
 			// 房主保留过期还没回来：房间散伙
+			s.closeRoomViewers(r, roomClosedHostLeft)
 			s.logf("room %s closed (host never came back from the rejoin hold)", r.code)
 			for i := 1; i <= maxPlayers; i++ {
 				if o := r.bySeat[i]; o != nil {
@@ -680,7 +718,11 @@ func (s *Server) sweepRoom(r *Room, now time.Time) bool {
 			s.publishFlow(r)
 		}
 	}
-	return r.empty()
+	if r.empty() {
+		s.closeRoomViewers(r, roomClosedHostLeft)
+		return true
+	}
+	return false
 }
 
 // empty 房间里既没有连接、也没有任何保留（该删了）。

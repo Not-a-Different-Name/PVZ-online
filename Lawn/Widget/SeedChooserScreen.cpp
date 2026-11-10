@@ -1169,6 +1169,17 @@ void SeedChooserScreen::ResumeSelectionForEditing()
 
 void SeedChooserScreen::CloseSeedChooser()
 {
+    if (!mBoard || mApp->mBoard != mBoard || mApp->mSeedChooserScreen != this) return;
+    // Validate the entire deck before sending ready or writing any packet.
+    const int packets = mBoard->mSeedBank->mNumPackets;
+    if (packets < 0 || packets > SEEDBANK_MAX) return;
+    for (int slot = 0; slot < packets; ++slot) {
+        const auto seed = FindSeedInBank(slot);
+        if (seed < SEED_PEASHOOTER || seed >= NUM_SEEDS_IN_CHOOSER) {
+            ResumeSelectionForEditing();
+            return;
+        }
+    }
     if(mApp->mCoopPlay && mApp->mCoopPlay->Blocking())return;
 	// @pvz-online: 选卡等队友（SEEDS_READY）。联机局里按了 Let's Rock 不能一个人先开打——
 	// 本机"选好了"要等所有上座席位也选好，没齐就把这次关屏拦下来（挂等待框），

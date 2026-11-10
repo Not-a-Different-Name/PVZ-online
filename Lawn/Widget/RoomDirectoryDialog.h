@@ -34,7 +34,7 @@ public:
     void Draw(Graphics* g) override {
         SeatUi::Panel(g,Rect(0,0,800,600));
         SeatUi::Text(g,ModText::Tr("公开房间","Public rooms"),48,76,704,29,Color(245,230,165),true);
-        SeatUi::Text(g,ModText::Tr("已开局请返回房间，用「粘贴加入」。","To join a run in progress, go Back and use Paste & join."),48,110,704,17,Color(205,220,225),true);
+        SeatUi::Text(g,ModText::Tr("已开局房间可先观战，获批后在关间参战。","Watch games in progress and request to play the next stage."),48,110,704,17,Color(205,220,225),true);
         std::string status=browser.state==RelayNodes::Directory::LOADING?ModText::Tr("正在找房间…","Loading rooms..."):
             browser.state==RelayNodes::Directory::UNAVAILABLE?ModText::Tr("没能找到房间，请点「刷新」。","Could not load rooms. Choose Refresh."):
             browser.partial?ModText::Tr("部分房间没显示，可点「刷新」重试。","Some rooms are missing. Choose Refresh to retry."):
@@ -46,16 +46,19 @@ public:
             if(i==selected){g->SetColor(Color(225,205,100));g->DrawRect(box.mX+1,box.mY+1,box.mWidth-3,box.mHeight-3);}
             const auto color=entry.Joinable()?Color(245,230,165):Color(175,175,170);
             SeatUi::Text(g,entry.code+"  "+entry.host,box.mX+12,box.mY+29,382,21,color);
-            const std::string availability=entry.build!=NetProto::MOD_BUILD?ModText::Tr("版本不同，需更新","Update needed"):
-                entry.players>=6?ModText::Tr("已满","Full"):ModText::Tr("等待开局","Waiting");
-            SeatUi::Text(g,std::to_string(entry.players)+"/6  ·  "+availability+(entry.build!=NetProto::MOD_BUILD?"  ·  MOD"+std::to_string(entry.build):std::string{}),box.mX+404,box.mY+29,288,18,color);
+            const std::string availability=entry.build>NetProto::MOD_BUILD?ModText::Tr("版本过高","Room version newer"):
+                entry.build<NetProto::MOD_BUILD?ModText::Tr("版本过低","Room version older"):
+                entry.Playable()?ModText::Tr("可加入","Joinable"):
+                entry.Watchable()?ModText::Tr("可观战","Watchable"):ModText::Tr("已满或关闭","Full or closed");
+            SeatUi::Text(g,std::to_string(entry.players)+"/6  "+std::to_string(entry.viewers)+"/4  ·  "+availability+(entry.build!=NetProto::MOD_BUILD?"  ·  MOD"+std::to_string(entry.build):std::string{}),box.mX+404,box.mY+29,288,18,color);
         }
         SeatUi::Text(g,ModText::Tr("第 ","Page ")+std::to_string(browser.page+1)+ModText::Tr(" 页",""),48,490,704,18,Color(205,210,195),true);
         SeatUi::Button(g,Back(),ModText::Tr("返回房间","Back"),true,down==100);
         SeatUi::Button(g,Refresh(),ModText::Tr("刷新","Refresh"),browser.CanRefresh(),down==101);
         SeatUi::Button(g,Prev(),ModText::Tr("上页","Prev"),browser.page>0&&browser.CanRefresh(),down==102);
         SeatUi::Button(g,Next(),ModText::Tr("下页","Next"),browser.HasNext()&&browser.CanRefresh(),down==103);
-        SeatUi::Button(g,Join(),ModText::Tr("加入房间","Join room"),Joinable(),down==104);
+        const bool watch=Joinable()&&!browser.entries[selected].room.Playable();
+        SeatUi::Button(g,Join(),watch?ModText::Tr("进入观战","Spectate"):ModText::Tr("加入房间","Join room"),Joinable(),down==104);
     }
     void MouseDown(int x,int y,int clicks) override{down=clicks>0?Hit(x,y):-1;MarkDirty();}
     void MouseUp(int x,int y,int clicks) override {
@@ -67,7 +70,7 @@ public:
         if(hit==104 && Joinable()) {
             const auto target=browser.entries[selected];browser.Close();
             auto* session=RoomPresentation::Session(app);
-            session->StartDirectoryJoin(target.endpoint.host.c_str(),target.room.code.c_str(),target.endpoint.port);app->KillDialog(DIALOG_ROOM_DIRECTORY);return;
+            session->StartDirectoryJoin(target.endpoint.host.c_str(),target.room.code.c_str(),target.endpoint.port,!target.room.Playable());app->KillDialog(DIALOG_ROOM_DIRECTORY);return;
         }
         if(hit<RoomDirectory::PAGE_SIZE)selected=hit;
     }

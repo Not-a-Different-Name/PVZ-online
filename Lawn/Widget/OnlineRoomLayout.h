@@ -41,7 +41,7 @@ inline bool NeedsPlayers(const NetSession* session) {
 inline void Draw(Graphics* g,LawnApp* app,const std::string& detail,const std::string& localIp,int page=CHOOSE) {
     SeatUi::Panel(g,Rect(0,0,760,560));
     auto* s=RoomPresentation::Session(app);const bool active=RoomPresentation::Active(s);
-    SeatUi::Text(g,active?(s->IsPrivateRoom()?ModText::Tr("局域网／自建房间","LAN / private room"):s->IsRelay()?ModText::Tr("在线房间","Online room"):ModText::Tr("局域网房间","LAN room")):
+    SeatUi::Text(g,active?(s->IsPrivateRoom()?ModText::Tr("局域网／自建房间","LAN / private room"):s->WatchRoomPrivate()?ModText::Tr("私密房间","Private room"):s->IsRelay()?ModText::Tr("在线房间","Online room"):ModText::Tr("局域网房间","LAN room")):
         ModText::Tr("选择游戏方式","Choose how to play"),40,64,488,28,Color(245,230,165));
     if(!active) {
         SeatUi::Strip(g,Rect(40,156,680,70));
@@ -76,8 +76,14 @@ inline void Draw(Graphics* g,LawnApp* app,const std::string& detail,const std::s
         if(caption.empty())caption=s->IsRelay()?ModText::Tr("等待房号","Preparing room"):ModText::Tr("局域网","LAN");
         if(s->GetOccupiedSeatCount())caption+="  |  "+std::to_string(s->GetOccupiedSeatCount())+"/6";
         SeatUi::Text(g,caption,54,222,190,20,Color(245,230,165));
+        std::array<uint8_t,NetProto::MAX_PLAYERS> order{};
+        size_t filled=0;uint8_t included=0;
+        if(s->SupportsWatchRoom())for(auto seat:s->WatchCombatOrder())if(seat && !s->IsWaitingForNextRound(seat)) {
+            order[filled++]=seat;included|=1u<<seat;
+        }
+        for(uint8_t seat=1;seat<=NetProto::MAX_PLAYERS;++seat)if(!(included&(1u<<seat)))order[filled++]=seat;
         for(int i=0;i<NetProto::MAX_PLAYERS;++i) {
-            const int seat=i+1;Rect box(40+(i%2)*352,254+(i/2)*62,328,56);
+            const int seat=order[i];Rect box(40+(i%2)*352,254+(i/2)*62,328,56);
             SeatUi::Strip(g,box);bool occupied=s->IsSeatOccupied((uint8_t)seat);
             const int nameplate=NameplatePresentation::ForSeat(app,static_cast<uint8_t>(seat));
             if(occupied && nameplate)NameplateDraw::Draw(g,Rect(box.mX+4,box.mY+1,320,28),nameplate,RoomPresentation::SeatName(s,seat));

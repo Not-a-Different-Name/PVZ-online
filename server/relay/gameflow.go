@@ -104,6 +104,7 @@ func (s *Server) publishFlow(r *Room) {
 			s.enqueue(c, encodeFrame(msgSrvFlow, p))
 		}
 	}
+	s.publishWatchRoster(r)
 }
 func (s *Server) handleFlow(c *Conn, p []byte) {
 	if len(p) != 2 || binary.LittleEndian.Uint16(p) != 1 {
@@ -153,6 +154,7 @@ func (s *Server) checkFlowBarrier(r *Room) {
 	}
 	if r.flow.phase == flowComplete && r.flow.applied&mask == mask {
 		r.flow.phase = flowIntermission
+		s.promoteRoomViewers(r, r.nextWatchRound())
 	}
 }
 func (s *Server) handleFlowProgress(c *Conn, p []byte) {
@@ -163,7 +165,7 @@ func (s *Server) handleFlowProgress(c *Conn, p []byte) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	r := c.room.Load()
-	if r == nil || !c.flow || !r.flow.started || binary.LittleEndian.Uint32(p) != r.flow.term || binary.LittleEndian.Uint32(p[4:]) != r.flow.epoch {
+	if r == nil || !c.flow || c.watchSlot != 0 || !r.flow.started || binary.LittleEndian.Uint32(p) != r.flow.term || binary.LittleEndian.Uint32(p[4:]) != r.flow.epoch {
 		return
 	}
 	// A return-to-menu abort is independent of combat participation. In
@@ -252,6 +254,17 @@ func (s *Server) handleFlowStart(c *Conn, p []byte) {
 	r.flow.prepCommitted = false
 	r.flow.started = true
 	r.flow.epoch = epoch
+	for _, v := range r.viewers {
+		if v.conn != nil && v.round == epoch && v.term == r.flow.term {
+			entry := &r.viewers[v.conn.watchSlot-maxPlayers-1]
+			entry.round = r.nextWatchRound()
+		}
+	}
+	for _, member := range r.bySeat {
+		if member != nil && member.watchJoinRound == epoch {
+			member.watchDeadline = time.Now().Add(120 * time.Second)
+		}
+	}
 	r.flow.phase = flowSetup
 	r.flow.done = 0
 	r.flow.ack = 0
@@ -282,10 +295,29 @@ func (s *Server) handleFlowGame(c *Conn, p []byte) {
 	}
 	typ := binary.LittleEndian.Uint16(p[8:])
 	body := p[10:]
+	if typ == 30 || typ == 31 {
+		s.routeObserver(r, c, typ, body, true)
+		return
+	}
+	if c.watchSlot != 0 {
+		return
+	}
 	if typ >= srvFrameBase || len(body) > 256 || body[0] != c.seat || body[1] < 1 || body[1] > maxPlayers || body[1] == c.seat {
 		return
 	}
 	dst := body[1]
+	if typ == 5 && r.watchingRoom() {
+		// A disconnect can cross a packet already queued on the old sender.
+		// Recompute the next living lawn at the authoritative relay boundary.
+		next := r.nextCombatSeat(c.seat)
+		if next == 0 {
+			return
+		}
+		if next != dst {
+			body = append([]byte(nil), body...)
+			body[1], dst = next, next
+		}
+	}
 	// Compatibility: an existing MOD90 LEVEL_EXIT must also reset the relay
 	// barrier, not merely move the clients to menus while leaving phase=BATTLE.
 	if typ == 13 && len(body) == 3 && body[2] == 0 && r.flow.started {
@@ -302,10 +334,6 @@ func (s *Server) handleFlowGame(c *Conn, p []byte) {
 	}
 	t := r.bySeat[dst]
 	if t == nil || !t.flow {
-		return
-	}
-	if typ == 30 || typ == 31 {
-		s.observerLocked(r, c, t, typ, body, true)
 		return
 	}
 	if typ == 3 { // Same-round targeted replay only; new rounds use FlowStart.

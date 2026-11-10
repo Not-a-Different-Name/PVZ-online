@@ -7,6 +7,7 @@
 #include "SeedChooserScreen.h"
 #include "OnlineUiDraw.h"
 #include "CoopHud.h"
+#include "WatchRoomDialog.h"
 #include "widget/WidgetManager.h"
 #include <algorithm>
 #include <set>
@@ -17,7 +18,7 @@
 // original transaction controller; this widget never grants a game effect.
 class TeamQuickBar final:public Sexy::Widget {
 public:
- enum Kind { NAME=1,REQUEST,PERMISSION,GIFT,CHERRY,WATCH,BORROW,PLANT,PREV,NEXT,CANCEL,RETURN,ACCEPT,DECLINE,CLOSE,DETAIL,ROSTER,SUPPORT_CARD };
+ enum Kind { NAME=1,REQUEST,PERMISSION,GIFT,CHERRY,WATCH,BORROW,PLANT,PREV,NEXT,CANCEL,RETURN,ACCEPT,DECLINE,CLOSE,DETAIL,ROSTER,SUPPORT_CARD,WATCH_ROOM };
  struct Button {Kind kind;Sexy::Rect box;std::string label;uint64_t target=0,stamp=0;int value=0;bool enabled=true;};
  LawnApp* app;TeamProgressionView::Controller* controller;Board* board;RunState* run;
  std::vector<Button> buttons;
@@ -63,6 +64,7 @@ public:
   if(Base()){
    int count=0;bool aid=false;for(const auto&p:snapshot.peers)if(p.seat!=n->GetLocalSeat()){++count;aid|=c&&c->requests.count(p.player);}
    Add(ROSTER,RosterBox(),ModText::Tr("队友 ","Team ")+std::to_string(count)+(aid?ModText::Tr(" 求援"," Aid"):"")+(rosterOpen?" -":" +"));
+   if(rosterOpen&&n->SupportsWatchRoom())Add(WATCH_ROOM,Sexy::Rect(192,88,126,44),ModText::Tr("观众","Spectators"));
    int index=0;if(rosterOpen)for(const auto&p:snapshot.peers){if(p.seat==n->GetLocalSeat())continue;
     std::string label=p.name.empty()?"P"+std::to_string(p.seat):p.name;
     if(c&&c->requests.count(p.player))label=ModText::Tr("求阳光 ","Aid ")+label;
@@ -141,6 +143,7 @@ public:
   if(!had||clicks<=0||!now||!SameButton(action,*now)||!Same(context,snapshot.context))return;
   auto*c=Coop();auto*n=Session();using A=TeamProgressionView::Action;
   switch(action.kind){
+   case WATCH_ROOM:Collapse();WatchRoomUi::Open(app);break;
    case ROSTER:if(rosterOpen)Collapse();else{ClearOtherPanels();rosterOpen=true;app->mWidgetManager->SetFocus(this);}break;
    case NAME:if(selected==action.target){Collapse();break;}ClearOtherPanels();selected=action.target;plantPage=detailPage=0;plants=details=supports=false;Quote();app->mWidgetManager->SetFocus(this);break;
    case CLOSE:if(plants||details||supports){plants=details=supports=false;Quote();}else Collapse();break;

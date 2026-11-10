@@ -71,10 +71,10 @@ const (
 // op1/2 = 客户端↔中继问候；op3/4/5 = 客户端↔客户端探测/应答/数据（P2P-b），
 // 中继收到一律丢弃。
 const (
-	punchMagic0 = 0x50 // 'P'
-	punchMagic1 = 0x5A // 'Z'
-	punchMagic2 = 0x50 // 'P'
-	punchMagic3 = 0x32 // '2'
+	punchMagic0      = 0x50 // 'P'
+	punchMagic1      = 0x5A // 'Z'
+	punchMagic2      = 0x50 // 'P'
+	punchMagic3      = 0x32 // '2'
 	punchUDPHello    = 1
 	punchUDPHelloAck = 2
 	punchUDPProbe    = 3
@@ -149,6 +149,7 @@ type buf struct{ b []byte }
 
 func (s *buf) u8(v uint8)   { s.b = append(s.b, v) }
 func (s *buf) u16(v uint16) { s.b = binary.LittleEndian.AppendUint16(s.b, v) }
+func (s *buf) u32(v uint32) { s.b = binary.LittleEndian.AppendUint32(s.b, v) }
 func (s *buf) raw(v []byte) { s.b = append(s.b, v...) }
 
 type reader struct {

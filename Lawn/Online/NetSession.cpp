@@ -550,6 +550,7 @@ void NetSession::ReopenLink()
 // 重开链路再来一轮。
 bool NetSession::SendRejoin()
 {
+    if(mWatchSlot) {mRejoinSent=true;mFramesSinceRejoinSent=0;return SendWatchRoomRejoin();}
     if(mTransport==Transport::DIRECT) {
         mRejoinSent=true;
         mFramesSinceRejoinSent=0;
@@ -1039,10 +1040,15 @@ bool NetSession::AreAllSeatsDone() const
 	return aOccupied >= 1;
 }
 
+bool NetSession::CanTakeAllLevelsDone() const
+{
+    return !mAllDoneTaken && AreAllSeatsDone() &&
+        (!mFlowEnabled || (mFlowEpoch == mReadyEpoch && mFlowPhase == 4 && !IsWaitingForNextRound(mLocalSeat)));
+}
+
 bool NetSession::TakeAllLevelsDone()
 {
-	if (mAllDoneTaken || !AreAllSeatsDone()) return false;
- if(mFlowEnabled && (mFlowEpoch!=mReadyEpoch || mFlowPhase!=4 || IsWaitingForNextRound(mLocalSeat)))return false;
+    if (!CanTakeAllLevelsDone()) return false;
  if(mFlowEnabled && !SendFlowProgress(3,true,mFlowGeneration))return false;
 
 	mAllDoneTaken = true;
@@ -1304,8 +1310,16 @@ uint8_t NetSession::GetRelayTargetSeat() const
 		return (mLocalSeat == NetProto::SEAT_HOST && !IsWaitingForNextRound(NetProto::SEAT_CLIENT)) ? NetProto::SEAT_CLIENT : NetProto::SEAT_UNSET;
 	}
 
+    if(mWatchRoom) {
+        bool after=false;
+        for(uint8_t seat:mWatchOrder) {
+            if(after && seat && IsSeatOccupied(seat) && !IsSeatOffline(seat) && !IsWaitingForNextRound(seat))return seat;
+            if(seat==mLocalSeat)after=true;
+        }
+        return NetProto::SEAT_UNSET;
+    }
     for(uint8_t seat=mLocalSeat+1;seat<=NetProto::MAX_PLAYERS;++seat)
-        if(IsSeatOccupied(seat) && !IsWaitingForNextRound(seat))return seat;
+        if(IsSeatOccupied(seat) && !IsSeatOffline(seat) && !IsWaitingForNextRound(seat))return seat;
     return NetProto::SEAT_UNSET;
 }
 
@@ -1520,7 +1534,7 @@ bool NetSession::SendBoardWatchMsg(uint8_t theSeat, uint8_t theOp)
 
 bool NetSession::BeginWatch(uint8_t theSeat)
 {
-    if(!CanWatchSeat(theSeat)||ObserverRequestCooldown())return false;
+    if(!CanWatchSeat(theSeat)||(theSeat==mWatchTargetSeat && (ObserverRequestCooldown() || (mObserverWatch && !mObserverReceived))))return false;
     if(GetSeatBuild(theSeat)<96 || (mTransport!=Transport::DIRECT&&!mObserverRelay))return false;
     if(IsWatching())EndWatch(true);
     if(GetSeatBuild(theSeat)>=96 && (mTransport==Transport::DIRECT || mObserverRelay)) {
@@ -1639,6 +1653,7 @@ bool NetSession::SendObserverV2Frame(uint8_t,const ObserverWireV2::Frame&){retur
 
 void NetSession::ResetToOff()
 {
+    mWatchSlot=0;mWatchRoom=false;mWatchViewerMask=0;mWatchRequest=mWatchPromotion=0;mWatchDirectoryJoin=false;mWatchPrivate=false;mWatchViewers={};mWatchOrder={};
     ClearObserverV2();mObserverRelay=false;mObserverQueryAt=0;mPunchRelay=mPunchAdvertised=false;mPunchQueryAt=0;mPunchLink.Close();
 	mDiagnosticStatusText.clear();
     mPrivateRoom=false;
@@ -1912,6 +1927,7 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
  }
  if(aType<CONTROL_TYPE_BASE && mFlowEnabled && !wrapped)return;
  if(aType<CONTROL_TYPE_BASE && aPayloadSize>NetProto::MAX_PAYLOAD)return;
+ if(mWatchSlot && aType<CONTROL_TYPE_BASE && aType!=30 && aType!=31)return;
 
 	// 服务器控制帧（≥0xF000）不落进游戏消息那个 switch：它说的是名册和路由，整段交给
 	// HandleControlFrame。直连模式下这些帧根本不该出现（对端是另一个玩家，不是服务器），
@@ -2707,8 +2723,11 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 // 服务器说的话整段收在这儿：WELCOME 点名册、PEER_JOIN/LEAVE 维护名册、ROOM_CLOSED 收摊、
 // SEAT_SWAP 落实换位、PING 保活。这里只动会话层的状态，**不碰游戏**——名册变了要让游戏知道，
 // 走的是事件队列（PEER_JOINED/PEER_LEFT），由主循环取走，跟别的包一个规矩。
+#include "WatchRoomSession.inl"
+
 void NetSession::HandleControlFrame(uint16_t theType, const uint8_t* thePayload, int theSize)
 {
+    if(theType==WatchRoom::Roster){HandleWatchRoomRoster(thePayload,theSize);return;}
     if(theType==0xF023) {
         if(IsRelay()&&IsConnected()&&(theSize==8||theSize==12)&&ObserverWireV2::Get32(thePayload)==ObserverRevision&&ObserverWireV2::Get32(thePayload+4)==24*1024){
             mObserverRelay=true;mPunchAdvertised=theSize==12&&(ObserverWireV2::Get32(thePayload+8)&1);
@@ -2741,7 +2760,8 @@ void NetSession::HandleControlFrame(uint16_t theType, const uint8_t* thePayload,
 			if (mTransport != Transport::RELAY) return;		// 直连不该收到这些
 			// 一份名册只认第一次（重复的丢掉）；@pvz-online MOD_BUILD 39：重连归队等来的
 			// 那份也受理——整段重连期都停在 RECONNECTING，直到这里才收工。
-			if (mState != State::HANDSHAKING && mState != State::RECONNECTING) return;
+			const bool promoted = IsConnected() && mWatchSlot;
+            if (mState != State::HANDSHAKING && mState != State::RECONNECTING && !promoted) return;
 			bool aWasReconnect = (mState == State::RECONNECTING);
             if(aWasReconnect && mRole==Role::HOST){mGateWanted=-1;mGateAck=0;}
 
@@ -2821,7 +2841,8 @@ void NetSession::HandleControlFrame(uint16_t theType, const uint8_t* thePayload,
 			mSeats[aMsg.mYourSeat].mName = mLocalName;
 			mSeats[aMsg.mYourSeat].mBuild = NetProto::MOD_BUILD;
 
-			mLocalSeat = aMsg.mYourSeat;
+			if(promoted){EndWatch(false);mWatchPromotion=mFlowPhase==0?0:mFlowEpoch+1;mWatchSlot=0;mFlowDeferred=false;mFlowStartPending=false;mFlowHelloSent=false;mReadyEpoch=0;}
+            mLocalSeat = aMsg.mYourSeat;
 			if(aWasReconnect && mFlowEnabled && mHostSeat!=aMsg.mHostSeat)PushEvent(EventType::HOST_CHANGED,aMsg.mHostSeat);
 			mHostSeat = aMsg.mHostSeat;
             mRoomCreateWelcomed=true;
@@ -3256,6 +3277,7 @@ void NetSession::UpdateNameplate()
 bool NetSession::SendRaw(uint16_t theType, const uint8_t* thePayload, int thePayloadSize)
 {
 	if (thePayloadSize < 0 || thePayloadSize > NetProto::MAX_PAYLOAD) return false;
+    if(mWatchSlot && theType<CONTROL_TYPE_BASE && theType!=30 && theType!=31)return false;
 
 	uint8_t aPacket[NetProto::MAX_PACKET];
  if(mFlowEnabled && IsRelay() && theType<CONTROL_TYPE_BASE) {
@@ -3303,6 +3325,7 @@ bool NetSession::SendRoomRequest()
 		memcpy(aMsg.mRoomCode, mRoomCode.data(), NetProto::ROOM_CODE_LEN);
 		aSize = NetProto::EncodeCliJoinRoom(aPayload, (int)sizeof(aPayload), aMsg);
 		aType = mDirectoryJoin?0xF01C:NetProto::MSG_CLI_JOIN_ROOM;
+        if(mWatchDirectoryJoin && aSize>0){aPayload[aSize++]=1;aType=WatchRoom::Join;}
 		TodLog("[net] asking the server for room %s", mRoomCode.c_str());
 	}
 
@@ -3370,6 +3393,7 @@ int NetSession::GetConnectedPlayerCount(bool nextRound) const
 
 bool NetSession::CanHostStart() const
 {
+    if(mWatchRoom && !mFlowEnabled)return false;
     if (mFlowEnabled && mFlowStartPending) return false; // One authority request at a time.
     return mRole == Role::HOST && ((!IsRelay() && mState == State::LISTENING) ||
         (IsConnected() && (!IsRelay() || (mFlowEnabled ? ((mFlowPhase==0 && GetConnectedPlayerCount(true)>=2) ||

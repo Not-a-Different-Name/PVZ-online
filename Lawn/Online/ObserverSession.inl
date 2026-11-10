@@ -1,8 +1,8 @@
 // Observer v2: isolated display subscription, authenticated room routing.
 bool NetSession::ObserverControl(uint8_t dst,ObserverWireV2::ControlOp op,uint32_t watch,uint32_t stream){
- if(!IsConnected()||dst<1||dst>6||dst==mLocalSeat||!IsSeatOccupied(dst)||IsSeatOffline(dst))return false;
+ if(!IsConnected()||dst<1||dst==ObserverRoute()||!ObserverPeerPresent(dst))return false;
  ObserverWireV2::Control c;c.op=op;c.watchId=watch;c.boardStream=stream;c.roundEpoch=ObserverEpoch();c.features=ObserverRevision;c.budgetKbps=24*1024;
- std::vector<uint8_t> p;if(!ObserverWireV2::EncodeControl(c,p))return false;p.insert(p.begin(),{mLocalSeat,dst});return Dispatch(30,p.data(),int(p.size()),dst);
+ std::vector<uint8_t> p;if(!ObserverWireV2::EncodeControl(c,p))return false;p.insert(p.begin(),{ObserverRoute(),dst});return IsRelay()?SendRaw(30,p.data(),int(p.size())):Dispatch(30,p.data(),int(p.size()),dst);
 }
 void NetSession::ClearObserverV2(){
  mPunchLink.ClearPeers();mPunchAttemptWatch=mPunchFailedWatch=0;mPunchAttempts=0;mObserverDirectAt=0;
@@ -12,7 +12,7 @@ void NetSession::ClearObserverV2(){
 void NetSession::SetObserverBoard(uint64_t instance,bool active){
  const bool changed=instance!=mObserverBoard;
  if(mObserverBoardActive&&(!active||changed)){
-  for(uint8_t seat=1;seat<=6;++seat){auto&v=mObserverViewers[seat];if(v.watch)ObserverControl(seat,ObserverWireV2::ControlOp::STOP,v.watch,v.stream);}
+  for(uint8_t seat=1;seat<=WatchRoom::LastViewer;++seat){auto&v=mObserverViewers[seat];if(v.watch)ObserverControl(seat,ObserverWireV2::ControlOp::STOP,v.watch,v.stream);}
  }
  if((changed&&mObserverBoard)||(mObserverBoardActive&&!active))ClearObserverV2();
  if(changed){mObserverBoard=instance;++mObserverLocalStream;if(!mObserverLocalStream)++mObserverLocalStream;}
@@ -29,21 +29,24 @@ void NetSession::ObserverV2Tick(){
  if(mObserverWatch){
   if(!CanWatchSeat(mWatchTargetSeat)||(!mObserverReceived&&now-mObserverPendingAt>=60000)){
    EndWatch(true);mWatchEndPending=WatchEnd::TIMEOUT;
+  }else if(mObserverReceived && now-mObserverRequestAt>=5000 && (SupportsWatchRoom() || mTransport==Transport::DIRECT)){
+   BeginWatch(mWatchTargetSeat);
   }else if(!mObserverReceived&&now-mObserverLast>=12000){
    if(mObserverTries>=3){EndWatch(true);mWatchEndPending=WatchEnd::TIMEOUT;}
    else if(!ObserverRequestCooldown()){
     const auto start=mObserverPendingAt;const auto tries=mObserverTries;const auto seat=mWatchTargetSeat;
+    ClearWatchState(WatchEnd::NONE);
     if(BeginWatch(seat)){mObserverPendingAt=start;mObserverTries=uint8_t(tries+1);}
    }
   }
  }
  // The authenticated gameplay connection already supplies liveness. No observer
  // keepalive or periodic picture is sent after a successful one-shot transfer.
- for(uint8_t seat=1;seat<=6;++seat){auto&v=mObserverViewers[seat];if(v.watch&&(!IsSeatOccupied(seat)||IsSeatOffline(seat))){v={};mLink.ClearObserverOutput(seat);}}
+ for(uint8_t seat=1;seat<=WatchRoom::LastViewer;++seat){auto&v=mObserverViewers[seat];if(v.watch&&!ObserverPeerPresent(seat)){v={};mLink.ClearObserverOutput(seat);}}
 
 }
 void NetSession::HandleObserver(uint16_t type,const uint8_t*p,int n){
- if(!IsConnected()||n<2||p[0]<1||p[0]>6||p[0]==mLocalSeat||p[1]!=mLocalSeat||!IsSeatOccupied(p[0])||IsSeatOffline(p[0])||GetSeatBuild(p[0])<96||
+ if(!IsConnected()||n<2||p[0]<1||p[0]==ObserverRoute()||p[1]!=ObserverRoute()||!ObserverPeerPresent(p[0])||ObserverPeerBuild(p[0])<96||
     (mTransport==Transport::DIRECT&&p[0]!=DirectPeerSeat())||(IsRelay()&&!mObserverRelay))return;
  const uint8_t src=p[0];const auto now=ObserverNow();
  if(type==31){if(!mObserverWatch||!mObserverAccepted||src!=mWatchTargetSeat)return;ObserverTransfer::Complete complete;
@@ -58,7 +61,7 @@ void NetSession::HandleObserver(uint16_t type,const uint8_t*p,int n){
  if(c.op==Op::KEEPALIVE){auto&v=mObserverViewers[src];if(v.watch==c.watchId&&v.stream==c.boardStream){v.touched=now;ObserverControl(src,Op::ACCEPT,v.watch,v.stream);}return;}
  if(c.op==Op::STOP){auto&v=mObserverViewers[src];if(v.watch==c.watchId&&v.stream==c.boardStream){mPunchLink.Cancel(DirectContext(src,true));v={};mLink.ClearObserverOutput(src);}if(src==mWatchTargetSeat&&c.watchId==mObserverWatch)ClearWatchState(WatchEnd::SILENT);return;}
  if(src!=mWatchTargetSeat||c.watchId!=mObserverWatch)return;
- if(c.op==Op::ACCEPT){if(mObserverAccepted&&c.boardStream!=mObserverRemoteStream){EndWatch(true);return;}mObserverRemoteStream=c.boardStream;mObserverAccepted=true;mObserverAssembler.Context(src,mLocalSeat,mObserverWatch,c.boardStream,ObserverEpoch());}
+ if(c.op==Op::ACCEPT){if(mObserverAccepted&&c.boardStream!=mObserverRemoteStream){EndWatch(true);return;}mObserverRemoteStream=c.boardStream;mObserverAccepted=true;mObserverAssembler.Context(src,ObserverRoute(),mObserverWatch,c.boardStream,ObserverEpoch());}
  if((c.op==Op::BUSY||c.op==Op::UNSUPPORTED)&&!mObserverReceived){mObserverAccepted=false;mObserverLast=now;mObserverInbox.clear();mObserverAssembler.Reset();}
 }
 bool NetSession::SendObserverDisplay(const std::vector<uint8_t>&body,uint32_t tick){
@@ -71,7 +74,7 @@ bool NetSession::SendObserverDisplay(const std::vector<uint8_t>&body,uint32_t ti
  }
  if(!mLink.ObserverWritable())return directSent;
  ++mObserverSeq;if(!mObserverSeq)++mObserverSeq;bool sent=false;
- for(uint8_t s=1;s<=6;++s){auto&v=mObserverViewers[s];if(!v.watch||!v.pending)continue;std::vector<std::vector<uint8_t>> parts;
+ for(uint8_t s=1;s<=WatchRoom::LastViewer;++s){auto&v=mObserverViewers[s];if(!v.watch||!v.pending)continue;std::vector<std::vector<uint8_t>> parts;
   if(!ObserverTransfer::Fragment(mLocalSeat,s,v.watch,v.stream,mObserverSeq,tick,ObserverEpoch(),body,parts))return false;
   for(auto&part:parts){std::vector<uint8_t> packet;const bool flow=mFlowEnabled&&IsRelay();packet.resize(4+(flow?10:0)+part.size());ObserverWireV2::Put16(packet.data(),flow?NetProto::MSG_CLI_FLOW_GAME:31);ObserverWireV2::Put16(packet.data()+2,uint16_t(packet.size()-4));size_t at=4;
    if(flow){ObserverWireV2::Put32(packet.data()+at,mFlowTerm);ObserverWireV2::Put32(packet.data()+at+4,mReadyEpoch);ObserverWireV2::Put16(packet.data()+at+8,31);at+=10;}std::copy(part.begin(),part.end(),packet.begin()+at);part=std::move(packet);}
@@ -88,7 +91,7 @@ void NetSession::ObserverCaptureFailed(){
  for(uint8_t seat=1;seat<=6;++seat){auto&v=mObserverViewers[seat];if(v.watch&&v.pending){ObserverControl(seat,ObserverWireV2::ControlOp::BUSY,v.watch,v.stream);v.pending=false;}}
 }
 
-uint32_t NetSession::ObserverRequestCooldown()const{auto now=ObserverNow();return mObserverRequestAt&&now-mObserverRequestAt<5000?uint32_t(5000-(now-mObserverRequestAt)):0;}
+uint32_t NetSession::ObserverRequestCooldown()const{auto now=ObserverNow();return mObserverRequestAt&&now-mObserverRequestAt<(SupportsWatchRoom()||mTransport==Transport::DIRECT?2000:5000)?uint32_t((SupportsWatchRoom()||mTransport==Transport::DIRECT?2000:5000)-(now-mObserverRequestAt)):0;}
 
 // @pvz-online P2P-a：0xF024 打洞控制面（中继→客户端方向）。op1 ACK 带问候 token 与中继
 // 打洞 UDP 端口；op2 OFFER 带对方公网端点与一次性配对 token，双方各起一个探测。

@@ -40,7 +40,7 @@ inline int ScalePositive(int value, int permille) {
 
 // Some Board paths assign the BOSS marker only after ZombieInitialize.
 // Scope the constructor instead of dividing saturated health back afterwards.
-enum class SpawnKind { NORMAL, RUN_BOSS, RELAY, PREVIEW };
+enum class SpawnKind { NORMAL, RUN_BOSS, RELAY, PREVIEW, CHOMPER_COPY };
 inline thread_local SpawnKind currentSpawnKind=SpawnKind::NORMAL;
 class SpawnScope {
     SpawnKind previous;
