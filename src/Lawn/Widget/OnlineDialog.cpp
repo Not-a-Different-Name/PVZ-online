@@ -2,6 +2,7 @@
 #include "MobileCoopDraw.h"
 #include "OnlineDialog.h"
 #include "RoomDirectoryDialog.h"
+#include "WatchRoomDialog.h"
 #include "RunHistoryDialog.h"
 #include "OnlineSeatDialog.h"
 #include "OnlineRoomLayout.h"
@@ -76,6 +77,7 @@ OnlineDialog::OnlineDialog(LawnApp* app)
     place(7,ModText::Tr("开始游戏","Start game"),Start());
     place(9,ModText::Tr("公开房间","Public rooms"),Sexy::Rect(40,480,260,46));
     place(10,ModText::Tr("最近记录","Recent runs"),Sexy::Rect(552,34,168,42));
+    place(19,ModText::Tr("观众","Spectators"),Sexy::Rect(390,34,150,42));
     place(11,ModText::Tr("公开房间：开","Public: on"),Sexy::Rect(480,440,232,32));
     place(12,ModText::Tr("单人与局域网游戏","Solo / LAN game"),LocalPage());
     place(13,ModText::Tr("在线房间","Online rooms"),ServerPage());
@@ -128,6 +130,7 @@ void OnlineDialog::Update()
         if(b->mId==15){b->SetVisible(local||server);b->SetDisabled(allocating||mTransfer.Busy());b->Resize(local?Sexy::Rect(536,442,176,38):OnlineRoomLayout::Paste());}
         if(b->mId>=16&&b->mId<=18){b->SetVisible(active&&session.IsRelay()&&!session.GetRoomCode().empty());b->SetDisabled(mTransfer.Busy());}
         if(b->mId==3)b->mLabel=allocating?ModText::Tr("正在连接…","Connecting..."):ModText::Tr("创建房间","Create room");
+        if(b->mId==19)b->SetVisible(active&&session.SupportsWatchRoom());
         if(b->mId==9){b->SetVisible(server);b->SetDisabled(!server||allocating);}
         if(b->mId==12||b->mId==13)b->SetVisible(!active);
         if(b->mId==14){
@@ -183,6 +186,7 @@ void OnlineDialog::Draw(Sexy::Graphics* g)
 
 void OnlineDialog::ButtonDepress(int id)
 {
+    if(id==19){WatchRoomUi::Open(mApp);return;}
     if(id==15){if(!RoomPresentation::Active(mApp->mOnlineSession.get())&&!mJoinLookup.loading)mTransfer.Start(RoomShareUi::Action::Paste,mApp->mOnlineSession.get());return;}
     if(id>=16&&id<=18){const RoomShareUi::Action actions[]={RoomShareUi::Action::CopyCode,RoomShareUi::Action::CopyInvite,RoomShareUi::Action::Share};mTransfer.Start(actions[id-16],mApp->mOnlineSession.get(),mLocalIp);return;}
     // Remember editable fields between openings, including after a failed connection.

@@ -74,7 +74,8 @@ class PvzpParticleSystem;
 class Zombie : public GameObject
 {
 public:
-    static const int RUN_BOSS_MARKER = -1; // fixed PC marker
+    static const int RUN_BOSS_MARKER = -1;
+    static const int CHOMPER_COPY_MARKER = -2; // fixed PC marker
 
 	enum
 	{

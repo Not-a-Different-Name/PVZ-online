@@ -396,6 +396,17 @@ static const RunPlantUpgradeDef gRunPlantBuff2Defs[RUN_PLANT_BUFF2_COUNT] =
     { SeedType::SEED_TALLNUT, "Massive Bulwark", "厚重壁垒", "生命 +400%\n耐砸权重降至20%", "Health +400%\nIron Shell weight drops to 20%", 4.0f, 1, false, RUN_UPGRADE_KIND_HEALTH, 3 },
     { SeedType::SEED_TANGLEKELP, "Dryland Thorns", "旱地缠刺", "可种陆地，攻击和受击同地刺\n水中保留缠绕", "Plant on land: attacks and takes hits like Spikeweed\nStill grabs zombies in water", 0.0f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
     { SeedType::SEED_GOLD_MAGNET, "Global Magnet", "全屏吸金", "每次吸取全场银币、金币和钻石\n取消单次5枚上限，充能间隔不变", "Each pull collects all silver, gold and diamonds\nNo five-coin limit; recharge unchanged", 0.0f, 1, false, RUN_UPGRADE_KIND_EFFECT, 3 },
+    { SeedType::SEED_SUNSHROOM, "Tap for Sun", "掌中阳光", "不再长大。每点击一次产一枚小阳光，无冷却。", "Stops growing. Each tap produces a small sun.", 0.0f, 1, false, RUN_UPGRADE_KIND_EFFECT, 3 },
+    { SeedType::SEED_REPEATER, "Fire and Ice", "冰火双发", "每两发依次发射火豆、冰豆。", "Shots alternate fire and ice.", 0.0f, 1, false, RUN_UPGRADE_KIND_EFFECT, 1 },
+    { SeedType::SEED_CHOMPER, "Borrowed Army", "吞噬军团", "每次击杀生成同强度的魅惑副本，含关底首领。", "A kill creates a full-strength hypnotized copy.", 0.0f, 1, false, RUN_UPGRADE_KIND_EFFECT, 3 },
+    { SeedType::SEED_COBCANNON, "Compact Cannon", "单格炮座", "玉米加农炮只占一格。", "Cob Cannon occupies one tile.", 0.0f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
+    { SeedType::SEED_GRAVEBUSTER, "Grave Dividend", "墓碑红利", "吞完一座墓碑获得100阳光。", "Finishing a grave yields 100 sun.", 0.0f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
+    { SeedType::SEED_GRAVEBUSTER, "Stone Bastion", "墓碑堡垒", "最大生命12000，吞碑耗时60秒。", "12,000 max HP. Digging takes 60 seconds.", 0.0f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
+    { SeedType::SEED_LILYPAD, "Lily Colony", "睡莲蔓生", "每10秒向四邻空水格和陆地生长，子株也能蔓生。", "Every 10 seconds, each lily spreads to empty orthogonal land and water tiles.", 0.0f, 1, false, RUN_UPGRADE_KIND_EFFECT, 3 },
+    { SeedType::SEED_CABBAGEPULT, "Cabbage Bowling", "卷心菜保龄球", "像坚果保龄球一样滚撞反弹，保留费用，冷却3秒。", "Rolls and bounces like a Bowling Nut. Normal cost, 3-second recharge.", 0.0f, 1, false, RUN_UPGRADE_KIND_EFFECT, 3 },
+    { SeedType::SEED_STARFRUIT, "Forward Stars", "前扇星阵", "五枚星弹朝前半球扇形发射。", "Fires five stars into the forward half-plane.", 0.0f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
+    { SeedType::SEED_STARFRUIT, "Twin Force", "重星", "星弹伤害翻倍，与追踪双向降低抽取权重。", "Star damage doubles. Soft exclusion with homing.", 0.0f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
+    { SeedType::SEED_CATTAIL, "Sustained Lock", "锁敌升压", "连续攻击同一主目标，伤害和攻速各乘1.15，最高各+200%，换目标清零。", "Repeat main target: 15% compounded damage and fire rate, capped at +200% each.", 0.0f, 1, false, RUN_UPGRADE_KIND_EFFECT, 3 },
 };
 
 const RunPlantUpgradeDef& GetRunPlantBuff2Def(int theIndex)

@@ -508,7 +508,11 @@ bool TeamPlay::NoteVictory(LawnApp*app){
     auto*r=app->GetRunState();if(!r)return true;auto&c=For(app);c.BeginContext();const auto before=r->mTeam;
     for(int i=10;i<17;++i)if(r->mZombieBuffStacks[i])r->mTeam.speciesWon|=uint64_t(1)<<(i-10);
     if(r->IsEndless())r->mTeam.endlessCleared=std::max<uint32_t>(r->mTeam.endlessCleared,r->mLevelIndex+1);
-    if(!c.Save()){r->mTeam=before;return false;}return c.SyncGoals();
+    if (!c.Save()) { r->mTeam = before; return false; }
+    // The run checkpoint holds the same counters. A separate goal ledger can
+    // be synchronized later without blocking round settlement.
+    c.SyncGoals();
+    return true;
 }
 void TeamPlay::NoteSharedPlant(LawnApp*app,int plant){
     auto*r=app->GetRunState();if(!r||plant<0||plant>SEED_IMITATER||r->HasPlant(SeedType(plant))||!r->mTeam.shared.Has(plant))return;

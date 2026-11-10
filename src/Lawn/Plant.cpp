@@ -1,3 +1,6 @@
+#include "Run/RunSpeciesRules.h"
+#include "Run/RunSpeciesRuntime.h"
+#include "Run/RunPlantTraits.h"
 #include "Run/TeamSupportScope.h"
 #include "TeamPlay.h"
 /*
@@ -146,6 +149,8 @@ static float PlantShootSpeed(LawnApp* theApp, SeedType theSeedType, Plant* thePl
     {
         aMul *= theApp->RunPlantBuff2Mul(SeedType::SEED_PLANTERN);
     }
+    if (thePlant && theSeedType == SEED_CATTAIL && theApp->RunExtraBuffCount(RUN_BUFF2_CATTAIL_FOCUS))
+        aMul /= RunPlantTraits::CattailFactor(thePlant->mRunDispatchCursor);
     return 1.0f / aMul;
 }
 
@@ -273,7 +278,8 @@ static bool IsBowlingNut(const Plant* thePlant)
     SeedType aType = thePlant->mSeedType;
     if (aType == SeedType::SEED_IMITATER && thePlant->mImitaterType != SeedType::SEED_NONE)
         aType = thePlant->mImitaterType;
-    return aType == SeedType::SEED_WALLNUT && thePlant->mApp->RunExtraBuffCount(RUN_BUFF2_NUT_BOWLING) > 0;
+    return (aType == SeedType::SEED_WALLNUT && thePlant->mApp->RunExtraBuffCount(RUN_BUFF2_NUT_BOWLING) > 0) ||
+        (aType == SeedType::SEED_CABBAGEPULT && RunPlantTraits::BowlingCabbage(thePlant->mApp));
 }
 
 void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, SeedType theImitaterType)
@@ -741,6 +747,7 @@ void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, Se
     if (theSeedType == SeedType::SEED_PUMPKINSHELL && mApp->RunExtraBuffCount(RUN_BUFF2_STEEL_PUMPKIN) > 0)
         mPlantHealth = std::max(1, mPlantHealth / 2);
     mPlantHealth = int(std::min(double(INT_MAX),double(mPlantHealth)*TeamPlay::HealthMultiplier(mApp)+0.5));
+    if (mSeedType == SEED_GRAVEBUSTER && mApp->RunExtraBuffCount(RUN_BUFF2_GRAVE_TANK)) mPlantHealth = 12000;
     mPlantMaxHealth = mPlantHealth;
 
     if (mSeedType != SeedType::SEED_FLOWERPOT && IsOnBoard())
@@ -1324,6 +1331,15 @@ void Plant::StarFruitFire()
         default:    PVZP_ASSERT();                                                               break;
         }
 
+        if (mApp->RunExtraBuffCount(RUN_BUFF2_STAR_FAN))
+        {
+            const float angle = DEG_TO_RAD(36.0f * (i - 2));
+            aProjectile->mVelX = cosf(angle) * 3.33f;
+            aProjectile->mVelY = sinf(angle) * 3.33f;
+        }
+        if (mApp->RunExtraBuffCount(RUN_BUFF2_STAR_DOUBLE))
+            aProjectile->mRunCrystalDamage = aProjectile->GetProjectileDef().mDamage * 2;
+
         if (aHomingStacks >= 1)
         {
             Zombie* aTarget = FindHomingStarTarget(mBoard, mX + 40.0f, mY + 40.0f, aHomingFlags, aHomingTargets, i);
@@ -1362,7 +1378,20 @@ void Plant::UpdateShooter()
         // 多段攻击动画（忧郁菇 4 连/香蒲双发/加特林 4 连/双发第二发被卡掉）；现在动画速率与
         // 全部检查点同比例提速，命中帧与多发间隔比例不变。Kind 闸门保留（2026-10-03 修正批：
         // 只有射速族条目进得来——此前任意行都乘，寒冰射手 +30% 行会把雪豆射速拉长）。
-        mLaunchCounter = (int)((mLaunchRate - Sexy::Rand(15)) * mApp->RunBuffMul(RUN_BUFF_SWIFT) * mApp->RunPlantUpgradeMulKind(mSeedType, RUN_UPGRADE_KIND_RHYTHM) * mApp->RunPlantBuff2MulKind(mSeedType, RUN_UPGRADE_KIND_RHYTHM) * (PlantInLanternLight(mApp, this) ? mApp->RunPlantBuff2Mul(SeedType::SEED_PLANTERN) : 1.0f) + 0.5f);	// 第二 buff 批 2：同因子链（火力压制）；批 8 追加「暮光」灯照因子（同因子链，见 PlantShootSpeed）
+        if (mSeedType == SEED_CATTAIL && mApp->RunExtraBuffCount(RUN_BUFF2_CATTAIL_FOCUS))
+        {
+            Zombie* target = FindTargetZombie(mRow, WEAPON_PRIMARY);
+            if (!target || mBoard->ZombieGetID(target) != mTargetZombieID)
+            {
+                mTargetZombieID = ZOMBIEID_NULL;
+                mRunGarlicCooldown = 0;
+            }
+            mRunDispatchCursor = mRunGarlicCooldown;
+            aSpeed = PlantShootSpeed(mApp, mSeedType, this);
+            mLaunchCounter = PlantShootTicks(mLaunchRate - Sexy::Rand(15), aSpeed);
+        }
+        else
+            mLaunchCounter = (int)((mLaunchRate - Sexy::Rand(15)) * mApp->RunBuffMul(RUN_BUFF_SWIFT) * mApp->RunPlantUpgradeMulKind(mSeedType, RUN_UPGRADE_KIND_RHYTHM) * mApp->RunPlantBuff2MulKind(mSeedType, RUN_UPGRADE_KIND_RHYTHM) * (PlantInLanternLight(mApp, this) ? mApp->RunPlantBuff2Mul(SeedType::SEED_PLANTERN) : 1.0f) + 0.5f);	// 第二 buff 批 2：同因子链（火力压制）；批 8 追加「暮光」灯照因子（同因子链，见 PlantShootSpeed）
 
         if (mSeedType == SeedType::SEED_THREEPEATER)
         {
@@ -1554,6 +1583,16 @@ void Plant::UpdateProductionPlant()
 
 void Plant::UpdateSunShroom()
 {
+    if (mApp->RunExtraBuffCount(RUN_BUFF2_SUNSHROOM_TAP))
+    {
+        if (mState != STATE_SUNSHROOM_SMALL)
+        {
+            mState = STATE_SUNSHROOM_SMALL;
+            PlayIdleAnim(12.0f);
+        }
+        UpdateProductionPlant();
+        return;
+    }
 	Reanimation* aBodyReanim = mApp->ReanimationGet(mBodyReanimID);
 	if (mState == PlantState::STATE_SUNSHROOM_SMALL)
 	{
@@ -1582,6 +1621,12 @@ void Plant::UpdateSunShroom()
 
 void Plant::UpdateGraveBuster()
 {
+    if (mState == STATE_GRAVEBUSTER_EATING && mRunDispatchCursor == 0 &&
+        mApp->RunExtraBuffCount(RUN_BUFF2_GRAVE_TANK))
+    {
+        mStateCountdown = 6000;
+        mRunDispatchCursor = 1;
+    }
     if (mState == PlantState::STATE_GRAVEBUSTER_LANDING)
     {
         if (mApp->ReanimationGet(mBodyReanimID)->mLoopCount > 0)
@@ -1590,6 +1635,11 @@ void Plant::UpdateGraveBuster()
             // @pvz-online: 第二 buff 批 2「疾掘」（墓碑吞噬者，docs/06 §8.6 #11）：吞噬速度
             // ×0.5/层（1★）——400 帧吞碑计时按乘数缩，2 层 ×0.25。
             mStateCountdown = (int)(400 * mApp->RunPlantBuff2Mul(SeedType::SEED_GRAVEBUSTER) + 0.5f);
+            if (mApp->RunExtraBuffCount(RUN_BUFF2_GRAVE_TANK))
+            {
+                mStateCountdown = 6000;
+                mRunDispatchCursor = 1;
+            }
             mState = PlantState::STATE_GRAVEBUSTER_EATING;
             AddAttachedParticle(mX + 40, mY + 40, mRenderOrder + 4, ParticleEffect::PARTICLE_GRAVE_BUSTER);
         }
@@ -1604,10 +1654,12 @@ void Plant::UpdateGraveBuster()
             // @pvz-online: 单株升级「Quick Dig」（墓碑吞噬者，表行 SEED_GRAVEBUSTER）：吞掉
             // 墓碑成功额外落 25 阳光/层（计数型、至多 2 层）——真吞到才给，落币法同咖啡豆。
             // 经济批 2026-10-09：本行已删条不进抽取池（用户令删），挂点保留供存量档生效。
-            int aSunCoins = mApp->RunPlantUpgradeCount(SeedType::SEED_GRAVEBUSTER);
+            const bool dividend = mApp->RunExtraBuffCount(RUN_BUFF2_GRAVE_SUN) > 0;
+            const int aSunCoins = dividend ? 4 : mApp->RunPlantUpgradeCount(SEED_GRAVEBUSTER);
             for (int i = 0; i < aSunCoins; i++)
             {
-                mBoard->AddCoin(mX, mY, CoinType::COIN_SUN, CoinMotion::COIN_MOTION_FROM_PLANT);
+                if (!mBoard->AddCoin(mX, mY, COIN_SUN, COIN_MOTION_FROM_PLANT) && dividend)
+                    mBoard->AddSunMoney(25);
             }
         }
 
@@ -2191,6 +2243,22 @@ void Plant::UpdateLilypad()
 {
 	if (mState == PlantState::STATE_LILYPAD_INVULNERABLE && mStateCountdown == 0)
 		mState = PlantState::STATE_NOTREADY;
+    if (!IsInPlay() || mApp->mGameScene != SCENE_PLAYING || mApp->mRunIntroHeld ||
+        !mApp->RunExtraBuffCount(RUN_BUFF2_LILY_SPREAD)) return;
+    if (++mRunDispatchCursor < 1000) return;
+    mRunDispatchCursor = 0;
+    constexpr int offsets[][2] = {{0, -1}, {0, 1}, {-1, 0}, {1, 0}};
+    for (const auto& offset : offsets)
+    {
+        const int col = mPlantCol + offset[0];
+        const int row = mRow + offset[1];
+        if (col < 0 || col >= MAX_GRID_SIZE_X || row < 0 || row >= MAX_GRID_SIZE_Y) continue;
+        if (mBoard->CanPlantAt(col, row, SEED_LILYPAD) != PLANTING_OK) continue;
+        PlantsOnLawn plants;
+        mBoard->GetPlantsOnLawn(col, row, &plants);
+        if (plants.mUnderPlant || plants.mNormalPlant || plants.mFlyingPlant || plants.mPumpkinPlant) continue;
+        mBoard->AddPlant(col, row, SEED_LILYPAD, SEED_NONE);
+    }
 }
 
 void Plant::UpdateCoffeeBean()
@@ -2310,6 +2378,35 @@ void Plant::UpdateCactus()
 	}
 }
 
+static void SpawnChomperCopy(Board* board, Zombie* source, unsigned traits)
+{
+    RunSpeciesRules::SpawnScope scope(RunSpeciesRules::SpawnKind::CHOMPER_COPY);
+    Zombie* ally = board->AddZombieInRow(source->mZombieType, source->mRow, Zombie::ZOMBIE_WAVE_DEBUG);
+    if (!ally) return;
+    ally->mBodyHealth = ally->mBodyMaxHealth = source->mBodyMaxHealth;
+    ally->mHelmHealth = ally->mHelmMaxHealth = source->mHelmMaxHealth;
+    ally->mShieldHealth = ally->mShieldMaxHealth = source->mShieldMaxHealth;
+    ally->mFlyingHealth = ally->mFlyingMaxHealth = source->mFlyingMaxHealth;
+    ally->mScaleZombie = source->mScaleZombie;
+    ally->mControlImmune = source->mControlImmune;
+    ally->mBossMode = board->IsRunBossZombie(source) ? Zombie::RUN_BOSS_MARKER : Zombie::CHOMPER_COPY_MARKER;
+    ally->mMindControlled = true;
+    ally->mDroppedLoot = true;
+    ally->mPosX = source->mPosX;
+    ally->mPosY = ally->GetPosYBasedOnRow(ally->mRow);
+    ally->mX = int(ally->mPosX);
+    ally->mY = int(ally->mPosY);
+    if (ally->mZombieType == ZOMBIE_BOBSLED)
+    {
+        // A single copy has no follower IDs to drive a sled formation.
+        ally->mZombiePhase = PHASE_ZOMBIE_NORMAL;
+        ally->PickRandomSpeed();
+        ally->StartWalkAnim(0);
+    }
+    RunSpeciesRuntime::SetFlags(ally, traits & RunSpeciesRuntime::NO_THROW);
+    ally->UpdateAnimSpeed();
+}
+
 void Plant::UpdateChomper()
 {
     Reanimation* aBodyReanim = mApp->ReanimationTryToGet(mBodyReanimID);
@@ -2362,7 +2459,10 @@ void Plant::UpdateChomper()
             {
                 mApp->PlayFoley(FoleyType::FOLEY_SPLAT);
                 const bool aGiantBite = mApp->RunExtraBuffCount(RUN_BUFF2_GIANT_BITE) > 0;
+                const auto traits = RunSpeciesRuntime::Flags(aZombie);
                 aZombie->TakeDamage(aGiantBite ? 10000 : 40, 0U);
+                if (aZombie->IsDeadOrDying() && mApp->RunExtraBuffCount(RUN_BUFF2_CHOMPER_COPY))
+                    SpawnChomperCopy(mBoard, aZombie, traits);
                 if (aGiantBite)
                 {
                     // A lethal heavy bite still owes digestion, even with chains left.
@@ -2378,7 +2478,9 @@ void Plant::UpdateChomper()
             }
             else
             {
+                const auto traits = RunSpeciesRuntime::Flags(aZombie);
                 aZombie->DieWithLoot();
+                if (mApp->RunExtraBuffCount(RUN_BUFF2_CHOMPER_COPY)) SpawnChomperCopy(mBoard, aZombie, traits);
                 mState = PlantState::STATE_CHOMPER_BITING_GOT_ONE;
             }
         }
@@ -3015,6 +3117,20 @@ void Plant::Squish()
 void Plant::UpdateBowling()
 {
 	Reanimation* aBodyReanim = mApp->ReanimationTryToGet(mBodyReanimID);
+    if (mSeedType == SEED_CABBAGEPULT && RunPlantTraits::BowlingCabbage(mApp))
+    {
+        // This cabbage-only slot owns a hidden motion track, never the visible body.
+        aBodyReanim = mApp->ReanimationTryToGet(mHeadReanimID3);
+        if (!aBodyReanim)
+        {
+            aBodyReanim = mApp->AddReanimation(0, 0, mRenderOrder, REANIM_WALLNUT);
+            if (!aBodyReanim) return;
+            aBodyReanim->mIsAttachment = true;
+            aBodyReanim->PlayReanim("_ground", REANIM_LOOP, 0, 15.0f);
+            mHeadReanimID3 = mApp->ReanimationGetID(aBodyReanim);
+        }
+        aBodyReanim->Update();
+    }
 	if (aBodyReanim && aBodyReanim->TrackExists("_ground"))
 	{
 		float aSpeed = aBodyReanim->GetTrackVelocity("_ground");
@@ -3195,6 +3311,11 @@ void Plant::UpdateAbilities()
     if (mIsAsleep || mSquished || mOnBungeeState != PlantOnBungeeState::NOT_ON_BUNGEE)
         return;
 
+    if (mSeedType == SEED_CABBAGEPULT && RunPlantTraits::BowlingCabbage(mApp))
+    {
+        UpdateBowling();
+        return;
+    }
     UpdatePurpleBuffs();
     UpdateShooting();
 
@@ -3521,7 +3642,7 @@ void Plant::UpdateReanim()
 	}
 
 	aBodyReanim->SetPosition(aOffsetX, aOffsetY);
-	aBodyReanim->OverrideScale(aScaleX, aScaleY);
+	aBodyReanim->OverrideScale(mSeedType == SEED_COBCANNON && RunPlantTraits::CompactCob(mApp) ? aScaleX * 0.5f : aScaleX, aScaleY);
 }
 
 void Plant::Update()
@@ -3545,7 +3666,7 @@ void Plant::Update()
         if (IsOnBoard() && mApp->mGameScene == GameScenes::SCENE_PLAYING && !mDead)
         {
             if (mRunAliveTicks < 6000) ++mRunAliveTicks;
-            if (mRunGarlicCooldown > 0) --mRunGarlicCooldown;
+            if (mSeedType != SEED_CATTAIL && mRunGarlicCooldown > 0) --mRunGarlicCooldown;
         }
         UpdateAbilities();
         Animate();
@@ -3988,6 +4109,12 @@ void Plant::UpdateShooting()
         if (mShootingCounter == PlantShootTicks(19, aSpeed))
         {
             Zombie* aZombie = FindTargetZombie(mRow, PlantWeapon::WEAPON_PRIMARY);
+            if (mApp->RunExtraBuffCount(RUN_BUFF2_CATTAIL_FOCUS))
+            {
+                const auto target = aZombie ? mBoard->ZombieGetID(aZombie) : ZOMBIEID_NULL;
+                mRunGarlicCooldown = aZombie && target == mTargetZombieID ? std::min(8, mRunGarlicCooldown + 1) : 0;
+                mTargetZombieID = target;
+            }
             if (aZombie)
             {
                 Fire(aZombie, mRow, PlantWeapon::WEAPON_PRIMARY);
@@ -4980,6 +5107,16 @@ void Plant::DrawSeedType(Graphics* g, SeedType theSeedType, SeedType theImitater
 
 void Plant::MouseDown(int x, int y, int theClickCount)
 {
+    if (theClickCount > 0 && theClickCount != 3 && mSeedType == SEED_SUNSHROOM && IsInPlay() && !mDead &&
+        !mBoard->mPaused && mApp->mGameScene == SCENE_PLAYING && !mApp->mRunIntroHeld &&
+        !mApp->AdmissionBuilding() && mApp->RunExtraBuffCount(RUN_BUFF2_SUNSHROOM_TAP))
+    {
+        if (Coin* sun = mBoard->AddCoin(mX, mY, COIN_SMALLSUN, COIN_MOTION_FROM_PLANT))
+            sun->Collect();
+        else
+            mBoard->AddSunMoney(15);
+        return;
+    }
     if(mApp->AdmissionBuilding())return;
 	if (theClickCount < 0)
 		return;
@@ -5645,7 +5782,20 @@ void Plant::Fire(Zombie* theTargetZombie, int theRow, PlantWeapon thePlantWeapon
         mApp->AddPvzpParticle(aOriginX + 27, aOriginY + 13, aRenderPosition, ParticleEffect::PARTICLE_PUFFSHROOM_MUZZLE);
     }
 
-    Projectile* aProjectile = mBoard->AddProjectile(aOriginX, aOriginY, mRenderOrder - 1, theRow, aProjectileType);
+    const bool elementPair = mSeedType == SEED_REPEATER && mApp->RunExtraBuffCount(RUN_BUFF2_REPEATER_ELEMENT);
+    auto addShot = [&](int x) -> Projectile* {
+        if (!elementPair) return mBoard->AddProjectile(x, aOriginY, mRenderOrder - 1, theRow, aProjectileType);
+        const bool fire = (mRunSunCollectTicks & 1) == 0;
+        Projectile* shot = mBoard->AddProjectile(x, aOriginY, mRenderOrder - 1, theRow,
+            fire ? PROJECTILE_PEA : PROJECTILE_SNOWPEA);
+        if (shot)
+        {
+            if (fire) shot->ConvertToFireball(mPlantCol);
+            mRunSunCollectTicks = fire ? 1 : 0;
+        }
+        return shot;
+    };
+    Projectile* aProjectile = addShot(aOriginX);
     if (aProjectile == nullptr) return;
     aProjectile->mDamageRangeFlags = GetDamageRangeFlags(thePlantWeapon);
     aProjectile->mRunSourceSeed = mSeedType;
@@ -5755,7 +5905,7 @@ void Plant::Fire(Zombie* theTargetZombie, int theRow, PlantWeapon thePlantWeapon
     {
         // Unbounded Threepeater stacks stay near the muzzle instead of spawning beyond the board.
         const int extraOffset = 21 * (mSeedType == SeedType::SEED_THREEPEATER ? 1 + i % 4 : i + 1);
-        Projectile* aExtraProjectile = mBoard->AddProjectile(aOriginX + extraOffset, aOriginY, mRenderOrder - 1, theRow, aProjectileType);
+        Projectile* aExtraProjectile = addShot(aOriginX + extraOffset);
         if (aExtraProjectile == nullptr) break; // No slot can free during this volley; retain unlimited trait stacks.
         aExtraProjectile->mDamageRangeFlags = aProjectile->mDamageRangeFlags;
         if (mBoard->StageHasRoof() && mApp->RunExtraBuffCount(RUN_BUFF2_ROOF_PEAS) > 0 &&
@@ -5891,6 +6041,11 @@ void Plant::Fire(Zombie* theTargetZombie, int theRow, PlantWeapon thePlantWeapon
         {
             aProjectile->mRunHuntHitsLeft = 3;
             aProjectile->mRunCrystalDamage = 80;
+        }
+        if (mApp->RunExtraBuffCount(RUN_BUFF2_CATTAIL_FOCUS) && aProjectile->mTargetZombieID == mTargetZombieID)
+        {
+            const int damage = aProjectile->mRunCrystalDamage > 0 ? aProjectile->mRunCrystalDamage : aProjectile->GetProjectileDef().mDamage;
+            aProjectile->mRunCrystalDamage = int(damage * RunPlantTraits::CattailFactor(mRunGarlicCooldown) + 0.5f);
         }
     }
     else if (mSeedType == SeedType::SEED_COBCANNON)
@@ -6317,7 +6472,8 @@ int Plant::GetRefreshTime(SeedType theSeedType, SeedType theImitaterType)
     }
     // @pvz-online: 「Nut Bowling」：坚果冷却改 3 秒（300cs，2026-10-19）。速种
     // （RUN_BUFF_FASTSEED）在 SeedPacket 侧随后再乘，属预期叠加。
-    if (aRealType == SeedType::SEED_WALLNUT && gLawnApp->RunExtraBuffCount(RUN_BUFF2_NUT_BOWLING) > 0)
+    if ((aRealType == SeedType::SEED_WALLNUT && gLawnApp->RunExtraBuffCount(RUN_BUFF2_NUT_BOWLING) > 0) ||
+        (aRealType == SeedType::SEED_CABBAGEPULT && RunPlantTraits::BowlingCabbage(gLawnApp)))
     {
         aRefreshTime = 300;
     }
@@ -6394,7 +6550,7 @@ Rect Plant::GetPlantRect()
 	}
 	else if (mSeedType == SeedType::SEED_COBCANNON)
 	{
-		aRect = Rect(mX, mY, 140, 80);
+		aRect = Rect(mX, mY, RunPlantTraits::CompactCob(mApp) ? 80 : 140, 80);
 	}
 	else
 	{
@@ -6496,6 +6652,7 @@ void Plant::RefreshRunMaxHealth()
 
 int Plant::CoopMaxHealth()
 {
+    if (mSeedType == SEED_GRAVEBUSTER && mApp->RunExtraBuffCount(RUN_BUFF2_GRAVE_TANK)) return 12000;
     int base=300;
     if(mSeedType==SEED_WALLNUT || mSeedType==SEED_PUMPKINSHELL)base=4000;
     else if(mSeedType==SEED_TALLNUT)base=8000;

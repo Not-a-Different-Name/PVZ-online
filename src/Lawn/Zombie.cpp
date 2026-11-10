@@ -1,3 +1,4 @@
+#include "Run/RunPlantTraits.h"
 #include "TeamPlay.h"
 /*
  * Copyright (C) 2026 Zhou Qiankang <wszqkzqk@qq.com>
@@ -451,7 +452,7 @@ void Zombie::ZombieInitialize(int theRow, ZombieType theType, bool theVariant, Z
 
 		if (IsOnBoard())
 		{
-			PickBungeeZombieTarget(-1);
+			if (RunSpeciesRules::currentSpawnKind != RunSpeciesRules::SpawnKind::CHOMPER_COPY) PickBungeeZombieTarget(-1);
 
 			if (mDead)
 			{
@@ -1503,6 +1504,16 @@ void Zombie::PickRandomSpeed()
 void Zombie::BungeeStealTarget()
 {
 	PlayZombieReanim("anim_grab", ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD, 20, 24.0f);
+    if (mMindControlled)
+    {
+        if (Zombie* target = FindZombieTarget(); target && !mBoard->IsRunBossZombie(target) &&
+            target->mZombieType != ZOMBIE_BOSS)
+        {
+            DamageStats::Source damageSource(mApp->mDamageStats, true);
+            target->DieWithLoot();
+        }
+        return;
+    }
 
 	Plant* aPlant = mBoard->GetTopPlantAt(mTargetCol, mRow, PlantPriority::TOPPLANT_BUNGEE_ORDER);
 	if (aPlant && !aPlant->NotOnGround())
@@ -1569,7 +1580,7 @@ void Zombie::BungeeLanding()
 	if (mAltitude > 40.0f)
 		return;
 
-	Plant* aPlant = mBoard->FindUmbrellaPlant(mTargetCol, mRow);
+	Plant* aPlant = mMindControlled ? nullptr : mBoard->FindUmbrellaPlant(mTargetCol, mRow);
 	if (aPlant)
 	{
 		mApp->PlaySample(SOUND_BOING);
@@ -1793,12 +1804,36 @@ void Zombie::UpdateZombiePogo()
 	}
 }
 
+static constexpr int kFriendlyBasketballTargets =
+    (1 << DAMAGES_GROUND) | (1 << DAMAGES_SUBMERGED);
+
+static Zombie* FindFriendlyCatapultTarget(Zombie* catapult)
+{
+    Zombie* target = nullptr;
+    Zombie* zombie = nullptr;
+    while (catapult->mBoard->IterateZombies(zombie))
+    {
+        if (zombie->mRow == catapult->mRow && zombie->mX >= catapult->mX + 100 &&
+            zombie->EffectedByDamage(kFriendlyBasketballTargets) && (!target || zombie->mX > target->mX))
+            target = zombie;
+    }
+    return target;
+}
+
 void Zombie::ZombieCatapultFire(Plant* thePlant)
 {
+    Zombie* enemy = mMindControlled ? FindFriendlyCatapultTarget(this) : nullptr;
+    if (mMindControlled && !enemy) return;
 	float aOriginX = mPosX + 113.0f;
 	float aOriginY = mPosY - 44.0f;
 	int aTargetX, aTargetY;
-	if (thePlant)
+    if (enemy)
+    {
+        const Rect bounds = enemy->GetZombieRect();
+        aTargetX = bounds.mX + bounds.mWidth / 2;
+        aTargetY = enemy->mY;
+    }
+    else if (thePlant)
 	{
 		aTargetX = thePlant->mX;
 		aTargetY = thePlant->mY;
@@ -1814,13 +1849,18 @@ void Zombie::ZombieCatapultFire(Plant* thePlant)
 	Projectile* aProjectile = mBoard->AddProjectile(aOriginX, aOriginY, mRenderOrder, mRow, ProjectileType::PROJECTILE_BASKETBALL);
 	if (aProjectile == nullptr) return;
 	float aRangeX = aOriginX - aTargetX - 20.0f;
+    if (enemy)
+    {
+        aRangeX = aTargetX - aOriginX;
+        aProjectile->mDamageRangeFlags = kFriendlyBasketballTargets;
+    }
 	float aRangeY = aTargetY - aOriginY;
 	if (aRangeX < 40.0f)
 	{
 		aRangeX = 40.0f;
 	}
 	aProjectile->mMotionType = ProjectileMotion::MOTION_LOBBED;
-	aProjectile->mVelX = -aRangeX / 120.0f;
+	aProjectile->mVelX = (enemy ? aRangeX : -aRangeX) / 120.0f;
 	aProjectile->mVelY = 0.0f;
 	aProjectile->mVelZ = aRangeY / 120.0f - 7.0f;
 	aProjectile->mAccZ = 0.115f;
@@ -1848,9 +1888,12 @@ Plant* Zombie::FindCatapultTarget()
 
 void Zombie::UpdateZombieCatapult()
 {
+    const auto hasTarget = [&]() {
+        return mMindControlled ? FindFriendlyCatapultTarget(this) != nullptr : FindCatapultTarget() != nullptr;
+    };
 	if (mZombiePhase == ZombiePhase::PHASE_ZOMBIE_NORMAL)
 	{
-		if (mPosX <= 650 && FindCatapultTarget() && mSummonCounter > 0)
+		if ((mMindControlled || mPosX <= 650) && mSummonCounter > 0 && hasTarget())
 		{
 			mZombiePhase = ZombiePhase::PHASE_CATAPULT_LAUNCHING;
 			mPhaseCounter = 300;
@@ -1862,8 +1905,7 @@ void Zombie::UpdateZombieCatapult()
 		Reanimation* aBodyReanim = mApp->ReanimationGet(mBodyReanimID);
 		if (aBodyReanim->ShouldTriggerTimedEvent(0.545f))
 		{
-			Plant* aPlant = FindCatapultTarget();
-			ZombieCatapultFire(aPlant);
+			ZombieCatapultFire(mMindControlled ? nullptr : FindCatapultTarget());
 		}
 		if (aBodyReanim->mLoopCount > 0)
 		{
@@ -1899,8 +1941,7 @@ void Zombie::UpdateZombieCatapult()
 	}
 	else if (mZombiePhase == ZombiePhase::PHASE_CATAPULT_RELOADING && mPhaseCounter == 0)
 	{
-		Plant* aPlant = FindCatapultTarget();
-		if (aPlant)
+		if (hasTarget())
 		{
 			mZombiePhase = ZombiePhase::PHASE_CATAPULT_LAUNCHING;
 			mPhaseCounter = 300;
@@ -2352,7 +2393,6 @@ void Zombie::UpdateZombieGargantuar()
         Reanimation* aBodyReanim = mApp->ReanimationGet(mBodyReanimID);
         if (aBodyReanim->ShouldTriggerTimedEvent(0.64f))
         {
-#ifdef DO_FIX_BUGS
             if (mMindControlled)  // 魅惑巨人砸僵尸
             {
                 Zombie* aZombie = FindZombieTarget();
@@ -2443,77 +2483,6 @@ void Zombie::UpdateZombieGargantuar()
                     }
                 }
             }
-#else
-            Plant* aPlant = FindPlantTarget(ZombieAttackType::ATTACKTYPE_CHEW);
-            if (aPlant)
-            {
-                if (mBoard->IsRunBossZombie(this))
-                {
-                    // @pvz-online: 关底巨型 boss 砸击破耐砸——同上一份（DO_FIX_BUGS 版）的 boss 分支。
-                    SquishAllInSquare(aPlant->mPlantCol, aPlant->mRow, ZombieAttackType::ATTACKTYPE_CHEW);
-                }
-                else if (aPlant->mSeedType == SeedType::SEED_SPIKEROCK)
-                {
-                    DamageStats::Source aCounterDamageSource(mApp->mDamageStats, true);
-                    TakeDamage(mApp->RunExtraBuffCount(RUN_BUFF2_GIANT_COUNTER) > 0 ? 1000 : 20,
-                        mApp->RunExtraBuffCount(RUN_BUFF2_GIANT_COUNTER) > 0 ? (32U | RUN_FIXED_COUNTER_DAMAGE) : 32U);
-                    aPlant->SpikeRockTakeDamage();
-                    if (aPlant->mPlantHealth <= 0)
-                    {
-                        SquishAllInSquare(aPlant->mPlantCol, aPlant->mRow, ZombieAttackType::ATTACKTYPE_CHEW);
-                    }
-                }
-                else if (aPlant->mSeedType == SeedType::SEED_PUMPKINSHELL &&
-                    mApp->RunExtraBuffCount(RUN_BUFF2_STEEL_PUMPKIN) > 0)
-                {
-                    aPlant->mPlantHealth -= 200;
-                    if (aPlant->mPlantHealth <= 0)
-                        SquishAllInSquare(aPlant->mPlantCol, aPlant->mRow, ZombieAttackType::ATTACKTYPE_CHEW);
-                }
-                else if (aPlant->mSeedType == SeedType::SEED_GLOOMSHROOM && mApp->RunPlantBuff2Count(SeedType::SEED_GLOOMSHROOM) > 0)
-                {
-                    aPlant->mPlantHealth -= 200;
-                    if (aPlant->mPlantHealth <= 0)
-                    {
-                        SquishAllInSquare(aPlant->mPlantCol, aPlant->mRow, ZombieAttackType::ATTACKTYPE_CHEW);
-                    }
-                }
-                else if ((aPlant->mSeedType == SeedType::SEED_GARLIC && mApp->RunPlantUpgradeCount(SeedType::SEED_GARLIC) > 0)
-                      || ((aPlant->mSeedType == SeedType::SEED_WALLNUT || aPlant->mSeedType == SeedType::SEED_TALLNUT)
-                          && mApp->RunPlantUpgradeCount(aPlant->mSeedType) > 0))
-                {
-                    // @pvz-online: 批 18 大蒜「Iron Clove」+ 批七 坚果/高坚果——同上一份（DO_FIX_BUGS 版）的耐砸分支。
-                    aPlant->mPlantHealth -= (aPlant->mSeedType == SeedType::SEED_GARLIC) ? 50 : 200;
-                    if (aPlant->mPlantHealth <= 0)
-                    {
-                        SquishAllInSquare(aPlant->mPlantCol, aPlant->mRow, ZombieAttackType::ATTACKTYPE_CHEW);
-                    }
-                }
-                else
-                {
-                    SquishAllInSquare(aPlant->mPlantCol, aPlant->mRow, ZombieAttackType::ATTACKTYPE_CHEW);
-                }
-            }
-
-            if (mApp->IsScaryPotterLevel())
-            {
-                int aGridX = mBoard->PixelToGridX(mPosX, mPosY);
-                GridItem* aScaryPot = mBoard->GetScaryPotAt(aGridX, mRow);
-                if (aScaryPot)
-                {
-                    mBoard->mChallenge->ScaryPotterOpenPot(aScaryPot);
-                }
-            }
-
-            if (mApp->IsIZombieLevel())
-            {
-                GridItem* aBrain = mBoard->mChallenge->IZombieGetBrainTarget(this);
-                if (aBrain)
-                {
-                    mBoard->mChallenge->IZombieSquishBrain(aBrain);
-                }
-            }
-#endif
 
             mApp->PlayFoley(FoleyType::FOLEY_THUMP);
             mBoard->ShakeBoard(0, 3);
@@ -2573,7 +2542,7 @@ void Zombie::UpdateZombieGargantuar()
             aZombieImp->mScaleZombie = mScaleZombie;
             aZombieImp->mBodyHealth = RunMath::ScaleHealthFloat(aZombieImp->mBodyHealth, mScaleZombie * mScaleZombie);
             aZombieImp->mBodyMaxHealth = RunMath::ScaleHealthFloat(aZombieImp->mBodyMaxHealth, mScaleZombie * mScaleZombie);
-
+#endif
             if (mMindControlled)
             {
                 aZombieImp->mPosX = mPosX + mWidth;
@@ -2584,12 +2553,8 @@ void Zombie::UpdateZombieGargantuar()
             {
                 aZombieImp->mVelX = 3.0f;
             }
-#else
-            aZombieImp->mVelX = 3.0f;
-#endif
-            if (aGiantChild && mMindControlled) { aZombieImp->mPosX=mPosX+mWidth; aZombieImp->mVelX=-3.0f; }
             aZombieImp->mChilledCounter = mChilledCounter;
-            aZombieImp->mVelZ = 0.5f * (aThrowingDistance / (aGiantChild ? std::abs(aZombieImp->mVelX) : aZombieImp->mVelX)) * THOWN_ZOMBIE_GRAVITY;
+            aZombieImp->mVelZ = 0.5f * (aThrowingDistance / std::abs(aZombieImp->mVelX)) * THOWN_ZOMBIE_GRAVITY;
             aZombieImp->PlayZombieReanim(aGiantChild ? "anim_walk" : "anim_thrown", aGiantChild ? ReanimLoopType::REANIM_LOOP : ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD, 0, aGiantChild ? 0.0f : 18.0f);
             aZombieImp->UpdateReanim();
             mApp->PlayFoley(FoleyType::FOLEY_IMP);
@@ -2614,30 +2579,29 @@ void Zombie::UpdateZombieGargantuar()
         return;
     }
 
-#ifdef DO_FIX_BUGS
-    bool doSmash = FindZombieTarget();
-#else
-    bool doSmash = false;
-    if (FindPlantTarget(ZombieAttackType::ATTACKTYPE_CHEW))
+    bool doSmash = mMindControlled && FindZombieTarget();
+    if (!mMindControlled)
     {
-        doSmash = true;
-    }
-    else if (mApp->IsScaryPotterLevel())
-    {
-        int aGridX = mBoard->PixelToGridX(mPosX, mPosY);
-        if (mBoard->GetScaryPotAt(aGridX, mRow))
+        if (FindPlantTarget(ZombieAttackType::ATTACKTYPE_CHEW))
         {
             doSmash = true;
         }
-    }
-    else if (mApp->IsIZombieLevel())
-    {
-        if (mBoard->mChallenge->IZombieGetBrainTarget(this))
+        else if (mApp->IsScaryPotterLevel())
         {
-            doSmash = true;
+            int aGridX = mBoard->PixelToGridX(mPosX, mPosY);
+            if (mBoard->GetScaryPotAt(aGridX, mRow))
+            {
+                doSmash = true;
+            }
+        }
+        else if (mApp->IsIZombieLevel())
+        {
+            if (mBoard->mChallenge->IZombieGetBrainTarget(this))
+            {
+                doSmash = true;
+            }
         }
     }
-#endif
 
     if (doSmash)
     {
@@ -4475,7 +4439,9 @@ void Zombie::UpdateZamboni()
 		mVelX -= 0.0005f;
 	}
 
-	int anIceX = mPosX + 118;
+	if (mMindControlled) return;
+
+    int anIceX = mPosX + 118;
 	if (mBoard->StageHasRoof())
 	{
 		anIceX = std::max(anIceX, 500);
@@ -6917,6 +6883,7 @@ ZombieDrawPosition aDrawPos;
 
 bool Zombie::CanTargetPlant(Plant* thePlant, ZombieAttackType theAttackType)
 {
+    if (mMindControlled && (mBossMode == CHOMPER_COPY_MARKER || mBoard->IsRunBossZombie(this))) return false;
     if (mApp->IsWallnutBowlingLevel() && theAttackType != ZombieAttackType::ATTACKTYPE_VAULT)
         return false;
 
@@ -6925,7 +6892,8 @@ bool Zombie::CanTargetPlant(Plant* thePlant, ZombieAttackType theAttackType)
         SeedType aNutType = thePlant->mSeedType;
         if (aNutType == SeedType::SEED_IMITATER && thePlant->mImitaterType != SeedType::SEED_NONE)
             aNutType = thePlant->mImitaterType;
-        if (aNutType == SeedType::SEED_WALLNUT && mApp->RunExtraBuffCount(RUN_BUFF2_NUT_BOWLING) > 0 &&
+        if (((aNutType == SEED_WALLNUT && mApp->RunExtraBuffCount(RUN_BUFF2_NUT_BOWLING) > 0) ||
+            (aNutType == SEED_CABBAGEPULT && RunPlantTraits::BowlingCabbage(mApp))) &&
             theAttackType != ZombieAttackType::ATTACKTYPE_VAULT)
             return false;
     }
@@ -7168,6 +7136,15 @@ void Zombie::CatapultDeath(unsigned int theDamageFlags)
 
 void Zombie::CheckSquish(ZombieAttackType theAttackType)
 {
+    if (mMindControlled)
+    {
+        if (Zombie* target = FindZombieTarget())
+        {
+            DamageStats::Source damageSource(mApp->mDamageStats, true);
+            target->TakeDamage(target->mBodyHealth, DAMAGE_BYPASSES_SHIELD);
+        }
+        return;
+    }
 	Rect aAttackRect = GetZombieAttackRect();
 
 	for (Plant* aPlant : mBoard->mPlants)
@@ -7891,9 +7868,16 @@ void Zombie::EatZombie(Zombie* theZombie)
     // 被魅惑僵尸的啃咬伤害 ×2^层（表行 mMultiplicative = (1+1.0)^n）——只加在魅惑僵尸出手
     // 这侧；普通僵尸啃魅惑僵尸不变。血量半轴见 Zombie::StartMindControlled。
     int aEatZombieDamage = DAMAGE_PER_EAT;
+    const bool boss = mBoard->IsRunBossZombie(this);
+    if (mMindControlled && (boss || mBossMode == CHOMPER_COPY_MARKER))
+    {
+        if (boss && mZombieType == ZOMBIE_FOOTBALL) aEatZombieDamage = 60;
+        if (mApp->IsRunMode())
+            aEatZombieDamage = aEatZombieDamage * mApp->GetRunState()->ZombieBuffBitePermille() / 1000;
+    }
     if (mMindControlled && mApp->RunPlantBuff2Count(SeedType::SEED_HYPNOSHROOM) > 0)
     {
-        aEatZombieDamage = (int)(DAMAGE_PER_EAT * mApp->RunPlantBuff2Mul(SeedType::SEED_HYPNOSHROOM) + 0.5f);
+        aEatZombieDamage = (int)(aEatZombieDamage * mApp->RunPlantBuff2Mul(SeedType::SEED_HYPNOSHROOM) + 0.5f);
     }
     aEatZombieDamage=RunSpeciesEffects::Attack(this,aEatZombieDamage);
     theZombie->TakeDamage(aEatZombieDamage, 9U);

@@ -5,6 +5,7 @@
 #include "PreparationWire.h"
 #include "AdmissionWire.h"
 #include "ObserverWireV2.h"
+#include "WatchRoom.h"
 #include "ObserverTransfer.h"
 #include "ObserverDirectLink.h"
 #include <deque>
@@ -41,8 +42,8 @@ public:
     int mDirectoryRetry=0;
     void SetDirectoryPublic(bool value) {if(value!=mDirectoryPublic){mDirectoryPublic=value;mDirectoryConfirmed=false;mDirectoryRetry=0;}}
     void SetDirectoryStarted(bool value) {if(value!=mDirectoryStarted){mDirectoryStarted=value;mDirectoryConfirmed=false;mDirectoryRetry=0;}}
-    bool StartDirectoryJoin(const char* server,const char* code,uint16_t port=NetProto::DEFAULT_RELAY_PORT) {
-        bool ok=StartRoomJoin(server,code,port);mDirectoryJoin=ok;return ok;
+    bool StartDirectoryJoin(const char* server,const char* code,uint16_t port=NetProto::DEFAULT_RELAY_PORT,bool watch=false) {
+        bool ok=StartRoomJoin(server,code,port);mDirectoryJoin=ok;mWatchDirectoryJoin=ok&&watch;return ok;
     }
     // Host-owned, round-scoped seats which re-entered after combat began.
     bool WaitForNextRound(uint8_t seat);
@@ -116,6 +117,7 @@ public:
 
 	enum class EventType
 	{
+        WATCH_ROOM_ENTERED,
 		NONE,
 		CONNECTED,		// 握手完成，可以开局了
 		DISCONNECTED,	// 掉线（不是我们自己关的）
@@ -408,6 +410,7 @@ public:
 
 	// 全队都清完了——这一关对所有人结束了，该回主菜单。取一次就清：
 	// 主循环每帧都会问，收摊只能收一次。
+	bool			CanTakeAllLevelsDone() const;
 	bool			TakeAllLevelsDone();
 
 	// 全队败（末尾席位漏怪）：输的是**全队**，不是"谁漏谁出局"。对面收到就一起收摊。
@@ -519,6 +522,31 @@ public:
 	bool			BeginWatch(uint8_t theSeat);
     static constexpr uint32_t ObserverRevision=0x9603;
     void SetObserverBoard(uint64_t instance,bool active);
+    bool InWatchRoom() const { return mWatchSlot!=0; }
+    bool SupportsWatchRoom() const { return mWatchRoom && IsConnected(); }
+    uint8_t WatchSlot() const { return mWatchSlot; }
+    bool WatchRoomPrivate() const { return SupportsWatchRoom() && mWatchPrivate; }
+    bool ConsumeWatchPromotion(uint32_t epoch) {
+        if(!mWatchPromotion || mWatchPromotion!=epoch)return false;
+        mWatchPromotion=0;return true;
+    }
+    bool CanRefreshObserver() const { return IsWatchingV2() && mObserverReceived && !ObserverRequestCooldown(); }
+    uint8_t ObserverRoute() const { return mWatchSlot ? mWatchSlot : mLocalSeat; }
+    const std::array<uint8_t,NetProto::MAX_PLAYERS>& WatchCombatOrder() const { return mWatchOrder; }
+    bool ObserverPeerPresent(uint8_t id) const {
+        return id<=NetProto::MAX_PLAYERS ? IsSeatOccupied(id)&&!IsSeatOffline(id) :
+            id<=WatchRoom::LastViewer && (mWatchViewerMask&(1u<<id));
+    }
+    uint16_t ObserverPeerBuild(uint8_t id) const {
+        return id<=NetProto::MAX_PLAYERS ? GetSeatBuild(id) : ObserverPeerPresent(id) ? NetProto::MOD_BUILD : 0;
+    }
+    const std::array<WatchRoom::Viewer,WatchRoom::LastViewer+1>& WatchViewers() const { return mWatchViewers; }
+    bool CanMoveToWatchRoom() const {
+        const bool preparing = IsPreparationActive() && (GetPreparationPhase()==PreparationWire::OPEN || GetPreparationPhase()==PreparationWire::WAIT);
+        if(!SupportsWatchRoom() || InWatchRoom() || (mFlowPhase!=0 && mFlowPhase!=5 && !preparing) || GetConnectedPlayerCount()<2)return false;
+        return mWatchSlotsUsed<4;
+    }
+    bool WatchRoleAction(uint8_t op,uint8_t slot=0,uint32_t request=0);
     bool IsWatchingV2()const{return mObserverWatch!=0;}
     bool ObserverAccepted()const{return mObserverAccepted;}
     uint32_t ObserverWatch()const{return mObserverWatch;}
@@ -527,7 +555,7 @@ public:
     bool HasObserverWatchers()const;
     bool ObserverCanCapture()const;
     static constexpr uint16_t ObserverWorldBuild=106;
-    bool ObserverNeedsWorldSnapshot()const{bool found=false;for(uint8_t seat=1;seat<=6;++seat){const auto&v=mObserverViewers[seat];if(v.watch&&v.pending){if(GetSeatBuild(seat)<ObserverWorldBuild)return false;found=true;}}return found;}
+    bool ObserverNeedsWorldSnapshot()const{bool found=false;for(uint8_t seat=1;seat<=WatchRoom::LastViewer;++seat){const auto&v=mObserverViewers[seat];if(v.watch&&v.pending){if(ObserverPeerBuild(seat)<ObserverWorldBuild)return false;found=true;}}return found;}
     void ObserverDisplayReady(uint32_t watch){if(watch==mObserverWatch&&watch)mObserverReceived=true;}
 
     bool CanWatchSeat(uint8_t seat)const{return IsConnected()&&seat>=1&&seat<=NetProto::MAX_PLAYERS&&seat!=mLocalSeat&&IsSeatOccupied(seat)&&!IsSeatOffline(seat)&&!IsWaitingForNextRound(seat)&&(!mCoopToken||mCoopPeers[seat]!=mCoopToken);}
@@ -549,7 +577,16 @@ private:
     bool ObserverControl(uint8_t,ObserverWireV2::ControlOp,uint32_t,uint32_t);
     void ClearObserverV2();
     struct ObserverViewer{uint32_t watch=0,stream=0;uint64_t touched=0;bool pending=false;};
-    ObserverViewer mObserverViewers[7]{};
+    ObserverViewer mObserverViewers[WatchRoom::LastViewer+1]{};
+    std::array<WatchRoom::Viewer,WatchRoom::LastViewer+1> mWatchViewers{};
+    std::array<uint8_t,NetProto::MAX_PLAYERS> mWatchOrder{};
+    std::array<uint32_t,NetProto::MAX_PLAYERS+1> mWatchPeerIdentity{};
+    uint16_t mWatchViewerMask=0;
+    uint32_t mWatchRequest=0,mWatchPromotion=0;
+    uint8_t mWatchSlot=0,mWatchSlotsUsed=0;
+    bool mWatchRoom=false,mWatchDirectoryJoin=false,mWatchPrivate=false;
+    bool SendWatchRoomRejoin();
+    void HandleWatchRoomRoster(const uint8_t*,int);
     uint64_t mObserverBoard=0,mObserverQueryAt=0,mObserverKeepAt=0,mObserverLast=0,mObserverRequestAt=0,mObserverPendingAt=0;
     uint32_t mObserverLocalStream=0,mObserverRemoteStream=0,mObserverWatch=0,mObserverSeq=0;
     uint32_t mObserverEpoch=0,mObserverTerm=0;

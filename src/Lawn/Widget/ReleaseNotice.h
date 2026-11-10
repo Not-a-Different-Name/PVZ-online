@@ -1,7 +1,52 @@
 #pragma once
 #include "../ModText.h"
+
 namespace ReleaseNotice {
-inline const char* Body() { return ModText::Tr(
-"【MOD110界面修订】\n· 植物卡栏置于僵尸前方，不再被遮挡\n· 增益入口移到左侧场外\n· 准备时队友入口移离植物候选\n· 版本编号保持MOD110，保留存档\f【MOD110战斗与续关】\n· 机枪三星“火力全开”弹幕新增穿透\n· 仍为2秒150发，上下各30°扫射\n· 结束立即恢复普通射击，8秒限制再触发\n· 修复无尽补位玩家续关跳过关卡重置\f【MOD110新增与修复】\n· 吸金磁新增三星“全屏吸金”，最多1层\n· 一次吸取全场钱币，兼容“点石成金”\n· 优化电脑版选择增益的打开和绘制开销\n· 清理无尽准备画面重复累积的展示僵尸\n· 修复电脑版水族馆部分3D绘制闪退\n· 修复冰道等特效缺失时的空指针闪退\f【队友与支援】\n· 解锁支援后，没持有植物也能赠基础卡\n· 新局默认接收支援，可随时关闭\n· 点左侧“队友”展开名单，再点名字操作\n· 支援卡可送樱桃、寒冰菇、辣椒和南瓜\n· 可在名单旁求阳光、开关接收支援\n· 选卡时仍可借植物，来信直接答复\f【全队增益】\n· 应急维修：每30秒全场植物回血30%\n· 借兵助阵：借用植物攻击提高30%\n· 全队补给：花100阳光支援战斗中的队友\n· 已获得效果可在“增益→全队增益”查看\f【植物与僵尸】\n· 海草新增二星“旱地缠刺”，可作陆地尖刺\n· 高坚果新增三星“厚重壁垒”，生命提高400%\n· 机枪射手新增三星“火力全开”\n· 上下各30°，2秒150发，结束恢复普通射击\n· 大嘴花连锁吞的后续追咬加快\n· 小丑强化调整，新增蹦蹦强化\f【观战与修复】\n· 观战画面可继续攻击、受伤和出怪\n· 点“选人”切换，点“刷新”查看新战况\n· 观战可显示血量，箭头不再遮住数字\n· 修复返回菜单时可能闪退的问题\f【更新与联机】\n· 请全队统一使用MOD110\n· 游戏自动选服，只需四位房间码\n· 安卓覆盖安装，不要先卸载\n· 无尽新旧存档保留，可继续游玩",
-"[MOD110 UI revision]\n· Seed cards stay in front of tall zombies\n· Buff entry moves outside the lawn on the left\n· Preparing Team entry stays off the plant catalogue\n· Still MOD110; existing saves are retained\f[MOD110 battle and progression]\n· Full Auto barrage rounds now pierce enemies\n· Still 150 rounds in 2s, 30 degrees up/down\n· Normal fire resumes; special locks for 8s\n· Reset retained Endless lawns before admission resume\f[MOD110 additions and fixes]\n· New three-star Global Magnet, one stack\n· Pull all coins at once; Golden Alchemy works\n· Faster PC buff selection and text rendering\n· Clear old Endless preparation preview zombies\n· Fix a PC Aquarium 3D rendering crash\n· Guard missing ice and optional-effect visuals\f[Teammates and support]\n· Unowned plants can be sent as base support cards\n· New runs allow support by default; toggle anytime\n· Tap Team on the left, then a name to act\n· Send Cherry, Ice-shroom, Jalapeno or Pumpkin cards\n· Request sun or toggle support receiving\n· Borrow plants during seed selection\f[Team buffs]\n· Emergency repairs: heal all plants 30% every 30s\n· Borrowed plants gain 30% attack\n· Team supply: spend 100 sun to aid fighting teammates\n· View earned effects in Buffs > Team buffs\f[Plants and zombies]\n· New Kelp land-spike and Tall-nut health traits\n· New three-star Gatling barrage trait\n· 150 rounds in 2s, 30 degrees up/down; normal fire resumes\n· Chomper follow-up bites are faster\n· Adjusted Jack-in-the-box trait; added Pogo trait\f[Watching and fixes]\n· Watched battles keep fighting and spawning\n· Choose Players to switch; Refresh for new events\n· Watched health numbers stay clear of relay arrows\n· Fixed a possible crash when returning to menu\f[Updating and joining]\n· Everyone should use MOD110\n· Automatic server choice; four-character room codes\n· Android: install over the existing app\n· Continue existing Endless saves or start a new run"); }
+inline const char* Body() {
+    return ModText::Tr(
+        "【MOD111 · 组队观战】\n"
+        "· 推荐 3–5 人游玩，最多 6 人参战\n"
+        "· 另设 4 个观战位，观众不占参战名额\n"
+        "· 中途加入或掉线回来先观战\n"
+        "· 申请参战，获房主批准后在关间加入\n"
+        "· 关间也可选择转为观战\f"
+        "【找房与观战】\n"
+        "· 大厅显示已开局房间和版本状态\n"
+        "· 私密房只通过房号或邀请进入\n"
+        "· 观战每 5 秒刷新，手动刷新冷却 2 秒\n"
+        "· 漏怪顺序跳过离线队友和观众\f"
+        "【新增植物增益】\n"
+        "· 阳光菇点击产阳光，双发射手交替冰火豆\n"
+        "· 大嘴花击杀后复制友军，玉米加农炮可占一格\n"
+        "· 吞碑可额外产阳光或提高生命\n"
+        "· 睡莲蔓生，卷心菜可滚撞反弹\n"
+        "· 杨桃前向扇射或伤害翻倍，香蒲锁敌提速\f"
+        "【修复与更新】\n"
+        "· 修复团队增益等待和无尽清场结算问题\n"
+        "· 修复观战中僵尸进家导致的画面停止\n"
+        "· 请与队友使用相同版本\n"
+        "· 安卓请覆盖安装，已有存档可继续使用",
+        "[MOD111 · Team spectators]\n"
+        "· Best with 3–5 players; up to 6 can play\n"
+        "· 4 separate spectator slots\n"
+        "· Mid-game joins and reconnects start as spectators\n"
+        "· Request to play; the host approves between stages\n"
+        "· Players can switch to spectating between stages\f"
+        "[Rooms and watching]\n"
+        "· The room list includes ongoing games and versions\n"
+        "· Private rooms use codes or invites\n"
+        "· Auto-refresh every 5s; manual cooldown 2s\n"
+        "· Zombie relays skip offline players and spectators\f"
+        "[New plant buffs]\n"
+        "· Tap Sun-shrooms; Repeaters alternate fire and ice\n"
+        "· Chompers copy allies; Cob Cannons fit one tile\n"
+        "· Grave Busters can yield sun or gain health\n"
+        "· Lily Pads spread; Cabbage-pults can bowl\n"
+        "· Forward or heavy stars, and Cattail target focus\f"
+        "[Fixes and updating]\n"
+        "· Fix team-vote waits and Endless clear detection\n"
+        "· Watching continues when zombies reach the house\n"
+        "· Play online with teammates on the same version\n"
+        "· Android: install over your existing app");
+}
 }

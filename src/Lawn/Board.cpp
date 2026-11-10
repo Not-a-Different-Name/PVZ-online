@@ -1,3 +1,4 @@
+#include "Run/RunPlantTraits.h"
 #include "Lawn/Observer/ObserverIsolation.h"
 #include "Run/RunSpeciesRuntime.h"
 #include "TeamPlay.h"
@@ -1953,6 +1954,20 @@ LawnMower* Board::GetBottomLawnMower()
 void Board::UpdateLevelEndSequence()
 {
 	if (HasLivingBoss()) return;
+    // The last death can precede a deferred spawn/cleanup. Recheck once the
+    // final wave and all pending work have drained, even without another death.
+    const auto* run = mApp->GetRunState();
+    if (run && run->IsEndless() && mApp->mGameScene == SCENE_PLAYING &&
+        !mApp->mRunIntroHeld && mApp->mBoardResult != BOARDRESULT_LOST &&
+        !HasLevelAwardDropped() && !mLevelComplete && mNumWaves > 0 &&
+        mCurrentWave == mNumWaves && mWaveSpawnRetry.wave < 0 &&
+        !AreEnemyZombiesOnScreen())
+    {
+        mLevelAwardSpawned = true;
+        mApp->mBoardResult = BOARDRESULT_WON;
+        RemoveAllZombies();
+        FadeOutLevel();
+    }
 	if (mNextSurvivalStageCounter > 0)
 	{
 		if (!IsScaryPotterDaveTalking())
@@ -2473,7 +2488,7 @@ void Board::GetPlantsOnLawn(int theGridX, int theGridY, PlantsOnLawn* thePlantOn
 			aSeedType = aPlant->mImitaterType;
 		}
 
-		if (aSeedType == SeedType::SEED_COBCANNON)
+		if (aSeedType == SeedType::SEED_COBCANNON && !RunPlantTraits::CompactCob(mApp))
 		{
 			if (aPlant->mPlantCol < theGridX - 1 || aPlant->mPlantCol > theGridX)
 			{
@@ -2621,6 +2636,7 @@ bool Board::IsValidCobCannonSpotHelper(int theGridX, int theGridY)
 
 bool Board::IsValidCobCannonSpot(int theGridX, int theGridY)
 {
+    if (RunPlantTraits::CompactCob(mApp)) return IsValidCobCannonSpotHelper(theGridX, theGridY);
 	if (!IsValidCobCannonSpotHelper(theGridX, theGridY) || !IsValidCobCannonSpotHelper(theGridX + 1, theGridY))
 		return false;
 
@@ -3076,7 +3092,8 @@ Zombie* Board::AddZombieInRow(ZombieType theZombieType, int theRow, int theFromW
 {
     if (!CanAllocateZombieAnimations(theZombieType,theFromWave)) return nullptr;
 	// Reserve the whole sled team before constructing its leader; keep the original spare slot.
-	const unsigned int aRequired = theZombieType == ZombieType::ZOMBIE_BOBSLED &&
+	const bool copy = RunSpeciesRules::currentSpawnKind == RunSpeciesRules::SpawnKind::CHOMPER_COPY;
+    const unsigned int aRequired = !copy && theZombieType == ZombieType::ZOMBIE_BOBSLED &&
 		theFromWave != Zombie::ZOMBIE_WAVE_CUTSCENE && theFromWave != Zombie::ZOMBIE_WAVE_UI ? 4U : 1U;
 	if (mZombies.mSize >= mZombies.mMaxSize || aRequired >= mZombies.mMaxSize - mZombies.mSize)
 	{
@@ -3092,7 +3109,7 @@ Zombie* Board::AddZombieInRow(ZombieType theZombieType, int theRow, int theFromW
 	bool aVariant = !Rand(5);
 	Zombie* aZombie = mZombies.DataArrayAlloc();
 	aZombie->ZombieInitialize(theRow, theZombieType, aVariant, nullptr, theFromWave);
-	if (theZombieType == ZombieType::ZOMBIE_BOBSLED && aZombie->IsOnBoard())
+	if (!copy && theZombieType == ZombieType::ZOMBIE_BOBSLED && aZombie->IsOnBoard())
 	{
 		for (int _i = 0; _i < 3; _i++)
 		{
@@ -3413,7 +3430,7 @@ PlantingReason Board::CanPlantAt(int theGridX, int theGridY, SeedType theSeedTyp
 	// @pvz-online: 闯关里加农炮同样直接种（用户 2026-10-03 定案）——不必先凑两个玉米投手；
 	// 它占锚点格 + 右邻格（占位见 GetPlantsOnLawn），所以右邻格也得留出地方：越界或已有
 	// 普通/南瓜头/飞行植物都算种不下，免得两株叠在同一格（非闯关照旧要合法炮弹位）。
-	if (theSeedType == SeedType::SEED_COBCANNON && !IsValidCobCannonSpot(theGridX, theGridY))
+	if (theSeedType == SeedType::SEED_COBCANNON && !RunPlantTraits::CompactCob(mApp) && !IsValidCobCannonSpot(theGridX, theGridY))
 	{
 		if (!mApp->IsRunMode())
 		{
@@ -3440,7 +3457,7 @@ PlantingReason Board::CanPlantAt(int theGridX, int theGridY, SeedType theSeedTyp
 	// 调回 CanPlantAt(KERNELPULT)。
 	if (theSeedType == SeedType::SEED_KERNELPULT && mApp->IsRunMode() &&
 		mApp->RunPlantUpgradeCount(SeedType::SEED_KERNELPULT) > 0 &&
-		!(mApp->mEasyPlantingCheat || IsValidCobCannonSpot(theGridX, theGridY)))
+		!(RunPlantTraits::CompactCob(mApp) || mApp->mEasyPlantingCheat || IsValidCobCannonSpot(theGridX, theGridY)))
 	{
 		PlantsOnLawn aRightLawn;
 		GetPlantsOnLawn(theGridX + 1, theGridY, &aRightLawn);
@@ -4177,7 +4194,7 @@ static bool MirrorCellIsEmpty(Board* board, int col, int row, SeedType seed)
     if (seed == SeedType::SEED_PUMPKINSHELL) return !plants.mPumpkinPlant;
     if (Plant::IsFlying(seed)) return !plants.mFlyingPlant;
     if (plants.mNormalPlant) return false;
-    if (seed == SeedType::SEED_COBCANNON)
+    if (seed == SeedType::SEED_COBCANNON && !RunPlantTraits::CompactCob(board->mApp))
     {
         PlantsOnLawn right;
         board->GetPlantsOnLawn(col + 1, row, &right);
@@ -4474,7 +4491,7 @@ void Board::MouseDownWithPlant(int x, int y, int theClickCount)
 			aPumpkinPlant->Die();
 		}
 	}
-	if (aPlantingSeedType == SeedType::SEED_COBCANNON)
+	if (aPlantingSeedType == SeedType::SEED_COBCANNON && !RunPlantTraits::CompactCob(mApp))
 	{
 		Plant* aRightPlant = GetTopPlantAt(aGridX + 1, aGridY, PlantPriority::TOPPLANT_ONLY_NORMAL_POSITION);
 		if (aRightPlant)
@@ -4750,6 +4767,17 @@ Plant* Board::SpecialPlantHitTest(int x, int y)
 
 bool Board::MouseHitTestPlant(int x, int y, HitResult* theHitResult)
 {
+    if (mCursorObject->mCursorType == CURSOR_TYPE_NORMAL && mApp->mGameScene == SCENE_PLAYING &&
+        !mPaused && !mApp->mRunIntroHeld && mApp->RunExtraBuffCount(RUN_BUFF2_SUNSHROOM_TAP))
+    {
+        Plant* plant = GetTopPlantAt(PixelToGridX(x, y), PixelToGridY(x, y), TOPPLANT_ONLY_NORMAL_POSITION);
+        if (plant && plant->mSeedType == SEED_SUNSHROOM && plant->IsInPlay() && !plant->mSquished)
+        {
+            theHitResult->mObject = plant;
+            theHitResult->mObjectType = OBJECT_TYPE_PLANT;
+            return true;
+        }
+    }
 	if (mCursorObject->mCursorType == CursorType::CURSOR_TYPE_COBCANNON_TARGET || mCursorObject->mCursorType == CursorType::CURSOR_TYPE_HAMMER)
 		return false;
 

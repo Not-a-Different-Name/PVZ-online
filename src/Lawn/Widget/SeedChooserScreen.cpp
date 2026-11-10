@@ -1110,6 +1110,17 @@ void SeedChooserScreen::ResumeSelectionForEditing()
 
 void SeedChooserScreen::CloseSeedChooser()
 {
+    if (!mBoard || mApp->mBoard != mBoard || mApp->mSeedChooserScreen.get() != this) return;
+    // Validate the entire deck before sending ready or writing any packet.
+    const int packets = mBoard->mSeedBank->mNumPackets;
+    if (packets < 0 || packets > SEEDBANK_MAX) return;
+    for (int slot = 0; slot < packets; ++slot) {
+        const auto seed = FindSeedInBank(slot);
+        if (seed < SEED_PEASHOOTER || seed >= NUM_SEEDS_IN_CHOOSER) {
+            ResumeSelectionForEditing();
+            return;
+        }
+    }
     if(mApp->mCoopPlay && mApp->mCoopPlay->Blocking())return;
 	if (!(mApp->GetRunState() && mApp->GetRunState()->mAdmission.phase==Admission::DECK) && mApp->TryHoldSeedChooserForTeammates()) return;
 	DBG_ASSERT(mBoard->mSeedBank->mNumPackets == mBoard->GetNumSeedsInBank());

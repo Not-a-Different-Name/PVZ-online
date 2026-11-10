@@ -32,6 +32,7 @@
 #include <cstdio>
 #include <format>
 #include "LawnApp.h"
+#include "Lawn/Widget/WatchRoomDialog.h"
 #include "Lawn/System/NameplateCatalog.h"
 #include "Lawn/Online/RoomPresentation.h"
 #include "Lawn/Run/RunHistory.h"
@@ -1811,6 +1812,7 @@ void LawnApp::UpdateFrames()
 		mOnlineSession->SetTextChinese(ModText::IsChinese());
         mOnlineSession->SetDirectoryStarted(mBoard!=nullptr || mRunState!=nullptr || mOnlineWaitingStartAck);
 		mOnlineSession->Update();
+        WatchRoomUi::Update(this);
         const bool needsRoom = !mOnlineSession->HasRoundFlow() ||
             !mOnlineSession->IsConnected() || mOnlineSession->NeedsRoundRejoin() ||
             mOnlineSession->IsWaitingForNextRound(mOnlineSession->GetLocalSeat());
