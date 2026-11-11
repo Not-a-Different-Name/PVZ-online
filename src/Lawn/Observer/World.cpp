@@ -150,7 +150,19 @@ struct World::Impl {
   if(auto*r=app->GetRunState()){if(r->mMode<0||r->mMode>3||r->mDiff<0||r->mDiff>2||r->mEndlessScene<0||r->mEndlessScene>4||r->mLevelIndex<0||r->mLevelIndex>=RunState::RUN_ENDLESS_LEVEL_COUNT)return Reject(__LINE__);for(auto&list:{r->mBuffs,r->mLoanBuffs}){std::set<int>ids;for(auto&b:list){if(b.mId>=int(RUN_BUFF_COUNT)+int(RUN_PLANT_UPGRADE_COUNT)+int(RUN_PLANT_BUFF2_COUNT)||!ids.insert(b.mId).second)return Reject(__LINE__);int max=GetRunChoiceMaxStacks(b.mId);if(max>0&&b.mCount>max)return Reject(__LINE__);}}}
   auto fix=[&](auto&pool){for(auto*p:Live(pool)){p->mApp=app;p->mBoard=board;if constexpr(requires{p->mRow;})if(p->mRow<(std::is_same_v<std::remove_reference_t<decltype(*p)>,Coin>?-1:0)||p->mRow>=6)return Reject(__LINE__);}return true;};
   if(!fix(board->mPlants)||!fix(board->mZombies)||!fix(board->mProjectiles)||!fix(board->mCoins)||!fix(board->mLawnMowers)||!fix(board->mGridItems))return Reject(__LINE__);
-  for(int i=0;i<board->mSeedBank->mNumPackets;++i){board->mSeedBank->mSeedPackets[i].mApp=app;board->mSeedBank->mSeedPackets[i].mBoard=board;auto&packet=board->mSeedBank->mSeedPackets[i];if(packet.mPacketType<SEED_NONE||packet.mPacketType>=NUM_SEED_TYPES||packet.mImitaterType<SEED_NONE||packet.mImitaterType>=NUM_SEED_TYPES||packet.mSlotMachiningNextSeed<SEED_NONE||packet.mSlotMachiningNextSeed>=NUM_SEED_TYPES)return Reject(__LINE__);packet.mIndex=i;}
+  for (int i = 0; i < board->mSeedBank->mNumPackets; ++i) {
+   auto& packet = board->mSeedBank->mSeedPackets[i];
+   if (packet.mPacketType < SEED_NONE || packet.mPacketType >= NUM_SEED_TYPES ||
+       packet.mImitaterType < SEED_NONE || packet.mImitaterType >= NUM_SEED_TYPES ||
+       packet.mSlotMachiningNextSeed < SEED_NONE || packet.mSlotMachiningNextSeed >= NUM_SEED_TYPES)
+    return Reject(__LINE__);
+   packet.mApp = app;
+   packet.mBoard = board;
+   packet.mIndex = i;
+   // Packet geometry is derived locally; the snapshot carries its slot and state.
+   packet.mX = board->GetSeedPacketPositionX(i);
+   packet.mY = 8;
+  }
   for(Plant*p:Live(board->mPlants))if(p->mSeedType<0||p->mSeedType>=NUM_SEED_TYPES||p->mPlantCol<0||p->mPlantCol>=9||p->mState<STATE_NOTREADY||p->mState>STATE_LILYPAD_INVULNERABLE||p->mSubclass<SUBCLASS_NORMAL||p->mSubclass>SUBCLASS_SHOOTER||p->mOnBungeeState<NOT_ON_BUNGEE||p->mOnBungeeState>RISING_WITH_BUNGEE||p->mStartRow<0||p->mStartRow>=6||p->mNumFrames<0||p->mNumFrames>1000||p->mFrameLength<0||p->mFrameLength>100000)return Reject(__LINE__);
   for(Zombie*z:Live(board->mZombies))if(z->mZombieType<0||z->mZombieType>=NUM_ZOMBIE_TYPES||z->mZombiePhase<PHASE_ZOMBIE_NORMAL||z->mZombiePhase>PHASE_SQUASH_DONE_FALLING||z->mZombieHeight<HEIGHT_ZOMBIE_NORMAL||z->mZombieHeight>HEIGHT_ZOMBIQUARIUM||std::abs(z->mPosX)>20000||std::abs(z->mPosY)>20000||std::abs(z->mVelX)>10000||std::abs(z->mVelZ)>10000||z->mScaleZombie<=0||z->mScaleZombie>1000||z->mTargetRow < -1||z->mTargetRow>=6||z->mTargetCol < -1||z->mTargetCol>=9||z->mUseLadderCol < -1||z->mUseLadderCol>=9||z->mFireballRow < -1||z->mFireballRow>=6)return Reject(__LINE__);
   for(auto*p:Live(board->mProjectiles))if(p->mProjectileType<PROJECTILE_PEA||p->mProjectileType>=NUM_PROJECTILES||p->mMotionType<MOTION_STRAIGHT||p->mMotionType>MOTION_HOMING||p->mCobTargetRow<0||p->mCobTargetRow>=6||p->mNumFrames<0||p->mNumFrames>1000||p->mAnimTicksPerFrame<0||p->mAnimTicksPerFrame>100000||std::abs(p->mPosX)>20000||std::abs(p->mPosY)>20000||std::abs(p->mVelX)>10000||std::abs(p->mVelY)>10000)return Reject(__LINE__);

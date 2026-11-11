@@ -115,7 +115,8 @@ public:
     bool mOnlineRunStartHeld = false, mOnlineRunGo = false, mRunIntroHeld = false;
     bool mOnlineStartPromptActive = false, mOnlineSeedsHeld = false, mOnlineWaitingAdviceOn = false;
     bool mShowedStartupAnnounce = false;
-    bool mPauseMenuWasOpen = false, mPauseMenuFromPeer = false;
+    bool mPauseMenuWasOpen = false;
+    uint8_t mPauseMenuPeerSeat = 0;
     NetProto::MsgStartLevel mOnlineStartPromptMsg{};
     int mOnlineStartPromptFrames = 0;
     std::string mOnlineAddress = "127.0.0.1", mOnlineServer = "101.200.131.182", mOnlineRoomCode;

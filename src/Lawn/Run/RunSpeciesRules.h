@@ -6,13 +6,14 @@
 namespace RunSpeciesRules {
 enum Id : int {
     GIANT_CHAIN = 10, JACK_DEATH = 11, ARMORED_BALLOON = 12,
-    FAST_ZAMBONI = 13, HEAVY_FOOTBALL = 14, ALL_ARMOR = 15, DIGGER_AMBUSH = 16, POGO_ASSAULT = 17
+    FAST_ZAMBONI = 13, HEAVY_FOOTBALL = 14, ALL_ARMOR = 15, DIGGER_AMBUSH = 16, POGO_ASSAULT = 17, BASIC_TOUGHNESS = 18, ELITE_WAVES = 19
 };
-constexpr int COUNT = 18;
+constexpr int COUNT = 20;
+constexpr int PRE_WAVE_TRAITS_COUNT = 18;
 constexpr int PRE_POGO_COUNT = 17;
 constexpr int PRE_SPECIES_COUNT = 10;
 inline int MaxStacks(int id) {
-    return id==GIANT_CHAIN ? 2 : (id==ARMORED_BALLOON||id==POGO_ASSAULT) ? 1 : 255;
+    return id==GIANT_CHAIN ? 2 : (id==ARMORED_BALLOON||id==POGO_ASSAULT||id==BASIC_TOUGHNESS||id==ELITE_WAVES) ? 1 : 255;
 }
 inline int ClampedStacks(int id, int stacks) {
     return stacks<0 ? 0 : stacks>MaxStacks(id) ? MaxStacks(id) : stacks;

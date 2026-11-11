@@ -25,6 +25,7 @@
 #include "GameButton.h"
 #include "StoreScreen.h"
 #include "AwardScreen.h"
+#include "../Online/NetSession.h"
 #include "OnlineUiDraw.h"
 #include "../ZenGarden.h"
 #include "../SeedPacket.h"
@@ -503,6 +504,7 @@ void AwardScreen::StartButtonPressed()
 	}
 	if (mAwardType == AWARD_RUN_COMPLETE)
 	{
+		if(mApp->mOnlineSession)mApp->mOnlineSession->RequestCompletedRoomMenu();
 		mApp->KillAwardScreen();
 		mApp->ShowGameSelector();
 		return;

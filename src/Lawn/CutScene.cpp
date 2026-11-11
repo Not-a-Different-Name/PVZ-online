@@ -687,6 +687,7 @@ bool CutScene::CanGetPacketUpgrade(int theUpgradeIndex)
 
 void CutScene::StartLevelIntro()
 {
+    mBoard->ApplyVotedWavePlan();
 	mCutsceneTime = 0;
 	mBoard->mSeedBank->Move(SEED_BANK_OFFSET_X, -IMAGE_SEEDBANK->GetHeight());
 	mBoard->mMenuButton->mBtnNoDraw = true;

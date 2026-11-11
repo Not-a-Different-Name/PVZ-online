@@ -130,7 +130,11 @@ void OnlineDialog::Update()
         if(b->mId==15){b->SetVisible(local||server);b->SetDisabled(allocating||mTransfer.Busy());b->Resize(local?Sexy::Rect(536,442,176,38):OnlineRoomLayout::Paste());}
         if(b->mId>=16&&b->mId<=18){b->SetVisible(active&&session.IsRelay()&&!session.GetRoomCode().empty());b->SetDisabled(mTransfer.Busy());}
         if(b->mId==3)b->mLabel=allocating?ModText::Tr("正在连接…","Connecting..."):ModText::Tr("创建房间","Create room");
-        if(b->mId==19)b->SetVisible(active&&session.SupportsWatchRoom());
+        if(b->mId==19){
+            b->SetVisible(active&&session.SharedRoom());
+            b->mLabel=mRoomSelection.Label(&session);
+            b->SetDisabled(!mRoomSelection.Enabled(&session));
+        }
         if(b->mId==9){b->SetVisible(server);b->SetDisabled(!server||allocating);}
         if(b->mId==12||b->mId==13)b->SetVisible(!active);
         if(b->mId==14){
@@ -144,9 +148,11 @@ void OnlineDialog::Update()
             b->mLabel=!session.mDirectoryConfirmed?ModText::Tr("正在更新…","Updating..."):
                 session.mDirectoryPublic?ModText::Tr("公开房间：开","Public: on"):ModText::Tr("公开房间：关","Public: off");}
         if(b->mId>=1&&b->mId<=4){const bool visible=b->mId<=2?local:server;b->SetVisible(visible);b->SetDisabled(!visible||allocating);}
-        if(b->mId==5||b->mId==8||b->mId==7)b->SetVisible(active);
-        if(b->mId==5){const bool localHost=LocalHostControl::Alive()||mStartingLocalHost;
-            b->SetVisible(active||localHost);b->mLabel=localHost?ModText::Tr("结束托管并离开","End & leave"):
+        if(b->mId==8)b->SetVisible(active);
+        if(b->mId==7)b->SetVisible(active&&(!session.SharedRoom()||session.IsHostSeat()));
+        if(b->mId==5){const bool localHost=session.IsConnected()&&session.IsPrivateRoom()&&session.IsHostSeat()&&
+            session.GetRelayHost()=="127.0.0.1"&&session.GetRelayPort()==LocalHostControl::Port();
+            b->SetVisible(active||mStartingLocalHost);b->mLabel=mStartingLocalHost?ModText::Tr("取消开房","Cancel hosting"):localHost?ModText::Tr("结束托管并离开","End & leave"):
                 mApp->mBoard?ModText::Tr("保存并退房","Save & leave"):ModText::Tr("退出房间","Leave room");}
         if(b->mId==6)b->Resize(active?OnlineRoomLayout::Close():OnlineRoomLayout::Start());
         if(b->mId==7){b->SetDisabled(!OnlineRoomLayout::CanStart(mApp));
@@ -160,7 +166,7 @@ void OnlineDialog::Update()
     const auto addressBox=OnlineRoomLayout::Address();mAddress->Resize(addressBox.mX,addressBox.mY,addressBox.mWidth,addressBox.mHeight);
     const auto codeBox=local?OnlineRoomLayout::PrivateCode():OnlineRoomLayout::Code();mCode->Resize(codeBox.mX,codeBox.mY,codeBox.mWidth,codeBox.mHeight);
     const auto& code=session.GetRoomCode();
-    if(session.IsRelay()&&!code.empty()&&code!=mShownRoomCode){mCode->SetText(code);mShownRoomCode=code;}
+    if(session.IsRelay()&&!code.empty()&&code!=mShownRoomCode){mCode->SetText(code);mShownRoomCode=code;mRoomSelection={};}
     MarkDirty();
 }
 void OnlineDialog::Draw(Sexy::Graphics* g)
@@ -170,7 +176,7 @@ void OnlineDialog::Draw(Sexy::Graphics* g)
     if(s->IsConnected()&&s->HasIncomingSwapRequest())detail=ModText::Tr("点「队友」答复换位申请。","Open Seats to answer the swap request.");
     else if(s->IsConnected()&&mApp->mOnlineWaitingStartAck)detail=RoomPresentation::WaitingSeats(s,true);
     else if(s->IsConnected()&&!s->IsHostSeat())detail=ModText::Tr("等房主选择玩法。","Wait for the host to choose a mode.");
-    OnlineRoomLayout::Draw(g,mApp,detail,mLocalIp,mPage);
+    OnlineRoomLayout::Draw(g,mApp,detail,mLocalIp,mPage,mRoomSelection.Selected(mApp->mOnlineSession.get()));
     if(!mTransfer.notice.empty())SeatUi::Text(g,mTransfer.notice,40,550,680,16,Sexy::Color(245,230,165),true);
     if(s->IsPrivateRoom()&&!s->GetRoomCode().empty())SeatUi::Text(g,PrivateEndpoint::Invite(s->GetRelayHost()=="127.0.0.1"?mLocalIp:s->GetRelayHost(),s->GetRelayPort(),s->GetRoomCode()),40,450,420,16,Sexy::Color(210,225,195));
     if(!mInputError.empty()&&!RoomPresentation::Active(s))SeatUi::Text(g,mInputError,48,465,664,15,Sexy::Color(255,175,120));
@@ -186,7 +192,17 @@ void OnlineDialog::Draw(Sexy::Graphics* g)
 
 void OnlineDialog::ButtonDepress(int id)
 {
-    if(id==19){WatchRoomUi::Open(mApp);return;}
+    if(id==19){
+        auto* session=mApp->mOnlineSession.get();
+        const auto seat=mRoomSelection.Selected(session);
+        if(!mRoomSelection.Enabled(session))return;
+        if(seat==session->GetLocalSeat()) {
+            const auto pending=session->RoomMembers()[seat].Pending();
+            session->SetRoomRole(pending?0:(session->InWatchRoom()?WatchRoom::Fight:WatchRoom::Watch));
+        } else if(mApp->mBoard || session->InWatchRoom()) WatchRoomUi::Watch(mApp,seat);
+        else session->PostNotice(ModText::Tr("队友进入战斗后可观战。","You can watch teammates once battle begins."));
+        return;
+    }
     if(id==15){if(!RoomPresentation::Active(mApp->mOnlineSession.get())&&!mJoinLookup.loading)mTransfer.Start(RoomShareUi::Action::Paste,mApp->mOnlineSession.get());return;}
     if(id>=16&&id<=18){const RoomShareUi::Action actions[]={RoomShareUi::Action::CopyCode,RoomShareUi::Action::CopyInvite,RoomShareUi::Action::Share};mTransfer.Start(actions[id-16],mApp->mOnlineSession.get(),mLocalIp);return;}
     // Remember editable fields between openings, including after a failed connection.
@@ -218,7 +234,10 @@ void OnlineDialog::ButtonDepress(int id)
     if (id == 6) { app->KillDialog(DIALOG_ONLINE); return; }
     if (id == 7) {
         if(!OnlineRoomLayout::CanStart(app))return;
-        app->KillDialog(DIALOG_ONLINE);app->ShowRunMenu();return;
+        const bool retry=OnlineRoomLayout::HasLostBoard(app);
+        app->KillDialog(DIALOG_ONLINE);
+        if(retry)app->RetryOnlineLevel();else app->ShowRunMenu();
+        return;
     }
     if (id == 5) {
         LeaveRoom();return;
@@ -260,7 +279,9 @@ void OnlineDialog::ButtonDepress(int id)
 void OnlineDialog::LeaveRoom()
 {
     auto* app=mApp;
-    const bool stopHost=LocalHostControl::Alive()||mStartingLocalHost;
+    const auto& session=*app->mOnlineSession;
+    const bool stopHost=mStartingLocalHost||(session.IsConnected()&&session.IsPrivateRoom()&&session.IsHostSeat()&&
+        session.GetRelayHost()=="127.0.0.1"&&session.GetRelayPort()==LocalHostControl::Port());
     const int page=stopHost||app->mOnlineSession->IsPrivateRoom()?OnlineRoomLayout::LOCAL:OnlineRoomLayout::SERVER;
     if(app->mBoard){app->DoBackToMain(false);if(app->mBoard)return;}
     app->mOnlineSession->Close();
@@ -282,6 +303,15 @@ void OnlineDialog::EditWidgetText(int id, const std::string&)
 {
     // PC Enter flow: host IP joins directly; server/code joins the relay room.
     ButtonDepress(id == 30 || mPage==OnlineRoomLayout::LOCAL ? 2 : 4);
+}
+void OnlineDialog::MouseDown(int x,int y,int clicks) {
+    mRoomSelection.Down(mApp->mOnlineSession.get(),x,y,clicks);
+    if(!mRoomSelection.pressed)Sexy::Widget::MouseDown(x,y,clicks);
+}
+void OnlineDialog::MouseUp(int x,int y,int clicks) {
+    mRoomSelection.Up(mApp->mOnlineSession.get(),x,y,clicks);
+    Sexy::Widget::MouseUp(x,y,clicks);
+    MarkDirty();
 }
 void OnlineDialog::KeyDown(Sexy::KeyCode key)
 {

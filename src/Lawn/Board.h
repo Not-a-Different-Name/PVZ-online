@@ -162,6 +162,7 @@ public:
     // @pvz-online: snapshot-only mobile spectator state is transient.
     NetSession::ViewSnapshot mRemoteSnapshot{};
     bool mMobileWatchOpen=false, mHasRemoteSnapshot=false;
+    uint8_t mWatchLastSeat=0;
     int mWatchSnapshotTicker=0;
     int BuildBoardSnapshot(uint8_t* buffer, int capacity);
     void UpdateBoardWatch();
@@ -475,6 +476,7 @@ public:
 	Zombie*				AddZombieInRow(ZombieType theZombieType, int theRow, int theFromWave);
 	bool					IsPoolSquare(int theGridX, int theGridY);
 	void							PickZombieWaves();
+    void ApplyVotedWavePlan();
 	void							StopAllZombieSounds();
 	bool					HasLevelAwardDropped();
 	void							UpdateProgressMeter();

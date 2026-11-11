@@ -334,7 +334,7 @@ public:
         if (theId == ZOMBIE_BUFF_RAVENOUS && ZombieBuffCount(ZOMBIE_BUFF_GHOSTWALK) > 0) return false;
         if (IsNewEndless()) {
             if(theId==ZOMBIE_BUFF_SWIFT && ZombieBuffSpeedPermille()*ZombieSpeedGrowthPermille()>=4000000)return false;
-            const int caps[RUN_ZOMBIE_BUFF_COUNT]={10,12,1,5,50,1,1,1,1,255,2,255,1,255,255,255,255,1};
+            const int caps[RUN_ZOMBIE_BUFF_COUNT]={10,12,1,5,50,1,1,1,1,255,2,255,1,255,255,255,255,1,1,1};
             if(ZombieBuffCount(theId)>=caps[theId])return false;
         }
 		return (theId != ZOMBIE_BUFF_STEADFAST && theId != ZOMBIE_BUFF_SOFTRESIST &&

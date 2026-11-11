@@ -1,4 +1,5 @@
 #include "Run/RunPlantTraits.h"
+#include <unordered_map>
 #include "Lawn/Observer/ObserverIsolation.h"
 #include "Run/RunSpeciesRuntime.h"
 #include "TeamPlay.h"
@@ -276,7 +277,12 @@ Board::Board(LawnApp* theApp)
 	}
 }
 
+namespace {
+std::unordered_map<Board*, std::vector<std::vector<ZombieType>>> gPendingEliteWaves;
+}
+
 Board::~Board() {
+    gPendingEliteWaves.erase(this);
     if(mApp->mOnlineSession)mApp->mOnlineSession->SetObserverBoard(0,false);
     mObserverView.reset();
     RunSpeciesRuntime::Reset(this); NextWave::Reset(this); }
@@ -639,8 +645,25 @@ void Board::PutInMissingZombies(int theWaveNumber, ZombiePicker* theZombiePicker
 	}
 }
 
+void Board::ApplyVotedWavePlan()
+{
+    const auto* run = mApp->IsRunMode() ? mApp->GetRunState() : nullptr;
+    if (!run || !run->ZombieBuffCount(RunSpeciesRules::ELITE_WAVES) || mCurrentWave != 0) return;
+    auto pending = gPendingEliteWaves.find(this);
+    if (pending == gPendingEliteWaves.end()) return;
+    for (int wave = 0; wave < mNumWaves && wave < static_cast<int>(pending->second.size()); ++wave) {
+        const auto& planned = pending->second[wave];
+        if (planned.empty()) continue;
+        auto& types = mZombiesInWave[wave];
+        std::copy(planned.begin(), planned.end(), types);
+        std::fill(types + planned.size(), types + MAX_ZOMBIES_IN_WAVE, ZombieType::ZOMBIE_INVALID);
+    }
+    gPendingEliteWaves.erase(pending);
+}
+
 void Board::PickZombieWaves()
 {
+    gPendingEliteWaves.erase(this);
     // @pvz-online: generate every original wave before reducing; preserve all shared RNG calls.
     std::vector<int> crowdProtectedPrefix(MAX_ZOMBIE_WAVES, 0);
 	// ====================================================================================================
@@ -710,6 +733,7 @@ void Board::PickZombieWaves()
 			for (int _i = 0; _i < 5; _i++)
 				PutZombieInWave(ZombieType::ZOMBIE_BUNGEE, aWave, &aZombiePicker);
 
+            crowdProtectedPrefix[aWave] = aZombiePicker.mZombieCount;
 			if (!aIsFinalWave)
 				continue;
 		}
@@ -971,24 +995,38 @@ void Board::PickZombieWaves()
 			NetworkLog("%s", aWaveLog);
 		}
 	}
-    // @pvz-online: one post-generation pass; raw lawn restoration overwrites saved wave tables.
-    if (mApp->IsRunMode() && mApp->GetRunState()->UsesCrowdCompression()) {
-        for (int wave = 0; wave < mNumWaves; ++wave) {
-            int count = 0;
-            while (count < MAX_ZOMBIES_IN_WAVE && mZombiesInWave[wave][count] != ZombieType::ZOMBIE_INVALID) ++count;
-            if (count <= CrowdRules::THRESHOLD || count >= MAX_ZOMBIES_IN_WAVE) continue;
-            std::vector<int> protectedIndices, kept;
-            for (int i = 0; i < count; ++i)
-                if (i < crowdProtectedPrefix[wave] || mZombiesInWave[wave][i] == ZombieType::ZOMBIE_FLAG) protectedIndices.push_back(i);
-            const uint32_t seed = CrowdRules::Mix(static_cast<uint32_t>(mApp->GetRunState()->GetLevelSeed()) ^ static_cast<uint32_t>(wave));
-            if (!CrowdRules::PlanWave(count, mApp->GetRunState()->mCrowdRule, seed, protectedIndices, kept)) {
-                PvzpLogLn("[crowd] compression rejected wave={} original={}", wave+1, count);
-                continue;
-            }
-            for (size_t i = 0; i < kept.size(); ++i) mZombiesInWave[wave][i] = mZombiesInWave[wave][kept[i]];
-            for (size_t i = kept.size(); i < static_cast<size_t>(count); ++i) mZombiesInWave[wave][i] = ZombieType::ZOMBIE_INVALID;
-            PvzpLogLn("[crowd] wave={} original={} retained={}", wave+1, count, kept.size());
+    // A ballot can finish after the lawn was built. Keep an elite plan from
+    // the original waves so a late vote does not thin an already reduced table.
+    const auto* run = mApp->IsRunMode() ? mApp->GetRunState() : nullptr;
+    if (!run) return;
+    const bool eliteWaves = run->ZombieBuffCount(RunSpeciesRules::ELITE_WAVES) > 0;
+    const int level = run->GetPlayingLevelIndex();
+    const int period = RunState::LevelsPerScene(run->mMode);
+    const bool pendingVote = !eliteWaves && run->GetZombieBuffPerScene() > 0 &&
+        level > 0 && period > 0 && level % period == 0;
+    auto* pendingPlan = pendingVote ? &gPendingEliteWaves[this] : nullptr;
+    if (!eliteWaves && !pendingPlan && !run->UsesCrowdCompression()) return;
+    if (pendingPlan) pendingPlan->resize(mNumWaves);
+    for (int wave = 0; wave < mNumWaves; ++wave) {
+        auto& types = mZombiesInWave[wave];
+        int count = 0;
+        while (count < MAX_ZOMBIES_IN_WAVE && types[count] != ZombieType::ZOMBIE_INVALID) ++count;
+        if (count == 0 || count >= MAX_ZOMBIES_IN_WAVE) continue;
+        std::vector<int> protectedIndices;
+        for (int i = 0; i < count; ++i)
+            if (i < crowdProtectedPrefix[wave] || types[i] == ZombieType::ZOMBIE_FLAG)
+                protectedIndices.push_back(i);
+        const uint32_t seed = CrowdRules::Mix(static_cast<uint32_t>(run->GetLevelSeed()) ^ static_cast<uint32_t>(wave));
+        std::vector<int> kept;
+        if (pendingPlan && CrowdRules::PlanWave(count, run->mCrowdRule, seed, protectedIndices, kept, true)) {
+            auto& plannedTypes = (*pendingPlan)[wave];
+            plannedTypes.reserve(kept.size());
+            for (int index : kept) plannedTypes.push_back(types[index]);
         }
+        if (!eliteWaves && (!run->UsesCrowdCompression() || count <= CrowdRules::THRESHOLD)) continue;
+        if (!CrowdRules::PlanWave(count, run->mCrowdRule, seed, protectedIndices, kept, eliteWaves)) continue;
+        for (size_t i = 0; i < kept.size(); ++i) types[i] = types[kept[i]];
+        std::fill(types + kept.size(), types + count, ZombieType::ZOMBIE_INVALID);
     }
 
 }

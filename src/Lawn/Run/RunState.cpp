@@ -62,7 +62,7 @@ static const unsigned int RUN_CHECKPOINT_MAGIC = 0x314E5552;	// 'RUN1'
 // v19: independent slots, endless rule bits, lineup mask, hashed lawn/retry snapshots,
 // snapshot phase and completed zombie ballot rounds. Older saves retain endless options 0.
 
-static const unsigned short RUN_CHECKPOINT_VERSION = 26; // v24 appends seven species traits; v23 stores exactly ten.
+static const unsigned short RUN_CHECKPOINT_VERSION = 27; // Adds two zombie buff IDs after the v26 entries.
 
 static std::vector<unsigned char>& AppendU16(std::vector<unsigned char>& theData, unsigned int theValue)
 {
@@ -1332,7 +1332,7 @@ bool RunState::Load(int theProfileId, int theMode, int theScene, bool theBackup,
 	unsigned int aZombieVotedLevel = RUN_ZOMBIE_VOTED_NONE;
 	if (aVersion >= 14)
 	{
-		const int aSavedCount = aVersion >= 26 ? RUN_ZOMBIE_BUFF_COUNT : aVersion >= 24 ? RunSpeciesRules::PRE_POGO_COUNT : aVersion >= 23 ? RunZombieBuffRules::PRE_SPECIES_COUNT : aVersion >= 18 ? RunZombieBuffRules::PRE_TAX_COUNT : RunZombieBuffRules::LEGACY_COUNT;
+		const int aSavedCount = aVersion >= 27 ? RUN_ZOMBIE_BUFF_COUNT : aVersion >= 26 ? RunSpeciesRules::PRE_WAVE_TRAITS_COUNT : aVersion >= 24 ? RunSpeciesRules::PRE_POGO_COUNT : aVersion >= 23 ? RunZombieBuffRules::PRE_SPECIES_COUNT : aVersion >= 18 ? RunZombieBuffRules::PRE_TAX_COUNT : RunZombieBuffRules::LEGACY_COUNT;
 		for (int i = 0; i < aSavedCount; i++)
 		{
 			unsigned int aStack = 0;
@@ -1668,6 +1668,8 @@ static const ZombieBuffText kZombieBuffTexts[RunState::RUN_ZOMBIE_BUFF_COUNT] = 
     { "Reinforced Armor", "全面重甲", "所有僵尸防具耐久每层+100%，不增加本体生命", "All zombie armor HP +100% per stack; no body HP increase" },
     { "Digger Ambush", "突袭矿工", "矿工落地立即寻敌，攻击伤害每层+100%", "Diggers seek targets on landing; attack damage +100% per stack" },
     { "Pogo Assault", "弹簧突击", "蹦蹦权重×5，生命和移速×2（最多1层）", "Pogo pick weight x5, body HP and speed x2 (max 1)" },
+    { "Tough Basics", "普通僵尸强化", "无护具普通僵尸的本体生命 ×3（最高1层）", "Basic zombies gain x3 body HP (max 1)" },
+    { "Elite Waves", "精兵攻势", "每波僵尸数量减至约1/5，保留旗手和剧情出怪；非BOSS敌人本体与护具生命×3（最高1层）", "About 1/5 as many wave zombies; keeps flags and scripted spawns. Non-boss enemies gain x3 HP and armor (max 1)" },
 };
 
 static const ZombieBuffText& ZombieBuffTextAt(int theId)

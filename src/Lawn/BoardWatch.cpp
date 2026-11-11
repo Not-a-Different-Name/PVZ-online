@@ -141,8 +141,20 @@ mApp->mOnlineSession.get());
     }
     if (session->TakeViewSnapshot(mRemoteSnapshot)) mHasRemoteSnapshot = true;
     auto end = session->TakeWatchEnded();
-    if (end == NetSession::WatchEnd::TIMEOUT || end == NetSession::WatchEnd::TARGET_LEFT)
+    if (end == NetSession::WatchEnd::TIMEOUT || end == NetSession::WatchEnd::TARGET_LEFT ||
+        (mMobileWatchOpen && session->SharedRoom() && end == NetSession::WatchEnd::SILENT))
     {
+        if(mMobileWatchOpen && session->SharedRoom()) {
+            for(int i=1;i<NetProto::MAX_PLAYERS;++i) {
+                const auto seat=uint8_t((mWatchLastSeat+NetProto::MAX_PLAYERS-1+i)%NetProto::MAX_PLAYERS+1);
+                if(session->WatchSourceReady(seat) && session->BeginWatch(seat)) {
+                    mWatchLastSeat=seat;
+                    PushCustomBanner(ModText::Tr("正在加载下一位队友…","Loading the next teammate…"));
+                    return;
+                }
+            }
+        }
+        if(mMobileWatchOpen)PushCustomBanner(ModText::Tr("观战结束，队友画面不可用。","Watch ended. The teammate's lawn is unavailable."));
         StopMobileWatch();
     }
     if (mMobileWatchOpen && (!mApp->mActive || mApp->mMinimized || CoopHud::PauseStopsWatch(this) ||
@@ -168,6 +180,7 @@ void Board::CycleMobileWatch()
         if(session->ObserverRequestCooldown())return;
         mHasRemoteSnapshot = false;
         mMobileWatchOpen = session->BeginWatch(seat);
+        if(mMobileWatchOpen)mWatchLastSeat=seat;
         CloseQuickChatPanel(); mSunGiftSelectFrames = 0; mCoopToolsOpen=false;
         return;
     }

@@ -5,6 +5,7 @@
 #include "../Online/RoomCreateAttempt.h"
 #include "../Online/AutoRoomLookup.h"
 #include "RoomShareUi.h"
+#include "OnlineRoomLayout.h"
 #include <vector>
 class LawnApp;
 namespace Sexy { class EditWidget; class ButtonWidget; }
@@ -20,6 +21,8 @@ public:
     void KeyDown(Sexy::KeyCode key) override;
 private:
     void LeaveRoom();
+    void MouseDown(int x,int y,int clicks) override;
+    void MouseUp(int x,int y,int clicks) override;
     LawnApp* mApp;
     std::unique_ptr<Sexy::EditWidget> mAddress, mCode;
     std::vector<std::unique_ptr<Sexy::ButtonWidget>> mButtons;
@@ -35,6 +38,7 @@ private:
     std::string mLocalIp;
     std::string mShownRoomCode;
     int mPage=0;
+    OnlineRoomLayout::Selection mRoomSelection;
     bool mConfirmSolo=false;
     bool mStartingLocalHost=false;
     int mLocalHostTicks=0;

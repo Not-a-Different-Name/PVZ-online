@@ -495,6 +495,7 @@ void LawnApp::MakeNewBoard()
 
 void LawnApp::StartPlaying()
 {
+    if (mBoard) mBoard->ApplyVotedWavePlan();
 	if(mRunState && mRunState->mAdmission.phase==Admission::PREPARED)mRunState->mAdmission.phase=Admission::PLAYED;
 	KillSeedChooserScreen();
 	TeamPlay::For(this).PrepareBattle();
@@ -788,8 +789,9 @@ void LawnApp::DoBackToMain(bool notifyOnline)
     }
 
 	KillDialog(DIALOG_GAME_OVER);
-	if (notifyOnline && IsOnlineGame() && !IsLocalOnlyMode(mGameMode)) {
-        if(mOnlineSession->IsPrivateRoom() || mOnlineSession->IsWaitingForNextRound(mOnlineSession->GetLocalSeat()))mOnlineSession->Close();
+	if (notifyOnline && IsOnlineGame() && mBoard && !IsLocalOnlyMode(mGameMode)) {
+        if(!mOnlineSession->SharedRoom() && (mOnlineSession->IsPrivateRoom() ||
+            mOnlineSession->IsWaitingForNextRound(mOnlineSession->GetLocalSeat())))mOnlineSession->Close();
         else mOnlineSession->SendLevelExit();
     }
 	mMusic->StopAllMusic();

@@ -4,6 +4,7 @@
 #include "NameplateDraw.h"
 #include "NameplatePresentation.h"
 #include "../Online/RoomPresentation.h"
+#include <algorithm>
 
 namespace OnlineRoomLayout {
 using namespace Sexy;
@@ -27,6 +28,46 @@ inline Rect Seats(){return Rect(40,480,160,46);}
 inline Rect Disconnect(){return Rect(216,480,160,46);}
 inline Rect Close(){return Rect(392,480,152,46);}
 inline Rect Start(){return Rect(560,480,160,46);}
+inline Rect MemberBox(int i){return Rect(40+(i%2)*352,254+(i/2)*62,328,56);}
+struct Selection {
+    uint8_t seat=0, pressed=0;
+    uint32_t identity=0, pressedIdentity=0;
+    uint8_t Selected(const NetSession* session) const {
+        if(!session || !session->SharedRoom())return 0;
+        if(seat && session->RoomMembers()[seat].identity==identity)return seat;
+        return session->GetLocalSeat();
+    }
+    static uint8_t Hit(const NetSession* session,int x,int y) {
+        if(!session || !session->SharedRoom())return 0;
+        const auto& order=session->RoomMemberOrder();
+        for(int i=0;i<NetProto::MAX_PLAYERS;++i)
+            if(order[i] && MemberBox(i).Contains(x,y))return order[i];
+        return 0;
+    }
+    void Down(const NetSession* session,int x,int y,int clicks) {
+        pressed=clicks>0?Hit(session,x,y):0;
+        pressedIdentity=pressed?session->RoomMembers()[pressed].identity:0;
+    }
+    void Up(const NetSession* session,int x,int y,int clicks) {
+        if(clicks>0 && pressed && Hit(session,x,y)==pressed && session->RoomMembers()[pressed].identity==pressedIdentity) {
+            seat=pressed;identity=pressedIdentity;
+        }
+        pressed=0;
+    }
+    bool Enabled(const NetSession* session) const {
+        const auto target=Selected(session);
+        if(!target)return false;
+        if(target==session->GetLocalSeat())return !session->IsHostSeat();
+        return session->CanWatchSeat(target);
+    }
+    const char* Label(const NetSession* session) const {
+        const auto target=Selected(session);
+        if(!target || target!=session->GetLocalSeat())return ModText::Tr("观战","Watch");
+        if(session->IsHostSeat())return ModText::Tr("房主参战","Host plays");
+        if(session->RoomMembers()[target].Pending())return ModText::Tr("取消切换","Cancel switch");
+        return session->InWatchRoom()?ModText::Tr("转为参战","Join combat"):ModText::Tr("转为观众","Become viewer");
+    }
+};
 inline bool HasLostBoard(const LawnApp* app) {
     return app && app->mBoard && (app->mBoardResult==BoardResult::BOARDRESULT_LOST ||
         app->mGameScene==GameScenes::SCENE_ZOMBIES_WON);
@@ -38,7 +79,7 @@ inline bool CanStart(LawnApp* app) {
 inline bool NeedsPlayers(const NetSession* session) {
     return session && session->IsRelay() && session->IsActive() && !session->CanHostStart() && session->GetConnectedPlayerCount(true)<2;
 }
-inline void Draw(Graphics* g,LawnApp* app,const std::string& detail,const std::string& localIp,int page=CHOOSE) {
+inline void Draw(Graphics* g,LawnApp* app,const std::string& detail,const std::string& localIp,int page=CHOOSE,uint8_t selected=0) {
     SeatUi::Panel(g,Rect(0,0,760,560));
     auto* s=RoomPresentation::Session(app);const bool active=RoomPresentation::Active(s);
     SeatUi::Text(g,active?(s->IsPrivateRoom()?ModText::Tr("局域网／自建房间","LAN / private room"):s->WatchRoomPrivate()?ModText::Tr("私密房间","Private room"):s->IsRelay()?ModText::Tr("在线房间","Online room"):ModText::Tr("局域网房间","LAN room")):
@@ -74,16 +115,35 @@ inline void Draw(Graphics* g,LawnApp* app,const std::string& detail,const std::s
         SeatUi::Strip(g,Rect(40,188,680,54));
         std::string caption=s->GetRoomCode();
         if(caption.empty())caption=s->IsRelay()?ModText::Tr("等待房号","Preparing room"):ModText::Tr("局域网","LAN");
-        if(s->GetOccupiedSeatCount())caption+="  |  "+std::to_string(s->GetOccupiedSeatCount())+"/6";
+        const auto members=s->SharedRoom()?std::count_if(s->RoomMemberOrder().begin(),s->RoomMemberOrder().end(),[](auto seat){return seat!=0;}):s->GetOccupiedSeatCount();
+        if(members)caption+="  |  "+std::to_string(members)+"/6";
         SeatUi::Text(g,caption,54,222,190,20,Color(245,230,165));
         std::array<uint8_t,NetProto::MAX_PLAYERS> order{};
         size_t filled=0;uint8_t included=0;
-        if(s->SupportsWatchRoom())for(auto seat:s->WatchCombatOrder())if(seat && !s->IsWaitingForNextRound(seat)) {
+        if(s->SupportsWatchRoom() && !s->SharedRoom())for(auto seat:s->WatchCombatOrder())if(seat && !s->IsWaitingForNextRound(seat)) {
+            order[filled++]=seat;included|=1u<<seat;
+        }
+        if(s->SharedRoom())for(auto seat:s->RoomMemberOrder())if(seat && !(included&(1u<<seat))) {
             order[filled++]=seat;included|=1u<<seat;
         }
         for(uint8_t seat=1;seat<=NetProto::MAX_PLAYERS;++seat)if(!(included&(1u<<seat)))order[filled++]=seat;
         for(int i=0;i<NetProto::MAX_PLAYERS;++i) {
-            const int seat=order[i];Rect box(40+(i%2)*352,254+(i/2)*62,328,56);
+            const int seat=order[i];const Rect box=MemberBox(i);
+            if(s->SharedRoom()) {
+                const auto& member=s->RoomMembers()[seat];
+                SeatUi::Strip(g,box);
+                if(seat==selected){g->SetColor(Color(235,208,121));g->DrawRect(box);}
+                const auto name=member.identity?member.name:ModText::Tr("空席位","Open seat");
+                SeatUi::Text(g,SeatUi::Fit(name,300,20),box.mX+10,box.mY+23,308,20,Color(245,230,165));
+                if(member.identity) {
+                    std::string tag=member.Spectator()?ModText::Tr("观众","Viewer"):ModText::Tr("参战","Combat");
+                    if(member.Offline())tag+=ModText::Tr(" · 重连保留"," · Reconnect hold");
+                    else if(member.Pending())tag+=ModText::Tr(" · 等待切换"," · Switch pending");
+                    if(seat==s->GetLocalSeat())tag+=ModText::Tr(" · 你"," · You");
+                    SeatUi::Text(g,tag,box.mX+10,box.mY+47,308,17,Color(190,215,225));
+                }
+                continue;
+            }
             SeatUi::Strip(g,box);bool occupied=s->IsSeatOccupied((uint8_t)seat);
             const int nameplate=NameplatePresentation::ForSeat(app,static_cast<uint8_t>(seat));
             if(occupied && nameplate)NameplateDraw::Draw(g,Rect(box.mX+4,box.mY+1,320,28),nameplate,RoomPresentation::SeatName(s,seat));

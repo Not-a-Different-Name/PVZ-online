@@ -494,7 +494,7 @@ void GameOverDialog::ButtonDepress(int theId)
 {
     if (mApp->IsOnlineGame())
     {
-        if (theId == 1) { mApp->KillDialog(DIALOG_GAME_OVER); mApp->DoBackToMain(); return; }
+        if (theId == 1) { mApp->DoBackToMain(); return; }
         if (theId == Dialog::ID_FOOTER)
         {
             if (mApp->IsOnlineClient() || mApp->mOnlineWaitingStartAck ||

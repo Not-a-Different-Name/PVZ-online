@@ -156,9 +156,7 @@ inline void Action(Board* b,int action) {
     if(Watching(b)&&action>=401&&action<=406){
         uint8_t seat=(uint8_t)(action-400);CloseWatchPicker(b);
         if(s&&s->CanWatchSeat(seat)&&seat!=s->GetWatchTargetSeat()&&s->BeginWatch(seat)){
-#ifndef __ANDROID__
             b->mWatchLastSeat=seat;
-#endif
         }return;
     }
     if(action==11&&Held(b)){app->DoOnlineDialog();return;}
