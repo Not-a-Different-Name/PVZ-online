@@ -58,12 +58,7 @@ func (s *Server) handleGate(c *Conn, p []byte) {
 	}
 	r.gateManaged, r.gateRequest, r.gateEpoch, r.joinOpen = true, request, epoch, p[8] != 0
 	response := append([]byte(nil), p[:9]...)
-	mask := byte(0)
-	for seat := 1; seat <= maxPlayers; seat++ {
-		if r.bySeat[seat] != nil || r.holdActive(uint8(seat), time.Now()) {
-			mask |= 1 << seat
-		}
-	}
+	mask := r.combatOccupiedMask(time.Now())
 	response = append(response, mask)
 	s.enqueue(c, encodeFrame(msgSrvGate, response))
 }
@@ -100,6 +95,15 @@ func (s *Server) handleCancelAdmission(c *Conn, payload []byte) {
 	}
 	seat := payload[0]
 	target := room.bySeat[seat]
+	if room.sharedBuild != 0 {
+		if target != nil && target.watchJoinRound == room.flow.epoch && !target.seatObserver && !target.watchDeadline.IsZero() {
+			target.sharedRole = sharedWatch
+			target.watchDeadline = time.Time{}
+			s.applySharedRoles(room)
+			s.publishFlow(room)
+		}
+		return
+	}
 	room.joinOpen = false
 	room.holds[seat] = seatHold{}
 	if target != nil {

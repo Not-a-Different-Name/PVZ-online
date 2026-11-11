@@ -49,6 +49,9 @@ func (r *Room) watchPeer(route uint8) *Conn {
 }
 
 func (r *Room) watchingRoom() bool {
+	if r.sharedBuild != 0 {
+		return false
+	}
 	if r.host == nil || r.host.build < watchRoomBuild {
 		return false
 	}
@@ -102,7 +105,7 @@ func (r *Room) nextWatchRound() uint32 {
 }
 
 func (r *Room) updateWatchOrder() {
-	online := r.onlineMask()
+	online := r.combatOnlineMask()
 	kept := r.watchOrder[:0]
 	var included uint8
 	for _, seat := range r.watchOrder {
@@ -135,6 +138,10 @@ func (r *Room) nextCombatSeat(from uint8) uint8 {
 
 // Role snapshots use an independent namespace. Combat packets still accept 1–6.
 func (s *Server) publishWatchRoster(r *Room) {
+	if r.sharedBuild != 0 {
+		s.publishSharedRoster(r)
+		return
+	}
 	if !r.watchingRoom() && r.watchers() == 0 {
 		return
 	}
@@ -250,6 +257,14 @@ func (s *Server) handleWatchJoin(c *Conn, p []byte) {
 		reject(rejectRoomNotFound)
 		return
 	}
+	if r.sharedBuild != 0 {
+		if len(p) != joinBytes+1 {
+			reject(rejectRejoinUnavailable)
+			return
+		}
+		s.joinSharedRoom(r, c, build, name, p[joinBytes] == 1)
+		return
+	}
 	if build < watchRoomBuild || !r.watchingRoom() || build != r.host.build {
 		reject(rejectBuildMismatch)
 		return
@@ -304,6 +319,10 @@ func (s *Server) handleWatchRole(c *Conn, p []byte) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	r := c.room.Load()
+	if r != nil && r.sharedBuild != 0 {
+		s.handleSharedRole(r, c, p)
+		return
+	}
 	if r == nil || c.build < watchRoomBuild || !r.watchingRoom() || c.left.Load() || c.replaced.Load() ||
 		r.watchPeer(c.watchRoute()) != c || term != r.flow.term || round != r.nextWatchRound() || request == 0 {
 		return
@@ -428,6 +447,10 @@ func (s *Server) releaseWatchReservation(r *Room, c *Conn) {
 }
 
 func (s *Server) settleWatchAdmissions(r *Room, now time.Time) {
+	if r.sharedBuild != 0 {
+		s.settleSharedAdmissions(r, now)
+		return
+	}
 	changed := false
 	for _, c := range r.bySeat {
 		if c == nil || c.watchReserved == 0 {

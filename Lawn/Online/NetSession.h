@@ -427,7 +427,7 @@ public:
 	bool			SendPauseState(bool thePaused);
 
 	// 对面那边暂停/继续了（取一次就清）。只对**收到**的改动返回 true，本机自己发的不会走这里。
-	bool			TakePauseState(bool& thePaused);
+	bool			TakePauseState(bool& thePaused, uint8_t* theSourceSeat = nullptr);
 
 	// 现在这个暂停是队友按的（菜单上据此注明"队友暂停了"）。
 	// 双方同时按的时候谁也不抢这个署名——只有"收到 0→1"才置真。
@@ -524,6 +524,16 @@ public:
     void SetObserverBoard(uint64_t instance,bool active);
     bool InWatchRoom() const { return mWatchSlot!=0; }
     bool SupportsWatchRoom() const { return mWatchRoom && IsConnected(); }
+    bool SharedRoom() const { return mSharedRoom && IsConnected(); }
+    bool SharedRoomPaused() const { return SharedRoom() && (mSharedFlags&16); }
+    bool SharedRoomStarted() const { return SharedRoom() && (mSharedFlags&2); }
+    bool TakeSpectatorEntry() { const bool value=mSharedRoomEntry;mSharedRoomEntry=false;return value; }
+    const auto& RoomMembers() const { return mSharedMembers; }
+    const auto& RoomMemberOrder() const { return mSharedOrder; }
+    bool WatchSourceReady(uint8_t seat) const { return CanWatchSeat(seat) && (!SharedRoom() || (mSharedSources&(1u<<seat))); }
+    bool SetRoomRole(uint8_t role);
+    void RequestCompletedRoomMenu();
+    bool TakeSharedRecovery(NetProto::MsgStartLevel& start);
     uint8_t WatchSlot() const { return mWatchSlot; }
     bool WatchRoomPrivate() const { return SupportsWatchRoom() && mWatchPrivate; }
     bool ConsumeWatchPromotion(uint32_t epoch) {
@@ -534,10 +544,12 @@ public:
     uint8_t ObserverRoute() const { return mWatchSlot ? mWatchSlot : mLocalSeat; }
     const std::array<uint8_t,NetProto::MAX_PLAYERS>& WatchCombatOrder() const { return mWatchOrder; }
     bool ObserverPeerPresent(uint8_t id) const {
+        if(SharedRoom())return id>=1 && id<=NetProto::MAX_PLAYERS && mSharedMembers[id].identity && !mSharedMembers[id].Offline();
         return id<=NetProto::MAX_PLAYERS ? IsSeatOccupied(id)&&!IsSeatOffline(id) :
             id<=WatchRoom::LastViewer && (mWatchViewerMask&(1u<<id));
     }
     uint16_t ObserverPeerBuild(uint8_t id) const {
+        if(SharedRoom() && id>=1 && id<=NetProto::MAX_PLAYERS)return mSharedMembers[id].build;
         return id<=NetProto::MAX_PLAYERS ? GetSeatBuild(id) : ObserverPeerPresent(id) ? NetProto::MOD_BUILD : 0;
     }
     const std::array<WatchRoom::Viewer,WatchRoom::LastViewer+1>& WatchViewers() const { return mWatchViewers; }
@@ -585,6 +597,16 @@ private:
     uint32_t mWatchRequest=0,mWatchPromotion=0;
     uint8_t mWatchSlot=0,mWatchSlotsUsed=0;
     bool mWatchRoom=false,mWatchDirectoryJoin=false,mWatchPrivate=false;
+    bool mSharedRoom=false,mSharedRecovery=false,mSharedRoomEntry=false;
+    uint32_t mSharedCompleteMenuEpoch=0;
+    uint8_t mSharedFlags=0,mSharedSources=0,mSharedSourceSent=2;
+    uint32_t mSharedTerm=0,mSharedEpoch=0;
+    std::array<WatchRoom::Member,NetProto::MAX_PLAYERS+1> mSharedMembers{};
+    std::array<uint8_t,NetProto::MAX_PLAYERS> mSharedOrder{};
+    NetProto::MsgStartLevel mSharedRecoveryStart{};
+    bool SendSharedRole(uint8_t op,uint8_t value,uint32_t request=0);
+    void HandleSharedRoster(const uint8_t*,int);
+    void HandleSharedRecovery(const uint8_t*,int);
     bool SendWatchRoomRejoin();
     void HandleWatchRoomRoster(const uint8_t*,int);
     uint64_t mObserverBoard=0,mObserverQueryAt=0,mObserverKeepAt=0,mObserverLast=0,mObserverRequestAt=0,mObserverPendingAt=0;
@@ -824,6 +846,7 @@ private:
 	bool				mPauseCameFromPeer;
 	bool				mHasPendingPause;
 	bool				mPendingPauseValue;
+    uint8_t mPendingPauseSource = 0;
 	std::vector<NetProto::MsgEscapedZombie>	mPendingEscapedZombies;
 	// 收到的局内快捷聊天（收包在会话层、显示在棋盘，跨层不建 UI，理由同漏怪队列）。
 	std::vector<NetProto::MsgQuickChat>	mPendingQuickChats;

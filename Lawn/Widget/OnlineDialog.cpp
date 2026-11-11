@@ -126,7 +126,7 @@ OnlineDialog::OnlineDialog(LawnApp* theApp) :
     Sexy::MkDir(Sexy::GetAppDataFolder()+"userdata");
     RelayNodes::SetCatalogCachePath(Sexy::GetAppDataFolder()+"userdata/relay-nodes.bin");
 
-    mWatchButton=MakeOnlineButton(1220,this,ModText::Tr("观众","Spectators"));
+    mWatchButton=MakeOnlineButton(1223,this,ModText::Tr("观战","Watch"));
     mDirectoryButton=MakeOnlineButton(OnlineDialog_Directory,this,ModText::Tr("公开房间","Public rooms"));
     mHistoryButton=MakeOnlineButton(OnlineDialog_History,this,ModText::Tr("最近记录","Recent runs"));
     mVisibilityButton=MakeOnlineButton(OnlineDialog_Visibility,this,ModText::Tr("公开房间","Public room"));
@@ -261,7 +261,7 @@ void OnlineDialog::Update()
 		const std::string& aCode = aSession->GetRoomCode();
         if (!aCode.empty() && aCode != mShownRoomCode)
 		{
-			mShownRoomCode = aCode;
+			mShownRoomCode = aCode;mRoomSelection={};
             mCodeEditWidget->SetText(aCode.c_str(), true);
 		}
 	}
@@ -275,7 +275,9 @@ void OnlineDialog::Update()
     mSoloButton->Resize(anActive?Rect(40,440,420,32):OnlineRoomLayout::Solo());
     mSoloButton->SetLabel(mConfirmSolo?ModText::Tr("确认退房并单人开始","Confirm: leave and play solo"):
         anActive?ModText::Tr("返回单人游戏","Switch to solo"):ModText::Tr("单人游戏","Play solo"));
-    mWatchButton->mVisible=anActive&&aSession->SupportsWatchRoom();
+    mWatchButton->mVisible=anActive&&aSession->SharedRoom();
+    mWatchButton->SetLabel(mRoomSelection.Label(aSession));
+    mWatchButton->SetDisabled(!mRoomSelection.Enabled(aSession));
     mDirectoryButton->mVisible=server;mDirectoryButton->SetDisabled(!server||allocating);
     mHistoryButton->SetLabel(anActive&&aSession->IsPrivateRoom()?ModText::Tr("复制邀请","Copy invite"):ModText::Tr("最近记录","Recent runs"));
     mVisibilityButton->mVisible=anActive&&aSession->IsRelay()&&!aSession->IsPrivateRoom()&&aSession->IsHostSeat()&&!aSession->mDirectoryStarted;
@@ -294,12 +296,13 @@ void OnlineDialog::Update()
     }
     const auto codeBox=local?OnlineRoomLayout::PrivateCode():OnlineRoomLayout::Code();
     mCodeEditWidget->Resize(codeBox.mX,codeBox.mY,codeBox.mWidth,codeBox.mHeight);
-    const bool localHost=LocalHostControl::Alive()||mStartingLocalHost;
-    mDisconnectButton->mVisible=anActive||localHost;mSwapButton->mVisible=anActive;
-    mDisconnectButton->SetLabel(localHost?ModText::Tr("结束托管并离开","End & leave"):
+    const bool localHost=aSession->IsConnected()&&aSession->IsPrivateRoom()&&aSession->IsHostSeat()&&
+        aSession->GetRelayHost()=="127.0.0.1"&&aSession->GetRelayPort()==LocalHostControl::Port();
+    mDisconnectButton->mVisible=anActive||mStartingLocalHost;mSwapButton->mVisible=anActive;
+    mDisconnectButton->SetLabel(mStartingLocalHost?ModText::Tr("取消开房","Cancel hosting"):localHost?ModText::Tr("结束托管并离开","End & leave"):
         mApp->mBoard?ModText::Tr("保存并退房","Save & leave"):ModText::Tr("退出房间","Leave room"));
     mCloseButton->Resize(anActive?OnlineRoomLayout::Close():OnlineRoomLayout::Start());
-    mStartButton->mVisible=anActive;
+    mStartButton->mVisible=anActive&&(!aSession->SharedRoom()||aSession->IsHostSeat());
     const bool canStart=OnlineRoomLayout::CanStart(mApp);
     mStartButton->SetLabel(PlayerRoomText::StartLabel(aSession->GetState(),OnlineRoomLayout::NeedsPlayers(aSession)));
     mStartButton->SetDisabled(!canStart);
@@ -316,7 +319,7 @@ void OnlineDialog::Draw(Graphics* g)
     if(session&&session->IsConnected()&&session->HasIncomingSwapRequest())detail=ModText::Tr("点「队友」答复换位申请。","Open Seats to answer the swap request.");
     else if(session&&session->IsConnected()&&mApp->mOnlineWaitingStartAck)detail=RoomPresentation::WaitingSeats(session,true);
     else if(session&&session->IsConnected()&&!session->IsHostSeat())detail=ModText::Tr("等房主选择玩法。","Wait for the host to choose a mode.");
-    OnlineRoomLayout::Draw(g,mApp,detail,mLocalIpText,mPage);
+    OnlineRoomLayout::Draw(g,mApp,detail,mLocalIpText,mPage,mRoomSelection.Selected(session));
     if(!mTransfer.notice.empty())SeatUi::Text(g,mTransfer.notice,40,550,680,16,Color(245,230,165),true);
     if(session&&session->IsPrivateRoom()&&!session->GetRoomCode().empty()) {
         const auto host=session->GetRelayHost()=="127.0.0.1"?mLocalIpText:session->GetRelayHost();
@@ -328,13 +331,32 @@ void OnlineDialog::Draw(Graphics* g)
         for(auto* edit:{mIpEditWidget,mCodeEditWidget})if(edit->mVisible)DrawEditBox(g,edit);
     }
 }
+void OnlineDialog::MouseDown(int x,int y,int clicks) {
+    mRoomSelection.Down(mApp->mOnlineSession,x,y,clicks);
+    if(!mRoomSelection.pressed)Sexy::Widget::MouseDown(x,y,clicks);
+}
+void OnlineDialog::MouseUp(int x,int y,int clicks) {
+    mRoomSelection.Up(mApp->mOnlineSession,x,y,clicks);
+    Sexy::Widget::MouseUp(x,y,clicks);
+    MarkDirty();
+}
 void OnlineDialog::KeyDown(KeyCode key) {
     if(key==KEYCODE_ESCAPE)ButtonDepress(OnlineDialog_Close);
 }
 
 void OnlineDialog::ButtonDepress(int theId)
 {
-    if(theId==1220){WatchRoomUi::Open(mApp);return;}
+    if(theId==1223){
+        auto* session=mApp->mOnlineSession;
+        const auto seat=mRoomSelection.Selected(session);
+        if(!mRoomSelection.Enabled(session))return;
+        if(seat==session->GetLocalSeat()) {
+            const auto pending=session->RoomMembers()[seat].Pending();
+            session->SetRoomRole(pending?0:(session->InWatchRoom()?WatchRoom::Fight:WatchRoom::Watch));
+        } else if(mApp->mBoard || session->InWatchRoom()) WatchRoomUi::Watch(mApp,seat);
+        else session->PostNotice(ModText::Tr("队友进入战斗后可观战。","You can watch teammates once battle begins."));
+        return;
+    }
     if(theId==OnlineDialog_Paste){PasteInvite();return;}
     if(theId>=OnlineDialog_CopyCode&&theId<=OnlineDialog_Share){const RoomShareUi::Action actions[]={RoomShareUi::Action::CopyCode,RoomShareUi::Action::CopyInvite,RoomShareUi::Action::Share};mTransfer.Start(actions[theId-OnlineDialog_CopyCode],mApp->mOnlineSession,mLocalIpText);return;}
     if(theId==OnlineDialog_LocalPage||theId==OnlineDialog_ServerPage) {
@@ -422,7 +444,9 @@ void OnlineDialog::ButtonDepress(int theId)
 void OnlineDialog::LeaveRoom()
 {
     auto* app=mApp;
-    const bool stopHost=LocalHostControl::Alive()||mStartingLocalHost;
+    const auto& session=*app->mOnlineSession;
+    const bool stopHost=mStartingLocalHost||(session.IsConnected()&&session.IsPrivateRoom()&&session.IsHostSeat()&&
+        session.GetRelayHost()=="127.0.0.1"&&session.GetRelayPort()==LocalHostControl::Port());
     const int page=stopHost||app->mOnlineSession->IsPrivateRoom()?OnlineRoomLayout::LOCAL:OnlineRoomLayout::SERVER;
     // A failed save must leave both the lawn and its live room intact.
     if(app->mBoard){app->DoBackToMain(false);if(app->mBoard)return;}

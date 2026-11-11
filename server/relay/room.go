@@ -18,14 +18,20 @@ import (
 
 // seatHold 一个掉线席位的保留：谁（名字+构建）在什么时候之前可以坐回来。
 type seatHold struct {
-	flow       bool
-	credential [16]byte
-	name       [nameSize]byte
-	build      uint16
-	until      time.Time
+	flow          bool
+	credential    [16]byte
+	name          [nameSize]byte
+	build         uint16
+	until         time.Time
+	watchIdentity uint32
+	seatObserver  bool
 }
 
 type Room struct {
+	sharedBuild     uint16
+	sharedStart     []byte
+	sharedEndless   []byte
+	sharedPaused    bool
 	viewerRequestID uint32
 	watchIdentity   uint32
 	watchOrder      []uint8
@@ -53,7 +59,7 @@ type Room struct {
 func (r *Room) roster() []rosterEntry {
 	out := make([]rosterEntry, 0, maxPlayers)
 	for i := 1; i <= maxPlayers; i++ {
-		if c := r.bySeat[i]; c != nil {
+		if c := r.bySeat[i]; c != nil && !c.seatObserver {
 			out = append(out, rosterEntry{seat: uint8(i), build: c.build, name: c.name})
 		}
 	}
@@ -202,6 +208,9 @@ func (s *Server) handleCreate(c *Conn, version, build uint16, name []byte) {
 		return
 	}
 	r := &Room{code: code, host: c, hostSeat: 1, gateManaged: build >= secureBuild, joinOpen: true}
+	if build >= sharedSeatBuild {
+		r.sharedBuild = build
+	}
 	r.bySeat[1] = c
 	c.build = build
 	copy(c.name[:], name)
@@ -212,6 +221,9 @@ func (s *Server) handleCreate(c *Conn, version, build uint16, name []byte) {
 	if !s.issueCredential(c) {
 		delete(s.rooms, code)
 		return
+	}
+	if r.sharedBuild != 0 {
+		s.publishSharedRoster(r)
 	}
 	s.logf("room %s created by %s (build %d)", code, c.remoteAddr(), build)
 }
@@ -239,6 +251,14 @@ func (s *Server) handleJoinFrom(c *Conn, version, build uint16, name, rawCode []
 	r := s.rooms[code]
 	if r == nil {
 		s.enqueue(c, encodeFrame(msgSrvReject, encodeReject(rejectRoomNotFound)))
+		return
+	}
+	if r.sharedBuild != 0 {
+		s.joinSharedRoom(r, c, build, name, directory)
+		return
+	}
+	if build >= sharedSeatBuild {
+		s.enqueue(c, encodeFrame(msgSrvReject, encodeReject(rejectBuildMismatch)))
 		return
 	}
 	if r.host != nil && r.host.build >= watchRoomBuild && r.host.build != build {
@@ -326,7 +346,7 @@ func (s *Server) handleSwapCommitWithTerm(c *Conn, a, b uint8, term, epoch, requ
 		return
 	}
 	ca, cb := r.bySeat[a], r.bySeat[b]
-	if ca == nil || cb == nil {
+	if ca == nil || cb == nil || ca.seatObserver || cb.seatObserver {
 		return
 	}
 	if c != ca && c != cb {
@@ -397,6 +417,10 @@ func (s *Server) handleRejoin(c *Conn, version, build uint16, name, rawCode []by
 	}
 	now := time.Now()
 	old := r.bySeat[seat]
+	if r.sharedBuild != 0 {
+		s.rejoinSharedRoom(r, c, old, seat, name, build, now)
+		return
+	}
 	if build >= watchRoomBuild && r.flow.started {
 		if s.rejoinCombatAsViewer(r, c, old, seat, name, build, now) {
 			return
@@ -483,7 +507,7 @@ func (s *Server) forward(c *Conn, typ uint16, payload []byte) {
 		s.routeObserver(r, c, typ, payload, false)
 		return
 	}
-	if c.watchSlot != 0 {
+	if c.watchSlot != 0 || c.seatObserver {
 		return
 	}
 	src := payload[0]
@@ -523,7 +547,7 @@ func (r *Room) connectedPlayers(nextRound bool) int {
 	count := 0
 	for seat := 1; seat <= maxPlayers; seat++ {
 		player := r.bySeat[seat]
-		if player != nil && !player.left.Load() && !player.replaced.Load() &&
+		if player != nil && !player.seatObserver && !player.left.Load() && !player.replaced.Load() &&
 			(nextRound || r.roundWaitMask&(uint8(1)<<uint8(seat)) == 0) {
 			count++
 		}
@@ -551,6 +575,10 @@ func (s *Server) removeConn(c *Conn, reason uint8) {
 	c.room.Store(nil)
 	if c.watchSlot != 0 {
 		s.removeRoomViewer(r, c)
+		return
+	}
+	if r.sharedBuild != 0 {
+		s.removeSharedMember(r, c, reason)
 		return
 	}
 	s.releaseWatchReservation(r, c)
@@ -676,7 +704,7 @@ func (s *Server) sweepRoom(r *Room, now time.Time) bool {
 	}
 
 	r.updateFlowRecovery(now, s.holdDuration)
-	if !r.flow.recoveryUntil.IsZero() && !now.Before(r.flow.recoveryUntil) {
+	if r.sharedBuild == 0 && !r.flow.recoveryUntil.IsZero() && !now.Before(r.flow.recoveryUntil) {
 		// No empty-mask victory and no automatic restart. End only the stranded
 		// room and let the remaining clients explicitly create a new game.
 		for seat := 1; seat <= maxPlayers; seat++ {
@@ -699,7 +727,7 @@ func (s *Server) sweepRoom(r *Room, now time.Time) bool {
 		if r.bySeat[seat] != nil {
 			continue // 席位已被新人占用（join 的正常回收），保留作废就行
 		}
-		if uint8(seat) == r.hostSeat && r.host == nil {
+		if r.sharedBuild == 0 && uint8(seat) == r.hostSeat && r.host == nil {
 			// 房主保留过期还没回来：房间散伙
 			s.closeRoomViewers(r, roomClosedHostLeft)
 			s.logf("room %s closed (host never came back from the rejoin hold)", r.code)

@@ -503,7 +503,6 @@ void GameOverDialog::ButtonDepress(int theId)
 {
     if (theId == 1)
     {
-        mApp->KillDialog(Dialogs::DIALOG_GAME_OVER);
         // @pvz-online: 联机局里"回主菜单"也是整队的决定——退关得先跟对面打个招呼，
         // 不然他还一个人留在吃脑子的画面上。走 DoBackToMain 顺带把 LEVEL_EXIT 发出去。
         if (mApp->IsOnlineGame())
@@ -511,6 +510,7 @@ void GameOverDialog::ButtonDepress(int theId)
             mApp->DoBackToMain();
             return;
         }
+        mApp->KillDialog(Dialogs::DIALOG_GAME_OVER);
         mApp->KillBoard();
         if (mApp->IsSurvivalMode())
         {

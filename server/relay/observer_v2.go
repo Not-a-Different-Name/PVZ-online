@@ -240,7 +240,7 @@ func (s *Server) observerLocked(r *Room, c, t *Conn, typ uint16, p []byte, flow 
 			return
 		}
 		if p[3] == 1 { // Viewer -> source; a reconnect wait seat can watch, never produce.
-			if t.watchSlot != 0 || r.roundWaitMask&(1<<t.seat) != 0 {
+			if t.watchSlot != 0 || t.seatObserver || r.roundWaitMask&(1<<t.seat) != 0 {
 				return
 			}
 			cooldown := 5 * time.Second
@@ -309,7 +309,7 @@ func (s *Server) observerLocked(r *Room, c, t *Conn, typ uint16, p []byte, flow 
 		s.enqueue(t, envelope(p))
 		return
 	}
-	if len(p) < 41 || len(p) > 256 || p[2] != 2 || p[3] != 1 || c.watchSlot != 0 || r.roundWaitMask&(1<<c.seat) != 0 {
+	if len(p) < 41 || len(p) > 256 || p[2] != 2 || p[3] != 1 || c.watchSlot != 0 || c.seatObserver || r.roundWaitMask&(1<<c.seat) != 0 {
 		return
 	}
 	v := r.observer[t.watchRoute()]

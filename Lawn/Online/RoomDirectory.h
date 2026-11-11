@@ -13,7 +13,7 @@ struct Entry {
     uint16_t build=0;
     uint8_t players=0,flags=0,viewers=0;
     bool Playable() const { return !(flags&7) && build==NetProto::MOD_BUILD && players<NetProto::MAX_PLAYERS; }
-    bool Watchable() const { return (flags&8) && build==NetProto::MOD_BUILD && viewers<4; }
+    bool Watchable() const { return (flags&8) && build==NetProto::MOD_BUILD && (build>=112 ? players<NetProto::MAX_PLAYERS : viewers<4); }
     bool Joinable() const { return Playable() || Watchable(); }
 };
 inline bool Decode(const uint8_t* p,int size,uint16_t expected,std::vector<Entry>& entries,int& next) {

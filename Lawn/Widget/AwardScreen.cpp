@@ -4,6 +4,7 @@
 #include "GameButton.h"
 #include "StoreScreen.h"
 #include "AwardScreen.h"
+#include "../Online/NetSession.h"
 #include "OnlineUiDraw.h"
 #include "../ZenGarden.h"
 #include "../SeedPacket.h"
@@ -543,6 +544,7 @@ void AwardScreen::StartButtonPressed()
 	}
 	else if (mAwardType == AWARD_RUN_COMPLETE)
 	{
+		if(mApp->mOnlineSession)mApp->mOnlineSession->RequestCompletedRoomMenu();
 		// @pvz-online: 通关屏（批十）：按钮 = 回主菜单。检查点通关那一刻已经删了；
 		// ShowGameSelector 把这一局的内存态（mRunState 等）一并收掉。
 		mApp->KillAwardScreen();

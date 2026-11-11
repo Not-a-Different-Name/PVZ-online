@@ -6,6 +6,7 @@
 #include "../Online/RoomCreateAttempt.h"
 #include "../Online/AutoRoomLookup.h"
 #include "RoomShareUi.h"
+#include "OnlineRoomLayout.h"
 
 class LawnApp;
 class LawnEditWidget;
@@ -86,6 +87,7 @@ public:
     std::string mPendingJoinCode;
     std::string mServerInputError;
     int mPage=0;
+    OnlineRoomLayout::Selection mRoomSelection;
     bool mConfirmSolo=false;
     bool mStartingLocalHost=false;
     int mLocalHostTicks=0;
@@ -106,6 +108,8 @@ public:
 
 private:
     void LeaveRoom();
+    void MouseDown(int x,int y,int clicks) override;
+    void MouseUp(int x,int y,int clicks) override;
 	void				StartHost();
 	void				StartJoin();
 	void				StartRoomHost();

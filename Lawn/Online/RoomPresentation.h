@@ -15,7 +15,7 @@ inline NetSession* Session(LawnApp* app) {
     return app->mOnlineSession;
 #endif
 }
-inline bool Active(const NetSession* s){return s&&s->IsActive()&&(s->GetState()!=NetSession::State::DEAD||s->IsRelay());}
+inline bool Active(const NetSession* s){return s&&s->IsActive()&&s->GetState()!=NetSession::State::DEAD;}
 inline std::string State(const NetSession* s) {
     if(!s)return ModText::Tr("创建房间或加入队友","Create or join a room");
     switch(s->GetState()) {

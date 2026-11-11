@@ -64,7 +64,7 @@ public:
   if(Base()){
    int count=0;bool aid=false;for(const auto&p:snapshot.peers)if(p.seat!=n->GetLocalSeat()){++count;aid|=c&&c->requests.count(p.player);}
    Add(ROSTER,RosterBox(),ModText::Tr("队友 ","Team ")+std::to_string(count)+(aid?ModText::Tr(" 求援"," Aid"):"")+(rosterOpen?" -":" +"));
-   if(rosterOpen&&n->SupportsWatchRoom())Add(WATCH_ROOM,Sexy::Rect(192,88,126,44),ModText::Tr("观众","Spectators"));
+   if(rosterOpen&&n->SupportsWatchRoom())Add(WATCH_ROOM,Sexy::Rect(192,88,126,44),ModText::Tr("房间","Room"));
    int index=0;if(rosterOpen)for(const auto&p:snapshot.peers){if(p.seat==n->GetLocalSeat())continue;
     std::string label=p.name.empty()?"P"+std::to_string(p.seat):p.name;
     if(c&&c->requests.count(p.player))label=ModText::Tr("求阳光 ","Aid ")+label;
@@ -97,7 +97,7 @@ public:
      Add(GIFT,Sexy::Rect(12,y+44,140,44),giftLabel,battle&&p&&p->online&&CoopHud::GiftEnabled(board,p->seat),selected);
      std::string aidLabel=snapshot.support.cooldownSeconds>0?ModText::Tr("支援卡 ","Aid cards ")+std::to_string(snapshot.support.cooldownSeconds)+"s":ModText::Tr("支援卡","Aid cards");
      Add(CHERRY,Sexy::Rect(160,y+44,144,44),aidLabel,battle&&p&&p->online,selected);
-     Add(WATCH,Sexy::Rect(312,y+44,140,44),ModText::Tr("观战","Watch"),p&&n->CanWatchSeat((uint8_t)p->seat),selected);
+     Add(WATCH,Sexy::Rect(312,y+44,140,44),ModText::Tr("观战","Watch"),p&&p->online,selected);
      if(c&&c->Preparing()){
       if(c->loanWaiting)Add(CANCEL,Sexy::Rect(12,y+96,212,42),ModText::Tr("取消借用申请","Cancel request"),true,c->pendingLoan.target,0,c->pendingLoan.serial);
       else if(LoanActive()){Add(RETURN,Sexy::Rect(12,y+96,212,42),ModText::Tr("归还借用植物","Return plant"),c->pendingCancels.empty());Add(DETAIL,Sexy::Rect(232,y+96,220,42),ModText::Tr("借用增益","Loan effects"));}
@@ -140,7 +140,7 @@ public:
  void KeyDown(Sexy::KeyCode key)override{if(key==Sexy::KEYCODE_ESCAPE){Collapse();return;}if(board)board->KeyDown(key);}
  void MouseUp(int x,int y,int clicks)override{
   bool had=captured;Button action=pressed;auto context=pressedContext;captured=false;Refresh();auto*now=Hit(x,y);
-  if(!had||clicks<=0||!now||!SameButton(action,*now)||!Same(context,snapshot.context))return;
+  if(!had||clicks<=0||!now||!SameButton(action,*now)||(action.kind!=WATCH && !Same(context,snapshot.context)))return;
   auto*c=Coop();auto*n=Session();using A=TeamProgressionView::Action;
   switch(action.kind){
    case WATCH_ROOM:Collapse();WatchRoomUi::Open(app);break;
@@ -152,13 +152,7 @@ public:
    case GIFT:if(c){if(c->requests.count(action.target))c->Aid(action.target);else c->SendGift(action.target,0,true);board->PushCustomBanner(c->notice.c_str());}Collapse();break;
    case CHERRY:supports=true;plants=details=false;break;
    case SUPPORT_CARD:Quote(action.value);if(snapshot.support.canConfirm){Submit(A::SUPPORT_CONFIRM,action.target,action.value,snapshot.support.quoteId);Collapse();}break;
-   case WATCH:if(auto*p=Peer(action.target);p&&n->CanWatchSeat((uint8_t)p->seat)&&n->BeginWatch((uint8_t)p->seat)){
-#ifdef __ANDROID__
-    board->mMobileWatchOpen=true;
-#else
-    board->mWatchKeyHeld=true;board->mWatchLastSeat=p->seat;board->mCoopWatchLatched=true;
-#endif
-    Collapse();}break;
+   case WATCH:if(auto* p=Peer(action.target);p && WatchRoomUi::StartTemporary(board,n,uint8_t(p->seat)))Collapse();break;
    case BORROW:plants=true;details=false;plantPage=0;break;
    case PLANT:if(c)c->Ask(action.target,(SeedType)action.value);Collapse();break;
    case CANCEL:if(c)c->CancelLoanRequest();Collapse();break;

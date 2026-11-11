@@ -21,6 +21,8 @@ void NetSession::SetObserverBoard(uint64_t instance,bool active){
 
 bool NetSession::HasObserverWatchers()const{if(!mObserverBoardActive||!IsConnected()||IsWaitingForNextRound(mLocalSeat))return false;for(auto&v:mObserverViewers)if(v.watch)return true;return false;}
 void NetSession::ObserverV2Tick(){
+ if(SharedRoom() && !InWatchRoom() && mSharedSourceSent!=uint8_t(mObserverBoardActive) &&
+    SendSharedRole(WatchRoom::Source,uint8_t(mObserverBoardActive)))mSharedSourceSent=uint8_t(mObserverBoardActive);
  const auto now=ObserverNow();
  if(mObserverEpoch!=ObserverEpoch()||mObserverTerm!=mFlowTerm){ClearObserverV2();mObserverEpoch=ObserverEpoch();mObserverTerm=mFlowTerm;}
  if(IsRelay()&&((!mObserverRelay&&now-mObserverQueryAt>=2000)||(mObserverP2PEnabled&&mPunchAdvertised&&now-mObserverQueryAt>=25000))){uint8_t p[4];ObserverWireV2::Put32(p,ObserverRevision);SendRaw(0xF023,p,4);mObserverQueryAt=now;}

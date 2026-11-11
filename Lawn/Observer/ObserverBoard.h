@@ -72,9 +72,9 @@ public:
  bool Draw(Sexy::Graphics*g,NetSession*s){
   if(!CanDraw(s))return false;
   if(worldVisible&&world)world->Draw(g);else{scene.SetPredictionAge(double(Milliseconds()-receivedAt)/1000.0);scene.Draw(g);}
-  g->SetColor(Sexy::Color(0,0,0,150));g->FillRect(0,0,395,58);
+  g->SetColor(Sexy::Color(0,0,0,150));g->FillRect(8,551,334,42);
   auto name=s->GetSeatName(visible.seat);if(name.empty())name="P"+std::to_string(visible.seat);
-  SeatUi::Text(g,ModText::Tr("正在观看：","Watching: ")+name,10,33,380,18,Sexy::Color(245,230,165),true);
+  SeatUi::Text(g,ModText::Tr("正在观看：","Watching: ")+name,14,577,322,18,Sexy::Color(245,230,165),true);
   return true;
  }
 };

@@ -550,7 +550,7 @@ void NetSession::ReopenLink()
 // 重开链路再来一轮。
 bool NetSession::SendRejoin()
 {
-    if(mWatchSlot) {mRejoinSent=true;mFramesSinceRejoinSent=0;return SendWatchRoomRejoin();}
+    if(mWatchSlot && !mSharedRoom) {mRejoinSent=true;mFramesSinceRejoinSent=0;return SendWatchRoomRejoin();}
     if(mTransport==Transport::DIRECT) {
         mRejoinSent=true;
         mFramesSinceRejoinSent=0;
@@ -739,6 +739,12 @@ void NetSession::Update()
         }
 
 	    ObserverV2Tick();
+        if(mSharedCompleteMenuEpoch) {
+            if(mFlowEpoch!=mSharedCompleteMenuEpoch || mFlowPhase==0 || InWatchRoom())
+                mSharedCompleteMenuEpoch=0;
+            else if(IsHostSeat() && mFlowPhase==5 && SendLevelExit())
+                mSharedCompleteMenuEpoch=0;
+        }
 		// ---- 观战：观看端补保活/掐超时，被看端删掉哑巴观众 ----
 		if (IsWatching() && !IsWatchingV2())
 		{
@@ -1109,12 +1115,13 @@ bool NetSession::SendPauseState(bool thePaused)
 	return true;
 }
 
-bool NetSession::TakePauseState(bool& thePaused)
+bool NetSession::TakePauseState(bool& thePaused, uint8_t* theSourceSeat)
 {
 	if (!mHasPendingPause) return false;
 
 	mHasPendingPause = false;
 	thePaused = mPendingPauseValue;
+    if(theSourceSeat)*theSourceSeat=mPendingPauseSource;
 	return true;
 }
 
@@ -1654,6 +1661,9 @@ bool NetSession::SendObserverV2Frame(uint8_t,const ObserverWireV2::Frame&){retur
 void NetSession::ResetToOff()
 {
     mWatchSlot=0;mWatchRoom=false;mWatchViewerMask=0;mWatchRequest=mWatchPromotion=0;mWatchDirectoryJoin=false;mWatchPrivate=false;mWatchViewers={};mWatchOrder={};
+    mSharedRoom=mSharedRecovery=mSharedRoomEntry=false;mSharedFlags=mSharedSources=0;mSharedSourceSent=2;
+    mSharedCompleteMenuEpoch=0;
+    mSharedTerm=mSharedEpoch=0;mSharedMembers={};mSharedOrder={};
     ClearObserverV2();mObserverRelay=false;mObserverQueryAt=0;mPunchRelay=mPunchAdvertised=false;mPunchQueryAt=0;mPunchLink.Close();
 	mDiagnosticStatusText.clear();
     mPrivateRoom=false;
@@ -2476,6 +2486,7 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 
 			mSharedPaused = aPaused;
 			mPendingPauseValue = aPaused;
+            mPendingPauseSource = aMsg.mSrcSeat;
 			mHasPendingPause = true;
 			TodLog("[net] the teammate %s", aPaused ? "paused the game" : "resumed the game");
 		}
@@ -2728,6 +2739,7 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 void NetSession::HandleControlFrame(uint16_t theType, const uint8_t* thePayload, int theSize)
 {
     if(theType==WatchRoom::Roster){HandleWatchRoomRoster(thePayload,theSize);return;}
+    if(theType==WatchRoom::Resume){HandleSharedRecovery(thePayload,theSize);return;}
     if(theType==0xF023) {
         if(IsRelay()&&IsConnected()&&(theSize==8||theSize==12)&&ObserverWireV2::Get32(thePayload)==ObserverRevision&&ObserverWireV2::Get32(thePayload+4)==24*1024){
             mObserverRelay=true;mPunchAdvertised=theSize==12&&(ObserverWireV2::Get32(thePayload+8)&1);
@@ -2763,6 +2775,7 @@ void NetSession::HandleControlFrame(uint16_t theType, const uint8_t* thePayload,
 			const bool promoted = IsConnected() && mWatchSlot;
             if (mState != State::HANDSHAKING && mState != State::RECONNECTING && !promoted) return;
 			bool aWasReconnect = (mState == State::RECONNECTING);
+            if(aWasReconnect)mSharedSourceSent=2;
             if(aWasReconnect && mRole==Role::HOST){mGateWanted=-1;mGateAck=0;}
 
 			NetProto::MsgSrvWelcome aMsg = {};
@@ -2841,7 +2854,7 @@ void NetSession::HandleControlFrame(uint16_t theType, const uint8_t* thePayload,
 			mSeats[aMsg.mYourSeat].mName = mLocalName;
 			mSeats[aMsg.mYourSeat].mBuild = NetProto::MOD_BUILD;
 
-			if(promoted){EndWatch(false);mWatchPromotion=mFlowPhase==0?0:mFlowEpoch+1;mWatchSlot=0;mFlowDeferred=false;mFlowStartPending=false;mFlowHelloSent=false;mReadyEpoch=0;}
+			if(promoted){EndWatch(false);mWatchPromotion=mFlowPhase==0?0:(mSharedRoom && mFlowPhase==1?mFlowEpoch:mFlowEpoch+1);mWatchSlot=0;mFlowDeferred=false;mFlowStartPending=false;mFlowHelloSent=false;mReadyEpoch=0;}
             mLocalSeat = aMsg.mYourSeat;
 			if(aWasReconnect && mFlowEnabled && mHostSeat!=aMsg.mHostSeat)PushEvent(EventType::HOST_CHANGED,aMsg.mHostSeat);
 			mHostSeat = aMsg.mHostSeat;
@@ -3593,6 +3606,12 @@ bool NetSession::SendSeedsReady(bool theReady)
 	return Dispatch(NetProto::MSG_SEEDS_READY, aPayload, aSize);
 }
 
+void NetSession::RequestCompletedRoomMenu()
+{
+    // Wait for all combat members to apply the result before clearing the round.
+    if(SharedRoom() && !InWatchRoom())mSharedCompleteMenuEpoch=mReadyEpoch;
+}
+
 bool NetSession::SendLevelExit(uint8_t theReason)
 {
 	if (theReason != NetProto::EXIT_QUIT_TO_MENU || mRole == Role::NONE || !IsConnected()) return false;
@@ -3611,7 +3630,7 @@ bool NetSession::SendLevelExit(uint8_t theReason)
     // Old relays ignore op5; compatibility LEVEL_EXIT is retained below.
     const bool flowSent=mFlowEnabled && SendFlowProgress(5,true);
     EndPreparation();ClearSwapState();
-    return Dispatch(NetProto::MSG_LEVEL_EXIT, aPayload, aSize) || flowSent;
+    return SharedRoom() ? flowSent : Dispatch(NetProto::MSG_LEVEL_EXIT, aPayload, aSize) || flowSent;
 }
 
 void NetSession::SendSwapReply(bool theAccepted, uint8_t theTarget)
@@ -3734,6 +3753,13 @@ void NetSession::PublishRoundWait() {
 
 void NetSession::PublishEndlessStartContext(uint8_t destination) {
     if(!mLastEndlessStartContext.run || mLastEndlessStartContext.epoch!=mReadyEpoch)return;
+    if(SharedRoom() && destination==NetProto::SEAT_UNSET && IsHostSeat()) {
+        auto context=mLastEndlessStartContext;
+        context.src=context.dst=mLocalSeat;context.player=mCoopToken;
+        uint8_t bytes[AdmissionWire::SIZE];
+        const auto size=AdmissionWire::Encode(bytes,context);
+        if(size)SendRaw(AdmissionWire::TYPE,bytes,size);
+    }
     for(uint8_t seat=1;seat<=NetProto::MAX_PLAYERS;++seat)if(seat!=mLocalSeat && IsSeatOccupied(seat) &&
         (destination==NetProto::SEAT_UNSET || destination==seat))SendAdmission(mLastEndlessStartContext,seat);
 }

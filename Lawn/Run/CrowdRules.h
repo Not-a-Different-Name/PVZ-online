@@ -27,9 +27,13 @@ inline uint32_t Mix(uint32_t value) {
 // Produce original indices, preserving order, without rerolling types or touching game RNG.
 // The caller explicitly supplies flag/scripted indices; invalid plans never partially publish.
 inline bool PlanWave(int originalCount, unsigned rule, uint32_t seed,
-                     const std::vector<int>& protectedIndices, std::vector<int>& keptIndices) {
+                     const std::vector<int>& protectedIndices, std::vector<int>& keptIndices,
+                     bool eliteWaves = false) {
     if (!Valid(rule) || originalCount < 0 || originalCount > MAX_WAVE_ENTRIES) return false;
-    const int target = TargetCount(originalCount, static_cast<int>(rule));
+    if (protectedIndices.size() > static_cast<size_t>(originalCount)) return false;
+    const int target = eliteWaves
+        ? std::max((originalCount + 4) / 5, static_cast<int>(protectedIndices.size()))
+        : TargetCount(originalCount, static_cast<int>(rule));
     if (protectedIndices.size() > static_cast<size_t>(target)) return false;
     std::vector<unsigned char> protectedMask(static_cast<size_t>(originalCount), 0);
     std::vector<int> result;

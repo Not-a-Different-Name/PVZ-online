@@ -69,7 +69,7 @@ func (s *Server) handleList(c *Conn, p []byte) {
 	now := time.Now()
 	codes := make([]string, 0, len(s.rooms))
 	for code, r := range s.rooms {
-		if r.public && r.host != nil && !r.host.left.Load() && (version == 4 || (!r.started && (!r.gateManaged || r.joinOpen))) {
+		if r.public && (r.host != nil && !r.host.left.Load() || version == 4 && r.sharedBuild != 0 && r.sharedPaused) && (version == 4 || (!r.started && (!r.gateManaged || r.joinOpen))) {
 			codes = append(codes, code)
 		}
 	}
@@ -107,18 +107,22 @@ func (s *Server) handleList(c *Conn, p []byte) {
 		if players >= maxPlayers {
 			flags |= 1
 		}
-		if r.host.build != build {
+		hostBuild, hostName := r.sharedBuild, r.holds[r.hostSeat].name
+		if r.host != nil {
+			hostBuild, hostName = r.host.build, r.host.name
+		}
+		if hostBuild != build {
 			flags |= 2
 		}
 		out.raw([]byte(r.code))
-		out.raw(r.host.name[:])
-		out.u16(r.host.build)
+		out.raw(hostName[:])
+		out.u16(hostBuild)
 		out.u8(players)
 		if version == 4 {
 			if r.started || (r.gateManaged && !r.joinOpen) {
 				flags |= 4
 			}
-			if r.watchingRoom() {
+			if r.watchingRoom() || r.sharedBuild != 0 && players < maxPlayers && (flags&4 != 0 || r.sharedPaused) {
 				flags |= 8
 			}
 		}

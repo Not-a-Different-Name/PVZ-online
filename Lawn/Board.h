@@ -414,6 +414,7 @@ public:
 	/*inline*/ Zombie*				AddZombieInRow(ZombieType theZombieType, int theRow, int theFromWave);
 	/*inline*/ bool					IsPoolSquare(int theGridX, int theGridY);
 	void							PickZombieWaves();
+    void ApplyVotedWavePlan();
 	void							StopAllZombieSounds();
 	/*inline*/ bool					HasLevelAwardDropped();
 	// @pvz-online: 联机"清完等队友"窗口（2026-10-03 用户定案）：本席位已清完、有队友还没清完。

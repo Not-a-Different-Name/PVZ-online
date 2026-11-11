@@ -172,7 +172,7 @@ public:
 	// 联机同步靠这两个：跟上一帧比就知道本机刚才是暂停了还是继续了（不用在
 	// 每个开合入口挂钩子）；掉线时要收掉的是"替队友弹的那张"，玩家自己按的不动。
 	bool							mPauseMenuWasOpen;
-	bool							mPauseMenuFromPeer;
+	uint8_t mPauseMenuPeerSeat = 0;
 	// 棋盘上那句"等队友们"是不是我们挂上去的。是的话状态一变要由我们收掉——
 	// 不记这一笔就会把别人（戴夫、波次提示）的 advice 一起擦掉。
 	bool							mOnlineWaitingAdviceOn;

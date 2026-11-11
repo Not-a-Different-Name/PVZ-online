@@ -25,6 +25,9 @@ type Conn struct {
 	watchReserved                 uint8
 	watchDeadline                 time.Time
 	watchSlot                     uint8
+	seatObserver, watchSource     bool
+	sharedRole                    uint8
+	sharedRequest                 uint32
 	watchRoster                   []byte
 	observer                      observerOutput
 	observerCap                   bool

@@ -66,20 +66,15 @@ func (r *Room) onlineMask() uint8 {
 	}
 	return m
 }
-func (r *Room) flowMask() uint8 { return r.onlineMask() &^ r.roundWaitMask }
+func (r *Room) flowMask() uint8 { return r.combatOnlineMask() &^ r.roundWaitMask }
 func (s *Server) publishFlow(r *Room) {
 	if r.flow.term == 0 {
 		r.flow.term = 1
 	}
-	occupied := r.onlineMask()
-	for seat := 1; seat <= maxPlayers; seat++ {
-		if r.holdActive(uint8(seat), time.Now()) {
-			occupied |= 1 << seat
-		}
-	}
+	occupied := r.combatOccupiedMask(time.Now())
 	enabled := true
 	for seat := 1; seat <= maxPlayers; seat++ {
-		if c := r.bySeat[seat]; c != nil && !c.flow {
+		if c := r.bySeat[seat]; c != nil && !c.seatObserver && !c.flow {
 			enabled = false
 		}
 	}
@@ -94,7 +89,7 @@ func (s *Server) publishFlow(r *Room) {
 	if r.flow.lost {
 		p[2] |= 2
 	}
-	p[3], p[4], p[5], p[6], p[7] = r.flow.phase, r.hostSeat, r.onlineMask(), occupied, r.roundWaitMask
+	p[3], p[4], p[5], p[6], p[7] = r.flow.phase, r.hostSeat, r.combatOnlineMask(), occupied, r.roundWaitMask
 	binary.LittleEndian.PutUint32(p[8:], r.flow.term)
 	binary.LittleEndian.PutUint32(p[12:], r.flow.epoch)
 	binary.LittleEndian.PutUint32(p[16:], r.flow.generation)
@@ -154,7 +149,11 @@ func (s *Server) checkFlowBarrier(r *Room) {
 	}
 	if r.flow.phase == flowComplete && r.flow.applied&mask == mask {
 		r.flow.phase = flowIntermission
-		s.promoteRoomViewers(r, r.nextWatchRound())
+		if r.sharedBuild != 0 {
+			s.applySharedRoles(r)
+		} else {
+			s.promoteRoomViewers(r, r.nextWatchRound())
+		}
 	}
 }
 func (s *Server) handleFlowProgress(c *Conn, p []byte) {
@@ -165,7 +164,7 @@ func (s *Server) handleFlowProgress(c *Conn, p []byte) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	r := c.room.Load()
-	if r == nil || !c.flow || c.watchSlot != 0 || !r.flow.started || binary.LittleEndian.Uint32(p) != r.flow.term || binary.LittleEndian.Uint32(p[4:]) != r.flow.epoch {
+	if r == nil || !c.flow || c.watchSlot != 0 || c.seatObserver || !r.flow.started || binary.LittleEndian.Uint32(p) != r.flow.term || binary.LittleEndian.Uint32(p[4:]) != r.flow.epoch {
 		return
 	}
 	// A return-to-menu abort is independent of combat participation. In
@@ -217,8 +216,19 @@ func (s *Server) handleFlowProgress(c *Conn, p []byte) {
 	s.checkFlowBarrier(r)
 	s.publishFlow(r)
 }
+
+const eliteWavesBuild = 113
+const eliteWavesStartBytes = 56
+
+func flowStartSizeValid(size int, build uint16) bool {
+	if build >= eliteWavesBuild {
+		return size == eliteWavesStartBytes
+	}
+	return size == 45 || size == 46 || size == 53 || size == 54
+}
+
 func (s *Server) handleFlowStart(c *Conn, p []byte) {
-	if len(p) != 53 && len(p) != 54 && len(p) != 61 && len(p) != 62 {
+	if len(p) < 8 {
 		s.dropBadControl(c, msgCliFlowStart)
 		return
 	}
@@ -228,8 +238,12 @@ func (s *Server) handleFlowStart(c *Conn, p []byte) {
 	if r == nil || !c.flow || !r.flow.enabled || r.host != c || binary.LittleEndian.Uint32(p) != r.flow.term {
 		return
 	}
+	if !flowStartSizeValid(len(p)-8, c.build) {
+		s.dropBadControl(c, msgCliFlowStart)
+		return
+	}
 	for seat := 1; seat <= maxPlayers; seat++ {
-		if member := r.bySeat[seat]; member != nil && !member.flow {
+		if member := r.bySeat[seat]; member != nil && !member.seatObserver && !member.flow {
 			return
 		}
 	}
@@ -238,13 +252,16 @@ func (s *Server) handleFlowStart(c *Conn, p []byte) {
 	if epoch == 0 || snapshot[0] != c.seat || binary.LittleEndian.Uint32(snapshot[len(snapshot)-5:len(snapshot)-1]) != epoch {
 		return
 	}
-	// Nine-, ten- and seventeen-stack snapshots retain epoch + crowd rule at the tail.
+	// All accepted snapshot sizes keep epoch and the crowd rule at the tail.
 	if !r.flow.started {
 		if epoch != 1 || r.connectedPlayers(true) < 2 {
 			return
 		}
 	} else if epoch != r.flow.epoch+1 || (r.flow.phase != flowLobby && r.flow.phase != flowIntermission && !r.flow.lost) || (r.flow.phase != flowLobby && !r.flow.lost && r.flow.applied&r.flowMask() != r.flowMask()) || (r.flow.phase == flowLobby && r.connectedPlayers(true) < 2) {
 		return
+	}
+	if r.sharedBuild != 0 && r.flow.lost {
+		s.applySharedRoles(r)
 	}
 	r.flow.lost = false
 	r.flow.recoveryUntil = time.Time{}
@@ -254,6 +271,15 @@ func (s *Server) handleFlowStart(c *Conn, p []byte) {
 	r.flow.prepCommitted = false
 	r.flow.started = true
 	r.flow.epoch = epoch
+	if r.sharedBuild != 0 {
+		r.sharedStart = append(r.sharedStart[:0], snapshot...)
+		r.sharedEndless = nil
+		for _, member := range r.bySeat {
+			if member != nil {
+				member.watchSource = false
+			}
+		}
+	}
 	for _, v := range r.viewers {
 		if v.conn != nil && v.round == epoch && v.term == r.flow.term {
 			entry := &r.viewers[v.conn.watchSlot-maxPlayers-1]
@@ -274,7 +300,7 @@ func (s *Server) handleFlowStart(c *Conn, p []byte) {
 	s.resetFlowBarrier(r)
 	s.publishFlow(r)
 	for seat := 1; seat <= maxPlayers; seat++ {
-		if t := r.bySeat[seat]; t != nil && t != c && t.flow {
+		if t := r.bySeat[seat]; t != nil && t != c && t.flow && !t.seatObserver {
 			snapshot[1] = uint8(seat)
 			if s.enqueue(t, flowEnvelope(r, 3, snapshot)) {
 				s.stats.forwarded.Add(1)
@@ -299,14 +325,22 @@ func (s *Server) handleFlowGame(c *Conn, p []byte) {
 		s.routeObserver(r, c, typ, body, true)
 		return
 	}
-	if c.watchSlot != 0 {
+	if c.watchSlot != 0 || c.seatObserver {
 		return
+	}
+	if r.sharedBuild != 0 && typ == 26 && c == r.host && len(body) == 35 && body[0] == c.seat && body[2] == 4 &&
+		binary.LittleEndian.Uint32(body[3:]) == r.flow.epoch && binary.LittleEndian.Uint32(body[11:])&256 != 0 &&
+		binary.LittleEndian.Uint64(body[19:]) != 0 && binary.LittleEndian.Uint64(body[27:]) != 0 {
+		r.sharedEndless = append(r.sharedEndless[:0], body...)
+		if body[1] == c.seat {
+			return
+		}
 	}
 	if typ >= srvFrameBase || len(body) > 256 || body[0] != c.seat || body[1] < 1 || body[1] > maxPlayers || body[1] == c.seat {
 		return
 	}
 	dst := body[1]
-	if typ == 5 && r.watchingRoom() {
+	if typ == 5 && (r.watchingRoom() || r.sharedBuild != 0) {
 		// A disconnect can cross a packet already queued on the old sender.
 		// Recompute the next living lawn at the authoritative relay boundary.
 		next := r.nextCombatSeat(c.seat)
@@ -333,11 +367,11 @@ func (s *Server) handleFlowGame(c *Conn, p []byte) {
 		return
 	}
 	t := r.bySeat[dst]
-	if t == nil || !t.flow {
+	if t == nil || !t.flow || t.seatObserver {
 		return
 	}
 	if typ == 3 { // Same-round targeted replay only; new rounds use FlowStart.
-		if c != r.host || (len(body) != 45 && len(body) != 46 && len(body) != 53 && len(body) != 54) || binary.LittleEndian.Uint32(body[len(body)-5:]) != r.flow.epoch {
+		if c != r.host || !flowStartSizeValid(len(body), c.build) || binary.LittleEndian.Uint32(body[len(body)-5:]) != r.flow.epoch {
 			return
 		}
 	}
@@ -367,6 +401,9 @@ func (s *Server) handleFlowGame(c *Conn, p []byte) {
 		r.flow.prepPhase = body[39]
 		r.flow.prepA = body[42]
 		r.flow.prepB = body[43]
+		if r.sharedBuild != 0 {
+			s.publishSharedRoster(r)
+		}
 	}
 	if typ == 5 { // Incoming escaped zombie invalidates recipient's previous clear.
 		if r.roundWaitMask&(1<<dst) != 0 {
@@ -389,6 +426,14 @@ func (s *Server) returnFlowToMenu(r *Room, source *Conn) {
 	if r.flow.phase == flowLobby {
 		return
 	}
+	if r.sharedBuild != 0 && source != r.host {
+		// A member leaving their lawn keeps their seat. Only the current
+		// authority can end the whole round.
+		s.applySharedRole(r, source, true)
+		s.checkFlowBarrier(r)
+		s.publishFlow(r)
+		return
+	}
 	r.flow.phase = flowLobby
 	r.started = false
 	r.flow.lost = false
@@ -399,15 +444,29 @@ func (s *Server) returnFlowToMenu(r *Room, source *Conn) {
 	r.flow.prepCommitted = false
 	r.roundWaitMask = 0
 	r.joinOpen = true
+	if r.sharedBuild != 0 {
+		r.sharedStart = nil
+		r.sharedEndless = nil
+		for _, c := range r.bySeat {
+			if c != nil {
+				c.watchSource = false
+				c.watchJoinRound, c.watchDeadline = 0, time.Time{}
+				s.clearObserverConn(r, c)
+			}
+		}
+	}
 	for seat := 1; seat <= maxPlayers; seat++ {
-		if t := r.bySeat[seat]; t != nil && t != source && t.flow {
+		if t := r.bySeat[seat]; t != nil && t != source && t.flow && !t.seatObserver {
 			s.enqueue(t, flowEnvelope(r, 13, []byte{source.seat, uint8(seat), 0}))
 		}
+	}
+	if r.sharedBuild != 0 {
+		s.applySharedRoles(r)
 	}
 	s.publishFlow(r)
 }
 func (s *Server) electFlowHost(r *Room) bool {
-	for _, mask := range []uint8{r.flowMask(), r.onlineMask()} {
+	for _, mask := range []uint8{r.flowMask(), r.combatOnlineMask()} {
 		for seat := 1; seat <= maxPlayers; seat++ {
 			if mask&(1<<seat) != 0 {
 				r.gateRequest = 0
@@ -417,6 +476,7 @@ func (s *Server) electFlowHost(r *Room) bool {
 				r.flow.prepPhase = 0
 				r.flow.prepCommitted = false
 				r.host = r.bySeat[seat]
+				r.host.sharedRole = 0
 				r.hostSeat = uint8(seat)
 				r.flow.term++
 				s.resetFlowBarrier(r)

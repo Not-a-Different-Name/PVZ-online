@@ -33,6 +33,14 @@ inline void ApplyInitialHealth(Zombie* z) {
     z->mHelmHealth=ScalePositive(z->mHelmHealth,p);
     z->mShieldHealth=ScalePositive(z->mShieldHealth,p);
     z->mFlyingHealth=ScalePositive(z->mFlyingHealth,p);
+    if (Count(z, ELITE_WAVES) > 0) {
+        z->mBodyHealth = ScalePositive(z->mBodyHealth, 3000);
+        z->mHelmHealth = ScalePositive(z->mHelmHealth, 3000);
+        z->mShieldHealth = ScalePositive(z->mShieldHealth, 3000);
+        z->mFlyingHealth = ScalePositive(z->mFlyingHealth, 3000);
+    }
+    if (z->mZombieType == ZombieType::ZOMBIE_NORMAL && Count(z, BASIC_TOUGHNESS) > 0)
+        z->mBodyHealth = ScalePositive(z->mBodyHealth, 3000);
 }
 inline int Attack(Zombie* z,int damage) {
     const int id=z->mZombieType==ZombieType::ZOMBIE_FOOTBALL ? RunSpeciesRules::HEAVY_FOOTBALL :

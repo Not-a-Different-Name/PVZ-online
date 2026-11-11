@@ -186,7 +186,6 @@ LawnApp::LawnApp()
 	mOnlineStartWaitFrames = 0;
 	mOrphanSetupTicks = 0;
 	mPauseMenuWasOpen = false;
-	mPauseMenuFromPeer = false;
 	mOnlineWaitingAdviceOn = false;
 	mRunState = nullptr;
 	mPendingAdventure = false;
@@ -732,6 +731,24 @@ static const int ZOMBIE_VOTE_TIMEOUT_FRAMES = 3000;
 void LawnApp::UpdateOnlineStart()
 {
 	if (!mOnlineSession || mOnlineSession->IsReconnecting()) return;
+    if(mOnlineSession->InWatchRoom())return;
+    NetProto::MsgStartLevel recovery{};
+    if(mOnlineSession->TakeSharedRecovery(recovery)) {
+        if(mBoard) {
+            mBoardResult=BoardResult::BOARDRESULT_NONE;
+            KillBoard();
+        }
+        mGameScene=GameScenes::SCENE_MENU;
+        mOnlineWaitingStartAck=false;
+        ShowOnlineStartPrompt(recovery);
+        OnlineStartPromptAnswer(true);
+        if(recovery.mIsRun && mOnlineRunStartHeld) {
+            mOnlineRunGo=true;
+            mOnlineSession->SendRunGo();
+        }
+        return;
+    }
+
     if(mOnlineWaitingStartAck && mOnlineSession->GetRole()!=NetSession::Role::HOST) {
         mOnlineWaitingStartAck=false;KillDialog(Dialogs::DIALOG_ONLINE_START);ClearOnlineStartOverride();
     }
@@ -1393,6 +1410,13 @@ void LawnApp::UpdateOnlineLevelExit()
 		// 复用 DoBackToMain 的五步（停音乐/写配置/关暂停框/拆棋盘/回菜单）；
 		// false 是因为"我要退"这句话对面已经先说了，不用回话。
 		DoBackToMain(false);
+        if(mOnlineSession->SharedRoom()) {
+            if(!mBoard) {
+                mOnlineSession->PostNotice(ModText::Tr("本局已结束，房间保留。", "The round ended. The room is still open."));
+                WatchRoomUi::Open(this);
+            }
+            return;
+        }
 		LawnMessageBox(Dialogs::DIALOG_MESSAGE, "Teammate left",
 			"A teammate left the level.\nBack to the main menu.", "OK", "", Dialog::BUTTONS_FOOTER);
 		return;
@@ -1418,7 +1442,8 @@ void LawnApp::UpdateOnlinePause()
 
 	// ① 队友按了暂停 / 继续
 	bool aPaused = false;
-	if (mOnlineSession->TakePauseState(aPaused))
+	uint8_t pauseSource = 0;
+	if (mOnlineSession->TakePauseState(aPaused,&pauseSource))
 	{
 		if (aPaused)
 		{
@@ -1429,7 +1454,7 @@ void LawnApp::UpdateOnlinePause()
 				DoNewOptions(false);
 				// 这一步是替队友做的，不算本机操作：下一段的检测器不该把它当成"我按的"
 				mPauseMenuWasOpen = true;
-				mPauseMenuFromPeer = true;
+				mPauseMenuPeerSeat = pauseSource;
 			}
 		}
 		else if (GetDialog(Dialogs::DIALOG_NEWOPTIONS) != nullptr)
@@ -1444,7 +1469,7 @@ void LawnApp::UpdateOnlinePause()
 	if (aNowOpen != mPauseMenuWasOpen)
 	{
 		mPauseMenuWasOpen = aNowOpen;
-		mPauseMenuFromPeer = false;
+		mPauseMenuPeerSeat = 0;
 		// A waiting spectator's local menu must not pause the fighting team.
         if (!mOnlineSession->IsWaitingForNextRound(mOnlineSession->GetLocalSeat()) && !mOnlineSession->NeedsRoundRejoin())
             mOnlineSession->SendPauseState(aNowOpen);
@@ -1452,13 +1477,14 @@ void LawnApp::UpdateOnlinePause()
 
 	// ③ 队友掉线了：他那张"替队友弹的"暂停菜单没人能解（玩家自己没按过），收掉；
 	// 玩家自己按出来的暂停菜单不动——那是他的操作，掉不掉线都该留着。
-	if (mPauseMenuFromPeer && !mOnlineSession->IsConnected()
+	if (mPauseMenuPeerSeat && (!mOnlineSession->IsConnected() ||
+        !mOnlineSession->IsSeatOccupied(mPauseMenuPeerSeat) || mOnlineSession->IsSeatOffline(mPauseMenuPeerSeat))
 		&& GetDialog(Dialogs::DIALOG_NEWOPTIONS) != nullptr)
 	{
 		TodLog("[net] the teammate vanished while the pause menu was theirs - closing it");
 		KillNewOptionsDialog();
 		mPauseMenuWasOpen = false;
-		mPauseMenuFromPeer = false;
+		mPauseMenuPeerSeat = 0;
 	}
 }
 
@@ -1754,6 +1780,7 @@ void LawnApp::UpdateOnlineEnd()
 			else
 			{
 				TodLog("[net] every lawn is clear - back to the main menu");
+                mOnlineSession->RequestCompletedRoomMenu();
 				DoBackToMain(false);
 				LawnMessageBox(Dialogs::DIALOG_MESSAGE, "Level complete",
 					"All lawns are clear - the level is over for the whole team.\nBack to the main menu.",
@@ -3535,6 +3562,7 @@ void LawnApp::MakeNewBoard()
 // GOTY @Patoke: 0x452970
 void LawnApp::StartPlaying()
 {
+    if (mBoard) mBoard->ApplyVotedWavePlan();
 	if(mRunState && mRunState->mAdmission.phase==Admission::PREPARED)mRunState->mAdmission.phase=Admission::PLAYED;
 	KillSeedChooserScreen();
 	TeamPlay::For(this).PrepareBattle();
@@ -3649,6 +3677,7 @@ void LawnApp::ShowGameSelector()
 	// @pvz-online: 选卡等队友（SEEDS_READY）的等待残留同理——留着的话下一局的门口会带着
 	// 上一局的等待框（框本身也一起撤掉：等待态没了，框就没主了）。
 	mOnlineSeedsHeld = false;
+	mOnlineWaitingStartAck = mOnlineStartPromptActive = false;
 	KillDialog(Dialogs::DIALOG_ONLINE_START);
 	//UpdateRegisterInfo();
 	if (mGameSelector)
@@ -3860,7 +3889,8 @@ void LawnApp::DoBackToMain(bool theNotifyOnline)
 	// theNotifyOnline=false 是"收到对面的退关、我跟着退"，别回声。
 	if (theNotifyOnline && IsOnlineGame() && mBoard && !IsLocalOnlyMode(mGameMode))
 	{
-        if(mOnlineSession->IsPrivateRoom() || mOnlineSession->IsWaitingForNextRound(mOnlineSession->GetLocalSeat()))mOnlineSession->Close();
+        if(!mOnlineSession->SharedRoom() && (mOnlineSession->IsPrivateRoom() ||
+            mOnlineSession->IsWaitingForNextRound(mOnlineSession->GetLocalSeat())))mOnlineSession->Close();
         else mOnlineSession->SendLevelExit(NetProto::EXIT_QUIT_TO_MENU);
 	}
 
@@ -7052,7 +7082,12 @@ void LawnApp::DoNeedRegisterDialog()
 
 void LawnApp::FinishModelessDialogs()
 {
-
+	KillDialog(Dialogs::DIALOG_CONFIRM_RESTART);
+	KillDialog(Dialogs::DIALOG_CONFIRM_BACK_TO_MAIN);
+	KillDialog(Dialogs::DIALOG_PAUSED);
+	KillDialog(Dialogs::DIALOG_ALMANAC);
+	KillDialog(Dialogs::DIALOG_GAME_OVER);
+	KillNewOptionsDialog();
 }
 
 bool LawnApp::NeedRegister()
