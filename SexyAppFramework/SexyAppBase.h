@@ -320,6 +320,7 @@ public:
 	DWORD					mRecommendedVidMemory3D;
 
 	bool					mWidescreenAware;
+	bool                    mHorizontalStretch = false;
 	Rect					mScreenBounds;
 	bool					mEnableWindowAspect;
 	Ratio					mWindowAspect;

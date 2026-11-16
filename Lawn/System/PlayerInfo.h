@@ -2,7 +2,7 @@
 #define __PLAYERINFO_H__
 
 #define MAX_NUM_ZOMBATARS 100
-#define MAX_POTTED_PLANTS 200
+#define MAX_POTTED_PLANTS 241
 #define PURCHASE_COUNT_OFFSET 1000
 
 #include <ctime>

@@ -159,3 +159,14 @@ GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o pvz
 - **无优雅退出**：`stop` 即退，没有落盘状态可丢。
 - **单进程单机**：本机Linux状态版空载约7MiB当前RSS，480模拟玩家密集通信短测约16MiB。RSS不含内核套接字和日志等开销；实际容量还受公网带宽及整机其他任务影响，不沿用旧版1–2MB说法。
 - 控制帧载荷不合法（长度/字段越界）**断连**处理；未知控制帧记日志后丢弃。
+
+
+## MOD114 fixed-preset matchmaking
+
+The relay release `2026-11-16-matchmaking2` adds control type `0xF026` and directory v5. Directory v1/v2/v4 and older gameplay builds retain their existing layouts. The START frame remains 56 bytes for MOD113+; matching requires MOD114+ and the same build in each room.
+
+Add `"match_node_id": "1"` (or that machine's actual numeric catalog ID) to operations.json and increment its revision. Keep the signed node catalog, endpoints, service identity, bandwidth settings and local admin listener. Every create/directory node participating in matching must run this release and use the same signed catalog revision. The lowest numeric enabled create/directory ID is the coordinator. Appending more catalog nodes requires no client patch. Coordinator reassignment is an operator catalog change, not a client-side automatic fallback.
+
+The coordinator queries bounded metadata and reserves one destination seat with an unpredictable 12-second token. Network work never holds the room mutex; commit/cancel/gate/START are serialized with ordinary joins. Requests wait at most two seconds for the coordinator, then return a retryable busy result. Mode/build/preset pools remain separate. A missing node or catalog disagreement fails matching closed; ordinary rooms and code/lobby joins continue independently. Temporarily retire an unavailable node from matching using the signed create/directory flags before expanding or maintaining the cluster. Do not rewrite an existing catalog ID to a new endpoint.
+
+Matching uses process-local bounded room state and rate maps; no database, gameplay proxy, or polling daemon is added. Restarting the relay still disconnects that node's players. Back up both binary and operations.json before switching; rollback restores both, including the prior config revision and removal of the new optional field.

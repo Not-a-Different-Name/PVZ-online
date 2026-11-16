@@ -414,7 +414,7 @@ int DDInterface::Init(HWND theWindow, bool IsWindowed)
 	{
 		OutputDebug(_S("Desktop is           %4lu x %4lu [%2d:%2d]\n"), mDesktopWidth, mDesktopHeight, mDesktopAspect.mNumerator, mDesktopAspect.mDenominator);
 
-		if ( mIs3D && mAspect < mDesktopAspect )
+		if ((mIs3D || mApp->mHorizontalStretch) && mAspect < mDesktopAspect)
 		{
 			mIsWidescreen = true;
 
@@ -439,7 +439,7 @@ int DDInterface::Init(HWND theWindow, bool IsWindowed)
 			{
 				// Set the dest rect for drawing the back buffer to the center of
 				// the wide display.
-				mPresentationRect.mWidth = mWidth * mDisplayHeight / mHeight;
+				mPresentationRect.mWidth = mApp->mHorizontalStretch ? mDisplayWidth : mWidth * mDisplayHeight / mHeight;
 				mPresentationRect.mHeight = mDisplayHeight;
 				mPresentationRect.mX = ( mDisplayWidth - mPresentationRect.mWidth ) / 2;
 				mPresentationRect.mY = 0;
@@ -748,7 +748,7 @@ void DDInterface::SetClientSize(int theClientWidth, int theClientHeight)
 	else
 	{
 		aPresentHeight = theClientHeight;
-		aPresentWidth = theClientHeight * mWidth / mHeight;
+		aPresentWidth = mApp->mHorizontalStretch ? theClientWidth : theClientHeight * mWidth / mHeight;
 	}
 	if (aPresentWidth < 1) aPresentWidth = 1;
 	if (aPresentHeight < 1) aPresentHeight = 1;

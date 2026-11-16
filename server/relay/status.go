@@ -17,7 +17,7 @@ import (
 	"time"
 )
 
-const relayRelease = "2026-11-12-shared-seat-elite-waves1"
+const relayRelease = "2026-11-16-matchmaking2"
 const defaultAdminAddress = "127.0.0.1:27778"
 const connectionLimit = 512
 const roomLimit = 256
@@ -324,4 +324,3 @@ func printStatus(address string, raw bool, out io.Writer) error {
 	fmt.Fprintln(out, "流量只含中继TCP数据，不含IP/TCP头、重传；退出/重启后累计值清零。")
 	return nil
 }
-

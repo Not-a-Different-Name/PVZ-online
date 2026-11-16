@@ -313,6 +313,7 @@ enum Dialogs
     DIALOG_ROOM_DIRECTORY,                     // @pvz-online: public live room browser.
     DIALOG_RUN_HISTORY,                        // @pvz-online: local per-profile recent runs.
     DIALOG_SERVER_SELECT,                      // @pvz-online: explicit relay node selection.
+    DIALOG_MATCHMAKING,
     NUM_DIALOGS
 };
 enum DebugTextMode

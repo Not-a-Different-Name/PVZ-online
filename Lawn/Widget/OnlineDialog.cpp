@@ -1,6 +1,7 @@
 #include "../../SexyAppFramework/Common.h"
 #include "OnlineDialog.h"
 #include "RoomDirectoryDialog.h"
+#include "MatchmakingDialog.h"
 #include "WatchRoomDialog.h"
 #include "RunHistoryDialog.h"
 #include "OnlineSeatDialog.h"
@@ -102,6 +103,7 @@ OnlineDialog::OnlineDialog(LawnApp* theApp) :
 	mHostButton = MakeOnlineButton(OnlineDialog::OnlineDialog_Host, this, ModText::Tr("建房", "Host"));
 	mJoinButton = MakeOnlineButton(OnlineDialog::OnlineDialog_Join, this, ModText::Tr("加入", "Join"));
 	mCloseButton = MakeOnlineButton(OnlineDialog::OnlineDialog_Close, this, ModText::Tr("返回", "Back"));
+	mMatchButton=MakeOnlineButton(1224,this,ModText::Tr("一键匹配","Find a team"));
 	mStartButton = MakeOnlineButton(OnlineDialog_Start,this,ModText::Tr("开始游戏","Start game"));
 	mDisconnectButton = MakeOnlineButton(OnlineDialog::OnlineDialog_Disconnect, this, ModText::Tr("断开", "Disconnect"));
 	mSwapButton = MakeOnlineButton(OnlineDialog::OnlineDialog_Swap, this, ModText::Tr("队友", "Seats"));
@@ -145,6 +147,7 @@ OnlineDialog::~OnlineDialog()
     delete mPasteButton;delete mCopyCodeButton;delete mCopyInviteButton;delete mShareButton;
     delete mLocalPageButton;delete mServerPageButton;delete mSoloButton;
 	delete mWatchButton;delete mDirectoryButton;delete mHistoryButton;delete mVisibilityButton;
+	delete mMatchButton;
 	delete mHostButton;
 	delete mJoinButton;
 	delete mCloseButton;
@@ -167,6 +170,7 @@ void OnlineDialog::Resize(int x,int y,int width,int height)
     mLocalPageButton->Resize(LocalPage());mServerPageButton->Resize(ServerPage());mSoloButton->Resize(Solo());
     mWatchButton->Resize(390,34,150,42);mDirectoryButton->Resize(40,480,260,46);mHistoryButton->Resize(552,34,168,42);mVisibilityButton->Resize(480,440,232,32);
     mHostButton->Resize(DirectHost());mJoinButton->Resize(DirectJoin());
+    mMatchButton->Resize(48,398,664,46);
     mCreateRoomButton->Resize(Create());mJoinRoomButton->Resize(Join());
     mCloseButton->Resize(Close());mDisconnectButton->Resize(Disconnect());
     mSwapButton->Resize(Seats());mStartButton->Resize(Start());
@@ -190,6 +194,7 @@ void OnlineDialog::AddedToManager(WidgetManager* theWidgetManager)
 	AddWidget(mRejectButton);
 	AddWidget(mCreateRoomButton);
 	AddWidget(mJoinRoomButton);
+	AddWidget(mMatchButton);
 	AddWidget(mStartButton);
 	AddWidget(mIpEditWidget);
 	AddWidget(mCodeEditWidget);
@@ -212,6 +217,7 @@ void OnlineDialog::RemovedFromManager(WidgetManager* theWidgetManager)
 	RemoveWidget(mRejectButton);
 	RemoveWidget(mCreateRoomButton);
 	RemoveWidget(mJoinRoomButton);
+	RemoveWidget(mMatchButton);
 	RemoveWidget(mStartButton);
 	RemoveWidget(mIpEditWidget);
 	RemoveWidget(mCodeEditWidget);
@@ -222,6 +228,10 @@ void OnlineDialog::Update()
 	LawnDialog::Update();
 
 	NetSession* aSession = mApp->mOnlineSession;
+    if(aSession->mMatchStartPending) {
+        if(!aSession->CanHostStart()){aSession->mMatchStartPending=false;if(aSession->IsHostSeat()&&aSession->IsConnected())aSession->RequestRoomGate(true);}
+        else if(aSession->RequestRoomGate(false)){aSession->mMatchStartPending=false;ButtonDepress(OnlineDialog_Start);return;}
+    }
     mTransfer.Update();const auto pasted=mTransfer.TakePaste();if(!pasted.empty()){ApplyInvite(pasted);if(mServerInputError.empty()){if(mPage==OnlineRoomLayout::LOCAL)StartJoin();else StartRoomJoin();}}
     RoomInvite::Intent typed;if(mPage==OnlineRoomLayout::SERVER&&mCodeEditWidget->mString!=mPastedCode&&RoomInvite::Parse(mCodeEditWidget->mString,typed))ApplyInvite(mCodeEditWidget->mString);
 	// 死了的会话（掉线 / 版本不符被拒）按"没连着"对待：Host/Join 直接给回来，
@@ -278,9 +288,12 @@ void OnlineDialog::Update()
     mWatchButton->mVisible=anActive&&aSession->SharedRoom();
     mWatchButton->SetLabel(mRoomSelection.Label(aSession));
     mWatchButton->SetDisabled(!mRoomSelection.Enabled(aSession));
+    const bool matchRoom=anActive&&aSession->mMatchMode>=0;
+    mMatchButton->mVisible=server||matchRoom;mMatchButton->SetDisabled((!server&&!matchRoom)||allocating);
+    mMatchButton->Resize(matchRoom?Rect(480,440,232,32):Rect(48,398,664,46));mMatchButton->SetLabel(matchRoom?ModText::Tr("匹配规则","Matching rules"):ModText::Tr("一键匹配","Find a team"));
     mDirectoryButton->mVisible=server;mDirectoryButton->SetDisabled(!server||allocating);
     mHistoryButton->SetLabel(anActive&&aSession->IsPrivateRoom()?ModText::Tr("复制邀请","Copy invite"):ModText::Tr("最近记录","Recent runs"));
-    mVisibilityButton->mVisible=anActive&&aSession->IsRelay()&&!aSession->IsPrivateRoom()&&aSession->IsHostSeat()&&!aSession->mDirectoryStarted;
+    mVisibilityButton->mVisible=anActive&&aSession->IsRelay()&&!aSession->IsPrivateRoom()&&aSession->IsHostSeat()&&!aSession->mDirectoryStarted&&aSession->mMatchMode<0;
     mVisibilityButton->SetLabel(aSession&&!aSession->mDirectoryConfirmed?ModText::Tr("正在更新…","Updating..."):
         aSession&&aSession->mDirectoryPublic?ModText::Tr("公开房间：开","Public: on"):ModText::Tr("公开房间：关","Public: off"));
     mHostButton->SetLabel(ModText::Tr("开六人房","Host six"));
@@ -299,7 +312,7 @@ void OnlineDialog::Update()
     const bool localHost=aSession->IsConnected()&&aSession->IsPrivateRoom()&&aSession->IsHostSeat()&&
         aSession->GetRelayHost()=="127.0.0.1"&&aSession->GetRelayPort()==LocalHostControl::Port();
     mDisconnectButton->mVisible=anActive||mStartingLocalHost;mSwapButton->mVisible=anActive;
-    mDisconnectButton->SetLabel(mStartingLocalHost?ModText::Tr("取消开房","Cancel hosting"):localHost?ModText::Tr("结束托管并离开","End & leave"):
+    mDisconnectButton->SetLabel(aSession->mMatching?ModText::Tr("取消匹配","Cancel matching"):mStartingLocalHost?ModText::Tr("取消开房","Cancel hosting"):localHost?ModText::Tr("结束托管并离开","End & leave"):
         mApp->mBoard?ModText::Tr("保存并退房","Save & leave"):ModText::Tr("退出房间","Leave room"));
     mCloseButton->Resize(anActive?OnlineRoomLayout::Close():OnlineRoomLayout::Start());
     mStartButton->mVisible=anActive&&(!aSession->SharedRoom()||aSession->IsHostSeat());
@@ -346,6 +359,7 @@ void OnlineDialog::KeyDown(KeyCode key) {
 
 void OnlineDialog::ButtonDepress(int theId)
 {
+    if(theId==1224){if(mMatchButton->mVisible&&!mMatchButton->mDisabled)mApp->AddDialog(DIALOG_MATCHMAKING,new MatchmakingDialog(mApp));return;}
     if(theId==1223){
         auto* session=mApp->mOnlineSession;
         const auto seat=mRoomSelection.Selected(session);
@@ -389,6 +403,7 @@ void OnlineDialog::ButtonDepress(int theId)
         return;
 	case OnlineDialog_Start:
 		if(!OnlineRoomLayout::CanStart(mApp))return;
+        if(mApp->mOnlineSession->mMatchMode>=0&&!mApp->mOnlineSession->RequestRoomGate(false)){mApp->mOnlineSession->mMatchStartPending=true;return;}
 		{auto* app=mApp;const bool retry=OnlineRoomLayout::HasLostBoard(app);app->KillDialog(DIALOG_ONLINE);
             if(retry)app->RetryOnlineLevel();else app->RequestAdventure();}
 		return;

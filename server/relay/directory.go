@@ -29,8 +29,8 @@ func (s *Server) handlePublish(c *Conn, p []byte) {
 	if r == nil || r.host != c || c.build < 68 {
 		return
 	}
-	r.public = p[2] != 0
-	if !r.flow.started {
+	r.public = p[2] != 0 || r.matchPreset != 0
+	if !r.flow.started && r.matchPreset == 0 {
 		r.started = p[3] != 0
 	}
 	s.publishWatchRoster(r)
@@ -55,7 +55,7 @@ func (s *Server) handleList(c *Conn, p []byte) {
 		limit = legacyDirectoryLimit
 	}
 	offset := int(binary.LittleEndian.Uint16(p[4:]))
-	if (version != 1 && version != 2 && version != 4) || offset >= limit || offset%directoryPageSize != 0 {
+	if (version != 1 && version != 2 && version != 4 && version != 5) || offset >= limit || offset%directoryPageSize != 0 {
 		s.dropBadControl(c, msgCliList)
 		return
 	}
@@ -69,7 +69,7 @@ func (s *Server) handleList(c *Conn, p []byte) {
 	now := time.Now()
 	codes := make([]string, 0, len(s.rooms))
 	for code, r := range s.rooms {
-		if r.public && (r.host != nil && !r.host.left.Load() || version == 4 && r.sharedBuild != 0 && r.sharedPaused) && (version == 4 || (!r.started && (!r.gateManaged || r.joinOpen))) {
+		if r.public && (r.host != nil && !r.host.left.Load() || version >= 4 && r.sharedBuild != 0 && r.sharedPaused) && (version >= 4 || (!r.started && (!r.gateManaged || r.joinOpen))) {
 			codes = append(codes, code)
 		}
 	}
@@ -118,7 +118,7 @@ func (s *Server) handleList(c *Conn, p []byte) {
 		out.raw(hostName[:])
 		out.u16(hostBuild)
 		out.u8(players)
-		if version == 4 {
+		if version >= 4 {
 			if r.started || (r.gateManaged && !r.joinOpen) {
 				flags |= 4
 			}
@@ -127,8 +127,17 @@ func (s *Server) handleList(c *Conn, p []byte) {
 			}
 		}
 		out.u8(flags)
-		if version == 4 {
+		if version >= 4 {
 			out.u8(r.viewerSlotsUsed())
+		}
+		if version == 5 {
+			out.u8(r.matchMode)
+			out.u8(r.matchPreset)
+			if r.matchOpen() && r.host != nil {
+				out.u8(1)
+			} else {
+				out.u8(0)
+			}
 		}
 	}
 	// A single bounded response ends the browser connection, including on old servers' empty pages.

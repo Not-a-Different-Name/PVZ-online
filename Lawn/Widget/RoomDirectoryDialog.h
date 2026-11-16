@@ -2,6 +2,7 @@
 #include "../../SexyAppFramework/Common.h"
 #include "LawnDialog.h"
 #include "OnlineUiDraw.h"
+#include "../Online/Matchmaking.h"
 #include "../Online/AutomaticRooms.h"
 #include "../Online/RoomPresentation.h"
 
@@ -46,11 +47,11 @@ public:
             if(i==selected){g->SetColor(Color(225,205,100));g->DrawRect(box.mX+1,box.mY+1,box.mWidth-3,box.mHeight-3);}
             const auto color=entry.Joinable()?Color(245,230,165):Color(175,175,170);
             SeatUi::Text(g,entry.code+"  "+entry.host,box.mX+12,box.mY+29,382,21,color);
-            const std::string availability=entry.build>NetProto::MOD_BUILD?ModText::Tr("版本过高","Room version newer"):
+            const std::string availability=entry.matching?std::string(ModText::Tr("匹配中 · ","Matching / "))+Matchmaking::ModeName(entry.matchMode):entry.build>NetProto::MOD_BUILD?ModText::Tr("版本过高","Room version newer"):
                 entry.build<NetProto::MOD_BUILD?ModText::Tr("版本过低","Room version older"):
                 entry.Playable()?ModText::Tr("可加入","Joinable"):
                 entry.Watchable()?ModText::Tr("可观战","Watchable"):ModText::Tr("已满或关闭","Full or closed");
-            SeatUi::Text(g,std::to_string(entry.players)+"/6  "+std::to_string(entry.viewers)+"/4  ·  "+availability+(entry.build!=NetProto::MOD_BUILD?"  ·  MOD"+std::to_string(entry.build):std::string{}),box.mX+404,box.mY+29,288,18,color);
+            SeatUi::Text(g,std::to_string(entry.players)+"/6  "+(entry.build>=112?std::string{}:std::to_string(entry.viewers)+"/4  ")+"·  "+availability+(entry.build!=NetProto::MOD_BUILD?"  ·  MOD"+std::to_string(entry.build):std::string{}),box.mX+404,box.mY+29,288,18,color);
         }
         SeatUi::Text(g,ModText::Tr("第 ","Page ")+std::to_string(browser.page+1)+ModText::Tr(" 页",""),48,490,704,18,Color(205,210,195),true);
         SeatUi::Button(g,Back(),ModText::Tr("返回房间","Back"),true,down==100);

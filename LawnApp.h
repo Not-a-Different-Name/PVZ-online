@@ -71,6 +71,7 @@ class LawnApp : public SexyApp
 public:
     bool mObserverP2P = false;
     bool SetObserverP2P(bool enabled);
+    bool SetHorizontalStretch(bool enabled);
     Observer::InputFence mObserverInput;bool mObserverTextTail=false;
     bool FilterObserverInput(int,int=0,int=0,int=0)override;
     std::unique_ptr<CoopPlay> mCoopPlay;
@@ -510,6 +511,8 @@ public:
 	// @pvz-online: 按席位号取同一条顺位曲线（大厅换位预览用，2026-10-15）：换位不改变
 	// 上座席位集合，各席位号的乘数/阳光档不变——预览=直接查目标席位号的档。
 	int								OnlineSeatMultiplierForSeat(uint8_t theSeat);
+    int OnlineSpawnMultiplierForSeat(uint8_t seat);
+    int OnlineSeatHealthPermilleForSeat(uint8_t seat);
 	// @pvz-online: 顺位开局阳光（2026-10-06 用户定案，取代本批删除的「储备」词条）：
 	// 按上座顺位从后往前 0/0/100/200/300/500——×2→0、×4→+100、×8→+200、×16→+300、
 	// ×32→+500（二人局两端都是 ×2 → 都 0；单机 / 单人 = 0）。挂点 = Board::InitLevel。

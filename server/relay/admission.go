@@ -57,6 +57,11 @@ func (s *Server) handleGate(c *Conn, p []byte) {
 		return
 	}
 	r.gateManaged, r.gateRequest, r.gateEpoch, r.joinOpen = true, request, epoch, p[8] != 0
+	for _, member := range r.bySeat {
+		if member != nil {
+			s.publishMatch(r, member)
+		}
+	}
 	response := append([]byte(nil), p[:9]...)
 	mask := r.combatOccupiedMask(time.Now())
 	response = append(response, mask)

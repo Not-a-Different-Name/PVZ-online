@@ -21,6 +21,7 @@ import (
 const defaultCatalogPublicKey = "EyJZjxD87BdiiDvFnXKBuvdOZKjU0vt3WdZ3UaCW3QA="
 
 type operationsConfig struct {
+	MatchNodeID      string  `json:"match_node_id,omitempty"`
 	Revision         uint64  `json:"revision"`
 	BandwidthMbps    float64 `json:"bandwidth_mbps"`
 	SendBudgetMbps   float64 `json:"send_budget_mbps"`

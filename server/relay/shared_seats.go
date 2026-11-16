@@ -167,6 +167,7 @@ func (s *Server) welcomeShared(r *Room, c *Conn) {
 		roster = append(roster, rosterEntry{seat: c.seat, build: c.build, name: c.name})
 	}
 	s.enqueue(c, encodeFrame(msgSrvWelcome, encodeWelcome(c.seat, r.hostSeat, r.code, roster)))
+	s.publishMatch(r, c)
 }
 
 func (s *Server) handleSharedRole(r *Room, c *Conn, p []byte) {
@@ -361,6 +362,9 @@ func (s *Server) removeSharedMember(r *Room, c *Conn, reason uint8) {
 		return
 	}
 	r.bySeat[seat] = nil
+	if c.left.Load() {
+		r.matchSeats[seat] = matchReservation{}
+	}
 	if !c.left.Load() {
 		r.holds[seat] = seatHold{flow: c.flow, credential: c.credential, name: c.name, build: c.build,
 			until: time.Now().Add(s.holdDuration), watchIdentity: c.watchIdentity, seatObserver: c.seatObserver}

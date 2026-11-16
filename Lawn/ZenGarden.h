@@ -36,15 +36,20 @@ public:
     LawnApp*                mApp;           //+0x0
     Board*                  mBoard;         //+0x4
     GardenType              mGardenType;    //+0x8
+    int                     mGardenPage = 0;
 
 public:
     ZenGarden();
 
     void                    ZenGardenInitLevel();
+    void                    DrawGardenPages(Graphics* g);
+    bool                    ShouldShowGardenPages() const;
+    bool                    IsPlantOnPage(const PottedPlant& thePlant) const;
+    void                    ClearGardenPage();
     /*inline*/ void         DrawPottedPlantIcon(Graphics* g, float x, float y, PottedPlant* thePottedPlant);
     void                    DrawPottedPlant(Graphics* g, float x, float y, PottedPlant* thePottedPlant, float theScale, bool theDrawPot);
     bool                    IsZenGardenFull(bool theIncludeDroppedPresents);
-    void                    FindOpenZenGardenSpot(int& theSpotX, int& theSpotY);
+    bool                    FindOpenZenGardenSpot(int& thePage, int& theSpotX, int& theSpotY);
     void                    AddPottedPlant(PottedPlant* thePottedPlant);
     void                    MouseDownWithTool(int x, int y, CursorType theCursorType);
     void                    MovePlant(Plant* thePlant, int theGridX, int theGridY);

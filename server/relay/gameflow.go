@@ -68,6 +68,11 @@ func (r *Room) onlineMask() uint8 {
 }
 func (r *Room) flowMask() uint8 { return r.combatOnlineMask() &^ r.roundWaitMask }
 func (s *Server) publishFlow(r *Room) {
+	for _, member := range r.bySeat {
+		if member != nil {
+			s.publishMatch(r, member)
+		}
+	}
 	if r.flow.term == 0 {
 		r.flow.term = 1
 	}
@@ -249,6 +254,9 @@ func (s *Server) handleFlowStart(c *Conn, p []byte) {
 	}
 	epoch := binary.LittleEndian.Uint32(p[4:])
 	snapshot := append([]byte(nil), p[8:]...)
+	if !r.matchStartValid(snapshot) {
+		return
+	}
 	if epoch == 0 || snapshot[0] != c.seat || binary.LittleEndian.Uint32(snapshot[len(snapshot)-5:len(snapshot)-1]) != epoch {
 		return
 	}

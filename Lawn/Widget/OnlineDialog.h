@@ -74,6 +74,7 @@ public:
 	LawnStoneButton*	mCreateRoomButton;
 	LawnStoneButton*	mJoinRoomButton;
 	LawnStoneButton* mStartButton;
+    LawnStoneButton* mMatchButton;
     LawnStoneButton *mDirectoryButton,*mHistoryButton,*mVisibilityButton,*mWatchButton;
     LawnStoneButton *mLocalPageButton,*mServerPageButton,*mSoloButton;
     RelayNodes::Allocator mAllocator;

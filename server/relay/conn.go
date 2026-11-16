@@ -21,6 +21,7 @@ type outMsg struct {
 }
 
 type Conn struct {
+	matchState                    []byte
 	watchIdentity, watchJoinRound uint32
 	watchReserved                 uint8
 	watchDeadline                 time.Time
@@ -186,6 +187,8 @@ func (s *Server) handle(c *Conn, typ uint16, payload []byte) {
 			return
 		}
 		switch typ {
+		case msgMatch:
+			s.handleMatch(c, payload)
 		case msgCliWatchJoin:
 			s.handleWatchJoin(c, payload)
 		case msgCliWatchRole:

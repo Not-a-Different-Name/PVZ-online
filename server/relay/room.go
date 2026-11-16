@@ -28,6 +28,10 @@ type seatHold struct {
 }
 
 type Room struct {
+	matchPreset     uint8
+	matchMode       uint8
+	matchCreated    time.Time
+	matchSeats      [maxPlayers + 1]matchReservation
 	sharedBuild     uint16
 	sharedStart     []byte
 	sharedEndless   []byte
@@ -77,7 +81,7 @@ func (r *Room) holdActive(seat uint8, now time.Time) bool {
 // 只是懒清扫，过期保留的"广播离开/散房"由 sweepOnce 负责。
 func (r *Room) lowestFreeSeat(now time.Time) uint8 {
 	for i := 1; i <= maxPlayers; i++ {
-		if r.bySeat[i] != nil {
+		if r.bySeat[i] != nil || r.matchReserved(i, now) {
 			continue
 		}
 		if !r.holds[i].until.IsZero() {
@@ -115,6 +119,7 @@ func (r *Room) broadcast(s *Server, except *Conn, frame []byte) {
 }
 
 type Server struct {
+	matching            matchCoordinator
 	observerBusy        atomic.Bool
 	observerMemory      atomic.Int64
 	observerBudgetMu    sync.Mutex
@@ -357,6 +362,7 @@ func (s *Server) handleSwapCommitWithTerm(c *Conn, a, b uint8, term, epoch, requ
 		r.flow.prepCommitted = true
 	}
 	r.bySeat[a], r.bySeat[b] = cb, ca
+	r.matchSeats[a], r.matchSeats[b] = r.matchSeats[b], r.matchSeats[a]
 	waitA, waitB := r.roundWaitMask&(1<<a) != 0, r.roundWaitMask&(1<<b) != 0
 	r.roundWaitMask &^= (1 << a) | (1 << b)
 	if waitA {
@@ -759,7 +765,7 @@ func (r *Room) empty() bool {
 		return false
 	}
 	for i := 1; i <= maxPlayers; i++ {
-		if r.bySeat[i] != nil || !r.holds[i].until.IsZero() {
+		if r.bySeat[i] != nil || !r.holds[i].until.IsZero() || r.matchReserved(i, time.Now()) {
 			return false
 		}
 	}

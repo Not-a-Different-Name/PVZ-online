@@ -1,5 +1,6 @@
 #pragma once
 #include "OnlineUiDraw.h"
+#include "../Online/Matchmaking.h"
 #include "PlayerRoomText.h"
 #include "NameplateDraw.h"
 #include "NameplatePresentation.h"
@@ -94,7 +95,7 @@ inline void Draw(Graphics* g,LawnApp* app,const std::string& detail,const std::s
         if(page==SERVER) {
             SeatUi::Text(g,ModText::Tr("至少2人才能开始","At least 2 players to start"),48,260,664,18,Color(210,220,195));
             SeatUi::Text(g,ModText::Tr("房间码","Code"),48,310,136,20,Color(220,225,210));
-            SeatUi::Text(g,ModText::Tr("也可填写四位房码，再点「加入房间」。","Or enter a four-character code and choose Join room."),48,420,664,18,Color(190,210,225));
+            SeatUi::Text(g,ModText::Tr("找陌生队友可点「一键匹配」。","Choose Find a team to play with others."),48,460,664,16,Color(190,210,225));
         } else if(page==LOCAL) {
             
             SeatUi::Text(g,ModText::Tr("局域网／自建 · 最多六人","LAN / private - up to six players"),48,332,664,20,Color(245,230,165));
@@ -110,7 +111,12 @@ inline void Draw(Graphics* g,LawnApp* app,const std::string& detail,const std::s
     const auto view=PlayerRoomText::Capture(app,CanStart(app),NeedsPlayers(s));
     SeatUi::Text(g,PlayerRoomText::Title(view),56,121,412,23,view.mismatch?Color(255,175,120):Color(245,230,165));
     if(view.mismatch)SeatUi::Text(g,ModText::Tr("本机 MOD","Your build: MOD")+std::to_string(NetProto::MOD_BUILD),488,121,216,14,Color(255,175,120));
-    SeatUi::Paragraph(g,PlayerRoomText::Hint(view,detail),Rect(56,130,648,42),17,view.mismatch?Color(255,175,120):Color(210,220,225));
+    std::string hint=PlayerRoomText::Hint(view,detail);
+    if(s->mMatchMode>=0 && s->mMatching) {
+        const auto elapsed=std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now()-s->mMatchWaitingSince).count();
+        hint=std::string(ModText::Tr("匹配中 · ","Matching / "))+Matchmaking::ModeName(s->mMatchMode)+" / "+std::to_string(elapsed)+ModText::Tr(" 秒 · 2人起由房主开始","s / Host starts with 2+");
+    } else if(s->mMatchMode>=0 && !s->mDirectoryStarted)hint=std::string(Matchmaking::ModeName(s->mMatchMode))+ModText::Tr(" · 固定规则 · 首波30秒"," / Fixed rules / First wave 30s");
+    SeatUi::Paragraph(g,hint,Rect(56,130,648,42),17,view.mismatch?Color(255,175,120):Color(210,220,225));
     if(active) {
         SeatUi::Strip(g,Rect(40,188,680,54));
         std::string caption=s->GetRoomCode();

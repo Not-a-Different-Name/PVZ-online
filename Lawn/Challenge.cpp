@@ -365,6 +365,7 @@ void Challenge::InitLevel()
 	if (mApp->mGameMode == GAMEMODE_CHALLENGE_ZEN_GARDEN)
 	{
 		mApp->mZenGarden->mGardenType = GARDEN_MAIN;
+		mApp->mZenGarden->mGardenPage = 0;
 		mApp->mZenGarden->ZenGardenInitLevel();
 	}
 	if (mApp->mGameMode == GAMEMODE_CHALLENGE_COLUMN)

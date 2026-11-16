@@ -1,3 +1,4 @@
+#include "Lawn/Online/NetSession.h"
 #include "Run/RunPlantTraits.h"
 #include "TeamPlay.h"
 #include "Plant.h"
@@ -1053,6 +1054,15 @@ void Zombie::ZombieInitialize(int theRow, ZombieType theType, bool theVariant, Z
         && mApp->GetRunState()->ZombieBuffCount(RunState::ZOMBIE_BUFF_STEADFAST) > 0;
 
     RunSpeciesEffects::ApplyInitialHealth(this);
+    // Apply once to newly created enemies; relay import overwrites with sender health.
+    if (mApp->IsOnlineGame() && IsOnBoard()) {
+        const int permille = mApp->OnlineSeatHealthPermilleForSeat(mApp->mOnlineSession->GetLocalSeat());
+        mBodyHealth = RunMath::ScaleHealth(mBodyHealth, permille);
+        mHelmHealth = RunMath::ScaleHealth(mHelmHealth, permille);
+        mShieldHealth = RunMath::ScaleHealth(mShieldHealth, permille);
+        mFlyingHealth = RunMath::ScaleHealth(mFlyingHealth, permille);
+    }
+
 
     mHelmMaxHealth = mHelmHealth;
     mBodyMaxHealth = mBodyHealth;
@@ -6874,8 +6884,7 @@ bool Zombie::CanTargetPlant(Plant* thePlant, ZombieAttackType theAttackType)
         SeedType aNutType = thePlant->mSeedType;
         if (aNutType == SeedType::SEED_IMITATER && thePlant->mImitaterType != SeedType::SEED_NONE)
             aNutType = thePlant->mImitaterType;
-        if (((aNutType == SEED_WALLNUT && mApp->RunExtraBuffCount(RUN_BUFF2_NUT_BOWLING) > 0) ||
-            (aNutType == SEED_CABBAGEPULT && RunPlantTraits::BowlingCabbage(mApp))) &&
+        if (RunPlantTraits::RollingBowling(mApp, aNutType) &&
             theAttackType != ZombieAttackType::ATTACKTYPE_VAULT)
             return false;
     }

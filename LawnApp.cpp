@@ -1,3 +1,4 @@
+#include "SexyAppFramework/graphics/DDInterface.h"
 #include "Lawn/System/PerformanceMonitor.h"
 #include "Lawn/Observer/ObserverIsolation.h"
 #include "Lawn/Run/EndlessSaves.h"
@@ -499,6 +500,20 @@ void LawnApp::ReadFromRegistry()
 {
 	SexyApp::ReadFromRegistry();
     mObserverP2P=false;RegistryReadBoolean("ObserverP2PEnabled",&mObserverP2P);
+    RegistryReadBoolean("HorizontalStretch", &mHorizontalStretch);
+}
+
+bool LawnApp::SetHorizontalStretch(bool enabled)
+{
+    if (!RegistryWriteBoolean("HorizontalStretch", enabled))
+        return false;
+    mHorizontalStretch = enabled;
+    RECT client{};
+    if (mDDInterface && mDDInterface->mIsWindowed && GetClientRect(mHWnd, &client))
+        WindowResized(client.right - client.left, client.bottom - client.top);
+    else if (mDDInterface)
+        SexyAppBase::SwitchScreenMode(mIsWindowed, Is3DAccelerated(), true);
+    return true;
 }
 
 //0x44F540
@@ -1333,7 +1348,7 @@ void LawnApp::UpdateOnlineSeeds()
 // 的棋盘建好了再冒出来。
 //
 // 收到就交给 Board::AddRelayedZombie：同类型的怪从本棋盘右侧重新走进来，带着它
-// 对面挨打后剩下的血。每只都打一行日志——玩家在两边看到的必须是同一只怪。
+// 对面挨打后剩下的血。接力横幅由草坪按批显示。
 void LawnApp::UpdateOnlineRelay()
 {
     if (mBoard && IsLocalOnlyMode(mGameMode)) return; // @pvz-online: local garden/tree only.
@@ -1372,10 +1387,6 @@ void LawnApp::UpdateOnlineRelay()
         RunSpeciesRuntime::ImportRelay(aZombie,aMsg);
         mOnlineSession->TakePendingEscapedZombie(aMsg); // Commit only after successful spawn.
 
-		TodLog("[net] relayed zombie is on the board: row %u type %u hp %d/%d/%d/%d",
-			(unsigned)aMsg.mRow, (unsigned)aMsg.mZombieType,
-			(int)aMsg.mBodyHealth, (int)aMsg.mHelmHealth,
-			(int)aMsg.mShieldHealth, (int)aMsg.mFlyingHealth);
 	}
 
 	// @pvz-online: 发阳光（MOD_BUILD 38）——队友发来的到账额直接入账（封顶 9990）+
@@ -2019,6 +2030,10 @@ void LawnApp::UpdateAdventureRequest()
 		return;
 	}
 
+    if(aSession && aSession->IsConnected() && aSession->mMatchMode>=0) {
+        if(!aSession->RequestRoomGate(false)){mPendingAdventure=true;return;}
+        StartRun(aSession->mMatchMode,1,1,1,0,0,2,0,0,1,0,1);return;
+    }
 	// 出怪难度（MOD_BUILD 27）那一行只在"队伍"里摆（判据同 RequestAdventure：会话活着、
 	// 不是掉线）——单机局档位恒为标准，摆了也是死控件。无尽变体例外（弹窗自己会把
 	// 这一行对单机也摆上，无尽单机同样吃这些档）。
@@ -2125,6 +2140,11 @@ void LawnApp::UpdateStartupAnnounce()
 
 void LawnApp::StartRun(int theRunMode, int theRunDiff, int theRunScale, int theRunTempo, int theZombotany, int theEndlessScene, int theBossFlag, int theBuffMult, int theLadder, int theZombieBuff, int theSpeedTier, int theFirstWave, int theEndlessOptions)
 {
+    if(mOnlineSession && mOnlineSession->IsConnected() && mOnlineSession->mMatchMode>=0) {
+        theRunMode=mOnlineSession->mMatchMode;theRunDiff=theRunScale=theRunTempo=1;
+        theZombotany=theEndlessScene=theBuffMult=theLadder=theSpeedTier=theEndlessOptions=0;
+        theBossFlag=2;theZombieBuff=1;theFirstWave=1;
+    }
     if(theRunMode==RunState::RUN_MODE_ENDLESS && !EndlessSaves::ArchiveLegacy(mPlayerInfo->mId,theEndlessScene)) {
         PlayerMessageBox::Show(this,DIALOG_MESSAGE,ModText::Tr("无法开始","Cannot start"),ModText::Tr("请检查可用空间后重试。","Check storage and retry."));return;
     }
@@ -2151,6 +2171,9 @@ void LawnApp::StartRun(int theRunMode, int theRunDiff, int theRunScale, int theR
 
 void LawnApp::ContinueRun(int theMode,int theScene, uint64_t slot)
 {
+    if(mOnlineSession && mOnlineSession->IsConnected() && mOnlineSession->mMatchMode>=0) {
+        PlayerMessageBox::Show(this,DIALOG_MESSAGE,ModText::Tr("固定匹配规则","Fixed matching rules"),ModText::Tr("匹配房间请由房主开始新局。续档可使用普通房间。","Start a new run in a matching room. Use a regular room to resume a save."));return;
+    }
     if (!IsOnlineStartAllowed()) { DoOnlineDialog(); return; }
 	ResetZombieVote();
     SetTeamProgressionController(nullptr);
@@ -3366,6 +3389,29 @@ int LawnApp::OnlineSeatMultiplier()
 
 // @pvz-online: 顺位开局阳光的档位表（2026-10-06 用户定案）：按上座顺位乘数取档——×2 → 0、
 // ×4 → +100、×8 → +200、×16 → +300、×32 → +500；从后往前读就是 0/0/100/200/300/500。
+int LawnApp::OnlineSpawnMultiplierForSeat(uint8_t seat)
+{
+    return std::min(8, OnlineSeatMultiplierForSeat(seat));
+}
+int LawnApp::OnlineSeatHealthPermilleForSeat(uint8_t seat)
+{
+    if (!IsOnlineGame() || !mOnlineSession) return 1000;
+    int count=0,rank=0;
+    if (mOnlineSession->SupportsWatchRoom()) {
+        for (uint8_t current : mOnlineSession->WatchCombatOrder()) {
+            if (!current || mOnlineSession->IsSeatOffline(current) || mOnlineSession->IsWaitingForNextRound(current)) continue;
+            ++count;
+            if (current==seat) rank=count;
+        }
+    } else {
+        count=mOnlineSession->GetOccupiedSeatCount();
+        if (!mOnlineSession->IsSeatOccupied(seat)) return 1000;
+        for (uint8_t current=1;current<=seat;++current)
+            if (mOnlineSession->IsSeatOccupied(current)) ++rank;
+    }
+    return rank ? 1000 + std::max(0,count-rank-1)*100 : 1000;
+}
+
 static int SeatStartSunForMult(int theSeatMult)
 {
 	if (theSeatMult >= 32) return 500;

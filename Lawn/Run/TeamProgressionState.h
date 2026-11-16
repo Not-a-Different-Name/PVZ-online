@@ -26,6 +26,7 @@ struct Ballot {
     std::array<uint8_t,3> choices{{255,255,255}};
     std::array<uint64_t,6> players{};
     std::array<int8_t,6> votes{{-2,-2,-2,-2,-2,-2}};
+    bool operator==(const Ballot&) const = default;
     int Count()const {int n=0;for(auto c:choices)if(c<BUFFS)++n;return n;}
     bool Vote(uint64_t player,int choice) {
         if(!open || choice < -1 || choice>=Count())return false;
@@ -77,6 +78,7 @@ struct Shared {
     uint32_t reliefAttempt=0;
     std::array<uint64_t,6> reliefPlayers{};
     Ballot ballot;
+    bool operator==(const Shared&) const = default;
     bool Has(int plant)const{return plant>=0&&plant<49&&stacks[ARSENAL]&&((plants>>plant)&1);}
     bool Due(int level,int scene,int previousScene,bool endless)const {
         return level>=0&&level<60000&&votedLevel!=level&&(level==0||(endless?level%5==0:scene!=previousScene));

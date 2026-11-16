@@ -407,6 +407,7 @@ static const RunPlantUpgradeDef gRunPlantBuff2Defs[RUN_PLANT_BUFF2_COUNT] =
     { SeedType::SEED_STARFRUIT, "Forward Stars", "前扇星阵", "五枚星弹朝前半球扇形发射。", "Fires five stars into the forward half-plane.", 0.0f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
     { SeedType::SEED_STARFRUIT, "Twin Force", "重星", "星弹伤害翻倍，与追踪双向降低抽取权重。", "Star damage doubles. Soft exclusion with homing.", 0.0f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
     { SeedType::SEED_CATTAIL, "Sustained Lock", "锁敌升压", "连续攻击同一主目标，伤害和攻速各乘1.15，最高各+200%，换目标清零。", "Repeat main target: 15% compounded damage and fire rate, capped at +200% each.", 0.0f, 1, false, RUN_UPGRADE_KIND_EFFECT, 3 },
+    { SeedType::SEED_NONE, "All Bowling", "全员保龄球", "非灰烬植物变成保龄球，可在屋顶直接放置。原价50阳光为基准和下限，碰撞伤害按原价同比增加。", "Non-ash plants become bowling balls and can launch on roofs. Impact damage scales with base sun cost, with 50 as the baseline and minimum.", 0.0f, 1, false, RUN_UPGRADE_KIND_EFFECT, 3 },
 };
 
 const RunPlantUpgradeDef& GetRunPlantBuff2Def(int theIndex)
