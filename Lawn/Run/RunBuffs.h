@@ -297,6 +297,7 @@ enum RunPlantBuff2Id
 	RUN_BUFF2_STAR_DOUBLE,
 	RUN_BUFF2_CATTAIL_FOCUS,
 	RUN_BUFF2_ALL_BOWLING,
+	RUN_BUFF2_STACK_FOUR, // Universal four-plant stack, three stars, one stack.
 	RUN_PLANT_BUFF2_COUNT
 };
 

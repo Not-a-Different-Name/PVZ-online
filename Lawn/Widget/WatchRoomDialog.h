@@ -32,7 +32,7 @@ inline bool StartTemporary(Board* board, NetSession* session, uint8_t seat) {
 
 inline void RestoreRoom(LawnApp* app, bool open) {
     app->KillDialog(DialogId);
-    if(app->mGameScene==GameScenes::SCENE_SPECTATING)app->ShowGameSelector();
+    if(app->mGameScene==GameScenes::SCENE_SPECTATING)app->RestoreOnlineStartLobby();
     if(open && !app->GetDialog(DIALOG_ONLINE))app->DoOnlineDialog();
 }
 

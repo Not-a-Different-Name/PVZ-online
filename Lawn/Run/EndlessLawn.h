@@ -103,6 +103,10 @@ inline int Restore(LawnApp* app) {
             app->mOnlineSession->PostNotice(ModText::Tr("本机草坪关数与房主不同；将补领增益并从空草坪加入。","Local lawn is from another stage: catching up buffs and joining with a fresh lawn."));
         return run->IsCatchingUp()?0:-1;
     }
+    // A returning spectator may own an earlier lawn from this same run.
+    // Restore its contents, but keep the new stage held until the ordinary
+    // catch-up rewards and progression have finished before opening the deck.
+    const bool stageAdvance=admissionAdvance || run->IsCatchingUp();
     bool retry=run->mEndlessSnapshotPhase==5 || app->mBoardResult==BoardResult::BOARDRESULT_LOST || (app->IsOnlineGame() && run->mEndlessSnapshotPhase==3);
     const auto& bytes=retry?run->mEndlessRetryLawn:run->mEndlessLawn;
     if(bytes.empty())return -1;
@@ -113,11 +117,11 @@ inline int Restore(LawnApp* app) {
     bool ok=app->mBoard->LoadGame(path);app->EraseFile(path);
     if(!ok){app->KillBoard();return -1;}
 
-    if(admissionAdvance)app->mBoard->InitEndlessRunStage();
+    if(stageAdvance)app->mBoard->InitEndlessRunStage();
     app->mBoard->mPaused=false;
     app->mBoardResult=BoardResult::BOARDRESULT_NONE;
     app->SetOnlineStartOverride(run->GetLevel(),run->GetLevelSeed());
-    if(admissionAdvance) {
+    if(stageAdvance) {
         app->mGameScene=GameScenes::SCENE_LEVEL_INTRO;app->mRunIntroHeld=true;
         if(app->IsOnlineGame())app->mOnlineSession->SendSeedsReady(false);
     } else if(retry) {

@@ -73,7 +73,11 @@ void NetSession::HandleSharedRoster(const uint8_t* bytes,int size) {
     mSharedMembers=std::move(members);mSharedOrder=order;mWatchOrder=combat;mWatchPrivate=!(flags&1);
     if(!observer) {
         mWatchSlot=0;
-        if(wasObserver && phase!=0)mWatchPromotion=phase==1?epoch:epoch+1;
+        if(wasObserver) {
+            // Re-entering combat needs a new local lawn even in the same epoch.
+            mConsumedStartEpoch=0;mStartAckSent=false;mStartAccepted=false;
+            if(phase!=0)mWatchPromotion=phase==1?epoch:epoch+1;
+        }
         return;
     }
     if(!wasObserver) {

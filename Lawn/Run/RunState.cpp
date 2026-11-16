@@ -531,7 +531,7 @@ void RunState::RollChoices(bool theReroll, int lockedChoice)
 			if (!RunPlantBuff2InPool(i)) continue;
             // @pvz-online: family traits appear once if any permanent pool member is eligible.
             const uint64_t mask = GetRunChoicePlantMask(aId);
-            bool owned = i == RUN_BUFF2_ALL_BOWLING;
+            bool owned = i == RUN_BUFF2_ALL_BOWLING || i == RUN_BUFF2_STACK_FOUR;
             for (SeedType plant : mPool)
                 if (plant >= 0 && plant < 64 && (mask & (uint64_t(1) << plant))) { owned = true; break; }
             if (!owned) continue;

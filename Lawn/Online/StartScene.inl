@@ -6,6 +6,21 @@ bool LawnApp::IsOnlineStartLobby() const
             mGameMode == GameMode::GAMEMODE_TREE_OF_WISDOM));
 }
 
+// A read-only spectator screen is not a departing battle. Rebuild only
+// its menu surface; ShowGameSelector would discard an already accepted START,
+// RUN_GO and preparation transaction received in the same network update.
+void LawnApp::RestoreOnlineStartLobby()
+{
+    if (mBoard != nullptr) return;
+    mGameScene = GameScenes::SCENE_MENU;
+    if (mGameSelector != nullptr) return;
+    mGameSelector = new GameSelector(this);
+    mGameSelector->Resize(0, 0, mWidth, mHeight);
+    mWidgetManager->AddWidget(mGameSelector);
+    mWidgetManager->BringToBack(mGameSelector);
+    mWidgetManager->SetFocus(mGameSelector);
+}
+
 void LawnApp::LeaveLocalSceneForOnlineStart()
 {
     if (mBoard == nullptr || (mGameMode != GameMode::GAMEMODE_CHALLENGE_ZEN_GARDEN &&

@@ -1,3 +1,4 @@
+#include "Run/RunStacking.h"
 #include "Run/RunPlantTraits.h"
 #include <unordered_map>
 #include "Lawn/Observer/ObserverIsolation.h"
@@ -2596,6 +2597,7 @@ bool Board::PreparePlantAnimations(SeedType seed, unsigned int count)
 
 Plant* Board::NewPlant(int theGridX, int theGridY, SeedType theSeedType, SeedType theImitaterType)
 {
+    if (RunStacking::Enabled(mApp) && RunStacking::Full(this,theGridX,theGridY,theSeedType)) return nullptr;
 	const SeedType animatedType = theSeedType == SEED_IMITATER && RunPlantTraits::AllBowling(mApp, theImitaterType)
         ? theImitaterType : theSeedType;
     if (!PreparePlantAnimations(animatedType)) return nullptr;
@@ -2781,28 +2783,28 @@ void Board::GetPlantsOnLawn(int theGridX, int theGridY, PlantsOnLawn* thePlantOn
 		// 将植物写入 thePlantOnLawn 的记录
 		if (Plant::IsFlying(aPlant->mSeedType))
 		{
-			TOD_ASSERT(!thePlantOnLawn->mFlyingPlant);
-			thePlantOnLawn->mFlyingPlant = aPlant;
+			TOD_ASSERT(RunStacking::Enabled(mApp) || !thePlantOnLawn->mFlyingPlant);
+			if (!thePlantOnLawn->mFlyingPlant || aPlant->mRenderOrder >= thePlantOnLawn->mFlyingPlant->mRenderOrder) thePlantOnLawn->mFlyingPlant = aPlant;
 		}
 		else if (aSeedType == SeedType::SEED_FLOWERPOT || (aSeedType == SeedType::SEED_LILYPAD && mApp->mGameMode != GameMode::GAMEMODE_CHALLENGE_ZEN_GARDEN))
 		{
 			// Two distinct support plants share a tile; rendering order also identifies the exposed one.
 			Plant*& aSupport = aSeedType == SeedType::SEED_LILYPAD ?
 				thePlantOnLawn->mLilypadPlant : thePlantOnLawn->mFlowerPotPlant;
-			TOD_ASSERT(!aSupport);
-			aSupport = aPlant;
+			TOD_ASSERT(RunStacking::Enabled(mApp) || !aSupport);
+			if (!aSupport || aPlant->mRenderOrder >= aSupport->mRenderOrder) aSupport = aPlant;
 			if (!thePlantOnLawn->mUnderPlant || aPlant->mRenderOrder > thePlantOnLawn->mUnderPlant->mRenderOrder)
 				thePlantOnLawn->mUnderPlant = aPlant;
 		}
 		else if (aSeedType == SeedType::SEED_PUMPKINSHELL)
 		{
-			TOD_ASSERT(!thePlantOnLawn->mPumpkinPlant);
-			thePlantOnLawn->mPumpkinPlant = aPlant;
+			TOD_ASSERT(RunStacking::Enabled(mApp) || !thePlantOnLawn->mPumpkinPlant);
+			if (!thePlantOnLawn->mPumpkinPlant || aPlant->mRenderOrder >= thePlantOnLawn->mPumpkinPlant->mRenderOrder) thePlantOnLawn->mPumpkinPlant = aPlant;
 		}
 		else
 		{
-			TOD_ASSERT(!thePlantOnLawn->mNormalPlant);
-			thePlantOnLawn->mNormalPlant = aPlant;
+			TOD_ASSERT(RunStacking::Enabled(mApp) || !thePlantOnLawn->mNormalPlant);
+			if (!thePlantOnLawn->mNormalPlant || aPlant->mRenderOrder >= thePlantOnLawn->mNormalPlant->mRenderOrder) thePlantOnLawn->mNormalPlant = aPlant;
 		}
 	}
 }
@@ -2817,6 +2819,9 @@ Plant* Board::GetTopPlantAt(int theGridX, int theGridY, PlantPriority thePriorit
 
 	PlantsOnLawn aPlantOnLawn;
 	GetPlantsOnLawn(theGridX, theGridY, &aPlantOnLawn);
+
+    if (RunStacking::Enabled(mApp) && (thePriority==TOPPLANT_EATING_ORDER || thePriority==TOPPLANT_DIGGING_ORDER || thePriority==TOPPLANT_BUNGEE_ORDER || thePriority==TOPPLANT_CATAPULT_ORDER || thePriority==TOPPLANT_ANY || thePriority==TOPPLANT_ZEN_TOOL_ORDER))
+        return RunStacking::Top(this,theGridX,theGridY);
 
 	switch (thePriority)
 	{
@@ -3478,6 +3483,8 @@ PlantingReason Board::CanPlantAt(int theGridX, int theGridY, SeedType theSeedTyp
 		return PlantingReason::PLANTING_NOT_HERE;
 	}
 
+    if (RunStacking::Enabled(mApp) && RunStacking::Full(this,theGridX,theGridY,theSeedType)) return PLANTING_NOT_HERE;
+
 	// 从关卡玩法上，判断能否种植
 	PlantingReason aReason = mChallenge->CanPlantAt(theGridX, theGridY, theSeedType);
 	if (aReason != PlantingReason::PLANTING_OK || Challenge::IsZombieSeedType(theSeedType))
@@ -3498,6 +3505,13 @@ PlantingReason Board::CanPlantAt(int theGridX, int theGridY, SeedType theSeedTyp
 
 	PlantsOnLawn aPlantOnLawn;
 	GetPlantsOnLawn(theGridX, theGridY, &aPlantOnLawn);
+    if (RunStacking::Enabled(mApp)) {
+        if (theSeedType!=SEED_INSTANT_COFFEE) aPlantOnLawn.mNormalPlant=nullptr;
+        aPlantOnLawn.mPumpkinPlant=nullptr;aPlantOnLawn.mFlyingPlant=nullptr;
+        if(theSeedType==SEED_LILYPAD){aPlantOnLawn.mLilypadPlant=nullptr;aPlantOnLawn.mUnderPlant=aPlantOnLawn.mFlowerPotPlant;}
+        if(theSeedType==SEED_FLOWERPOT){aPlantOnLawn.mFlowerPotPlant=nullptr;aPlantOnLawn.mUnderPlant=aPlantOnLawn.mLilypadPlant;}
+    }
+
 	if (mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_ZEN_GARDEN)
 	{
 		if (aPlantOnLawn.mUnderPlant || aPlantOnLawn.mPumpkinPlant || aPlantOnLawn.mFlyingPlant || aPlantOnLawn.mNormalPlant)
@@ -3748,6 +3762,7 @@ PlantingReason Board::CanPlantAt(int theGridX, int theGridY, SeedType theSeedTyp
 		}
 		PlantsOnLawn aRightLawn;
 		GetPlantsOnLawn(theGridX + 1, theGridY, &aRightLawn);
+        if(RunStacking::Enabled(mApp)){aRightLawn.mNormalPlant=nullptr;aRightLawn.mPumpkinPlant=nullptr;aRightLawn.mFlyingPlant=nullptr;}
 		if (theGridX + 1 >= MAX_GRID_SIZE_X ||
 			aRightLawn.mNormalPlant || aRightLawn.mPumpkinPlant || aRightLawn.mFlyingPlant)
 		{
@@ -3771,6 +3786,7 @@ PlantingReason Board::CanPlantAt(int theGridX, int theGridY, SeedType theSeedTyp
 	{
 		PlantsOnLawn aRightLawn;
 		GetPlantsOnLawn(theGridX + 1, theGridY, &aRightLawn);
+        if(RunStacking::Enabled(mApp)){aRightLawn.mNormalPlant=nullptr;aRightLawn.mPumpkinPlant=nullptr;aRightLawn.mFlyingPlant=nullptr;}
 		if (theGridX + 1 >= MAX_GRID_SIZE_X ||
 			aRightLawn.mNormalPlant || aRightLawn.mPumpkinPlant || aRightLawn.mFlyingPlant)
 		{
@@ -4798,7 +4814,7 @@ void Board::MouseDownWithPlant(int x, int y, int theClickCount)
 	GetPlantsOnLawn(aGridX, aGridY, &aPlantOnLawn);
 	Plant* aNormalPlant = aPlantOnLawn.mNormalPlant;
 	Plant* aPumpkinPlant = aPlantOnLawn.mPumpkinPlant;
-    if (!RunPlantTraits::RollingBowling(mApp, aPlantingSeedType))
+    if (!RunPlantTraits::RollingBowling(mApp, aPlantingSeedType) && !RunStacking::Enabled(mApp))
     {
 		if (aNormalPlant && aNormalPlant->IsUpgradableTo(aPlantingSeedType))
 		{
@@ -5054,6 +5070,7 @@ void Board::MouseDownWithTool(int x, int y, int theClickCount, CursorType theCur
 	}
 
 	Plant* aPlant = ToolHitTest(x, y);
+    if(aPlant && RunStacking::Enabled(mApp)) aPlant=RunStacking::Top(this,aPlant->mPlantCol,aPlant->mRow);
 	if (aPlant == nullptr)
 	{
 		mApp->PlayFoley(FoleyType::FOLEY_DROP);
@@ -5064,7 +5081,7 @@ void Board::MouseDownWithTool(int x, int y, int theClickCount, CursorType theCur
 		mPlantsShoveled++;
 		aPlant->Die();
 
-		if (aPlant->mSeedType == SeedType::SEED_CATTAIL && GetTopPlantAt(aPlant->mPlantCol, aPlant->mRow, PlantPriority::TOPPLANT_ONLY_PUMPKIN))
+		if (!RunStacking::Enabled(mApp) && aPlant->mSeedType == SeedType::SEED_CATTAIL && GetTopPlantAt(aPlant->mPlantCol, aPlant->mRow, PlantPriority::TOPPLANT_ONLY_PUMPKIN))
 		{
 			NewPlant(aPlant->mPlantCol, aPlant->mRow, SeedType::SEED_LILYPAD, SeedType::SEED_NONE);
 		}

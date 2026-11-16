@@ -1,3 +1,4 @@
+#include "Run/RunStacking.h"
 #include "Run/RunSpeciesRules.h"
 #include "Run/RunSpeciesRuntime.h"
 #include "Run/RunPlantTraits.h"
@@ -246,6 +247,11 @@ void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, Se
     mLaunchRate = aPlantDef.mLaunchRate;
     mSubclass = aPlantDef.mSubClass;
     mRenderOrder = CalcRenderOrder();
+    if (mIsOnBoard && RunStacking::Enabled(mApp)) {
+        Plant* other=nullptr;
+        while(mBoard->IteratePlants(other))if(other!=this && RunStacking::Covers(mBoard,other,mPlantCol,mRow))mRenderOrder=std::max(mRenderOrder,other->mRenderOrder+2);
+    }
+
     if (IsOnBoard() && mApp->mGameMode != GameMode::GAMEMODE_CHALLENGE_ZEN_GARDEN &&
         (theSeedType == SeedType::SEED_LILYPAD || theSeedType == SeedType::SEED_FLOWERPOT ||
          (theSeedType == SeedType::SEED_IMITATER &&
@@ -4539,6 +4545,12 @@ float PlantFlowerPotHeightOffset(SeedType theSeedType, float theFlowerPotScale)
 float PlantDrawHeightOffset(Board* theBoard, Plant* thePlant, SeedType theSeedType, int theCol, int theRow)
 {
     float aHeightOffset = 0.0f;
+    if(theBoard && thePlant && RunStacking::Enabled(theBoard->mApp)) {
+        int lower=0;Plant* other=nullptr;
+        while(theBoard->IteratePlants(other))if(other!=thePlant && RunStacking::Covers(theBoard,other,theCol,theRow) && other->mRenderOrder<thePlant->mRenderOrder)++lower;
+        aHeightOffset-=8.0f*lower;
+    }
+
 
     bool doFloating = false;
     if (Plant::IsFlying(theSeedType))

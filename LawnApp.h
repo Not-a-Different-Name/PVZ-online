@@ -305,6 +305,7 @@ public:
 	// 守卫静默弹回菜单，"点休闲花园立刻退出、无法进入"的根因）。
 	bool							IsLocalOnlyMode(GameMode theGameMode) const;
     bool IsOnlineStartLobby() const;
+    void RestoreOnlineStartLobby();
     void LeaveLocalSceneForOnlineStart();
 	// 我这台是"跟着主机走"的那一头吗（客户端）——全队败后开不开新局由主机一个人定，
 	// 所以 GameOverDialog 得先分得出主客（见 LawnApp::RetryOnlineLevel）。

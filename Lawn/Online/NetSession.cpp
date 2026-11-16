@@ -2856,7 +2856,7 @@ void NetSession::HandleControlFrame(uint16_t theType, const uint8_t* thePayload,
 			mSeats[aMsg.mYourSeat].mName = mLocalName;
 			mSeats[aMsg.mYourSeat].mBuild = NetProto::MOD_BUILD;
 
-			if(promoted){EndWatch(false);mWatchPromotion=mFlowPhase==0?0:(mSharedRoom && mFlowPhase==1?mFlowEpoch:mFlowEpoch+1);mWatchSlot=0;mFlowDeferred=false;mFlowStartPending=false;mFlowHelloSent=false;mReadyEpoch=0;}
+			if(promoted){EndWatch(false);mConsumedStartEpoch=0;mStartAckSent=false;mStartAccepted=false;mWatchPromotion=mFlowPhase==0?0:(mSharedRoom && mFlowPhase==1?mFlowEpoch:mFlowEpoch+1);mWatchSlot=0;mFlowDeferred=false;mFlowStartPending=false;mFlowHelloSent=false;mReadyEpoch=0;}
             mLocalSeat = aMsg.mYourSeat;
 			if(aWasReconnect && mFlowEnabled && mHostSeat!=aMsg.mHostSeat)PushEvent(EventType::HOST_CHANGED,aMsg.mHostSeat);
 			mHostSeat = aMsg.mHostSeat;
@@ -3002,7 +3002,17 @@ void NetSession::HandleControlFrame(uint16_t theType, const uint8_t* thePayload,
 				return;
 			}
 
+            const bool newlyPresent=!mSeats[aMsg.mSeat].mOccupied || mSeats[aMsg.mSeat].mOffline;
 			mSeats[aMsg.mSeat].mOccupied = true;
+            // The relay has already replayed this round's START to a new
+            // fighter admitted during preparation. Own that one ACK so the
+            // app can release RUN_GO; duplicate JOINs must not rearm it.
+            if(newlyPresent && mSharedRoom && mRole==Role::HOST && mFlowEnabled &&
+                mFlowPhase==1 && !mFlowLost && mLastStartLevelValid &&
+                mLastStartLevel.mReadyEpoch==mReadyEpoch && mReadyEpoch==mFlowEpoch) {
+                mSeats[aMsg.mSeat].mAwaitingAck=true;
+                mSeats[aMsg.mSeat].mAckState=0;
+            }
             mSeats[aMsg.mSeat].mNameplate=0;
             mNameplateTicks=0;
 			mSeats[aMsg.mSeat].mBuild = aMsg.mBuild;
