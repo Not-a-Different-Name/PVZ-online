@@ -179,13 +179,56 @@ struct World::Impl {
   return true;
  }
 };
+namespace {
+// Projectile and effect IDs belong to their original isolated world. Copy
+// local prediction into the new pool and rebuild its visuals in that world.
+void CarryPredictedProjectiles(Board* previous, Board* next)
+{
+    Projectile* item = nullptr;
+    while (previous->mProjectiles.DataArrayIterate(item))
+    {
+        if (item->mDead)
+            continue;
+
+        Projectile* copy = next->mProjectiles.DataArrayTryAlloc();
+        if (!copy)
+            break;
+
+        *copy = *item;
+        copy->mApp = next->mApp;
+        copy->mBoard = next;
+        copy->mAttachmentID = ATTACHMENTID_NULL;
+        if (!next->mZombies.DataArrayTryToGet(copy->mTargetZombieID))
+            copy->mTargetZombieID = ZOMBIEID_NULL;
+
+        if (item->mAttachmentID == ATTACHMENTID_NULL)
+            continue;
+
+        if (copy->mProjectileType == PROJECTILE_FIREBALL)
+        {
+            const int torchwoodColumn = copy->mHitTorchwoodGridX;
+            copy->mHitTorchwoodGridX = std::numeric_limits<int>::min();
+            copy->ConvertToFireball(torchwoodColumn);
+        }
+        else if (copy->mProjectileType == PROJECTILE_SNOWPEA || copy->mProjectileType == PROJECTILE_PUFF)
+        {
+            const bool snow = copy->mProjectileType == PROJECTILE_SNOWPEA;
+            const float x = snow ? 8.0f : 13.0f;
+            const auto effect = snow ? PARTICLE_SNOWPEA_TRAIL : PARTICLE_PUFFSHROOM_TRAIL;
+            auto* trail = next->mApp->AddPvzpParticle(copy->mPosX + x, copy->mPosY + copy->mPosZ + 13.0f, 400000, effect);
+            if (trail)
+                AttachParticle(copy->mAttachmentID, trail, x, 13.0f);
+        }
+    }
+}
+}
 World::World(LawnApp*a):impl(std::make_unique<Impl>(a)){}
 World::~World()=default;
-bool World::Restore(const std::vector<uint8_t>&bytes)try{
+bool World::Restore(const std::vector<uint8_t>&bytes,bool sameSource)try{
  PerformanceMonitor::Scope monitor(PerformanceMonitor::ObserverRestore);
  if(bytes.size()<6||bytes.size()>65536||bytes[0]!=5)return false;uint32_t n=0;for(int i=0;i<4;++i)n|=uint32_t(bytes[i+1])<<(8*i);if(!n||n>1024*1024)return false;
  std::vector<uint8_t>raw(n);z_stream z{};z.next_in=const_cast<Bytef*>(bytes.data()+5);z.avail_in=unsigned(bytes.size()-5);z.next_out=raw.data();z.avail_out=n;if(inflateInit(&z)!=Z_OK)return false;int result=inflate(&z,Z_FINISH);bool good=result==Z_STREAM_END&&z.total_in==bytes.size()-5&&z.total_out==n;inflateEnd(&z);if(!good)return false;
- auto next=std::make_unique<Impl>(impl->owner);if(!next->Init())return false;{Context scope(next->app,nullptr,next->owner);Wire io(raw);Images(io,*next->assets);State(io,next->board,next->rng);if(!io.End()){std::fprintf(stderr,"[observer] invalid world fields at %zu of %zu\n",io.Position(),raw.size());return false;}if(!next->Validate())return false;Sexy::SRand(uint32_t(next->board->mBoardRandSeed)^uint32_t(next->board->mBoardUpdateCounter));next->rng=Sexy::GetRandState();}impl=std::move(next);return true;
+ auto next=std::make_unique<Impl>(impl->owner);if(!next->Init())return false;{Context scope(next->app,nullptr,next->owner);Wire io(raw);Images(io,*next->assets);State(io,next->board,next->rng);if(!io.End()){std::fprintf(stderr,"[observer] invalid world fields at %zu of %zu\n",io.Position(),raw.size());return false;}if(!next->Validate())return false;if(sameSource&&impl->board)CarryPredictedProjectiles(impl->board,next->board);Sexy::SRand(uint32_t(next->board->mBoardRandSeed)^uint32_t(next->board->mBoardUpdateCounter));next->rng=Sexy::GetRandState();}impl=std::move(next);return true;
 }catch(const std::exception&){return false;}
 void World::Advance(unsigned ms){
  if(!impl->board||impl->board->mPaused||!ms)return;

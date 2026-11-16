@@ -9,7 +9,7 @@ bool Capture(Board*,std::vector<uint8_t>&);
 class World {
  struct Impl;std::unique_ptr<Impl> impl;
 public:
- explicit World(LawnApp*);~World();bool Restore(const std::vector<uint8_t>&);
+ explicit World(LawnApp*);~World();bool Restore(const std::vector<uint8_t>&, bool sameSource = false);
  void Advance(unsigned milliseconds);void Draw(Sexy::Graphics*);Board* Inspect()const;
 };
 }

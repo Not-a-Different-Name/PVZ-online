@@ -2,6 +2,7 @@
 #include "MobileCoopDraw.h"
 #include "OnlineDialog.h"
 #include "RoomDirectoryDialog.h"
+#include "MatchmakingDialog.h"
 #include "WatchRoomDialog.h"
 #include "RunHistoryDialog.h"
 #include "OnlineSeatDialog.h"
@@ -75,6 +76,7 @@ OnlineDialog::OnlineDialog(LawnApp* app)
     place(8,ModText::Tr("队友","Seats"),Seats());
     place(6,ModText::Tr("返回","Back"),Close());
     place(7,ModText::Tr("开始游戏","Start game"),Start());
+    place(20,ModText::Tr("一键匹配","Find a team"),Sexy::Rect(48,398,664,46));
     place(9,ModText::Tr("公开房间","Public rooms"),Sexy::Rect(40,480,260,46));
     place(10,ModText::Tr("最近记录","Recent runs"),Sexy::Rect(552,34,168,42));
     place(19,ModText::Tr("观众","Spectators"),Sexy::Rect(390,34,150,42));
@@ -107,6 +109,11 @@ void OnlineDialog::Update()
             mStartingLocalHost=false;mInputError=ModText::Tr("开房失败：","Could not host: ")+LocalHostControl::Error();LocalHostControl::Stop();
         }
     }
+    if(session.mMatchStartPending) {
+        auto* current=mApp->mOnlineSession.get();
+        if(!current->CanHostStart()){current->mMatchStartPending=false;if(current->IsHostSeat()&&current->IsConnected())current->RequestRoomGate(true);}
+        else if(current->RequestRoomGate(false)){current->mMatchStartPending=false;ButtonDepress(7);return;}
+    }
     mTransfer.Update();const auto pasted=mTransfer.TakePaste();if(!pasted.empty()){ApplyInvite(pasted);if(mInputError.empty())ButtonDepress(mPage==OnlineRoomLayout::LOCAL?2:4);}
     RoomInvite::Intent typed;if(mPage==OnlineRoomLayout::SERVER&&mCode->mString!=mPastedCode&&RoomInvite::Parse(mCode->mString,typed))ApplyInvite(mCode->mString);
     mAllocator.Update();
@@ -129,6 +136,7 @@ void OnlineDialog::Update()
     for (auto& b : mButtons) {
         if(b->mId==15){b->SetVisible(local||server);b->SetDisabled(allocating||mTransfer.Busy());b->Resize(local?Sexy::Rect(536,442,176,38):OnlineRoomLayout::Paste());}
         if(b->mId>=16&&b->mId<=18){b->SetVisible(active&&session.IsRelay()&&!session.GetRoomCode().empty());b->SetDisabled(mTransfer.Busy());}
+        if(b->mId==20){const bool matchRoom=active&&session.mMatchMode>=0;b->SetVisible(server||matchRoom);b->SetDisabled((!server&&!matchRoom)||allocating);b->Resize(matchRoom?Sexy::Rect(480,440,232,32):Sexy::Rect(48,398,664,46));b->mLabel=matchRoom?ModText::Tr("匹配规则","Matching rules"):ModText::Tr("一键匹配","Find a team");}
         if(b->mId==3)b->mLabel=allocating?ModText::Tr("正在连接…","Connecting..."):ModText::Tr("创建房间","Create room");
         if(b->mId==19){
             b->SetVisible(active&&session.SharedRoom());
@@ -144,7 +152,7 @@ void OnlineDialog::Update()
                 active?ModText::Tr("返回单人游戏","Switch to solo"):ModText::Tr("单人游戏","Play solo");
         }
         if(b->mId==10)b->mLabel=active&&session.IsPrivateRoom()?ModText::Tr("复制邀请","Copy invite"):ModText::Tr("最近记录","Recent runs");
-        if(b->mId==11){b->SetVisible(active&&session.IsRelay()&&!session.IsPrivateRoom()&&session.IsHostSeat()&&!session.mDirectoryStarted);
+        if(b->mId==11){b->SetVisible(active&&session.IsRelay()&&!session.IsPrivateRoom()&&session.IsHostSeat()&&!session.mDirectoryStarted&&session.mMatchMode<0);
             b->mLabel=!session.mDirectoryConfirmed?ModText::Tr("正在更新…","Updating..."):
                 session.mDirectoryPublic?ModText::Tr("公开房间：开","Public: on"):ModText::Tr("公开房间：关","Public: off");}
         if(b->mId>=1&&b->mId<=4){const bool visible=b->mId<=2?local:server;b->SetVisible(visible);b->SetDisabled(!visible||allocating);}
@@ -152,7 +160,7 @@ void OnlineDialog::Update()
         if(b->mId==7)b->SetVisible(active&&(!session.SharedRoom()||session.IsHostSeat()));
         if(b->mId==5){const bool localHost=session.IsConnected()&&session.IsPrivateRoom()&&session.IsHostSeat()&&
             session.GetRelayHost()=="127.0.0.1"&&session.GetRelayPort()==LocalHostControl::Port();
-            b->SetVisible(active||mStartingLocalHost);b->mLabel=mStartingLocalHost?ModText::Tr("取消开房","Cancel hosting"):localHost?ModText::Tr("结束托管并离开","End & leave"):
+            b->SetVisible(active||mStartingLocalHost);b->mLabel=session.mMatching?ModText::Tr("取消匹配","Cancel matching"):mStartingLocalHost?ModText::Tr("取消开房","Cancel hosting"):localHost?ModText::Tr("结束托管并离开","End & leave"):
                 mApp->mBoard?ModText::Tr("保存并退房","Save & leave"):ModText::Tr("退出房间","Leave room");}
         if(b->mId==6)b->Resize(active?OnlineRoomLayout::Close():OnlineRoomLayout::Start());
         if(b->mId==7){b->SetDisabled(!OnlineRoomLayout::CanStart(mApp));
@@ -221,6 +229,7 @@ void OnlineDialog::ButtonDepress(int id)
         if(retry)app->RetryOnlineLevel();else app->ShowRunMenu();return;
     }
     mConfirmSolo=false;
+    if(id==20){if((!RoomPresentation::Active(app->mOnlineSession.get())||app->mOnlineSession->mMatchMode>=0)&&mPage==OnlineRoomLayout::SERVER&&mAllocator.state!=RelayNodes::Allocator::LOADING&&!mCreation.Active()&&!mJoinLookup.loading)app->AddDialog(DIALOG_MATCHMAKING,new MatchmakingDialog(app));return;}
     if(id==9){if(!RoomPresentation::Active(app->mOnlineSession.get())&&mPage==OnlineRoomLayout::SERVER&&(mAllocator.state!=RelayNodes::Allocator::LOADING&&!mCreation.Active()&&!mJoinLookup.loading))
         app->AddDialog(DIALOG_ROOM_DIRECTORY,new RoomDirectoryDialog(app));
         return;}
@@ -234,6 +243,7 @@ void OnlineDialog::ButtonDepress(int id)
     if (id == 6) { app->KillDialog(DIALOG_ONLINE); return; }
     if (id == 7) {
         if(!OnlineRoomLayout::CanStart(app))return;
+        if(app->mOnlineSession->mMatchMode>=0&&!app->mOnlineSession->RequestRoomGate(false)){app->mOnlineSession->mMatchStartPending=true;return;}
         const bool retry=OnlineRoomLayout::HasLostBoard(app);
         app->KillDialog(DIALOG_ONLINE);
         if(retry)app->RetryOnlineLevel();else app->ShowRunMenu();

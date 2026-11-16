@@ -101,6 +101,58 @@ constinit const static SpecialGridPlacement gAquariumGridPlacement[] = {
 	{ .mPixelX = 504, .mPixelY = 417, .mGridX = 7, .mGridY = 0 }
 };
 
+namespace
+{
+constexpr int kGardenPages = 5;
+constexpr int kMainPageSlots = ZEN_MAX_GRIDSIZE_X * ZEN_MAX_GRIDSIZE_Y;
+static_assert(kGardenPages * (kMainPageSlots +
+    sizeof(gMushroomGridPlacement) / sizeof(SpecialGridPlacement) +
+    sizeof(gAquariumGridPlacement) / sizeof(SpecialGridPlacement)) + 1 == MAX_POTTED_PLANTS);
+
+// The profile already serializes this reserved field. Old records have page zero.
+int SavedGardenPage(const PottedPlant& plant)
+{
+    const auto page = plant.mFutureAttribute[0];
+    return page >= 0 && page < kGardenPages ? static_cast<int>(page) : 0;
+}
+
+Rect GardenPageButton(int page)
+{
+    return Rect(236 + page * 66, 548, 62, 42);
+}
+}
+
+bool ZenGarden::IsPlantOnPage(const PottedPlant& thePlant) const
+{
+    return thePlant.mWhichZenGarden == mGardenType && SavedGardenPage(thePlant) == mGardenPage;
+}
+
+bool ZenGarden::ShouldShowGardenPages() const
+{
+    return mBoard->mTutorialState == TutorialState::TUTORIAL_OFF &&
+        !mBoard->mMenuButton->mBtnNoDraw &&
+        mApp->mCrazyDaveState == CrazyDaveState::CRAZY_DAVE_OFF &&
+        mBoard->mChallenge->mChallengeState != ChallengeState::STATECHALLENGE_ZEN_FADING;
+}
+
+void ZenGarden::DrawGardenPages(Graphics* g)
+{
+    if (!ShouldShowGardenPages())
+        return;
+    Graphics pageGraphics(*g);
+    for (int page = 0; page < kGardenPages; ++page)
+    {
+        const Rect rect = GardenPageButton(page);
+        const bool selected = page == mGardenPage;
+        pageGraphics.SetColor(selected ? Color(89, 105, 50) : Color(38, 44, 38));
+        pageGraphics.FillRect(rect);
+        pageGraphics.SetColor(selected ? Color(255, 225, 143) : Color(165, 161, 127));
+        pageGraphics.DrawRect(rect);
+        PvzpDrawString(&pageGraphics, std::to_string(page + 1), rect.mX + rect.mWidth / 2,
+            rect.mY + 27, Sexy::FONT_HOUSEOFTERROR16, Color::White, DS_ALIGN_CENTER);
+    }
+}
+
 ZenGarden::ZenGarden()
 {
 	mApp = (LawnApp*)gSexyAppBase;
@@ -303,7 +355,7 @@ void ZenGarden::ZenGardenInitLevel()
 	for (int i = 0; i < mApp->mPlayerInfo->mNumPottedPlants; i++)
 	{
 		PottedPlant* aPottedPlant = PottedPlantFromIndex(i);
-		if (aPottedPlant->mWhichZenGarden == mGardenType)
+		if (IsPlantOnPage(*aPottedPlant))
 		{
 			PlacePottedPlant(i);
 		}
@@ -348,7 +400,7 @@ bool ZenGarden::IsZenGardenFull(bool theIncludeDroppedPresents)
 		}
 	}
 
-	return aNumDroppedPresents + aNumPottedPlantsInGarden >= ZEN_MAX_GRIDSIZE_X * ZEN_MAX_GRIDSIZE_Y;
+	return aNumDroppedPresents + aNumPottedPlantsInGarden >= kMainPageSlots * kGardenPages;
 }
 
 bool ZenGarden::CanDropPottedPlantLoot()
@@ -357,56 +409,64 @@ bool ZenGarden::CanDropPottedPlantLoot()
     return mApp->CanShowZenGarden() && !IsZenGardenFull(true);
 }
 
-void ZenGarden::FindOpenZenGardenSpot(int& theSpotX, int& theSpotY)
+bool ZenGarden::FindOpenZenGardenSpot(int& thePage, int& theSpotX, int& theSpotY)
 {
-	PvzpWeightedGridArray aPicks[ZEN_MAX_GRIDSIZE_X * ZEN_MAX_GRIDSIZE_Y];
-	int aPickCount = 0;
+    bool occupied[kGardenPages][ZEN_MAX_GRIDSIZE_X][ZEN_MAX_GRIDSIZE_Y] = {};
+    for (int i = 0; i < mApp->mPlayerInfo->mNumPottedPlants; ++i)
+    {
+        const PottedPlant& plant = *PottedPlantFromIndex(i);
+        if (plant.mWhichZenGarden == GardenType::GARDEN_MAIN &&
+            plant.mX >= 0 && plant.mX < ZEN_MAX_GRIDSIZE_X && plant.mY >= 0 && plant.mY < ZEN_MAX_GRIDSIZE_Y)
+            occupied[SavedGardenPage(plant)][plant.mX][plant.mY] = true;
+    }
 
-	for (int x = 0; x < ZEN_MAX_GRIDSIZE_X; x++)
-	{
-		for (int y = 0; y < ZEN_MAX_GRIDSIZE_Y; y++)
-		{
-			if (mApp->mCrazyDaveMessageIndex != -1 && (x < 2 || y < 1))
-			{
-				goto _m_skip_plant_pick;  // skip spots covered by Crazy Dave
-			}
+    const int firstPage = mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_ZEN_GARDEN &&
+        mGardenType == GardenType::GARDEN_MAIN ? mGardenPage : 0;
+    for (int offset = 0; offset < kGardenPages; ++offset)
+    {
+        const int page = (firstPage + offset) % kGardenPages;
+        PvzpWeightedGridArray picks[kMainPageSlots];
+        int count = 0;
+        for (int x = 0; x < ZEN_MAX_GRIDSIZE_X; ++x)
+        {
+            for (int y = 0; y < ZEN_MAX_GRIDSIZE_Y; ++y)
+            {
+                if (occupied[page][x][y] || (page == 0 && mApp->mCrazyDaveMessageIndex != -1 && (x < 2 || y < 1)))
+                    continue;
+                picks[count].mX = x;
+                picks[count].mY = y;
+                picks[count++].mWeight = 1;
+            }
+        }
+        if (count == 0)
+            continue;
 
-			for (int i = 0; i < mApp->mPlayerInfo->mNumPottedPlants; i++)
-			{
-				PottedPlant* aPottedPlant = PottedPlantFromIndex(i);
-				if (aPottedPlant->mWhichZenGarden == GardenType::GARDEN_MAIN && aPottedPlant->mX == x && aPottedPlant->mY == y)
-				{
-					goto _m_skip_plant_pick;
-				}
-			}
-
-			aPicks[aPickCount].mX = x;
-			aPicks[aPickCount].mY = y;
-			aPicks[aPickCount].mWeight = 1;
-			aPickCount++;
-		_m_skip_plant_pick:
-			; // @Minerscale fixed broken Zen Garden plant picker. Now I have to fix my save file...
-		}
-	}
-
-	PvzpWeightedGridArray* aSpot = PvzpPickFromWeightedGridArray(aPicks, aPickCount);
-	theSpotX = aSpot->mX;
-	theSpotY = aSpot->mY;
+        const auto* spot = PvzpPickFromWeightedGridArray(picks, count);
+        thePage = page;
+        theSpotX = spot->mX;
+        theSpotY = spot->mY;
+        return true;
+    }
+    return false;
 }
 
 void ZenGarden::AddPottedPlant(PottedPlant* thePottedPlant)
 {
-	PVZP_ASSERT(mApp->mPlayerInfo->mNumPottedPlants < MAX_POTTED_PLANTS);
+	int page, x, y;
+    if (mApp->mPlayerInfo->mNumPottedPlants >= MAX_POTTED_PLANTS || !FindOpenZenGardenSpot(page, x, y))
+        return;
 
 	int aPottedPlantIndex = mApp->mPlayerInfo->mNumPottedPlants;
 	PottedPlant* aPottedPlant = &mApp->mPlayerInfo->mPottedPlant[aPottedPlantIndex];
 	*aPottedPlant = *thePottedPlant;
 	aPottedPlant->mWhichZenGarden = GardenType::GARDEN_MAIN;
 	aPottedPlant->mLastWateredTime = 0;
-	FindOpenZenGardenSpot(aPottedPlant->mX, aPottedPlant->mY);
+	aPottedPlant->mX = x;
+    aPottedPlant->mY = y;
+    aPottedPlant->mFutureAttribute[0] = page;
 	mApp->mPlayerInfo->mNumPottedPlants++;
 
-	if (mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_ZEN_GARDEN && mBoard && aPottedPlant->mWhichZenGarden == mGardenType)
+	if (mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_ZEN_GARDEN && mBoard && IsPlantOnPage(*aPottedPlant))
 	{
 		Plant* aPlant = PlacePottedPlant(aPottedPlantIndex);
 		if (mApp->GetDialog(Dialogs::DIALOG_STORE) == nullptr)
@@ -1833,7 +1893,7 @@ void ZenGarden::ZenGardenUpdate()
 		if (displayed->mPottedPlantIndex >= 0 && displayed->mPottedPlantIndex < MAX_POTTED_PLANTS)
 			present[displayed->mPottedPlantIndex] = true;
 	for (int i = 0; i < mApp->mPlayerInfo->mNumPottedPlants; ++i)
-		if (mApp->mPlayerInfo->mPottedPlant[i].mWhichZenGarden == mGardenType && !present[i])
+		if (IsPlantOnPage(mApp->mPlayerInfo->mPottedPlant[i]) && !present[i])
 			if (!PlacePottedPlant(i)) break;
 	if (HasPurchasedStinky() && mGardenType == GardenType::GARDEN_MAIN && !GetStinky()) AddStinky();
 
@@ -1907,16 +1967,22 @@ GridItem* ZenGarden::GetStinky()
 	return nullptr;
 }
 
-void ZenGarden::GotoNextGarden()
+void ZenGarden::ClearGardenPage()
 {
 	LeaveGarden();
 	mBoard->ClearAdvice(AdviceType::ADVICE_NONE);
-	mApp->CrazyDaveDie();
 	mBoard->mPlants.DataArrayFreeAll();
 	mBoard->mCoins.DataArrayFreeAll();
 	mApp->mEffectSystem->EffectSystemFreeAll();
+}
 
-	bool aGoToTree = false;
+void ZenGarden::GotoNextGarden()
+{
+    ClearGardenPage();
+    mGardenPage = 0;
+    mApp->CrazyDaveDie();
+
+    bool aGoToTree = false;
 	if (mGardenType == GardenType::GARDEN_MAIN)
 	{
 		if (mApp->mPlayerInfo->mPurchases[StoreItem::STORE_ITEM_MUSHROOM_GARDEN])
@@ -2027,6 +2093,7 @@ void ZenGarden::MouseDownWithFullWheelBarrow(int x, int y)
 
 	PottedPlant oldRecord = *aPottedPlant;
 	aPottedPlant->mWhichZenGarden = mGardenType;
+    aPottedPlant->mFutureAttribute[0] = mGardenPage;
 	aPottedPlant->mX = aGridX;
 	aPottedPlant->mY = aGridY;
 	intptr_t aPottedPlantIndex = (reinterpret_cast<intptr_t>(aPottedPlant) -
@@ -2045,6 +2112,7 @@ void ZenGarden::MouseDownWithEmptyWheelBarrow(Plant* thePlant)
 	PottedPlant* aPottedPlant = PottedPlantFromIndex(thePlant->mPottedPlantIndex);
 	RemovePottedPlant(thePlant);
 	aPottedPlant->mWhichZenGarden = GardenType::GARDEN_WHEELBARROW;
+    aPottedPlant->mFutureAttribute[0] = 0;
 	aPottedPlant->mX = 0;
 	aPottedPlant->mY = 0;
 	mApp->PlayFoley(FoleyType::FOLEY_PLANT);
@@ -2199,6 +2267,25 @@ bool ZenGarden::MouseDownZenGarden(int x, int y, int theClickCount, HitResult* t
 		mBoard->mChallenge->mChallengeState = ChallengeState::STATECHALLENGE_NORMAL;
 	}
 	mBoard->mChallenge->mChallengeStateCounter = 3000;
+
+    if (theClickCount > 0 && ShouldShowGardenPages() && mBoard->CanInteractWithBoardButtons())
+    {
+        for (int page = 0; page < kGardenPages; ++page)
+        {
+            if (!GardenPageButton(page).Contains(x, y))
+                continue;
+
+            mBoard->mIgnoreMouseUp = true;
+            if (page != mGardenPage)
+            {
+                ClearGardenPage();
+                mGardenPage = page;
+                ZenGardenInitLevel();
+            }
+            return true;
+        }
+    }
+
 
 	if (theHitResult->mObjectType == GameObjectType::OBJECT_TYPE_STINKY && mBoard->mCursorObject->mCursorType == CursorType::CURSOR_TYPE_NORMAL)
 	{

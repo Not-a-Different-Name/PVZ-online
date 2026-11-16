@@ -13,6 +13,8 @@
 #define __NETSESSION_H__
 
 #include <cstdint>
+#include <chrono>
+#include <algorithm>
 #include <string>
 #include <vector>
 #include "NetLink.h"
@@ -30,6 +32,17 @@
 class NetSession
 {
 public:
+    int mMatchMode=-1,mMatchRequestedMode=-1;
+    bool mMatching=false,mMatchJoining=false,mMatchStartPending=false;
+    uint8_t mMatchTicket[16]{};
+    std::chrono::steady_clock::time_point mMatchWaitingSince{};
+    const std::string& GetLocalName()const{return mLocalName;}
+    bool StartMatchedRoom(const char* host,uint16_t port,const std::string& code,int mode,const uint8_t* ticket) {
+        if(mode<0||mode>2||!ticket)return false;
+        const bool ok=StartRoomJoin(host,code.c_str(),port);
+        if(ok){mMatchRequestedMode=mode;mMatchJoining=true;std::copy(ticket,ticket+16,mMatchTicket);}
+        return ok;
+    }
     void SetLocalNameplate(uint8_t id);
     uint8_t GetSeatNameplate(uint8_t seat) const;
     // Initial create retry information; never infer it from localized text.
@@ -847,7 +860,7 @@ private:
 	bool				mHasPendingPause;
 	bool				mPendingPauseValue;
     uint8_t mPendingPauseSource = 0;
-	std::vector<NetProto::MsgEscapedZombie>	mPendingEscapedZombies;
+	std::deque<NetProto::MsgEscapedZombie>	mPendingEscapedZombies;
 	// 收到的局内快捷聊天（收包在会话层、显示在棋盘，跨层不建 UI，理由同漏怪队列）。
 	std::vector<NetProto::MsgQuickChat>	mPendingQuickChats;
 	// @pvz-online: 收到的发阳光（MOD_BUILD 38）。跨层不碰棋盘，理由同漏怪队列。

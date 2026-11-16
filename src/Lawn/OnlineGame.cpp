@@ -680,10 +680,6 @@ void LawnApp::UpdateOnlineRelay()
         RunSpeciesRuntime::ImportRelay(aZombie,aMsg);
         mOnlineSession->TakePendingEscapedZombie(aMsg); // Commit only after successful spawn.
 
-		NetworkLog("[net] relayed zombie is on the board: row %u type %u hp %d/%d/%d/%d",
-			(unsigned)aMsg.mRow, (unsigned)aMsg.mZombieType,
-			(int)aMsg.mBodyHealth, (int)aMsg.mHelmHealth,
-			(int)aMsg.mShieldHealth, (int)aMsg.mFlyingHealth);
 	}
 
 	// @pvz-online: 发阳光（MOD_BUILD 38）——队友发来的到账额直接入账（封顶 9990）+
@@ -1655,6 +1651,29 @@ int LawnApp::OnlineSeatMultiplierForSeat(uint8_t theSeat)
 	if (aSeatMult < 2) aSeatMult = 2;		// 末席保底 ×2（批七：末位出量翻倍，其余席位不动）
 	if (aSeatMult > 32) aSeatMult = 32;		// 用户定封顶 32（六席顶正好 32）
 	return aSeatMult;
+}
+
+int LawnApp::OnlineSpawnMultiplierForSeat(uint8_t seat)
+{
+    return std::min(8, OnlineSeatMultiplierForSeat(seat));
+}
+int LawnApp::OnlineSeatHealthPermilleForSeat(uint8_t seat)
+{
+    if (!IsOnlineGame() || !mOnlineSession) return 1000;
+    int count=0,rank=0;
+    if (mOnlineSession->SupportsWatchRoom()) {
+        for (uint8_t current : mOnlineSession->WatchCombatOrder()) {
+            if (!current || mOnlineSession->IsSeatOffline(current) || mOnlineSession->IsWaitingForNextRound(current)) continue;
+            ++count;
+            if (current==seat) rank=count;
+        }
+    } else {
+        count=mOnlineSession->GetOccupiedSeatCount();
+        if (!mOnlineSession->IsSeatOccupied(seat)) return 1000;
+        for (uint8_t current=1;current<=seat;++current)
+            if (mOnlineSession->IsSeatOccupied(current)) ++rank;
+    }
+    return rank ? 1000 + std::max(0,count-rank-1)*100 : 1000;
 }
 
 static int SeatStartSunForMult(int theSeatMult)

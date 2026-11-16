@@ -743,6 +743,10 @@ bool SexyAppBase::ProcessDeferredMessages(bool singleMessage)
 
 				int x = event.button.x;
 				int y = event.button.y;
+#ifdef __ANDROID__
+				if (!mWidgetManager->mMouseSourceRect.Contains(x, y))
+					break;
+#endif
 				mWidgetManager->RemapMouse(x, y);
 
 				mLastUserInputTick = mLastTimerTime;

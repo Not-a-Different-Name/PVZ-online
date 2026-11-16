@@ -1,5 +1,11 @@
 # Android 移植进度
 
+## 2026-11-12 MOD113 正式交付
+
+- 当前正式版为 MOD113，APK 为 arm64、versionCode 113。MuMu 3 保档覆盖完成，公告和主菜单已验。2026-11-12 复核已安装 APK 的 SHA256 与正式附件一致。 [完整包](https://github.com/Not-a-Different-Name/PVZ-online/releases/tag/mod113-full-20261112)
+- Android 完整原生回归 696 项、双端本地中继 28 项、两服 PC＋MuMu 公网各 5 项通过。覆盖公开房间、参战和观众共用六席、掉线后观战、关间角色切换和回房。
+- Android 对应源码分支为同一 PvZ Online 仓库的 `android-port`。以下为早期移植历史。
+
 ## 2026-10-18 Build68 当前工作区（本地验证通过，未打包/部署）
 
 公共房间大厅和本地最近50局查询已实现，联机页新增“公开房间”“最近记录”。大厅仅供开局前入房，无尽关间补位继续使用房间码；记录按玩家档案隔离，支持筛选、详情与备份恢复。PC/Android原生构建、Go竞态测试、36项新功能检查、27项无尽补位回归及六人准备流程回归通过；Android ARM64原生会话联测通过。未安装新APK、未部署公网、未打包，完整手机UI触控及长局仍待验，onlineGameReady=false。详见[实现与验收](docs/LOBBY-HISTORY-BUILD68-2026-10-18.md)，本条优先于下方历史状态。

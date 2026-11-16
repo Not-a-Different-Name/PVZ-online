@@ -40,6 +40,10 @@
 #include "Lawn/Online/NetworkLog.h"
 #include "Lawn/Widget/OnlineStartDialog.h"
 #include "Resources.h"
+#ifdef __ANDROID__
+#include "graphics/GLInterface.h"
+#include "Lawn/Observer/ObserverBoard.h"
+#endif
 #include "Lawn/LawnCommon.h"
 #include "Lawn/Board.h"
 #include "Lawn/Observer/ObserverHost.inl"
@@ -3664,3 +3668,37 @@ bool LawnApp::DrawDirtyStuff(){
  if(drawn)PerformanceMonitor::Presented();else monitor.Cancel();
  return drawn;
 }
+
+#ifdef __ANDROID__
+void LawnApp::Redraw(Rect* clip)
+{
+    const bool titleBackdropVisible = !mTitleScreen ||
+        (mTitleScreen->mTitleState == TITLESTATE_SCREEN && mTitleScreen->mLoaderScreenIsLoaded);
+    if (!mIsDrawing && !mShutdown && mGLInterface && titleBackdropVisible)
+    {
+        const Board* visibleBoard = mBoard;
+        if (mBoard && mBoard->mObserverView && mBoard->IsWatchingView())
+            if (const Board* watched = mBoard->mObserverView->LocalBattle())
+                visibleBoard = watched;
+
+        Image* image = nullptr;
+        int offset = 0;
+        if (visibleBoard && mGameScene != SCENE_MENU)
+        {
+            image = visibleBoard->GetBackdropImage();
+            if (visibleBoard == mBoard && IsFirstTimeAdventureMode() && mBoard->mLevel <= 3)
+                image = IMAGE_BACKGROUND1UNSODDED;
+            if (image && image->GetWidth() >= BOARD_WIDTH + BOARD_OFFSET)
+                offset = BOARD_OFFSET;
+            if (!image && visibleBoard->mBackground == BACKGROUND_TREEOFWISDOM)
+                image = IMAGE_REANIM_TREE_BG;
+        }
+        else if (mTitleScreen)
+            image = IMAGE_TITLESCREEN;
+        else if (mGameSelector)
+            image = IMAGE_REANIM_SELECTORSCREEN_BG;
+        mGLInterface->DrawSideBackdrop(image, offset);
+    }
+    SexyApp::Redraw(clip);
+}
+#endif

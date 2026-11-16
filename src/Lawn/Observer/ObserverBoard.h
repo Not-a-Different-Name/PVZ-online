@@ -43,7 +43,9 @@ public:
     if(!body.data.empty()&&body.data[0]==5){
      if(s->GetSeatBuild(target)<NetSession::ObserverWorldBuild)continue;
      if(!world)world=std::make_unique<ObserverWorld::World>(app);
-     if(!world->Restore(body.data))continue;
+     const bool sameSource=worldVisible&&visible.Valid()&&visible.player==next.player&&
+      visible.seat==next.seat&&visible.run==next.run&&visible.generation==next.generation;
+     if(!world->Restore(body.data,sameSource))continue;
      // Room spectators may never have loaded this scene's delayed resources.
      world->Inspect()->LoadBackgroundImages();
      worldVisible=true;scene.Clear();lastAdvance=now;

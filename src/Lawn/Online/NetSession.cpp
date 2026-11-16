@@ -1352,10 +1352,6 @@ bool NetSession::SendEscapedZombie(const NetProto::MsgEscapedZombie& theMsg)
 	int aSize = NetProto::EncodeEscapedZombie(aPayload, (int)sizeof(aPayload), aMsg);
 	if (aSize <= 0) return false;
 
-	NetworkLog("[net] passing a zombie on: row %u type %u hp %d/%d/%d/%d",
-		(unsigned)aMsg.mRow, (unsigned)aMsg.mZombieType,
-		(int)aMsg.mBodyHealth, (int)aMsg.mHelmHealth,
-		(int)aMsg.mShieldHealth, (int)aMsg.mFlyingHealth);
 	return Dispatch(NetProto::MSG_ESCAPED_ZOMBIE, aPayload, aSize, aTarget);
 }
 
@@ -1365,7 +1361,7 @@ bool NetSession::TakePendingEscapedZombie(NetProto::MsgEscapedZombie& theMsg)
 
 	// 先进先出：漏怪是"又来了几只"的事件，顺序不能乱（队列里一只都不许丢）
 	theMsg = mPendingEscapedZombies.front();
-	mPendingEscapedZombies.erase(mPendingEscapedZombies.begin());
+	mPendingEscapedZombies.pop_front();
 	return true;
 }
 
@@ -1672,6 +1668,7 @@ void NetSession::ResetToOff()
  mFlowSupported=mFlowEnabled=mFlowHelloSent=mFlowDeferred=false;
  mFlowDoneValue=mFlowStartPending=mFlowHostStartRecovery=mFlowLost=false;mReadyCancelState=ReadyCancelState::NONE;mFlowTerm=mFlowEpoch=mFlowGeneration=mFlowAcked=mFlowDoneEpoch=0;mFlowPhase=0;mFlowStartTicks=0;
     mRoomCreateAttempted=mRoomCreateBusyRejected=mRoomCreateWelcomed=false;
+    mMatchMode=mMatchRequestedMode=-1;mMatching=mMatchJoining=mMatchStartPending=false;std::fill(mMatchTicket,mMatchTicket+16,0);mMatchWaitingSince={};
     mDirectoryPublic=false;mDirectoryStarted=false;mDirectoryConfirmed=false;mDirectoryJoin=false;mDirectoryRetry=0;
     ResetAdmissionNetwork();
     mPreparation=PreparationWire::StateData{};
@@ -2200,10 +2197,6 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
 			// 跟开局命令一样：收包链里不建僵尸（那要动棋盘、加载美术），
 			// 只排队；LawnApp 每帧取走。队列不清空的话迟到的怪会在下一关冒出来。
 			mPendingEscapedZombies.push_back(aMsg);
-			NetworkLog("[net] the teammate passed a zombie: row %u type %u hp %d/%d/%d/%d",
-				(unsigned)aMsg.mRow, (unsigned)aMsg.mZombieType,
-				(int)aMsg.mBodyHealth, (int)aMsg.mHelmHealth,
-				(int)aMsg.mShieldHealth, (int)aMsg.mFlyingHealth);
 		}
 		break;
 
@@ -2752,6 +2745,15 @@ void NetSession::HandleControlFrame(uint16_t theType, const uint8_t* thePayload,
     if(theType==0xF024) {HandlePunchControl(thePayload,theSize);return;}
 
  if(theType==NetProto::MSG_SRV_FLOW){HandleFlowState(thePayload,theSize);return;}
+    if(mTransport==Transport::RELAY && theType==0xF026) {
+        if(theSize!=5||thePayload[0]!=1||thePayload[1]!=6||thePayload[2]>2||thePayload[3]>1||thePayload[4]!=1||
+           (mMatchRequestedMode>=0&&mMatchRequestedMode!=thePayload[2])) {
+            SetDead(NetText("匹配规则信息异常，请重新入房。","Invalid matching rules. Please rejoin.").c_str(),NetText("匹配失败","Match failed").c_str());return;
+        }
+        if(mMatchMode<0)mMatchWaitingSince=std::chrono::steady_clock::now();
+        mMatchMode=thePayload[2];mMatching=thePayload[3]!=0;mMatchJoining=false;mDirectoryPublic=true;
+        return;
+    }
     if(mTransport==Transport::RELAY && theType==0xF00D) {
         if(theSize==4 && thePayload[0]==1 && thePayload[1]==0 && thePayload[2]==mDirectoryPublic && thePayload[3]==mDirectoryStarted)
             mDirectoryConfirmed=true;
@@ -3322,6 +3324,12 @@ bool NetSession::SendRoomRequest()
 	int aSize = 0;
 	uint16_t aType = NetProto::MSG_CLI_CREATE_ROOM;
 
+    if(mMatchJoining) {
+        NetProto::Writer w(aPayload,sizeof(aPayload));w.U8(1);w.U8(5);w.U16(NetProto::MOD_BUILD);w.U8(uint8_t(mMatchRequestedMode));
+        for(char c:mRoomCode)w.U8(uint8_t(c));for(uint8_t c:mMatchTicket)w.U8(c);
+        char name[NetProto::NAME_SIZE];NetProto::SetName(name,mLocalName.c_str());for(char c:name)w.U8(uint8_t(c));
+        return !w.Overflowed()&&SendRaw(0xF026,aPayload,w.Size());
+    }
 	if (mRole == Role::HOST)
 	{
 		NetProto::MsgCliCreateRoom aMsg = {};

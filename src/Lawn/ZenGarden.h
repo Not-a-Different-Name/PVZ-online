@@ -59,6 +59,7 @@ public:
 	LawnApp*                mApp;
 	Board*                  mBoard;
 	GardenType              mGardenType;
+    int                     mGardenPage = 0;
 	std::vector<std::string> mLoadedResourceNames;
 	time_t                  mNowTime;       // cached per-frame
 	tm                      mNowTM;         // cached per-frame
@@ -68,10 +69,14 @@ public:
 	~ZenGarden();
 
 	void                    ZenGardenInitLevel();
+    void                    DrawGardenPages(Graphics* g);
+    bool                    ShouldShowGardenPages() const;
+    bool                    IsPlantOnPage(const PottedPlant& thePlant) const;
+    void                    ClearGardenPage();
 	void         DrawPottedPlantIcon(Graphics* g, float x, float y, PottedPlant* thePottedPlant);
 	void                    DrawPottedPlant(Graphics* g, float x, float y, PottedPlant* thePottedPlant, float theScale, bool theDrawPot);
 	bool                    IsZenGardenFull(bool theIncludeDroppedPresents);
-	void                    FindOpenZenGardenSpot(int& theSpotX, int& theSpotY);
+	bool                    FindOpenZenGardenSpot(int& thePage, int& theSpotX, int& theSpotY);
 	void                    AddPottedPlant(PottedPlant* thePottedPlant);
 	void                    MouseDownWithTool(int x, int y, CursorType theCursorType);
 	void                    MovePlant(Plant* thePlant, int theGridX, int theGridY);

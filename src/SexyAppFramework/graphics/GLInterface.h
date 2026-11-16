@@ -188,6 +188,10 @@ public:
 	int						mDisplayHeight;
 
 	Rect					mPresentationRect;
+#ifdef __ANDROID__
+	int                     mSideDrawableWidth = 0;
+	void                    DrawSideBackdrop(Image* theImage, int theSourceLeft);
+#endif
 	int						mRefreshRate;
 	int						mMillisecondsPerFrame;
 

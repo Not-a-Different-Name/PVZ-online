@@ -402,14 +402,29 @@ void TeamPlay::Handle(const TeamWire::Message&m) {
         if(s.shared.ballot.open!=m.shared.ballot.open||s.shared.ballot.revision!=m.shared.ballot.revision)++viewRevision;
         if(!m.shared.ballot.open&&page==Page::VOTE&&
            (s.shared.ballot.open||m.shared.votedLevel==r->mLevelIndex)){TeamPlayUi::Close(app);page=Page::TEAM_EFFECTS;}
-        const auto previous=s.shared;s.shared=m.shared;QueueGain(previous);
+        // The host also sends this snapshot as a heartbeat. Identical
+        // packets must not schedule a synchronous lawn checkpoint.
+        if (!(s.shared == m.shared)) {
+            const auto previous = s.shared;
+            s.shared = m.shared;
+            QueueGain(previous);
+            dirty = true;
+        }
         const int incomingVote=m.zombieVoted==65535?-1:m.zombieVoted,localVote=r->mZombieVotedLevel==65535?-1:r->mZombieVotedLevel;
         if(m.level==uint32_t(r->mLevelIndex)&&m.attempt==Attempt()&&incomingVote>=localVote&&
            (incomingVote!=localVote||m.zombieRounds>=app->mZombieVoteRoundsDone)){
-            for(int i=0;i<RunState::RUN_ZOMBIE_BUFF_COUNT;++i)r->mZombieBuffStacks[i]=RunSpeciesRules::ClampedStacks(i,m.zombieStacks[i]);
-            r->mZombieVotedLevel=m.zombieVoted;app->mZombieVoteRoundsDone=m.zombieRounds;r->mEndlessVoteRounds=m.zombieRounds;
+            for (int i = 0; i < RunState::RUN_ZOMBIE_BUFF_COUNT; ++i) {
+                const auto stacks = RunSpeciesRules::ClampedStacks(i, m.zombieStacks[i]);
+                dirty |= r->mZombieBuffStacks[i] != stacks;
+                r->mZombieBuffStacks[i] = static_cast<unsigned char>(stacks);
+            }
+            dirty |= r->mZombieVotedLevel != m.zombieVoted || r->mEndlessVoteRounds != m.zombieRounds;
+            r->mZombieVotedLevel = m.zombieVoted;
+            app->mZombieVoteRoundsDone = m.zombieRounds;
+            r->mEndlessVoteRounds = m.zombieRounds;
         }
-        dirty=true;GrantRelief();return;
+        GrantRelief();
+        return;
     }
     if(m.op==TeamWire::REPORT){
         if(m.run&&s.shared.run&&m.run!=s.shared.run)return;

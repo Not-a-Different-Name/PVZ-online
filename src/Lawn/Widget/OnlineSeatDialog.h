@@ -70,7 +70,8 @@ public:
             if(!occupied)continue;
             bool recovering=s->GetState()==NetSession::State::RECONNECTING;
             std::string tier=recovering?ModText::Tr("重连后显示加成","Bonuses shown after reconnect"):
-                ModText::Tr("刷怪 ×","Spawn x")+std::to_string(app->OnlineSeatMultiplierForSeat((uint8_t)seat))+
+                ModText::Tr("刷怪 ×","Spawn x")+std::to_string(app->OnlineSpawnMultiplierForSeat((uint8_t)seat))+
+                ModText::Tr(" 血量×"," HP x")+std::to_string(app->OnlineSeatHealthPermilleForSeat((uint8_t)seat)/1000)+"."+std::to_string((app->OnlineSeatHealthPermilleForSeat((uint8_t)seat)%1000)/100)+
                 ((app->mRunState&&app->mRunState->IsEndless())?ModText::Tr("   阳光保留","   Sun retained"):
                 ModText::Tr("   额外阳光 +","   Sun bonus +")+std::to_string(app->OnlineStartSunBonusForSeat((uint8_t)seat)));
             SeatUi::Text(g,tier,box.mX+12,box.mY+51,320,19,Color(225,225,210));
@@ -85,7 +86,8 @@ public:
         std::string preview=ModText::Tr("选队友，查看换位后的加成。","Select a teammate to see the swap bonuses.");
         if(active&&selected>0&&selected!=s->GetLocalSeat()&&s->IsSeatOccupied((uint8_t)selected)) {
             preview=RoomPresentation::SeatName(s,selected);
-            if(RoomPresentation::CanSwap(app,selected))preview+=ModText::Tr("  换入后：×","  After swap: x")+std::to_string(app->OnlineSeatMultiplierForSeat((uint8_t)selected))+
+            if(RoomPresentation::CanSwap(app,selected))preview+=ModText::Tr("  换入后：×","  After swap: x")+std::to_string(app->OnlineSpawnMultiplierForSeat((uint8_t)selected))+
+                ModText::Tr(" 血量×"," HP x")+std::to_string(app->OnlineSeatHealthPermilleForSeat((uint8_t)selected)/1000)+"."+std::to_string((app->OnlineSeatHealthPermilleForSeat((uint8_t)selected)%1000)/100)+
                 ((app->mRunState&&app->mRunState->IsEndless())?ModText::Tr(" / 阳光保留"," / sun retained"):
                 ModText::Tr(" / 额外阳光 +"," / sun bonus +")+std::to_string(app->OnlineStartSunBonusForSeat((uint8_t)selected)));
         }

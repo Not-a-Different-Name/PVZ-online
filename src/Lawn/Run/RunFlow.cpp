@@ -29,6 +29,10 @@ void LawnApp::KillRunFlowScreen()
 
 void LawnApp::ShowRunMenu(int endlessScene)
 {
+    if(mOnlineSession && mOnlineSession->IsConnected() && mOnlineSession->mMatchMode>=0) {
+        if(!mOnlineSession->RequestRoomGate(false)){DoOnlineDialog();mOnlineSession->mMatchStartPending=true;return;}
+        StartRun(mOnlineSession->mMatchMode,0,1,1,1,0,0,2,0,1,0,1,0);return;
+    }
     if (!IsOnlineStartAllowed() && !(mOnlineSession && mOnlineSession->GetRole() == NetSession::Role::HOST && mOnlineSession->GetState() == NetSession::State::LISTENING))
     { DoOnlineDialog(); return; }
 
@@ -46,6 +50,11 @@ void LawnApp::ShowRunMenu(int endlessScene)
 
 void LawnApp::StartRun(int mode, int buffMult, int difficulty, int scale, int tempo, int zombotany, int endlessScene, int bossFlag, int ladder, int zombieBuff,int speedTier, int firstWave, int endlessOptions)
 {
+    if(mOnlineSession && mOnlineSession->IsConnected() && mOnlineSession->mMatchMode>=0) {
+        mode=mOnlineSession->mMatchMode;difficulty=scale=tempo=1;
+        buffMult=zombotany=endlessScene=ladder=speedTier=endlessOptions=0;
+        bossFlag=2;zombieBuff=1;firstWave=1;
+    }
     if (!IsOnlineStartAllowed() && !(mOnlineSession && mOnlineSession->GetRole() == NetSession::Role::HOST && mOnlineSession->GetState() == NetSession::State::LISTENING))
     { DoOnlineDialog(); return; }
 
@@ -69,6 +78,9 @@ void LawnApp::StartRun(int mode, int buffMult, int difficulty, int scale, int te
 
 void LawnApp::ResumeRun(int mode,int scene, uint64_t slot)
 {
+    if(mOnlineSession && mOnlineSession->IsConnected() && mOnlineSession->mMatchMode>=0) {
+        PlayerMessageBox::Show(this,DIALOG_MESSAGE,ModText::Tr("固定匹配规则","Fixed matching rules"),ModText::Tr("匹配房间请由房主开始新局。续档可使用普通房间。","Start a new run in a matching room. Use a regular room to resume a save."));return;
+    }
     ResetZombieVote();
     if (!IsOnlineStartAllowed() && !(mOnlineSession && mOnlineSession->GetRole() == NetSession::Role::HOST && mOnlineSession->GetState() == NetSession::State::LISTENING))
     { DoOnlineDialog(); return; }

@@ -82,10 +82,11 @@ void PlayerInfo::SyncDetails(DataSync& theSync)
 		Reset();
 	}
 
-	int aVersion = gUserVersion;
+	// Larger inventories use a version that older clients reject before reading the records.
+	int aVersion = mNumPottedPlants > 200 ? gUserVersion + 1 : gUserVersion;
 	theSync.SyncUInt32(aVersion);
 	theSync.SetVersion(aVersion);
-	if (aVersion != gUserVersion)
+	if (aVersion != gUserVersion && aVersion != gUserVersion + 1)
 	{
 		return;
 	}
@@ -123,7 +124,9 @@ void PlayerInfo::SyncDetails(DataSync& theSync)
 	theSync.SyncUInt32(mPlaceHolderPlayerStats);
 	theSync.SyncUInt32(mNumPottedPlants);
 
-	PVZP_ASSERT(mNumPottedPlants <= MAX_POTTED_PLANTS);
+	if (mNumPottedPlants < 0 || mNumPottedPlants > MAX_POTTED_PLANTS ||
+		(aVersion == gUserVersion && mNumPottedPlants > 200))
+		throw DataReaderException();
 	for (int i = 0; i < mNumPottedPlants; i++)
 	{
 		if (theSync.GetWriter())

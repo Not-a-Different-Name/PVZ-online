@@ -775,14 +775,8 @@ void Board::PickZombieWaves()
 			if(!mApp->GetRunState()->IsNewEndless())aZombiePoints = aZombiePoints * mApp->GetRunState()->GetDifficultyPermille() / 1000;
 		}
 
-		// @pvz-online: 席位顺位刷怪乘数（2026-10-03 用户二次定案：改回 2 的幂，取代当日的线性 4:3:2:1）：
-		// 末席（最后上座的席位）原量 ×2（2026-10-04 批七由 ×1 抬升）；往前每升一位翻一倍：
-		// 四人 8:4:2:2、三人 4:2:2、二人 2:2（末两席同为 ×2）；五六人续 16、32，顶到 32 封顶
-		// （用户定）。顺位按"上座席位"排（第 r 位权重 2^(n-r)、末位保底 ×2）；
-		// 各客户端只为自己的棋盘缩放，不涉协议。乘在旗帜波 ×2.5 之前。
-		// 同一倍率也放大每波数量封顶（下面 aWaveZombieCap）：1 号位 32 倍时 20 → 640 只。
-		// 2026-10-06：公式抽到 LawnApp::OnlineSeatMultiplier（顺位开局阳光同用）。
-		int aSeatMult = mApp->OnlineSeatMultiplier();
+		// Seat spawn baseline is capped at x8; start sun and boss seat scaling retain the original curve.
+		int aSeatMult = mApp->OnlineSpawnMultiplierForSeat(mApp->mOnlineSession ? mApp->mOnlineSession->GetLocalSeat() : 0);
 
 		// @pvz-online: 出怪难度档（2026-10-03 用户定案）：房主开局前选的全局旋钮，
 		// 直接乘在顺位乘数上——轻松 ×0.5 / 高压 ×2.0，乘后向下取整、保底 1 倍
@@ -2376,7 +2370,9 @@ bool Board::PreparePlantAnimations(SeedType seed, unsigned int count)
 
 Plant* Board::NewPlant(int theGridX, int theGridY, SeedType theSeedType, SeedType theImitaterType)
 {
-	if (!PreparePlantAnimations(theSeedType)) return nullptr;
+	const SeedType animatedType = theSeedType == SEED_IMITATER && RunPlantTraits::AllBowling(mApp, theImitaterType)
+        ? theImitaterType : theSeedType;
+    if (!PreparePlantAnimations(animatedType)) return nullptr;
 	Plant* aPlant = mPlants.DataArrayAlloc();
 	aPlant->mIsOnBoard = true;
 	aPlant->PlantInitialize(theGridX, theGridY, theSeedType, theImitaterType);
@@ -2433,7 +2429,10 @@ Plant* Board::AddPlant(int theGridX, int theGridY, SeedType theSeedType, SeedTyp
 	if (!aPlant) return nullptr;
 	DoPlantingEffects(theGridX, theGridY, aPlant);
 	mChallenge->PlantAdded(aPlant);
-    RunGarlicPulse::OnPlanted(this, aPlant);
+    if (RunPlantTraits::AllBowling(mApp, aPlant->mSeedType))
+        mApp->PlaySample(Sexy::SOUND_BOWLING);
+    else
+        RunGarlicPulse::OnPlanted(this, aPlant);
 
 	int aSunPlantsCount = CountPlantByType(SeedType::SEED_SUNSHROOM) + CountPlantByType(SeedType::SEED_SUNFLOWER);
 	if (aSunPlantsCount > mMaxSunPlants)
@@ -2475,7 +2474,8 @@ Plant* Board::GetPumpkinAt(int theGridX, int theGridY)
 	{
 		if (aPlant->mDead)
 			continue;
-		if (aPlant->mPlantCol == theGridX && aPlant->mRow == theGridY && !aPlant->NotOnGround() && aPlant->mSeedType == SeedType::SEED_PUMPKINSHELL)
+		if (aPlant->mPlantCol == theGridX && aPlant->mRow == theGridY && !aPlant->NotOnGround() && aPlant->mSeedType == SeedType::SEED_PUMPKINSHELL &&
+            !RunPlantTraits::AllBowling(mApp, aPlant->mSeedType))
 		{
 			return aPlant;
 		}
@@ -2489,7 +2489,8 @@ Plant* Board::GetFlowerPotAt(int theGridX, int theGridY)
 	{
 		if (aPlant->mDead)
 			continue;
-		if (aPlant->mPlantCol == theGridX && aPlant->mRow == theGridY && !aPlant->NotOnGround() && aPlant->mSeedType == SeedType::SEED_FLOWERPOT)
+		if (aPlant->mPlantCol == theGridX && aPlant->mRow == theGridY && !aPlant->NotOnGround() && aPlant->mSeedType == SeedType::SEED_FLOWERPOT &&
+            !RunPlantTraits::AllBowling(mApp, aPlant->mSeedType))
 		{
 			return aPlant;
 		}
@@ -2540,7 +2541,7 @@ void Board::GetPlantsOnLawn(int theGridX, int theGridY, PlantsOnLawn* thePlantOn
 				continue;
 			}
 		}
-		if (aPlant->NotOnGround())
+		if (aPlant->NotOnGround() || RunPlantTraits::RollingBowling(mApp, aSeedType))
 		{
 			continue;
 		}
@@ -3227,6 +3228,17 @@ PlantingReason Board::CanPlantAt(int theGridX, int theGridY, SeedType theSeedTyp
 		return aReason;
 	}
 
+    if (mApp->mGameMode != GAMEMODE_CHALLENGE_ZEN_GARDEN &&
+        (RunPlantTraits::AllBowling(mApp, theSeedType) ||
+         (StageHasRoof() && RunPlantTraits::RollingBowling(mApp, theSeedType))))
+    {
+        const auto square = mGridSquareType[theGridX][theGridY];
+        if (square == GRIDSQUARE_NONE || square == GRIDSQUARE_DIRT ||
+            GetGraveStoneAt(theGridX, theGridY) || GetScaryPotAt(theGridX, theGridY) || IsIceAt(theGridX, theGridY))
+            return PLANTING_NOT_HERE;
+        return GetCraterAt(theGridX, theGridY) ? PLANTING_NOT_ON_CRATER : PLANTING_OK;
+    }
+
 	PlantsOnLawn aPlantOnLawn;
 	GetPlantsOnLawn(theGridX, theGridY, &aPlantOnLawn);
 	if (mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_ZEN_GARDEN)
@@ -3367,7 +3379,10 @@ PlantingReason Board::CanPlantAt(int theGridX, int theGridY, SeedType theSeedTyp
 		return (aNormalPlant || aPlantOnLawn.mFlowerPotPlant || aPumpkinPlant || (aUnderPlant && !aHasLilypad)) ? PlantingReason::PLANTING_NOT_HERE : PlantingReason::PLANTING_OK;
 	}
 	// 屋顶种植需要花盆
-	if (StageHasRoof() && !aHasFlowerPot && !aBareRoofPlant)
+	// Flower pots are balls under All Bowling, so roof-compatible ash plants can use bare tiles.
+	const bool aBowlingRoof = mApp->mGameMode == GAMEMODE_ADVENTURE &&
+		mApp->RunExtraBuffCount(RUN_BUFF2_ALL_BOWLING) > 0;
+	if (StageHasRoof() && !aHasFlowerPot && !aBareRoofPlant && !aBowlingRoof)
 	{
 		return PlantingReason::PLANTING_NEEDS_POT;
 	}
@@ -4454,6 +4469,8 @@ void Board::MouseDownWithPlant(int x, int y, int theClickCount)
     if (createsPlant)
     {
         SeedType admissionSeed = mCursorObject->mType;
+        if (admissionSeed == SEED_IMITATER && RunPlantTraits::AllBowling(mApp, mCursorObject->mImitaterType))
+            admissionSeed = mCursorObject->mImitaterType;
         if (mCursorObject->mCursorType == CursorType::CURSOR_TYPE_PLANT_FROM_BANK &&
             aPlantingSeedType == SeedType::SEED_KERNELPULT && mApp->IsRunMode() &&
             mApp->RunPlantUpgradeCount(SeedType::SEED_KERNELPULT) > 0) admissionSeed = SeedType::SEED_COBCANNON;
@@ -4506,48 +4523,51 @@ void Board::MouseDownWithPlant(int x, int y, int theClickCount)
 	GetPlantsOnLawn(aGridX, aGridY, &aPlantOnLawn);
 	Plant* aNormalPlant = aPlantOnLawn.mNormalPlant;
 	Plant* aPumpkinPlant = aPlantOnLawn.mPumpkinPlant;
-	if (aNormalPlant && aNormalPlant->IsUpgradableTo(aPlantingSeedType))
-	{
-		if (aPlantingSeedType == SeedType::SEED_GLOOMSHROOM)
+    if (!RunPlantTraits::RollingBowling(mApp, aPlantingSeedType))
+    {
+		if (aNormalPlant && aNormalPlant->IsUpgradableTo(aPlantingSeedType))
 		{
-			aIsAwake = !aNormalPlant->mIsAsleep;
-			aWakeUpCounter = aNormalPlant->mWakeUpCounter;
-		}
-		aNormalPlant->Die();
-	}
-	if ((aPlantingSeedType == SeedType::SEED_WALLNUT || aPlantingSeedType == SeedType::SEED_TALLNUT) && aNormalPlant)
-	{
-		if (aNormalPlant->mSeedType == aPlantingSeedType)
-		{
+			if (aPlantingSeedType == SeedType::SEED_GLOOMSHROOM)
+			{
+				aIsAwake = !aNormalPlant->mIsAsleep;
+				aWakeUpCounter = aNormalPlant->mWakeUpCounter;
+			}
 			aNormalPlant->Die();
 		}
-	}
-	if (aPlantingSeedType == SeedType::SEED_PUMPKINSHELL && aPumpkinPlant)
-	{
-		if (aPumpkinPlant->mSeedType == SeedType::SEED_PUMPKINSHELL)
+		if ((aPlantingSeedType == SeedType::SEED_WALLNUT || aPlantingSeedType == SeedType::SEED_TALLNUT) && aNormalPlant)
 		{
-			aPumpkinPlant->Die();
+			if (aNormalPlant->mSeedType == aPlantingSeedType)
+			{
+				aNormalPlant->Die();
+			}
 		}
-	}
-	if (aPlantingSeedType == SeedType::SEED_COBCANNON && !RunPlantTraits::CompactCob(mApp))
-	{
-		Plant* aRightPlant = GetTopPlantAt(aGridX + 1, aGridY, PlantPriority::TOPPLANT_ONLY_NORMAL_POSITION);
-		if (aRightPlant)
+		if (aPlantingSeedType == SeedType::SEED_PUMPKINSHELL && aPumpkinPlant)
 		{
-			aRightPlant->Die();
+			if (aPumpkinPlant->mSeedType == SeedType::SEED_PUMPKINSHELL)
+			{
+				aPumpkinPlant->Die();
+			}
 		}
-	}
-	if (aPlantingSeedType == SeedType::SEED_CATTAIL)
-	{
-		if (aPlantOnLawn.mLilypadPlant)
+		if (aPlantingSeedType == SeedType::SEED_COBCANNON && !RunPlantTraits::CompactCob(mApp))
 		{
-			aPlantOnLawn.mLilypadPlant->Die();
+			Plant* aRightPlant = GetTopPlantAt(aGridX + 1, aGridY, PlantPriority::TOPPLANT_ONLY_NORMAL_POSITION);
+			if (aRightPlant)
+			{
+				aRightPlant->Die();
+			}
 		}
-		if (aNormalPlant)
+		if (aPlantingSeedType == SeedType::SEED_CATTAIL)
 		{
-			aNormalPlant->Die();
+			if (aPlantOnLawn.mLilypadPlant)
+			{
+				aPlantOnLawn.mLilypadPlant->Die();
+			}
+			if (aNormalPlant)
+			{
+				aNormalPlant->Die();
+			}
 		}
-	}
+    }
 
 	if (mCursorObject->mCursorType == CursorType::CURSOR_TYPE_PLANT_FROM_GLOVE)
 	{
@@ -4578,11 +4598,11 @@ void Board::MouseDownWithPlant(int x, int y, int theClickCount)
 		}
 		Plant* aPlant = AddPlant(aGridX, aGridY, aSpawnType, aSpawnImitater);
         if(aPlant&&mApp->GetRunState())TeamPlay::NoteSharedPlant(mApp,int(mCursorObject->mType==SEED_IMITATER&&!mApp->GetRunState()->mTeam.shared.Has(SEED_IMITATER)?mCursorObject->mImitaterType:mCursorObject->mType));
-		if (aIsAwake)
+		if (aPlant && aIsAwake)
 		{
 			aPlant->SetSleeping(false);
 		}
-		else
+		else if (aPlant)
 		{
 			aPlant->mWakeUpCounter = aWakeUpCounter;
 		}
@@ -6817,7 +6837,7 @@ void Board::DrawIce(Graphics* g, int theGridY)
 	g->SetColorizeImages(false);
 }
 
-void Board::DrawBackdrop(Graphics* g)
+Image* Board::GetBackdropImage() const
 {
 	Image* aBgImage = nullptr;
 	switch (mBackground)
@@ -6834,6 +6854,12 @@ void Board::DrawBackdrop(Graphics* g)
 	case BackgroundType::BACKGROUND_TREEOFWISDOM:		aBgImage = nullptr;										break;
 	default:											PVZP_ASSERT(false);											break;
 	}
+	return aBgImage;
+}
+
+void Board::DrawBackdrop(Graphics* g)
+{
+	Image* aBgImage = GetBackdropImage();
 
 	if (mLevel == 1 && mApp->IsFirstTimeAdventureMode())
 	{
@@ -7042,8 +7068,8 @@ static inline void AddUIRenderItem(RenderItem* theRenderList, int& theCurRenderI
 }
 
 // @pvz-online: local display preferences stay outside Board snapshots, matching PC H/J.
-static bool gShowZombieHealthNumbers = false;
-static bool gShowPlantHealthNumbers = false;
+static bool gShowZombieHealthNumbers = true;
+static bool gShowPlantHealthNumbers = true;
 bool Board::PlantHealthVisible() const { return gShowPlantHealthNumbers; }
 bool Board::ZombieHealthVisible() const { return gShowZombieHealthNumbers; }
 void Board::SetPlantHealthVisible(bool visible) { gShowPlantHealthNumbers = visible; }
@@ -7760,6 +7786,8 @@ void Board::DrawZenWheelBarrowButton(Graphics* g, int theOffsetY)
 
 void Board::DrawZenButtons(Graphics* g)
 {
+	if (mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_ZEN_GARDEN)
+		mApp->mZenGarden->DrawGardenPages(g);
 	int aOffsetY = 0;
 	if (mChallenge->mChallengeState == ChallengeState::STATECHALLENGE_ZEN_FADING)
 	{

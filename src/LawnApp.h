@@ -191,7 +191,9 @@ public:
     void ReleaseRunIntro();
     void UpdateRunPick();
     int OnlineSeatMultiplier();
-    int OnlineSeatMultiplierForSeat(uint8_t theSeat);   // @pvz-online: 按席位号查同一条顺位曲线（换位预览用），2026-10-15
+    int OnlineSeatMultiplierForSeat(uint8_t theSeat);
+    int OnlineSpawnMultiplierForSeat(uint8_t seat);
+    int OnlineSeatHealthPermilleForSeat(uint8_t seat);   // @pvz-online: 按席位号查同一条顺位曲线（换位预览用），2026-10-15
     int OnlineStartSunBonus();
     int OnlineStartSunBonusForSeat(uint8_t theSeat);    // @pvz-online: 换位预览用
     void DoOnlineDialog();
@@ -380,6 +382,9 @@ public:
 	void							ButtonMouseMove(int theId, int theX, int theY) override;
 	void							UpdateFrames() override;
  virtual bool DrawDirtyStuff() override;
+#ifdef __ANDROID__
+ void Redraw(Sexy::Rect* clip) override;
+#endif
 	bool							UpdateAppStep(bool* updated) override;
 	bool							UpdateApp() override;
 	bool					IsAdventureMode();

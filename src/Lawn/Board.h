@@ -404,6 +404,7 @@ public:
     void DrawAll(Sexy::ModalFlags*,Sexy::Graphics*) override;
 	void							Draw(Graphics* g) override;
 	void							DrawBackdrop(Graphics* g);
+	Sexy::Image*                   GetBackdropImage() const;
 	void							ButtonPress  	(int) override{}
 	void							ButtonDepress	(int) override{}
 	void							ButtonDownTick	(int) override{}

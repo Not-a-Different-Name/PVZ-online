@@ -278,12 +278,16 @@ static bool IsBowlingNut(const Plant* thePlant)
     SeedType aType = thePlant->mSeedType;
     if (aType == SeedType::SEED_IMITATER && thePlant->mImitaterType != SeedType::SEED_NONE)
         aType = thePlant->mImitaterType;
-    return (aType == SeedType::SEED_WALLNUT && thePlant->mApp->RunExtraBuffCount(RUN_BUFF2_NUT_BOWLING) > 0) ||
-        (aType == SeedType::SEED_CABBAGEPULT && RunPlantTraits::BowlingCabbage(thePlant->mApp));
+    return thePlant->mBoard && thePlant->mIsOnBoard && RunPlantTraits::RollingBowling(thePlant->mApp, aType);
 }
 
 void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, SeedType theImitaterType)
 {
+    if (mBoard && theSeedType == SEED_IMITATER && RunPlantTraits::AllBowling(mApp, theImitaterType))
+    {
+        theSeedType = theImitaterType;
+        theImitaterType = SEED_NONE;
+    }
     mPlantCol = theGridX;
     mRow = theGridY;
     if (mBoard)
@@ -3116,8 +3120,11 @@ void Plant::Squish()
 
 void Plant::UpdateBowling()
 {
+    const bool allBowling = RunPlantTraits::AllBowling(mApp, mSeedType);
+    const int lastRow = mBoard->StageHasPool() ? 5 : 4;
+    const int previousX = mX;
 	Reanimation* aBodyReanim = mApp->ReanimationTryToGet(mBodyReanimID);
-    if (mSeedType == SEED_CABBAGEPULT && RunPlantTraits::BowlingCabbage(mApp))
+    if (!allBowling && mSeedType == SEED_CABBAGEPULT && RunPlantTraits::BowlingCabbage(mApp))
     {
         // This cabbage-only slot owns a hidden motion track, never the visible body.
         aBodyReanim = mApp->ReanimationTryToGet(mHeadReanimID3);
@@ -3131,7 +3138,9 @@ void Plant::UpdateBowling()
         }
         aBodyReanim->Update();
     }
-	if (aBodyReanim && aBodyReanim->TrackExists("_ground"))
+    if (allBowling)
+        mX += 3;
+    else if (aBodyReanim && aBodyReanim->TrackExists("_ground"))
 	{
 		float aSpeed = aBodyReanim->GetTrackVelocity("_ground");
 		if (mSeedType == SeedType::SEED_GIANT_WALLNUT)
@@ -3140,33 +3149,55 @@ void Plant::UpdateBowling()
 		}
 
 		mX -= aSpeed;
-		if (mX > 800)
-			Die();
 	}
 
-	if (mState == PlantState::STATE_BOWLING_UP)
-	{
-		mY -= 2;
-	}
-	else if (mState == PlantState::STATE_BOWLING_DOWN)
-	{
-		mY += 2;
-	}
-	int aDistToGrid = mBoard->GridToPixelY(0, mRow) - mY;
-	if (aDistToGrid < -2 || aDistToGrid > 2)
-		return;
+    if (mX > 800)
+    {
+        Die();
+        return;
+    }
 
-	PlantState aNewState = mState;
+    int laneY = mBoard->GridToPixelY(0, mRow);
+    if (mBoard->StageHasRoof())
+    {
+        const int slopeEnd = mBoard->GridToPixelX(5, mRow);
+        const auto slope = [slopeEnd](int x) { return (std::max(0, slopeEnd - x) + 2) / 4; };
+        mY += slope(mX) - slope(previousX);
+        laneY = mBoard->GridToPixelY(5, mRow) + slope(mX);
+    }
+    if (allBowling && mState != STATE_BOWLING_UP && mState != STATE_BOWLING_DOWN)
+        mY = laneY; // Mushroom spawn jitter must not leave a rolling ball off its collision lane.
+    else if (mState == STATE_BOWLING_UP || mState == STATE_BOWLING_DOWN)
+        mY += std::clamp(laneY - mY, -2, 2);
+    if (std::abs(laneY - mY) > 2)
+        return;
+
+    PlantState aNewState = mState;
 	if (mState == PlantState::STATE_BOWLING_UP && mRow <= 0)
 	{
 		aNewState = PlantState::STATE_BOWLING_DOWN;
 	}
-	else if (mState == PlantState::STATE_BOWLING_DOWN && mRow >= 4)
+	else if (mState == PlantState::STATE_BOWLING_DOWN && mRow >= lastRow)
 	{
 		aNewState = PlantState::STATE_BOWLING_UP;
 	}
 
-	Zombie* aZombie = FindTargetZombie(mRow, PlantWeapon::WEAPON_PRIMARY);
+	Zombie* aZombie = nullptr;
+    if (allBowling)
+    {
+        const Rect ball(mX, mY, mWidth - 20, mHeight);
+        Zombie* candidate = nullptr;
+        while (mBoard->IterateZombies(candidate))
+        {
+            if ((candidate->mRow != mRow && candidate->mZombieType != ZOMBIE_BOSS) ||
+                !candidate->EffectedByDamage(1U) || GetRectOverlap(ball, candidate->GetZombieRect()) < 0)
+                continue;
+            if (!aZombie || candidate->GetZombieRect().mX < aZombie->GetZombieRect().mX)
+                aZombie = candidate;
+        }
+    }
+    else
+        aZombie = FindTargetZombie(mRow, PlantWeapon::WEAPON_PRIMARY);
 	if (aZombie)
 	{
 		int aPosX = mX + mWidth / 2;
@@ -3190,17 +3221,18 @@ void Plant::UpdateBowling()
 		mApp->PlayFoley(FoleyType::FOLEY_BOWLINGIMPACT);
 		mBoard->ShakeBoard(1, -2);
 
-		if (mSeedType == SeedType::SEED_GIANT_WALLNUT)
+		const int cost = allBowling ? std::max(50, GetPlantDefinition(mSeedType).mSeedCost) : 50;
+        if (mSeedType == SeedType::SEED_GIANT_WALLNUT)
 		{
-			aZombie->TakeDamage(1800, 0U);
+			aZombie->TakeDamage(1800 * cost / 50, 0U);
 		}
 		else if (aZombie->mShieldType == ShieldType::SHIELDTYPE_DOOR && mState != PlantState::STATE_NOTREADY)
 		{
-			aZombie->TakeDamage(1800, 0U);
+			aZombie->TakeDamage(1800 * cost / 50, 0U);
 		}
 		else if (aZombie->mShieldType != ShieldType::SHIELDTYPE_NONE)
 		{
-			aZombie->TakeShieldDamage(400, 0U);
+			aZombie->TakeShieldDamage(400 * cost / 50, 0U);
 		}
 		else if (aZombie->mHelmType != HelmType::HELMTYPE_NONE)
 		{
@@ -3213,11 +3245,11 @@ void Plant::UpdateBowling()
 				mApp->PlayFoley(FoleyType::FOLEY_PLASTIC_HIT);
 			}
 
-			aZombie->TakeHelmDamage(900, 0U);
+			aZombie->TakeHelmDamage(900 * cost / 50, 0U);
 		}
 		else
 		{
-			aZombie->TakeDamage(1800, 0U);
+			aZombie->TakeDamage(1800 * cost / 50, 0U);
 		}
 
 		if ((!mApp->IsFirstTimeAdventureMode() || mApp->mPlayerInfo->GetLevel() > 10) && mSeedType == SeedType::SEED_WALLNUT)
@@ -3251,7 +3283,7 @@ void Plant::UpdateBowling()
 
 		if (mSeedType != SeedType::SEED_GIANT_WALLNUT)
 		{
-			if (mRow == 4 || mState == PlantState::STATE_BOWLING_DOWN)
+			if (mRow == lastRow || mState == PlantState::STATE_BOWLING_DOWN)
 			{
 				aNewState = PlantState::STATE_BOWLING_UP;
 			}
@@ -3275,8 +3307,8 @@ void Plant::UpdateBowling()
 	else if (aNewState == PlantState::STATE_BOWLING_DOWN)
 	{
 		mState = PlantState::STATE_BOWLING_DOWN;
-		mRenderOrder = CalcRenderOrder();
 		mRow++;
+		mRenderOrder = CalcRenderOrder();
 	}
 }
 
@@ -3284,6 +3316,13 @@ void Plant::UpdateAbilities()
 {
     if (!IsInPlay())
         return;
+
+    if (IsBowlingNut(this))
+    {
+        if (!mSquished && mOnBungeeState == NOT_ON_BUNGEE)
+            UpdateBowling();
+        return;
+    }
 
     if (mState == PlantState::STATE_DOINGSPECIAL || mSquished)
     {
@@ -3311,18 +3350,13 @@ void Plant::UpdateAbilities()
     if (mIsAsleep || mSquished || mOnBungeeState != PlantOnBungeeState::NOT_ON_BUNGEE)
         return;
 
-    if (mSeedType == SEED_CABBAGEPULT && RunPlantTraits::BowlingCabbage(mApp))
-    {
-        UpdateBowling();
-        return;
-    }
     UpdatePurpleBuffs();
     UpdateShooting();
 
     if (mStateCountdown > 0)
         mStateCountdown--;
 
-    if (mApp->IsWallnutBowlingLevel() || IsBowlingNut(this))
+    if (mApp->IsWallnutBowlingLevel())
     {
         UpdateBowling();
         return;
