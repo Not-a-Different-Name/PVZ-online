@@ -122,6 +122,7 @@ public:
     std::string mOnlineAddress = "127.0.0.1", mOnlineServer = "101.200.131.182", mOnlineRoomCode;
     bool IsLocalOnlyMode(GameMode mode) const;
     bool IsOnlineStartLobby() const;
+    void RestoreOnlineStartLobby();
     void LeaveLocalSceneForOnlineStart();
     bool mZombieVoteActive = false;
     int mZombieVoteLevel = -1, mZombieVoteMyChoice = -1, mZombieVoteFrames = 0;

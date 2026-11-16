@@ -1,3 +1,4 @@
+#include "Run/RunStacking.h"
 #include "Lawn/Online/NetSession.h"
 #include "Run/RunPlantTraits.h"
 #include "TeamPlay.h"
@@ -6893,6 +6894,7 @@ ZombieDrawPosition aDrawPos;
 
 bool Zombie::CanTargetPlant(Plant* thePlant, ZombieAttackType theAttackType)
 {
+    if (RunStacking::Enabled(mApp) && RunStacking::Top(mBoard,thePlant->mPlantCol,thePlant->mRow)!=thePlant) return false;
     if (mMindControlled && (mBossMode == CHOMPER_COPY_MARKER || mBoard->IsRunBossZombie(this))) return false;
     if (mApp->IsWallnutBowlingLevel() && theAttackType != ZombieAttackType::ATTACKTYPE_VAULT)
         return false;
