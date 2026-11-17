@@ -2371,7 +2371,7 @@ bool Board::PreparePlantAnimations(SeedType seed, unsigned int count)
 
 Plant* Board::NewPlant(int theGridX, int theGridY, SeedType theSeedType, SeedType theImitaterType)
 {
-    if (RunStacking::Enabled(mApp) && RunStacking::Full(this,theGridX,theGridY,theSeedType)) return nullptr;
+    if (RunStacking::Enabled(mApp) && RunStacking::Full(this,theGridX,theGridY,theSeedType==SEED_IMITATER?theImitaterType:theSeedType)) return nullptr;
 	const SeedType animatedType = theSeedType == SEED_IMITATER && RunPlantTraits::AllBowling(mApp, theImitaterType)
         ? theImitaterType : theSeedType;
     if (!PreparePlantAnimations(animatedType)) return nullptr;
@@ -7357,7 +7357,7 @@ void Board::DrawGameObjects(Graphics* g)
         }
     if (gShowPlantHealthNumbers)
         for (Plant* plant : mPlants)
-            if (!plant->mDead) DrawHealthNumberOverRect(g, plant->mPlantHealth, plant->GetPlantRect());
+            if (!plant->mDead) DrawHealthNumberOverRect(g, plant->mPlantHealth, plant->GetPlantRect(), RunStacking::HealthLine(this,plant));
     DrawRelayedZombieMarkers(g);
 	};
 	for (int i = 0; i < aRenderItemCount; i++)

@@ -1210,66 +1210,27 @@ void GLInterface::UpdateViewport()
 }
 
 #ifdef __ANDROID__
-void GLInterface::DrawSideBackdrop(Image* theImage, int theSourceLeft)
+void GLInterface::DrawSideBackdrop(Image* image, int sourceLeft)
 {
-	const Rect view = mPresentationRect;
-	if (view.mWidth <= 0 || view.mHeight <= 0 || mSideDrawableWidth <= view.mWidth)
-		return;
-
-	const int rightStart = view.mX + view.mWidth;
-	const int imageWidth = theImage ? theImage->GetWidth() : 0;
-	const int imageHeight = theImage ? theImage->GetHeight() : 0;
-	const float scale = static_cast<float>(view.mHeight) / mHeight;
-	const int centralLeft = std::clamp(theSourceLeft, 0, imageWidth);
-	const int centralRight = std::min(imageWidth, centralLeft + mWidth);
-
-	auto drawSide = [&](int x, int width, bool left)
-	{
-		if (width <= 0)
-			return;
-		GfxEnd();
-		float projection[16];
-		glViewport(x, view.mY, width, view.mHeight);
-		MakeOrthoMatrix(0, static_cast<float>(width), static_cast<float>(view.mHeight), 0, -10, 10, projection);
-		glUniformMatrix4fv(gUfViewProjMtx, 1, GL_FALSE, projection);
-		if (imageWidth <= 0 || imageHeight <= 0)
-		{
-			FillRect(Rect(0, 0, width, view.mHeight), Color(29, 33, 42), Graphics::DRAWMODE_NORMAL);
-			return;
-		}
-
-		const int available = left ? centralLeft : imageWidth - centralRight;
-		const int sourceWidth = std::min(available, static_cast<int>(std::ceil(width / scale)));
-		const int realWidth = std::min(width, static_cast<int>(std::lround(sourceWidth * scale)));
-		if (realWidth > 0)
-		{
-			const Rect source(left ? centralLeft - sourceWidth : centralRight, 0, sourceWidth, imageHeight);
-			const Rect target(left ? width - realWidth : 0, 0, realWidth, view.mHeight);
-			StretchBlt(theImage, target, source, nullptr, Color::White, Graphics::DRAWMODE_NORMAL, false, false);
-		}
-
-		const int missing = width - realWidth;
-		if (missing > 0)
-		{
-			// Reflect from the join to extend backgrounds that end inside the side strip.
-			const int join = left ? centralLeft - sourceWidth : centralRight + sourceWidth;
-			const int sampleWidth = std::min(left ? imageWidth - join : join,
-				std::max(1, static_cast<int>(std::ceil(missing / scale))));
-			if (sampleWidth <= 0)
-				return;
-			const Rect source(left ? join : join - sampleWidth, 0, sampleWidth, imageHeight);
-			const Rect target(left ? 0 : realWidth, 0, missing, view.mHeight);
-			StretchBlt(theImage, target, source, nullptr, Color::White, Graphics::DRAWMODE_NORMAL, false, true);
-		}
-	};
-
-	drawSide(0, view.mX, true);
-	drawSide(rightStart, mSideDrawableWidth - rightStart, false);
-	GfxEnd();
-	float projection[16];
-	glViewport(view.mX, view.mY, view.mWidth, view.mHeight);
-	MakeOrthoMatrix(0, static_cast<float>(mWidth), static_cast<float>(mHeight), 0, -10, 10, projection);
-	glUniformMatrix4fv(gUfViewProjMtx, 1, GL_FALSE, projection);
+    const Rect view=mPresentationRect;
+    if(view.mWidth<=0||view.mHeight<=0||mSideDrawableWidth<=view.mWidth)return;
+    auto drawSide=[&](int x,int width,bool right) {
+        if(width<=0)return;
+        GfxEnd();float projection[16];
+        glViewport(x,view.mY,width,view.mHeight);
+        MakeOrthoMatrix(0,float(width),float(view.mHeight),0,-10,10,projection);
+        glUniformMatrix4fv(gUfViewProjMtx,1,GL_FALSE,projection);
+        const int begin=right?sourceLeft+800:0;
+        const int count=image?(right?image->GetWidth()-begin:sourceLeft):0;
+        if(image&&count>0)StretchBlt(image,Rect(0,0,width,view.mHeight),Rect(begin,0,count,image->GetHeight()),nullptr,Color::White,Graphics::DRAWMODE_NORMAL,false,false);
+        else FillRect(Rect(0,0,width,view.mHeight),Color::Black,Graphics::DRAWMODE_NORMAL);
+    };
+    drawSide(0,view.mX,false);
+    drawSide(view.mX+view.mWidth,mSideDrawableWidth-view.mX-view.mWidth,true);
+    GfxEnd();float projection[16];
+    glViewport(view.mX,view.mY,view.mWidth,view.mHeight);
+    MakeOrthoMatrix(0,float(mWidth),float(mHeight),0,-10,10,projection);
+    glUniformMatrix4fv(gUfViewProjMtx,1,GL_FALSE,projection);
 }
 #endif
 

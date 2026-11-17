@@ -32,6 +32,7 @@
 #include <cstdio>
 #include <format>
 #include "LawnApp.h"
+#include "Lawn/Display/SideBackdrop.h"
 #include "Lawn/Widget/WatchRoomDialog.h"
 #include "Lawn/System/NameplateCatalog.h"
 #include "Lawn/Online/RoomPresentation.h"
@@ -601,6 +602,11 @@ void LawnApp::NewGame()
 
 void LawnApp::ShowGameSelector()
 {
+    ShowGameSelector(false);
+}
+
+void LawnApp::ShowGameSelector(bool preserveOnlineStart)
+{
     SetTeamProgressionController(nullptr);
     if(mRunState && mRunState->IsNewEndless() && mBoard && !mRunState->Save(mPlayerInfo->mId)) {
         PlayerMessageBox::Show(this, Dialogs::DIALOG_MESSAGE, ModText::Tr("保存失败","Save failed"), ModText::Tr("请勿直接关游戏；\n清理存储空间后再返回菜单。","Keep the game open.\nFree storage, then return to the menu."));
@@ -614,7 +620,9 @@ void LawnApp::ShowGameSelector()
     RunHistory::Capture(this,RunHistory::LEFT);
 	mRunState.reset();
     ClearOnlineStartOverride();
-    if (mOnlineSession) { mOnlineSession->EndPreparation(); mOnlineSession->DiscardLevelPackets(); }
+    // Role rosters already cleared the departing round. A newer promotion may
+    // have queued START/RUN_GO in the same transport update; keep that transaction.
+    if (mOnlineSession && !preserveOnlineStart) { mOnlineSession->EndPreparation(); mOnlineSession->DiscardLevelPackets(); }
     mOnlineRunStartHeld = mOnlineRunGo = mRunIntroHeld = mOnlineSeedsHeld = false;
     mOnlineWaitingStartAck = mOnlineStartPromptActive = false;
     KillDialog(DIALOG_ONLINE_START);
@@ -3672,33 +3680,18 @@ bool LawnApp::DrawDirtyStuff(){
 #ifdef __ANDROID__
 void LawnApp::Redraw(Rect* clip)
 {
-    const bool titleBackdropVisible = !mTitleScreen ||
-        (mTitleScreen->mTitleState == TITLESTATE_SCREEN && mTitleScreen->mLoaderScreenIsLoaded);
-    if (!mIsDrawing && !mShutdown && mGLInterface && titleBackdropVisible)
-    {
-        const Board* visibleBoard = mBoard;
-        if (mBoard && mBoard->mObserverView && mBoard->IsWatchingView())
-            if (const Board* watched = mBoard->mObserverView->LocalBattle())
-                visibleBoard = watched;
-
-        Image* image = nullptr;
-        int offset = 0;
-        if (visibleBoard && mGameScene != SCENE_MENU)
-        {
-            image = visibleBoard->GetBackdropImage();
-            if (visibleBoard == mBoard && IsFirstTimeAdventureMode() && mBoard->mLevel <= 3)
-                image = IMAGE_BACKGROUND1UNSODDED;
-            if (image && image->GetWidth() >= BOARD_WIDTH + BOARD_OFFSET)
-                offset = BOARD_OFFSET;
-            if (!image && visibleBoard->mBackground == BACKGROUND_TREEOFWISDOM)
-                image = IMAGE_REANIM_TREE_BG;
+    if(!mIsDrawing&&!mShutdown&&mGLInterface) {
+        const auto view=mGLInterface->mPresentationRect;
+        if(view.mWidth>0&&mGLInterface->mSideDrawableWidth>view.mWidth) {
+            const int width=static_cast<int>(std::ceil(800.0*mGLInterface->mSideDrawableWidth/view.mWidth));
+            mGLInterface->DrawSideBackdrop(GetSideBackdrop(width),(width-800)/2);
         }
-        else if (mTitleScreen)
-            image = IMAGE_TITLESCREEN;
-        else if (mGameSelector)
-            image = IMAGE_REANIM_SELECTORSCREEN_BG;
-        mGLInterface->DrawSideBackdrop(image, offset);
     }
     SexyApp::Redraw(clip);
 }
 #endif
+
+Sexy::Image* LawnApp::GetSideBackdrop(int logicalWidth) {
+    if(!mSideBackdrop)mSideBackdrop=std::make_unique<SideBackdropCache>();
+    return mSideBackdrop->Get(this,logicalWidth);
+}

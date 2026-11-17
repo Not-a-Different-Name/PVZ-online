@@ -1,5 +1,6 @@
 #include <memory>
 #include "Lawn/Observer/ObserverState.h"
+class SideBackdropCache;
 class CoopPlay;
 class TeamProgressionDialog;
 struct TeamProgressionUiState;
@@ -84,6 +85,9 @@ public:
 
 class LawnApp : public SexyApp
 {
+public:
+    std::unique_ptr<SideBackdropCache> mSideBackdrop;
+    Sexy::Image* GetSideBackdrop(int logicalWidth) override;
 public:
     bool mObserverP2P = false;
     bool SetObserverP2P(bool enabled);
@@ -343,6 +347,7 @@ public:
 	void							NewGame();
 	void							PreNewGame(GameMode theGameMode, bool theLookForSavedGame);
 	void							ShowGameSelector();
+    void                            ShowGameSelector(bool preserveOnlineStart);
 	void							KillGameSelector();
 	void							ShowAwardScreen(AwardType theAwardType, bool theShowAchievements);
 	void							KillAwardScreen();

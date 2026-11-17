@@ -551,6 +551,7 @@ public:
 
 	virtual bool			DrawDirtyStuff();
 	virtual void			Redraw(Rect* theClipRect);
+    virtual Image* GetSideBackdrop(int logicalWidth) { return nullptr; }
 
 	// Properties access methods
 	bool					LoadProperties(const std::string& theFileName, bool required, bool checkSig);
