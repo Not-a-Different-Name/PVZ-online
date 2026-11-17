@@ -8,6 +8,7 @@
 #include "misc/Ratio.h"
 
 #include <ddraw.h>
+#include <memory>
 
 namespace Sexy
 {
@@ -23,6 +24,9 @@ typedef std::set<DDImage*> DDImageSet;
 
 class DDInterface : public NativeDisplay
 {
+    std::unique_ptr<DDImage> mSideBackdrop;
+    Image* mSideOrigin=nullptr;
+    int mSideStamp=-1;
 public:
 	enum
 	{

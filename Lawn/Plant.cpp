@@ -252,7 +252,7 @@ void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, Se
         while(mBoard->IteratePlants(other))if(other!=this && RunStacking::Covers(mBoard,other,mPlantCol,mRow))mRenderOrder=std::max(mRenderOrder,other->mRenderOrder+2);
     }
 
-    if (IsOnBoard() && mApp->mGameMode != GameMode::GAMEMODE_CHALLENGE_ZEN_GARDEN &&
+    if (IsOnBoard() && !RunStacking::Enabled(mApp) && mApp->mGameMode != GameMode::GAMEMODE_CHALLENGE_ZEN_GARDEN &&
         (theSeedType == SeedType::SEED_LILYPAD || theSeedType == SeedType::SEED_FLOWERPOT ||
          (theSeedType == SeedType::SEED_IMITATER &&
           (theImitaterType == SeedType::SEED_LILYPAD || theImitaterType == SeedType::SEED_FLOWERPOT))))

@@ -156,7 +156,10 @@ inline void Open(LawnApp* app) {
 
 inline void Update(LawnApp* app) {
     auto* s=RoomPresentation::Session(app);
-    if(!s)return;
+    if(!s) {
+        if(app->GetDialog(DialogId))RestoreRoom(app,false);
+        return;
+    }
     if(app->GetDialog(DialogId) && !s->IsReconnecting() && (!s->InWatchRoom() || !s->SharedRoomStarted())) {
         app->KillDialog(DIALOG_ONLINE_RECONNECT);
         RestoreRoom(app,!s->IsConnected() || !s->SharedRoomStarted());
@@ -165,7 +168,7 @@ inline void Update(LawnApp* app) {
     if(app->mBoard) {
         app->mBoardResult=BOARDRESULT_NONE;
         app->KillBoard();
-        app->ShowGameSelector();
+        app->ShowGameSelector(true);
     }
     app->mOnlineWaitingStartAck=false;
     app->mOnlineRunStartHeld=false;
@@ -175,6 +178,6 @@ inline void Update(LawnApp* app) {
     app->KillDialog(DIALOG_ONLINE_RECONNECT);
     app->KillDialog(DIALOG_ONLINE_SWAP);
     app->KillDialog(DIALOG_ONLINE_START);
-    Open(app);
+    if(s->InWatchRoom())Open(app);
 }
 }

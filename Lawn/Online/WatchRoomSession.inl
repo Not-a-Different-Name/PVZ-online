@@ -74,6 +74,18 @@ void NetSession::HandleSharedRoster(const uint8_t* bytes,int size) {
     if(!observer) {
         mWatchSlot=0;
         if(wasObserver) {
+            // A roster is authoritative even when a compatibility relay omits
+            // WELCOME. Stop the read-only stream and rebuild the combat seats.
+            EndWatch(false);
+            mHostSeat=host;mRole=host==local?Role::HOST:Role::CLIENT;
+            mFlowEnabled=(flags&4)!=0;mFlowLost=(flags&8)!=0;
+            mFlowTerm=term;mFlowEpoch=mReadyEpoch=epoch;mFlowPhase=phase;
+            for(uint8_t seat=1;seat<=NetProto::MAX_PLAYERS;++seat) {
+                const auto& member=mSharedMembers[seat];auto& entry=mSeats[seat];
+                entry.mOccupied=member.identity && !member.Spectator();
+                entry.mOffline=member.Offline();entry.mName=member.name;entry.mBuild=member.build;
+                mCoopPeers[seat]=member.identity;
+            }
             // Re-entering combat needs a new local lawn even in the same epoch.
             mConsumedStartEpoch=0;mStartAckSent=false;mStartAccepted=false;
             if(phase!=0)mWatchPromotion=phase==1?epoch:epoch+1;

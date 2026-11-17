@@ -12,6 +12,7 @@
 #include <corecrt.h>
 #include <time.h>
 #include "LawnApp.h"
+#include "Lawn/Display/SideBackdrop.h"
 #include "Lawn/Widget/WatchRoomDialog.h"
 #include "Lawn/System/NameplateCatalog.h"
 #include "Lawn/Online/RoomPresentation.h"
@@ -501,6 +502,8 @@ void LawnApp::ReadFromRegistry()
 	SexyApp::ReadFromRegistry();
     mObserverP2P=false;RegistryReadBoolean("ObserverP2PEnabled",&mObserverP2P);
     RegistryReadBoolean("HorizontalStretch", &mHorizontalStretch);
+    bool migrated=false;RegistryReadBoolean("SideBackdropDefaultV1",&migrated);
+    if(!migrated){mHorizontalStretch=false;if(RegistryWriteBoolean("HorizontalStretch",false))RegistryWriteBoolean("SideBackdropDefaultV1",true);}
 }
 
 bool LawnApp::SetHorizontalStretch(bool enabled)
@@ -3693,6 +3696,11 @@ void LawnApp::NewGame()
 // GOTY @Patoke: 0x452B80
 void LawnApp::ShowGameSelector()
 {
+    ShowGameSelector(false);
+}
+
+void LawnApp::ShowGameSelector(bool preserveOnlineStart)
+{
     SetTeamProgressionController(nullptr);
     if(mRunState && mRunState->IsNewEndless() && mBoard && !mRunState->Save(mPlayerInfo->mId)) {
         PlayerMessageBox::Show(this, Dialogs::DIALOG_MESSAGE, ModText::Tr("保存失败","Save failed"), ModText::Tr("请勿直接关游戏；\n清理存储空间后再返回菜单。","Keep the game open.\nFree storage, then return to the menu."));
@@ -3714,7 +3722,9 @@ void LawnApp::ShowGameSelector()
 	ClearOnlineStartOverride();
 	// 只对"当前这一局"有意义的收包队列（开局命令/漏怪/退关）同理：留着的话，
 	// 上一局的怪会砸到下一局的棋盘上。
-	if (mOnlineSession) { mOnlineSession->EndPreparation(); mOnlineSession->DiscardLevelPackets(); }
+	// Role rosters already cleared the departing round. A newer promotion may
+    // have queued START/RUN_GO in the same transport update; keep that transaction.
+    if (mOnlineSession && !preserveOnlineStart) { mOnlineSession->EndPreparation(); mOnlineSession->DiscardLevelPackets(); }
 	// @pvz-online: 客户端寄存的"主机点名"也作废——那条命令是给上一局的，回菜单就没有下一关了。
 	// 随它一起的还有 R6 的放行标记与压开场标记（棋盘上面那句已经拆了，它们只剩残留价值）。
 	mOnlineRunStartHeld = false;
@@ -7176,4 +7186,9 @@ bool LawnApp::DrawDirtyStuff(){
  const bool drawn=SexyApp::DrawDirtyStuff();
  if(drawn)PerformanceMonitor::Presented();else monitor.Cancel();
  return drawn;
+}
+
+Sexy::Image* LawnApp::GetSideBackdrop(int logicalWidth) {
+    if(!mSideBackdrop)mSideBackdrop=std::make_unique<SideBackdropCache>();
+    return mSideBackdrop->Get(this,logicalWidth);
 }

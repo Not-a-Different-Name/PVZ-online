@@ -11,6 +11,7 @@
 #include "misc/Debug.h"
 #include "misc/DirectXErrorString.h"
 #include "MemoryImage.h"
+#include <cmath>
 
 using namespace Sexy;
 
@@ -71,6 +72,7 @@ DDInterface::DDInterface(SexyAppBase* theApp)
 
 DDInterface::~DDInterface()
 {
+    mSideBackdrop.reset();
 	delete [] mRedAddTable;
 	delete [] mGreenAddTable;
 	delete [] mBlueAddTable;
@@ -1000,6 +1002,32 @@ bool DDInterface::Redraw(Rect* theClipRect)
 	mDrawSurface->Lock(NULL,&aDesc,DDLOCK_SURFACEMEMORYPTR|DDLOCK_WAIT|DDLOCK_READONLY ,0);
 	mDrawSurface->Unlock(NULL);
 
+    auto paintSides=[&](LPDIRECTDRAWSURFACE surface,int ox,int oy) {
+        if(!surface||mPresentationRect.mX<=0||mPresentationRect.mHeight<=0)return;
+        const int logicalWidth=static_cast<int>(std::ceil(600.0*mDisplayWidth/mPresentationRect.mHeight));
+        auto* image=dynamic_cast<MemoryImage*>(mApp->GetSideBackdrop(logicalWidth));
+        if(image) {
+            if(!mSideBackdrop||mSideOrigin!=image||mSideStamp!=image->mBitsChangedCount) {
+                if(!mSideBackdrop)mSideBackdrop=std::make_unique<DDImage>(this);
+                mSideBackdrop->Create(image->mWidth,image->mHeight);
+                std::copy(image->GetBits(),image->GetBits()+image->mWidth*image->mHeight,mSideBackdrop->GetBits());
+                mSideBackdrop->BitsChanged();mSideOrigin=image;mSideStamp=image->mBitsChangedCount;
+            }
+        }
+        const int pad=image?(image->mWidth-800)/2:0;
+        for(int side=0;side<2;++side) {
+            const int left=side?mPresentationRect.mX+mPresentationRect.mWidth:0;
+            const int right=side?mDisplayWidth:mPresentationRect.mX;
+            if(right<=left)continue;
+            RECT target={left+ox,mPresentationRect.mY+oy,right+ox,mPresentationRect.mY+mPresentationRect.mHeight+oy};
+            DDBLTFX fx{};fx.dwSize=sizeof(fx);
+            if(image&&pad>0) {
+                RECT source={side?pad+800:0,0,side?image->mWidth:pad,image->mHeight};
+                surface->Blt(&target,mSideBackdrop->GetSurface(),&source,DDBLT_WAIT,nullptr);
+            } else surface->Blt(&target,nullptr,nullptr,DDBLT_COLORFILL|DDBLT_WAIT,&fx);
+        }
+    };
+
 	if (mIsWindowed)
 	{
 		HRESULT aResult;
@@ -1042,6 +1070,7 @@ bool DDInterface::Redraw(Rect* theClipRect)
 			mBarsDirty = false;
 		}
 
+		paintSides(mPrimarySurface,aPoint.x,aPoint.y);
 		//DWORD aScanLine;
 		//mDD->GetScanLine(&aScanLine);
 
@@ -1188,6 +1217,7 @@ bool DDInterface::Redraw(Rect* theClipRect)
 		// Don't flip away from the GDI surface during the TryMedia purchasing process
 		if (!mApp->mNoDefer && mApp->mFullScreenPageFlip)
 		{
+			paintSides(mSecondarySurface,0,0);
 			if (!mVideoOnlyDraw) {
 				HRESULT aResult = mSecondarySurface->Blt(&aDestRect, mDrawSurface, &aSrcRect, DDBLT_WAIT, &aBltFX);
 				(void)aResult; // Unused
@@ -1205,6 +1235,7 @@ bool DDInterface::Redraw(Rect* theClipRect)
 		}
 		else
 		{
+			paintSides(mPrimarySurface,0,0);
 			HRESULT aResult = mPrimarySurface->Blt(&aDestRect, mDrawSurface, &aSrcRect, DDBLT_WAIT, &aBltFX);
 
 			mInRedraw = false;

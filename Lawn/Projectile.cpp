@@ -1,3 +1,4 @@
+#include "Run/RunStacking.h"
 #include "Run/TeamAttackContext.h"
 #include "Board.h"
 #include "Plant.h"
@@ -172,6 +173,7 @@ Plant* Projectile::FindCollisionTargetPlant()
 		Rect aPlantRect = aPlant->GetPlantRect();
 		if (GetRectOverlap(aProjectileRect, aPlantRect) > 8)
 		{
+        if(RunStacking::Enabled(mApp) && RunStacking::Top(mBoard,aPlant->mPlantCol,aPlant->mRow)!=aPlant) continue;
 			if (mProjectileType == ProjectileType::PROJECTILE_ZOMBIE_PEA)
 			{
 				return mBoard->GetTopPlantAt(aPlant->mPlantCol, aPlant->mRow, PlantPriority::TOPPLANT_EATING_ORDER);
