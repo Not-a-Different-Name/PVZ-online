@@ -15,31 +15,39 @@ func finaleTestStart(mode, difficulty byte, index uint16, flags byte) []byte {
 
 func TestFinaleHealthScaling(t *testing.T) {
 	for _, tc := range []struct {
+		build            uint16
 		mode, difficulty byte
 		index            uint16
 		players          int
 		want             uint32
 	}{
-		{2, 0, 5, 1, 80000},
-		{2, 1, 5, 2, 175000},
-		{1, 1, 10, 4, 715000},
-		{0, 1, 25, 6, 2280000},
-		{0, 2, 25, 6, 2850000},
-		{0, 1, 24, 6, 0},
-		{3, 1, 25, 6, 0},
+		{finaleBuild, 2, 0, 5, 1, 80000},
+		{finaleBuild, 2, 1, 5, 2, 175000},
+		{finaleBuild, 1, 1, 10, 4, 715000},
+		{finaleBuild, 0, 1, 25, 6, 2280000},
+		{finaleBuild, 0, 2, 25, 6, 2850000},
+		{finaleRebalanceBuild, 2, 0, 5, 1, 480000},
+		{finaleRebalanceBuild, 2, 1, 5, 2, 1050000},
+		{finaleRebalanceBuild, 1, 1, 10, 4, 1950000},
+		{finaleRebalanceBuild, 2, 2, 5, 6, 3562500},
+		{finaleRebalanceBuild, 1, 2, 10, 6, 3562500},
+		{finaleRebalanceBuild, 0, 1, 25, 6, 2850000},
+		{finaleRebalanceBuild, 0, 2, 25, 6, 3562500},
+		{finaleRebalanceBuild, 0, 1, 24, 6, 0},
+		{finaleRebalanceBuild, 3, 1, 25, 6, 0},
 	} {
-		f := newFinaleHealth(finaleTestStart(tc.mode, tc.difficulty, tc.index, finaleBossFlag), tc.players)
+		f := newFinaleHealth(finaleTestStart(tc.mode, tc.difficulty, tc.index, finaleBossFlag), tc.players, tc.build)
 		if f.maximum != tc.want || f.remaining != tc.want {
-			t.Fatalf("mode=%d difficulty=%d index=%d players=%d: got %+v, want %d", tc.mode, tc.difficulty, tc.index, tc.players, f, tc.want)
+			t.Fatalf("build=%d mode=%d difficulty=%d index=%d players=%d: got %+v, want %d", tc.build, tc.mode, tc.difficulty, tc.index, tc.players, f, tc.want)
 		}
 	}
-	if f := newFinaleHealth(finaleTestStart(2, 1, 5, 2), 4); f.maximum != 0 {
+	if f := newFinaleHealth(finaleTestStart(2, 1, 5, 2), 4, finaleRebalanceBuild); f.maximum != 0 {
 		t.Fatal("original giant-boss option must not initialize the finale")
 	}
 }
 
 func TestFinaleHealthDeduplicatesByMember(t *testing.T) {
-	f := newFinaleHealth(finaleTestStart(2, 1, 5, finaleBossFlag), 2)
+	f := newFinaleHealth(finaleTestStart(2, 1, 5, finaleBossFlag), 2, finaleBuild)
 	if !f.record(101, 5000) || f.record(101, 5000) || f.record(101, 4000) || f.remaining != 170000 {
 		t.Fatalf("same member or stale replay did not settle exactly once: %+v", f)
 	}
@@ -49,16 +57,18 @@ func TestFinaleHealthDeduplicatesByMember(t *testing.T) {
 }
 
 func TestFinaleHealthBroadcast(t *testing.T) {
-	t.Run("quick normal", func(t *testing.T) { testFinaleHealthBroadcast(t, 2, 1, 5, 175000) })
-	t.Run("full hard", func(t *testing.T) { testFinaleHealthBroadcast(t, 0, 2, 25, 1050000) })
+	t.Run("MOD117 quick normal", func(t *testing.T) { testFinaleHealthBroadcast(t, finaleBuild, 2, 1, 5, 175000) })
+	t.Run("MOD118 quick normal", func(t *testing.T) { testFinaleHealthBroadcast(t, finaleRebalanceBuild, 2, 1, 5, 1050000) })
+	t.Run("MOD118 standard hard", func(t *testing.T) { testFinaleHealthBroadcast(t, finaleRebalanceBuild, 1, 2, 10, 1312500) })
+	t.Run("MOD118 full hard", func(t *testing.T) { testFinaleHealthBroadcast(t, finaleRebalanceBuild, 0, 2, 25, 1312500) })
 }
 
-func testFinaleHealthBroadcast(t *testing.T, mode, difficulty byte, index uint16, maximum uint32) {
+func testFinaleHealthBroadcast(t *testing.T, build uint16, mode, difficulty byte, index uint16, maximum uint32) {
 	t.Helper()
 	s, addr := startTestServer(t, nil)
 	host, guest := newTestClient(t, addr), newTestClient(t, addr)
-	code := decodeWelcome(t, host.create(1, finaleBuild, "host")).code
-	decodeWelcome(t, guest.join(1, finaleBuild, "guest", code))
+	code := decodeWelcome(t, host.create(1, build, "host")).code
+	decodeWelcome(t, guest.join(1, build, "guest", code))
 	for _, c := range []*testClient{host, guest} {
 		c.send(msgCliFlow, []byte{1, 0})
 	}

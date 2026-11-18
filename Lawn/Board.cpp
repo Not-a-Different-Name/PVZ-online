@@ -2973,6 +2973,8 @@ bool Board::CanZombieSpawnOnLevel(ZombieType theZombieType, int theLevel)
 		// 房主设、全员对齐（AlignRunToHost 无条件覆盖）——各客户端建场时在这里读到同值。
 		RunState* aRunState = gLawnApp->GetRunState();
 		bool aZombotany = aRunState != nullptr && aRunState->mZombotany != 0;
+        if (theLevel == 50 && aRunState && aRunState->IsBossFinale())
+            return RunZombieAllowedInFinale(theZombieType, aZombotany);
         // Death Surprise unlocks natural Jacks in every run scene; row/budget gates stay below.
         if (theZombieType == ZombieType::ZOMBIE_JACK_IN_THE_BOX && aRunState != nullptr &&
             aRunState->ZombieBuffCount(RunSpeciesRules::JACK_DEATH) > 0) return true;

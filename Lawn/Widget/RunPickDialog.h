@@ -33,6 +33,8 @@ public:
 
     LawnStoneButton* mFastButton=nullptr;
     LawnStoneButton* mLockButtons[3]{};
+    LawnStoneButton* mPreviewButtons[3]{};
+    int mPreviewSlot=-1, mPreviewPage=0;
     int mLockedChoice=-1;
     unsigned int mExpectedCounter=0;
     bool mSubmitted=false;

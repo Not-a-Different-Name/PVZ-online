@@ -93,6 +93,13 @@ bool RunZombieAllowedOnLevel(ZombieType theZombieType, int theRunLevelIndex, boo
 	return (aMask & (1ULL << aType)) != 0ULL;
 }
 
+bool RunZombieAllowedInFinale(ZombieType theZombieType, bool theZombotany)
+{
+    // Bungees are spawned by Zomboss's special attack. The roof has no water lanes.
+    return theZombieType != ZOMBIE_BUNGEE && theZombieType != ZOMBIE_DUCKY_TUBE &&
+        RunZombieAllowedOnLevel(theZombieType, RunState::RUN_LEVEL_COUNT - 1, theZombotany);
+}
+
 // @pvz-online: 闯关名单内的类型统一权重（2026-10-03 用户定案"让眼花缭乱的僵尸都出现"）。
 // 原版 mPickWeight 里普僵/路障各 4000、门 3500、其余 1000-2000——按权重抽，半个战场都是
 // 普僵+路障，贵的怪只是偶尔露脸（2026-10-03 实机反馈）。改成同权后种类分布直接散开，

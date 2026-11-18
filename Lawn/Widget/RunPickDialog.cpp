@@ -164,6 +164,10 @@ RunPickDialog::RunPickDialog(LawnApp* theApp, RunState* theRun) : LawnDialog(
 	// 不变暗、只是按不动）；重开这一屏时按当时的记账重算（价跟着阶梯计数走，见 RunState::PaidReroll）。
 	mRefreshButton = new RerollClickButton(RunPickDialog_Refresh,this);
     for(int index=0;index<3;++index)mLockButtons[index]=MakeButton(150+index,this,"");
+    if (mPlantPick) for (int i=0;i<3;++i) {
+        mPreviewButtons[i]=MakeButton(160+i,this,ModText::Tr("增益","Buffs"));
+        mPreviewButtons[i]->SetDisabled(mRun->mPlantChoices[i]==SEED_NONE);
+    }
     RefreshRerollLabels();
 
     if(theRun->mAdmission.phase==Admission::PICKS)
@@ -219,7 +223,7 @@ RunPickDialog::RunPickDialog(LawnApp* theApp, RunState* theRun) : LawnDialog(
 		if (mPlantPick)
 		{
 			// 面积里只有种子包（名字在按钮上）——包高 + 上下留白
-			aNeededArea = SEED_PACKET_HEIGHT + 12;
+			aNeededArea = SEED_PACKET_HEIGHT + 80;
 		}
 		else
 		{
@@ -243,6 +247,7 @@ RunPickDialog::~RunPickDialog()
 {
     cards.erase(this);
 	for(auto* button:mLockButtons)delete button;
+    for(auto* button:mPreviewButtons)delete button;
 	for (int i = 0; i < 3; i++) delete mChoiceButtons[i];
 	delete mSkipButton;
 	delete mRefreshButton;
@@ -283,6 +288,7 @@ void RunPickDialog::Resize(int theX, int theY, int theWidth, int theHeight)
 	{
 		mChoiceButtons[i]->Resize(mColumnX[i], aButtonY, mColumnWidth, aButtonHeight);
 		if(mLockButtons[i])mLockButtons[i]->Resize(mColumnX[i],aAreaTop,mColumnWidth,30);
+        if(mPreviewButtons[i])mPreviewButtons[i]->Resize(mColumnX[i],aButtonY-36,mColumnWidth,32);
 	}
 	int aFootCenter = (mColumnX[0] + mColumnX[2] + mColumnWidth) / 2;
 	int aFootWidth = std::min(240, (mWidth - 64) / 2);
@@ -297,6 +303,7 @@ void RunPickDialog::AddedToManager(WidgetManager* theWidgetManager)
 	AddWidget(mSkipButton);
 	AddWidget(mRefreshButton);
     for(auto* button:mLockButtons)AddWidget(button);
+    for(auto* button:mPreviewButtons)if(button)AddWidget(button);
     if(mFastButton)AddWidget(mFastButton);
 }
 
@@ -307,6 +314,7 @@ void RunPickDialog::RemovedFromManager(WidgetManager* theWidgetManager)
 	RemoveWidget(mSkipButton);
 	RemoveWidget(mRefreshButton);
     for(auto* button:mLockButtons)RemoveWidget(button);
+    for(auto* button:mPreviewButtons)if(button)RemoveWidget(button);
     if(mFastButton)RemoveWidget(mFastButton);
 }
 
@@ -366,6 +374,20 @@ void RunPickDialog::Draw(Graphics* g)
 			// DrawSeedPacket 对 SEED_NONE（-1）会走种子包路径的查表/升级判断（Release 断言为空）。
 			// 与增益屏下面那道哨兵护栏同口径。
 			if (mRun->mPlantChoices[i] < 0 || mRun->mPlantChoices[i] >= RunState::RUN_POOL_MAX) continue;
+            if (mPreviewSlot==i) {
+                const auto entries=GetRunPlantChoices(mRun->mPlantChoices[i]);
+                std::string text=ModText::Tr("暂无专属增益","No plant-specific buffs");
+                if (!entries.empty()) {
+                    const int id=entries[mPreviewPage];
+                    text=std::to_string(mPreviewPage+1)+"/"+std::to_string(entries.size())+"  "+
+                        GetRunChoiceDisplayName(id)+" "+std::to_string(GetRunChoiceRarity(id))+"★\n"+
+                        GetRunChoiceDesc(id)+"\n"+std::to_string(mRun->GetBuffCount(id))+"/"+
+                        std::to_string(GetRunChoiceMaxStacks(id));
+                }
+                ModText::DrawWrappedCjk(g,RunPickCjkFont(),Rect(mColumnX[i]+2,mAreaTop,mColumnWidth-4,mAreaHeight-34),
+                    text.c_str(),mColors[Dialog::COLOR_LINES]);
+                continue;
+            }
 			DrawSeedPacket(g, (float)(mColumnX[i] + (mColumnWidth - SEED_PACKET_WIDTH) / 2), (float)mAreaTop,
 				mRun->mPlantChoices[i], SeedType::SEED_NONE, 0.0f, 255, false, false);
 		}
@@ -460,6 +482,14 @@ void RunPickDialog::Draw(Graphics* g)
 void RunPickDialog::ButtonDepress(int theId)
 {
     if(!mRun || mSubmitted || mApp->GetRunState()!=mRun || mRun->mPickCounter!=mExpectedCounter)return;
+    if (mPlantPick && theId>=160 && theId<163) {
+        const int slot=theId-160;
+        if (mRun->mPlantChoices[slot]==SEED_NONE) return;
+        if (mPreviewSlot!=slot) { mPreviewSlot=slot; mPreviewPage=0; }
+        else if (++mPreviewPage>=static_cast<int>(GetRunPlantChoices(mRun->mPlantChoices[slot]).size())) mPreviewSlot=-1;
+        MarkDirty();
+        return;
+    }
     if(theId>=150 && theId<153) {
         const int index=theId-150;
         if(!mRun->CanLockChoice(index))return;
@@ -503,6 +533,8 @@ void RunPickDialog::RefreshRerollLabels()
 // 一次点击，不给键盘顺手带过的机会），键盘在这儿什么也别做。
 void RunPickDialog::KeyDown(KeyCode theKey)
 {
+    if(theKey==KEYCODE_ESCAPE && mPreviewSlot>=0){mPreviewSlot=-1;MarkDirty();return;}
+    if(theKey>='1' && theKey<='3' && mPlantPick){ButtonDepress(160+theKey-'1');return;}
 	if(theKey=='B')mApp->ShowCoopPlay();
 }
 

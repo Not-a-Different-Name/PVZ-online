@@ -6,10 +6,11 @@ import (
 )
 
 const (
-	finaleBossFlag    = 4
-	finaleBuild       = 117
-	finaleDamageFrame = 32
-	finaleHealthFrame = 33
+	finaleBossFlag       = 4
+	finaleBuild          = 117
+	finaleRebalanceBuild = 118
+	finaleDamageFrame    = 32
+	finaleHealthFrame    = 33
 )
 
 type finaleHealth struct {
@@ -19,7 +20,7 @@ type finaleHealth struct {
 	applied map[uint32]uint32
 }
 
-func newFinaleHealth(start []byte, players int) finaleHealth {
+func newFinaleHealth(start []byte, players int, build uint16) finaleHealth {
 	if len(start) != eliteWavesStartBytes || start[11] != 1 || start[24]&finaleBossFlag == 0 ||
 		start[18] >= 3 || start[19] >= 3 || players < 1 || players > maxPlayers {
 		return finaleHealth{}
@@ -28,7 +29,12 @@ func newFinaleHealth(start []byte, players int) finaleHealth {
 	if binary.LittleEndian.Uint16(start[16:]) != [...]uint16{25, 10, 5}[mode] {
 		return finaleHealth{}
 	}
-	maximum := [...]uint32{480000, 220000, 100000}[mode] *
+	base := uint32(600000)
+	// MOD117 clients reject health above their original six-player maximum.
+	if build < finaleRebalanceBuild {
+		base = [...]uint32{480000, 220000, 100000}[mode]
+	}
+	maximum := base *
 		[...]uint32{80, 100, 125}[difficulty] * uint32(4+3*(players-1)) / 400
 	return finaleHealth{maximum: maximum, remaining: maximum, applied: make(map[uint32]uint32, players)}
 }
@@ -77,6 +83,6 @@ func (s *Server) handleFinaleDamage(r *Room, c *Conn, body []byte) {
 func (r *Room) beginFinale(start []byte) {
 	r.finale = finaleHealth{}
 	if r.sharedBuild != 0 {
-		r.finale = newFinaleHealth(start, bits.OnesCount8(r.combatOnlineMask()))
+		r.finale = newFinaleHealth(start, bits.OnesCount8(r.combatOnlineMask()), r.sharedBuild)
 	}
 }
