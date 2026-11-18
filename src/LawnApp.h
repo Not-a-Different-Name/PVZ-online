@@ -88,6 +88,7 @@ class LawnApp : public SexyApp
 public:
     std::unique_ptr<SideBackdropCache> mSideBackdrop;
     Sexy::Image* GetSideBackdrop(int logicalWidth) override;
+    Sexy::Image* GetSideBackdrop(int logicalWidth,int* sourceLeft);
 public:
     bool mObserverP2P = false;
     bool SetObserverP2P(bool enabled);

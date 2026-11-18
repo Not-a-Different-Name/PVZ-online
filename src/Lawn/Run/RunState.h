@@ -300,13 +300,13 @@ public:
     int LevelFailureCount() const {
         return IsBossFinaleIndex(mLevelIndex) ? mFinaleFailures : mFailCounts[mLevelIndex % RUN_LEVEL_COUNT];
     }
-    // Longer modes have more time to stack plant and team damage upgrades.
-    static constexpr int FinaleHealthFor(int mode, int diff, int players = 1) {
-        constexpr int base[] = {480000, 220000, 100000};
+    // The finale keeps the same base health in all campaign lengths.
+    static constexpr int FinaleHealthFor(int diff, int players = 1) {
+        constexpr int base = 600000;
         constexpr int difficulty[] = {80, 100, 125};
-        return base[mode] * difficulty[diff] * (4 + 3 * (players - 1)) / 400;
+        return base * difficulty[diff] * (4 + 3 * (players - 1)) / 400;
     }
-    int FinaleHealth() const { return FinaleHealthFor(mMode, mDiff); }
+    int FinaleHealth() const { return FinaleHealthFor(mDiff); }
 
 	// 出怪难度档的千分比（500/1000/1500）。档位非法按标准 1000——盘上的档、线传的字节
 	// 都从这儿过一道，读数的地方不用再操心合法性。

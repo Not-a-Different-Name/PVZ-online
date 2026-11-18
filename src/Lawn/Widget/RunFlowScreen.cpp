@@ -48,8 +48,11 @@ public:
 // PC rewards group the seed image, description and owned count in each column.
 class RunChoiceCard : public Sexy::ButtonWidget {
     LawnApp* app;
+    const int& previewSlot;
+    const int& previewPage;
 public:
-    RunChoiceCard(int id, Sexy::ButtonListener* listener, LawnApp* a) : ButtonWidget(id,listener),app(a) {}
+    RunChoiceCard(int id, Sexy::ButtonListener* listener, LawnApp* a,const int& slot,const int& page)
+        : ButtonWidget(id,listener),app(a),previewSlot(slot),previewPage(page) {}
     void Draw(Sexy::Graphics* g) override {
         auto& run=*app->mRunState;
         bool plantPick=run.IsPlantPick();
@@ -74,6 +77,18 @@ public:
             int cap=GetRunChoiceMaxStacks(choice);
             if(cap>0)owned+=" / "+std::to_string(cap);
             PvzpDrawStringWrapped(g,owned,Sexy::Rect(4,mHeight-84,mWidth-8,30),ModText::FontFor(Sexy::FONT_DWARVENTODCRAFT18,20),Sexy::Color(205,205,190),DrawStringJustification::DS_ALIGN_CENTER);
+        } else if (previewSlot==mId) {
+            const auto entries=GetRunPlantChoices(static_cast<SeedType>(choice));
+            std::string text=ModText::Tr("暂无专属增益","No plant-specific buffs");
+            if (!entries.empty()) {
+                const int id=entries[previewPage];
+                text=std::to_string(previewPage+1)+"/"+std::to_string(entries.size())+"  "+
+                    GetRunChoiceDisplayName(id)+" "+std::to_string(GetRunChoiceRarity(id))+"★\n"+
+                    GetRunChoiceDesc(id)+"\n"+std::to_string(run.GetBuffCount(id))+"/"+
+                    std::to_string(GetRunChoiceMaxStacks(id));
+            }
+            PvzpDrawStringWrapped(g,text,Sexy::Rect(8,10,mWidth-16,174),font,
+                Sexy::Color(205,205,190),DS_ALIGN_CENTER);
         } else {
             DrawSeedPacket(g,(mWidth-SEED_PACKET_WIDTH)/2,8,(SeedType)choice,SEED_NONE,0,255,false,false);
             PvzpDrawStringWrapped(g,ModText::Tr("加入本局卡池", "Add to this run"),Sexy::Rect(8,126,mWidth-16,80),font,Sexy::Color(205,205,190),DrawStringJustification::DS_ALIGN_CENTER);
@@ -143,9 +158,10 @@ RunFlowScreen::RunFlowScreen(LawnApp* app, bool modePage, int endlessScene) : mA
             const bool plant = run.IsPlantPick();
             const bool valid = plant ? run.mPlantChoices[i] != SEED_NONE : run.mBuffChoices[i] != RunState::RUN_BUFF_CHOICE_NONE;
             const char* label = !valid ? ModText::Tr("不可用", "Unavailable") : plant ? GetRunPlantName(run.mPlantChoices[i]) : GetRunChoiceName(run.mBuffChoices[i]);
-            auto* card=new RunChoiceCard(i,this,app);card->mLabel=label?label:"Plant";
+            auto* card=new RunChoiceCard(i,this,app,mPreviewSlot,mPreviewPage);card->mLabel=label?label:"Plant";
             card->Resize(56+i*240,198,208,290);card->SetDisabled(!valid);AddWidget(card);
             mLockButtons[i]=addButton(150+i,"",56+i*240,164,208,30);
+            if (plant) addButton(160+i,ModText::Tr("增益","Buffs"),102+i*240,390,116,42)->SetDisabled(!valid);
         }
         // @pvz-online: the top corners leave the wallet and current-stage strip unobstructed.
         if(run.mAdmission.phase==Admission::PICKS)addButton(60,ModText::Tr("快速完成","Quick catch-up"),56,65,208,42);
@@ -380,6 +396,14 @@ void RunFlowScreen::ButtonDepress(int id)
     }
     if(mSubmitted || !mPickRun || mApp->mRunState.get()!=mPickRun || mPickRun->mPickCounter!=mExpectedCounter)return;
     RunState& run = *mPickRun;
+    if (run.IsPlantPick() && id>=160 && id<163) {
+        const int slot=id-160;
+        if (run.mPlantChoices[slot]==SEED_NONE) return;
+        if (mPreviewSlot!=slot) { mPreviewSlot=slot; mPreviewPage=0; }
+        else if (++mPreviewPage>=static_cast<int>(GetRunPlantChoices(run.mPlantChoices[slot]).size())) mPreviewSlot=-1;
+        MarkDirty();
+        return;
+    }
     if(id>=150 && id<153) {
         const int index=id-150;
         if(!run.CanLockChoice(index))return;

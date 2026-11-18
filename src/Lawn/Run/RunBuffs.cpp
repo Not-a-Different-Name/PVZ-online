@@ -257,7 +257,7 @@ static const RunPlantUpgradeDef gRunPlantUpgradeDefs[RUN_PLANT_UPGRADE_COUNT] =
 	// @pvz-online: keep the existing ID, but replace stackable haste with a single fixed-rate effect.
 	{ SeedType::SEED_FUMESHROOM, "Continuous Fumes", "疾雾", "持续喷射，每秒5次伤害\n不受攻速影响", "Continuous spray: 5 hits/sec\nUnaffected by attack speed", 0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
 	{ SeedType::SEED_GRAVEBUSTER,  "Quick Dig", "掘金",    "吞掉墓碑额外产 25 阳光\n（每层）",  "Grave eaten yields +25 sun\n(per stack)",            0.00f, 2, false, RUN_UPGRADE_KIND_EFFECT, 1 },
-	{ SeedType::SEED_HYPNOSHROOM,  "Devotion", "倒戈",     "被魅惑僵尸咬到的僵尸也变友军\n（魅惑菇冷却 ×6）", "Zombies bitten by a hypnotized zombie turn friendly\n(Hypno-shroom cooldown ×6)", 0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 3 },
+	{ SeedType::SEED_HYPNOSHROOM,  "Devotion", "倒戈",     "被魅惑僵尸咬到的僵尸也变友军\n魅惑菇冷却 ×6，与吞噬军团双向降权。", "Zombies bitten by a hypnotized zombie turn friendly.\nHypno-shroom cooldown ×6. Soft exclusion with Borrowed Army.", 0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 3 },
 	{ SeedType::SEED_SCAREDYSHROOM, "Bravery", "无畏",     "敌人贴近时不再缩头",                "No longer hides when zombies get close",             0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
 	{ SeedType::SEED_ICESHROOM,    "Deep Freeze", "深冻",  "全场冰冻 +6 秒\n（每层）",          "Board freeze +6 sec\n(per stack)",                   0.00f, 2, false, RUN_UPGRADE_KIND_EFFECT, 3 },
 	{ SeedType::SEED_DOOMSHROOM,   "Annihilation", "湮灭", "爆炸造成 6000 伤害",                "Blast deals 6000 damage",                            0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
@@ -398,7 +398,7 @@ static const RunPlantUpgradeDef gRunPlantBuff2Defs[RUN_PLANT_BUFF2_COUNT] =
     { SeedType::SEED_GOLD_MAGNET, "Global Magnet", "全屏吸金", "每次吸取全场银币、金币和钻石\n取消单次5枚上限，充能间隔不变", "Each pull collects all silver, gold and diamonds\nNo five-coin limit; recharge unchanged", 0.0f, 1, false, RUN_UPGRADE_KIND_EFFECT, 3 },
     { SeedType::SEED_SUNSHROOM, "Tap for Sun", "掌中阳光", "不再长大。每点击一次产一枚小阳光，无冷却。", "Stops growing. Each tap produces a small sun.", 0.0f, 1, false, RUN_UPGRADE_KIND_EFFECT, 3 },
     { SeedType::SEED_REPEATER, "Fire and Ice", "冰火双发", "每两发依次发射火豆、冰豆。", "Shots alternate fire and ice.", 0.0f, 1, false, RUN_UPGRADE_KIND_EFFECT, 1 },
-    { SeedType::SEED_CHOMPER, "Borrowed Army", "吞噬军团", "每次击杀生成同强度的魅惑副本，含关底首领。", "A kill creates a full-strength hypnotized copy.", 0.0f, 1, false, RUN_UPGRADE_KIND_EFFECT, 3 },
+    { SeedType::SEED_CHOMPER, "Borrowed Army", "吞噬军团", "每次击杀生成同强度的魅惑副本，含关底首领。\n与倒戈双向降权。", "A kill creates a full-strength hypnotized copy.\nSoft exclusion with Devotion.", 0.0f, 1, false, RUN_UPGRADE_KIND_EFFECT, 3 },
     { SeedType::SEED_COBCANNON, "Compact Cannon", "单格炮座", "玉米加农炮只占一格。", "Cob Cannon occupies one tile.", 0.0f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
     { SeedType::SEED_GRAVEBUSTER, "Grave Dividend", "墓碑红利", "吞完一座墓碑获得100阳光。", "Finishing a grave yields 100 sun.", 0.0f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
     { SeedType::SEED_GRAVEBUSTER, "Stone Bastion", "墓碑堡垒", "最大生命40000，吞碑耗时40秒。", "40,000 max HP. Digging takes 40 seconds.", 0.0f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
@@ -627,6 +627,20 @@ uint64_t GetRunChoicePlantMask(int theId)
             (uint64_t(1) << SEED_SPLITPEA) | (uint64_t(1) << SEED_GATLINGPEA);
     SeedType plant = GetRunChoicePlant(theId);
     return plant >= 0 && plant < 64 ? uint64_t(1) << plant : 0;
+}
+
+std::vector<int> GetRunPlantChoices(SeedType plant)
+{
+    std::vector<int> choices;
+    if (plant < 0 || plant >= 64) return choices;
+    const uint64_t mask = uint64_t(1) << plant;
+    const int first = RunPlantUpgradeIndexFor(plant);
+    if (first >= 0 && RunPlantUpgradeInPool(plant)) choices.push_back(RUN_BUFF_COUNT + first);
+    const int extraBase = RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT;
+    for (int index = 0; index < RUN_PLANT_BUFF2_COUNT; ++index)
+        if (RunPlantBuff2InPool(index) && (GetRunChoicePlantMask(extraBase + index) & mask))
+            choices.push_back(extraBase + index);
+    return choices;
 }
 
 // 经济条清单（经济权重批 2026-10-09，用户拍板）：享受经济系数 e 的条目——产阳光三件套

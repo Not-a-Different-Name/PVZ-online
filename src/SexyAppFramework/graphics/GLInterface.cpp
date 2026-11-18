@@ -1210,19 +1210,21 @@ void GLInterface::UpdateViewport()
 }
 
 #ifdef __ANDROID__
-void GLInterface::DrawSideBackdrop(Image* image, int sourceLeft)
+void GLInterface::DrawSideBackdrop(Image* image, int logicalWidth, int sourceLeft)
 {
     const Rect view=mPresentationRect;
     if(view.mWidth<=0||view.mHeight<=0||mSideDrawableWidth<=view.mWidth)return;
+    const int leftWidth=(logicalWidth-mWidth)/2;
+    const int rightWidth=logicalWidth-mWidth-leftWidth;
     auto drawSide=[&](int x,int width,bool right) {
         if(width<=0)return;
         GfxEnd();float projection[16];
         glViewport(x,view.mY,width,view.mHeight);
         MakeOrthoMatrix(0,float(width),float(view.mHeight),0,-10,10,projection);
         glUniformMatrix4fv(gUfViewProjMtx,1,GL_FALSE,projection);
-        const int begin=right?sourceLeft+800:0;
-        const int count=image?(right?image->GetWidth()-begin:sourceLeft):0;
-        if(image&&count>0)StretchBlt(image,Rect(0,0,width,view.mHeight),Rect(begin,0,count,image->GetHeight()),nullptr,Color::White,Graphics::DRAWMODE_NORMAL,false,false);
+        const int begin=right?sourceLeft+mWidth:sourceLeft-leftWidth;
+        const int count=right?rightWidth:leftWidth;
+        if(image&&count>0&&begin>=0&&begin+count<=image->GetWidth())StretchBlt(image,Rect(0,0,width,view.mHeight),Rect(begin,0,count,image->GetHeight()),nullptr,Color::White,Graphics::DRAWMODE_NORMAL,false,false);
         else FillRect(Rect(0,0,width,view.mHeight),Color::Black,Graphics::DRAWMODE_NORMAL);
     };
     drawSide(0,view.mX,false);

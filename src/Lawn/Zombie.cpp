@@ -28,6 +28,7 @@
 
 #include "Plant.h"
 #include "Board.h"
+#include "Run/RunZombieRoster.h"
 #include "../ConstEnums.h"
 #include "Zombie.h"
 #include "../PvzpLib/EffectSystem.h"
@@ -10849,6 +10850,27 @@ bool Zombie::BossSpawnContact()
 	{
 		aZombieType = ZombieType::ZOMBIE_PAIL;
 	}
+    else if (mBoard->IsRunBossFinale())
+    {
+        PvzpWeightedArray choices[NUM_ZOMBIE_TYPES];
+        int count = 0;
+        for (int index = 0; index < NUM_ZOMBIE_TYPES; ++index)
+        {
+            const auto type = static_cast<ZombieType>(index);
+            if (!mBoard->CanZombieSpawnOnLevel(type, mBoard->mLevel) ||
+                !mBoard->RowCanHaveZombieType(mTargetRow, type))
+                continue;
+            const int weight = RunZombieWeight(type);
+            if (weight > 0)
+            {
+                choices[count].mItem = type;
+                choices[count].mWeight = weight;
+                ++count;
+            }
+        }
+        if (count == 0) return true;
+        aZombieType = static_cast<ZombieType>(PvzpPickFromWeightedArray(choices, count));
+    }
 	else
 	{
 		int aZombieTypeCount = LENGTH(gBossZombieList);
@@ -10861,6 +10883,8 @@ bool Zombie::BossSpawnContact()
 		aZombieType = PvzpPickFromArray(gBossZombieList, aZombieTypeCount);
 	}
 
+    if (mBoard->IsRunBossFinale() && !mBoard->CanAllocateZombieAnimations(aZombieType, 0))
+        return false;
 	Zombie* aZombie = mBoard->AddZombieInRow(aZombieType, mTargetRow, 0);
 	if (aZombie == nullptr) return false;
 	aZombie->mPosX = 600.0f;

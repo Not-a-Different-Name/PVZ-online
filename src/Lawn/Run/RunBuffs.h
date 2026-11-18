@@ -3,6 +3,7 @@
 
 #include "../../ConstEnums.h"
 #include <cstdint>
+#include <vector>
 
 // @pvz-online: 闯关（肉鸽）增益目录，两类都在这：
 //   ① 全局增益（RUN_BUFF_*，对全部植物/整局生效）
@@ -318,5 +319,6 @@ bool RunPlantBuff2InPool(int theIndex);
 SeedType GetRunChoicePlant(int theId);
 // A family trait is one candidate; this mask supplies eligibility, lineup preference and deduplication.
 uint64_t GetRunChoicePlantMask(int theId);
+std::vector<int> GetRunPlantChoices(SeedType plant);
 
 #endif

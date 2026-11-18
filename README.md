@@ -1,6 +1,8 @@
 # PvZ Online — 多人合作 PVE
 
-当前正式版为 **MOD116**。电脑和安卓联机时请使用相同版本。 [双端完整包](https://github.com/Not-a-Different-Name/PVZ-online/releases/tag/mod116-full-20261117)
+本源码对应 **MOD118**。电脑和安卓联机时请使用相同版本。 [已发布版本](https://github.com/Not-a-Different-Name/PVZ-online/releases)
+
+MOD118 统一三种终章的僵王血量并更新黑夜屋顶补怪名单。植物三选一可查看每张候选的增益。安卓修复宽屏开场卡顿和队友继续时的图鉴闪退。Windows 模型 CLI 单独提供，使用 JSON Lines 操作真实引擎。
 
 游戏自动选择官方服务器，也可自建房间。分享四位房间码即可加入。推荐 3–5 人游玩，参战者和观众共用六席，各自参战时守自己的草坪，漏怪按顺序传给下一位参战队友。
 

@@ -101,6 +101,7 @@ public:
 	static ZombieType			GetZombieType(int theIndex);
 	void				ShowPlant(SeedType theSeedType);
 	void				ShowZombie(ZombieType theZombieType);
+    bool mFromOptions = false;
 };
 extern bool gZombieDefeated[NUM_ZOMBIE_TYPES];
 

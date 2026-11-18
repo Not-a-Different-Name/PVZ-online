@@ -19,6 +19,7 @@
 // ZomBotany OR 进当关名单——查询层放行、表本体不动；关 = 逐位复原。缺省 false，
 // 单关局与旧调用（无 RunState）天然走关。
 bool RunZombieAllowedOnLevel(ZombieType theZombieType, int theRunLevelIndex, bool theZombotany = false);
+bool RunZombieAllowedInFinale(ZombieType theZombieType, bool theZombotany);
 
 // @pvz-online: 闯关的抽怪权重（2026-10-03 用户定案"丰富僵尸种类"）：原版 pickWeight 里
 // 普僵/路障各 4000、其余 1000-3500，抽出来近半个战场都是这两样。这里对名单内的类型给

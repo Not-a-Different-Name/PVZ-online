@@ -25,6 +25,7 @@ class RunFlowScreen : public Sexy::Widget, public Sexy::ButtonListener
     bool mSubmitted=false;
     Sexy::ButtonWidget* mRefreshButton=nullptr;
     Sexy::ButtonWidget* mLockButtons[3]{};
+    int mPreviewSlot=-1, mPreviewPage=0;
     int mBuffMult = 0;
     Sexy::ButtonWidget* mBuffMultButton = nullptr;
     Sexy::ButtonWidget* mLadderButton = nullptr;

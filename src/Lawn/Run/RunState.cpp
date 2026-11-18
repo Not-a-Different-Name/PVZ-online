@@ -768,6 +768,10 @@ int RunState::GetChoiceWeight(int theId) const
     const int doubleStar = RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT + RUN_BUFF2_STAR_DOUBLE;
     if ((theId == homing && GetBuffCount(doubleStar) > 0) ||
         (theId == doubleStar && GetBuffCount(homing) > 0)) weight /= 5;
+    const int devotion = RUN_BUFF_COUNT + RUN_UPGRADE_HYPNOSHROOM;
+    const int borrowedArmy = RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT + RUN_BUFF2_CHOMPER_COPY;
+    if ((theId == devotion && GetBuffCount(borrowedArmy) > 0) ||
+        (theId == borrowedArmy && GetBuffCount(devotion) > 0)) weight /= 5;
     return weight;
 }
 

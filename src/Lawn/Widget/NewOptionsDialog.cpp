@@ -455,7 +455,7 @@ void NewOptionsDialog::ButtonDepress(int theId)
 	case NewOptionsDialog::NewOptionsDialog_Almanac:
 	{
 		AlmanacDialog* aDialog = mApp->DoAlmanacDialog(SeedType::SEED_NONE, ZombieType::ZOMBIE_INVALID);
-		aDialog->WaitForResult(true);
+		aDialog->mFromOptions = true;
 		break;
 	}
 

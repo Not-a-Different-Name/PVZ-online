@@ -21,10 +21,13 @@ class SideBackdropCache {
     std::unique_ptr<Sexy::MemoryImage> menu, output;
     Sexy::Image* lastSource=nullptr;
     int lastWidth=0,lastOffset=0,lastScene=-1,lastMenu=-1,lastMenuX=0,lastMenuY=0;
+    bool lastPanorama=false;
     unsigned int lastAnimation=0;
 public:
-    Sexy::Image* Get(LawnApp* app,int width) {
+    Sexy::Image* Get(LawnApp* app,int width,int* sourceLeft=nullptr) {
         using namespace Sexy;
+        const int pad=(width-BOARD_WIDTH)/2;
+        if(sourceLeft)*sourceLeft=pad;
         if(width<=800||width>4096)return nullptr;
         if(app->mTitleScreen&&(app->mTitleScreen->mTitleState!=TITLESTATE_SCREEN||!app->mTitleScreen->mLoaderScreenIsLoaded))return nullptr;
         Image* source=nullptr;int offset=0,scene=0;
@@ -75,17 +78,26 @@ public:
             source=menu.get();offset=0;scene=3;
         }
         if(!source)return nullptr;
-        if(output&&lastSource==source&&lastWidth==width&&lastOffset==offset&&lastScene==scene)return output.get();
-        auto* memory=dynamic_cast<MemoryImage*>(source);
-        if(!memory)return nullptr;
         const int sw=source->GetWidth(),sh=source->GetHeight();
         if(sw<=0||sh<=0)return nullptr;
+        // Cache the full lawn panorama. Camera movement only shifts the crop
+        // sent to GL, so it does not invalidate the image or its texture.
+        const bool panorama=sourceLeft&&scene==1&&sw>=BOARD_WIDTH+BOARD_OFFSET;
+        const int travel=panorama ? std::max(sw-BOARD_WIDTH,BOARD_OFFSET+BOARD_IMAGE_WIDTH_OFFSET-BOARD_WIDTH) : 0;
+        if(panorama) {
+            *sourceLeft=pad+std::clamp(offset,0,travel);
+            offset=0;
+        }
+        if(output&&lastSource==source&&lastWidth==width&&lastOffset==offset&&lastScene==scene&&lastPanorama==panorama)
+            return output.get();
+        auto* memory=dynamic_cast<MemoryImage*>(source);
+        if(!memory)return nullptr;
         const auto* pixels=memory->GetBits();
         if(!pixels)return nullptr;
         constexpr int bw=96,bh=48;
         std::vector<unsigned int> samples(bw*bh),blur(bw*bh);
         for(int y=0;y<bh;++y)for(int x=0;x<bw;++x) {
-            int sx=std::clamp(offset+(x*800)/bw,0,sw-1),sy=std::min(sh-1,y*sh/bh);
+            int sx=std::clamp(offset+x*(panorama?sw:BOARD_WIDTH)/bw,0,sw-1),sy=std::min(sh-1,y*sh/bh);
             samples[y*bw+x]=pixels[sy*sw+sx];
         }
         for(int y=0;y<bh;++y)for(int x=0;x<bw;++x) {
@@ -100,22 +112,23 @@ public:
         }
         if(!output)output=std::make_unique<MemoryImage>(app);
         output->Delete3DBuffers();
-        output->Create(width,600);auto* target=output->GetBits();
-        const int pad=(width-800)/2;
+        const int textureWidth=width+travel;
+        output->Create(textureWidth,600);auto* target=output->GetBits();
         auto mix=[](unsigned int first,unsigned int second,int fraction) {
             unsigned int value=0xff000000u;
             for(int shift:{0,8,16})value|=((((first>>shift)&255)*(256-fraction)+((second>>shift)&255)*fraction)/256)<<shift;
             return value;
         };
-        for(int y=0;y<600;++y)for(int x=0;x<width;++x) {
+        for(int y=0;y<600;++y)for(int x=0;x<textureWidth;++x) {
             const int sx=x-pad+offset,sy=std::min(sh-1,y*sh/600);
-            const int fx=x*(bw-1)*256/(width-1),fy=y*(bh-1)*256/599;
+            const int fx=x*(bw-1)*256/(textureWidth-1),fy=y*(bh-1)*256/599;
             const int bx=fx/256,by=fy/256,nx=std::min(bw-1,bx+1),ny=std::min(bh-1,by+1);
             auto back=mix(mix(blur[by*bw+bx],blur[by*bw+nx],fx%256),mix(blur[ny*bw+bx],blur[ny*bw+nx],fx%256),fy%256);
             if(sx>=0&&sx<sw) {
                 auto front=pixels[sy*sw+sx];
-                const int feather=std::min(96,std::max(1,x<pad?offset:sw-offset-800));
-                int blend=std::min(feather,x<pad?sx:sw-1-sx)*255/feather;
+                const int feather=panorama ? 96 : std::min(96,std::max(1,x<pad?offset:sw-offset-BOARD_WIDTH));
+                const int edge=panorama ? std::min(sx,sw-1-sx) : (x<pad?sx:sw-1-sx);
+                int blend=std::min(feather,edge)*255/feather;
                 blend=std::clamp(blend,0,255);
                 if(scene==3||scene==4)blend=0;
                 blend=blend*int((front>>24)&255)/255;
@@ -124,9 +137,9 @@ public:
                 int blue=((front&255)*blend+(back&255)*(255-blend))/255;
                 back=0xff000000u|(red<<16)|(green<<8)|blue;
             }
-            target[y*width+x]=back;
+            target[y*textureWidth+x]=back;
         }
-        output->BitsChanged();lastSource=source;lastWidth=width;lastOffset=offset;lastScene=scene;
+        output->BitsChanged();lastSource=source;lastWidth=width;lastOffset=offset;lastScene=scene;lastPanorama=panorama;
         return output.get();
     }
 };

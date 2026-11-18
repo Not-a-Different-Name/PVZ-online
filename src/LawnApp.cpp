@@ -1285,6 +1285,10 @@ bool LawnApp::KillNewOptionsDialog()
 	if (aNewOptionsDialog == nullptr)
 		return false;
 
+    auto* almanac = static_cast<AlmanacDialog*>(GetDialog(Dialogs::DIALOG_ALMANAC));
+    if (almanac && almanac->mFromOptions)
+        KillAlmanacDialog();
+
 	bool wantWindowed = !aNewOptionsDialog->mFullscreenCheckbox->IsChecked();
 	bool want3D = aNewOptionsDialog->mHardwareAccelerationCheckbox->IsChecked();
 	SwitchScreenMode(wantWindowed, want3D, false);
@@ -3686,7 +3690,9 @@ void LawnApp::Redraw(Rect* clip)
         const auto view=mGLInterface->mPresentationRect;
         if(view.mWidth>0&&mGLInterface->mSideDrawableWidth>view.mWidth) {
             const int width=static_cast<int>(std::ceil(800.0*mGLInterface->mSideDrawableWidth/view.mWidth));
-            mGLInterface->DrawSideBackdrop(GetSideBackdrop(width),(width-800)/2);
+            int sourceLeft=0;
+            auto* backdrop=GetSideBackdrop(width,&sourceLeft);
+            mGLInterface->DrawSideBackdrop(backdrop,width,sourceLeft);
         }
     }
     SexyApp::Redraw(clip);
@@ -3694,6 +3700,10 @@ void LawnApp::Redraw(Rect* clip)
 #endif
 
 Sexy::Image* LawnApp::GetSideBackdrop(int logicalWidth) {
+    return GetSideBackdrop(logicalWidth,nullptr);
+}
+
+Sexy::Image* LawnApp::GetSideBackdrop(int logicalWidth,int* sourceLeft) {
     if(!mSideBackdrop)mSideBackdrop=std::make_unique<SideBackdropCache>();
-    return mSideBackdrop->Get(this,logicalWidth);
+    return mSideBackdrop->Get(this,logicalWidth,sourceLeft);
 }

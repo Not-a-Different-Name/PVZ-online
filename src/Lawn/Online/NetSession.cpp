@@ -1990,7 +1990,7 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
         NetProto::Reader reader(aPayload + 1, 12);
         const auto maximum = reader.U32(), remaining = reader.U32(), applied = reader.U32();
         constexpr uint32_t maxFinaleHealth = RunState::FinaleHealthFor(
-            RunState::RUN_MODE_FULL, RunState::RUN_DIFF_HIGH, NetProto::MAX_PLAYERS);
+            RunState::RUN_DIFF_HIGH, NetProto::MAX_PLAYERS);
         if (!maximum || maximum > maxFinaleHealth || remaining > maximum || applied > maximum) break;
         if (mFinaleEpoch != mReadyEpoch) {
             mFinaleEpoch = mReadyEpoch;
