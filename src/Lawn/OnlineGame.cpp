@@ -12,6 +12,7 @@
 #include "SeedPacket.h"
 #include "LawnCommon.h"
 #include "Run/RunState.h"
+#include "Widget/RunDifficultyDialog.h"
 #include "Online/NetSession.h"
 #include "Online/NetworkLog.h"
 #include "Widget/OnlineDialog.h"
@@ -796,6 +797,7 @@ void LawnApp::UpdateOnlineEvents()
 		switch (anEvent.mType)
 		{
 		case NetSession::EventType::CONNECTED:
+            if (RunDifficultyDialog::CanChoose(this)) break;
             // A fresh join during battle waits for the next stage, without replaying waves.
             if(IsRunMode() && mBoard && mGameScene==GameScenes::SCENE_PLAYING &&
                 !mRunIntroHeld && !mOnlineRunStartHeld && !mOnlineWaitingStartAck &&
@@ -880,6 +882,7 @@ void LawnApp::UpdateOnlineEvents()
                 mRunState->GetLevel()==mBoard->mLevel &&
                 mOnlineSession->WaitForNextRound(anEvent.mSeat))break;
 
+            if (RunDifficultyDialog::CanChoose(this)) break;
             if(mRunState && mRunState->IsNewEndless() && mRunState->mLevelIndex>0 && mOnlineSession->SupportsAdmission())break;
 			// @pvz-online: 中继：有人进了房（mSeat 说清是谁）——直连没有这条，那边的
 			// 第一个人就是 CONNECTED。本机在棋盘上跑着闯关局、又是主机：当场把他拉进
@@ -1040,6 +1043,7 @@ void LawnApp::UpdateOnlineEnd()
         if(EndlessLawn::StopAtLimit(this))return;
         EndlessLawn::RememberLineup(mBoard);
         mRunState->AdvanceLevel();
+        if (mOnlineSession->mMatchMode >= 0) mRunState->mNextDifficultyPending = false;
 				if (mRunState->IsComplete())
 				{
 					NetworkLog("[run] the run is complete");
@@ -1158,6 +1162,7 @@ void LawnApp::RetryOnlineLevel()
 
 void LawnApp::EnterRunLevel()
 {
+    if (RunDifficultyDialog::Hold(this)) return;
     if (mOnlineSession && mOnlineSession->IsRelay() &&
         mOnlineSession->GetRole() == NetSession::Role::HOST && !mOnlineSession->CanHostStart())
     { DoOnlineDialog(); return; }
@@ -1269,7 +1274,7 @@ bool LawnApp::AlignRunToHost(int theRunSeed, int theTargetIndex, int theRunMode,
 	}
 
 	// 关底 boss 开关同理（MOD_BUILD 38）：非法值按关。
-	if (theBossFlag<0 || theBossFlag>2)
+	if (!RunState::ValidBossOptions(theBossFlag))
 	{
 		NetworkLog("[run] the host named an unknown boss switch %d - treating it as off", theBossFlag);
 		theBossFlag = 0;
@@ -1297,7 +1302,7 @@ bool LawnApp::AlignRunToHost(int theRunSeed, int theTargetIndex, int theRunMode,
 
 	// 关序号来自对端（构建代次不同只提示、不拒连）：越界就按第 1 关处理——
 	// 旧构建的关卡表只有 5 格，混搭时别让它把越界值一路带进 LevelForIndex。
-	if (theTargetIndex < 0 || theTargetIndex >= RunState::LevelCountForMode(theRunMode))
+	if (theTargetIndex < 0 || theTargetIndex >= RunState::LevelCountWithBoss(theRunMode, theBossFlag))
 	{
 		NetworkLog("[run] the host named an out-of-range level index %d - treating it as the first level",
 			theTargetIndex);
@@ -1327,7 +1332,6 @@ bool LawnApp::AlignRunToHost(int theRunSeed, int theTargetIndex, int theRunMode,
 
 	if (mRunState != nullptr
 		&& ((mOnlineSession->HasAdmissionOffer(theTargetIndex) && mRunState->mAdmission.run!=mOnlineSession->mAdmissionOffer.run) || mRunState->mRunSeed != theRunSeed || mRunState->mMode != theRunMode
-			|| mRunState->mDiff != theRunDiff
 			|| mRunState->mEndlessScene != theEndlessScene
 			|| mRunState->mLevelIndex > theTargetIndex))
 	{
@@ -1354,7 +1358,6 @@ bool LawnApp::AlignRunToHost(int theRunSeed, int theTargetIndex, int theRunMode,
 		if (mOnlineSession->mEndlessNeedsAdmission || !loaded
 			|| mRunState->mRunSeed != theRunSeed
 			|| mRunState->mMode != theRunMode
-			|| mRunState->mDiff != theRunDiff
 			|| mRunState->mEndlessScene != theEndlessScene
 			|| mRunState->mLevelIndex > theTargetIndex)
 		{
@@ -1373,10 +1376,12 @@ bool LawnApp::AlignRunToHost(int theRunSeed, int theTargetIndex, int theRunMode,
 
 	// 高级选项三字段（批 C）是房间级设置、房主权威：不管检查点续没续上，对齐完一律按
 	// 房主的值覆盖（不参与上面的重建判等——改这三样不该把队友手里的整局作废）。
-	// 增益倍选（MOD_BUILD 43）同口径：房间级设置、只覆盖不参与重建判等。
+	// 出怪难度与增益倍选同为房主设置，只覆盖，不参与本局身份判定。
 	// 场景难度阶梯 + 僵尸 buff 档（MOD_BUILD 45）同理（前者也无尽档不生效，照存）。
 	// 9 条强化层数是"本局进度"而非设置：权威快照在主机（投票结果只驱动 UI、层数只信
 	// START_LEVEL），一律按这条命令的 8 字节覆盖——中途加入/追赶/重试不走样。
+    mRunState->mDiff = theRunDiff;
+    mRunState->mNextDifficultyPending = false;
 	mRunState->mScale = theRunScale;
 	mRunState->mTempo = theRunTempo;
 	mRunState->mZombotany = theZombotany;
@@ -1469,6 +1474,7 @@ void LawnApp::UpdateRunPick()
 	// ShowGameSelector 收掉）什么都不做——尤其别走底下"棋盘不在就开下一关"那条：
 	// 关序号已经越界（== 关数），一开就是坏局。
 	if (mRunState->IsComplete() || mRunState->mEndlessSnapshotPhase==4) return;
+    if (RunDifficultyDialog::Hold(this)) return;
 
 	// ① 新草坪已经建好、开场压着（R6 起联机与单机闯关都走这条）：三选一屏就摆在草坪上，
 	// 补发追赶一屏接一屏地补。全都清完才按最新的卡池重填卡槽、放开选卡与开场——
@@ -1749,7 +1755,7 @@ bool LawnApp::TryOpenZombieVote()
 	if (mZombieVoteActive) return true;
 
 	// 只有房主 / 单机开票；客户端收 OPEN 弹框（UpdateZombieVote），不在这儿开。
-	if(mRunState==nullptr)return false;
+	if(mRunState==nullptr || mRunState->IsBossFinale())return false;
     if(IsOnlineClient()) {
         const int level=mRunState->GetPlayingLevelIndex(),period=RunState::LevelsPerScene(mRunState->mMode);
         return level>0&&period>0&&level%period==0&&mRunState->GetZombieBuffPerScene()>0&&

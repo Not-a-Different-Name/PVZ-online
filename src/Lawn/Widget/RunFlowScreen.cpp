@@ -6,6 +6,7 @@
 #include "../../LawnApp.h"
 #include "../../Resources.h"
 #include "../Run/RunState.h"
+#include "../Online/NetSession.h"
 #include "../Run/PortVersion.h"
 #include "../Run/RunBuffs.h"
 #include "../Run/RunPortSupport.h"
@@ -120,6 +121,7 @@ RunFlowScreen::RunFlowScreen(LawnApp* app, bool modePage, int endlessScene) : mA
         addButton(37, "", 408, 188, 328, 64);
         addButton(38, "", 64, 298, 328, 64);
         RefreshDamageLabels();
+        addButton(39, "", 64, 298, 328, 64);
         mZombieBuffButton = addButton(27, ModText::Tr("僵尸强化：1", "Zombie boosts: 1"), 64, 376, 328, 54);
         const char* ladders[] = { "1.33", "1", "1.2", "1.5", "2" };
         mLadderButton = addButton(26, ModText::Format("场景阶梯：x{}", "Scene ladder: x{}", ladders[mLadder]), 408, 376, 328, 54);
@@ -158,14 +160,19 @@ RunFlowScreen::RunFlowScreen(LawnApp* app, bool modePage, int endlessScene) : mA
 void RunFlowScreen::RefreshModePage()
 {
     for(auto* b:mModeButtons){
-        bool advanced=(b->mId>=20&&b->mId<=27)||b->mId==14||b->mId==29||(b->mId>=33&&b->mId<=38);
-        const std::vector<int> optionIds = mEndlessPage?std::vector<int>{20,21,22,33,24,29,27,23,14,34,35,25,36,37,38}:std::vector<int>{20,21,22,23,24,14,29,27,26,33,-1,-1,36,37,38};
+        bool advanced=(b->mId>=20&&b->mId<=27)||b->mId==14||b->mId==29||(b->mId>=33&&b->mId<=39);
+        const std::vector<int> optionIds = mEndlessPage?std::vector<int>{20,21,22,33,24,29,27,23,14,34,35,25,36,37,38}:std::vector<int>{20,21,22,23,24,14,29,27,26,33,39,-1,36,37,38};
         int optionIndex = -1;
         for (int index = 0; index < (int)optionIds.size(); ++index)
             if (b->mId == optionIds[index]) optionIndex = index;
         bool navigation = b->mId == 31 || b->mId == 32;
         bool visible = b->mId == 9 || b->mId == 28 ||
             (navigation ? mAdvanced : advanced ? mAdvanced && optionIndex>=0 && optionIndex / 4 == mAdvancedPage : !mAdvanced);
+        if (b->mId == 39) {
+            visible = visible && (!mApp->mOnlineSession || mApp->mOnlineSession->SupportsBossFinale());
+            b->mLabel = (mBossFlag & RunState::BOSS_FINALE) ?
+                ModText::Tr("僵王终章：开", "Zomboss finale: on") : ModText::Tr("僵王终章：关", "Zomboss finale: off");
+        }
         b->SetVisible(visible);
         if (advanced && optionIndex >= 0)
             b->Resize(64 + (optionIndex % 2) * 344, 188 + ((optionIndex % 4) / 2) * 110, 328, 64);
@@ -211,7 +218,7 @@ void RunFlowScreen::RefreshOptionLabels()
     mOptionButtons[1]->mLabel = ModText::Format("规模：{}", "Scale: {}", scales[mScale]);
     mOptionButtons[2]->mLabel = ModText::Format("快慢：{}", "Tempo: {}", tempos[mTempo]);
     mOptionButtons[3]->mLabel = ModText::Format("植物僵尸：{}", "Zombotany: {}", mZombotany ? ModText::Tr("开", "On") : ModText::Tr("关", "Off"));
-    mOptionButtons[4]->mLabel = ModText::Format("关底头目：{}", "Final boss: {}", mBossFlag==2?ModText::Tr("末关+场景3", "Final + Scene 3"):mBossFlag==1?ModText::Tr("仅末关","Final"):ModText::Tr("关","Off"));
+    mOptionButtons[4]->mLabel = ModText::Format("关底头目：{}", "Final boss: {}", (mBossFlag&3)==2?ModText::Tr("末关+场景3", "Final + Scene 3"):(mBossFlag&3)==1?ModText::Tr("仅末关","Final"):ModText::Tr("关","Off"));
     if(mEndlessPage) {
         const char* cycles[]={ModText::Tr("关","Off"),ModText::Tr("每十关","Every 10"),ModText::Tr("每五关","Every 5")};
         mOptionButtons[4]->mLabel=ModText::Format("周期 BOSS：{}","Boss cycle: {}",cycles[mEndlessOptions&3]);
@@ -326,13 +333,18 @@ void RunFlowScreen::ButtonDepress(int id)
             const char* tiers[]={ModText::Tr("无","none"),"x1.03","x1.05"};
             mSpeedButton->mLabel=ModText::Format(mEndlessPage?"移速成长（每五关）：{}":"移速成长（每场景）：{}","Speed growth: {}",tiers[mSpeedTier]);return;}
         if(id>=40&&id<=42){mDifficulty=id-40;RefreshOptionLabels();RefreshModePage();return;}
+        if (id == 39 && !mEndlessPage && (!mApp->mOnlineSession || mApp->mOnlineSession->SupportsBossFinale())) {
+            mBossFlag ^= RunState::BOSS_FINALE;
+            RefreshModePage();
+            return;
+        }
         if (id >= 20 && id <= 25)
         {
             if (id == 20) mDifficulty = (mDifficulty + 1) % 3;
             if (id == 21) mScale = (mScale + 1) % 4;
             if (id == 22) mTempo = (mTempo + 1) % 3;
             if (id == 23) mZombotany ^= 1;
-            if (id == 24) {if(mEndlessPage)mEndlessOptions=(mEndlessOptions&~3)|(((mEndlessOptions&3)+1)%3);else mBossFlag=(mBossFlag+1)%3;}
+            if (id == 24) {if(mEndlessPage)mEndlessOptions=(mEndlessOptions&~3)|(((mEndlessOptions&3)+1)%3);else mBossFlag=(mBossFlag & RunState::BOSS_FINALE)|(((mBossFlag&3)+1)%3);}
             if (id == 25) mEndlessScene = (mEndlessScene + 1) % 5;
             RefreshOptionLabels();
             RefreshModePage();

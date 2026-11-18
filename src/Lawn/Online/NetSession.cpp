@@ -4,6 +4,7 @@
 #include "RelayNodes.h"
 #include "PrivateEndpoint.h"
 #include "NetworkPlayerText.h"
+#include "../Run/RunState.h"
 #include "../Run/PortVersion.h"
 static_assert(NetProto::MOD_BUILD == PVZ_ANDROID_PC_MOD_BUILD);
 static_assert(NetProto::PROTOCOL_VERSION == PVZ_ANDROID_PC_PROTOCOL_VERSION);
@@ -1666,7 +1667,7 @@ void NetSession::ResetToOff()
 	mDiagnosticStatusText.clear();
     mPrivateRoom=false;
  mFlowSupported=mFlowEnabled=mFlowHelloSent=mFlowDeferred=false;
- mFlowDoneValue=mFlowStartPending=mFlowHostStartRecovery=mFlowLost=false;mReadyCancelState=ReadyCancelState::NONE;mFlowTerm=mFlowEpoch=mFlowGeneration=mFlowAcked=mFlowDoneEpoch=0;mFlowPhase=0;mFlowStartTicks=0;
+ mFlowDoneValue=mFlowStartPending=mFlowHostStartRecovery=mFlowLost=false;mReadyCancelState=ReadyCancelState::NONE;mFlowTerm=mFlowEpoch=mFlowGeneration=mFlowAcked=mFlowDoneEpoch=0;mFlowPhase=0;mFlowStartTicks=0;mFinaleCapability=false;mFinaleEpoch=mFinaleMaximum=mFinaleRemaining=mFinaleReported=0;mFinaleSendDelay=0;
     mRoomCreateAttempted=mRoomCreateBusyRejected=mRoomCreateWelcomed=false;
     mMatchMode=mMatchRequestedMode=-1;mMatching=mMatchJoining=mMatchStartPending=false;std::fill(mMatchTicket,mMatchTicket+16,0);mMatchWaitingSince={};
     mDirectoryPublic=false;mDirectoryStarted=false;mDirectoryConfirmed=false;mDirectoryJoin=false;mDirectoryRetry=0;
@@ -1982,6 +1983,23 @@ void NetSession::HandlePacket(const NetLink::Packet& thePacket)
             snapshot.mDst != mLocalSeat || snapshot.mSrc == mLocalSeat || !IsSeatOccupied(snapshot.mSrc) ||
             (mTransport == Transport::DIRECT && snapshot.mSrc != DirectPeerSeat())) break;
         if (mDamageInbox.size() < 128) mDamageInbox.push_back(snapshot);
+        break;
+    }
+    case 33: {
+        if (!wrapped || aPayloadSize != 13 || aPayload[0] != mLocalSeat || mFlowEpoch != mReadyEpoch) break;
+        NetProto::Reader reader(aPayload + 1, 12);
+        const auto maximum = reader.U32(), remaining = reader.U32(), applied = reader.U32();
+        constexpr uint32_t maxFinaleHealth = RunState::FinaleHealthFor(
+            RunState::RUN_MODE_FULL, RunState::RUN_DIFF_HIGH, NetProto::MAX_PLAYERS);
+        if (!maximum || maximum > maxFinaleHealth || remaining > maximum || applied > maximum) break;
+        if (mFinaleEpoch != mReadyEpoch) {
+            mFinaleEpoch = mReadyEpoch;
+            mFinaleReported = 0;
+            mFinaleSendDelay = 0;
+        }
+        mFinaleMaximum = maximum;
+        mFinaleRemaining = remaining;
+        mFinaleReported = std::max(mFinaleReported, applied);
         break;
     }
     case TeamWire::TYPE: {
@@ -2745,6 +2763,10 @@ void NetSession::HandleControlFrame(uint16_t theType, const uint8_t* thePayload,
     if(theType==0xF024) {HandlePunchControl(thePayload,theSize);return;}
 
  if(theType==NetProto::MSG_SRV_FLOW){HandleFlowState(thePayload,theSize);return;}
+ if(theType==0xF02C){
+     mFinaleCapability=IsRelay() && theSize==1 && thePayload[0]==1;
+     return;
+ }
     if(mTransport==Transport::RELAY && theType==0xF026) {
         if(theSize!=5||thePayload[0]!=1||thePayload[1]!=6||thePayload[2]>2||thePayload[3]>1||thePayload[4]!=1||
            (mMatchRequestedMode>=0&&mMatchRequestedMode!=thePayload[2])) {
@@ -3299,6 +3321,26 @@ void NetSession::UpdateNameplate()
     uint8_t bytes[NameplateWire::SIZE];NameplateWire::Encode(bytes,mLocalNameplate);
     Dispatch(NameplateWire::TYPE,bytes,static_cast<int>(NameplateWire::SIZE));
     mNameplateTicks=200;
+}
+
+void NetSession::TickBossFinale(int damage)
+{
+    if (!SupportsBossFinale() || InWatchRoom()) return;
+    if (mFinaleEpoch != mReadyEpoch) {
+        mFinaleEpoch = mReadyEpoch;
+        mFinaleMaximum = mFinaleRemaining = mFinaleReported = 0;
+        mFinaleSendDelay = 0;
+    }
+    if (damage > 0 && mFinaleMaximum)
+        mFinaleReported += std::min(static_cast<uint32_t>(damage), mFinaleMaximum - mFinaleReported);
+    if (damage || --mFinaleSendDelay > 0) return;
+    mFinaleSendDelay = 25;
+    uint8_t body[6];
+    NetProto::Writer writer(body, sizeof(body));
+    writer.U8(mLocalSeat);
+    writer.U8(mLocalSeat);
+    writer.U32(mFinaleReported);
+    SendRaw(32, body, writer.Size());
 }
 
 bool NetSession::SendRaw(uint16_t theType, const uint8_t* thePayload, int thePayloadSize)

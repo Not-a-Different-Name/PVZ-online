@@ -75,7 +75,7 @@ bool TeamPlay::HasTeammates()const {
 }
 uint32_t TeamPlay::Attempt()const {
     auto*r=app->GetRunState();auto*s=Session();
-    return s&&s->IsActive()?std::max(1u,s->GetReadyEpoch()):r?uint32_t(1+r->mFailCounts[r->mLevelIndex%RunState::RUN_LEVEL_COUNT]):1;
+    return s&&s->IsActive()?std::max(1u,s->GetReadyEpoch()):r?uint32_t(1+r->LevelFailureCount()):1;
 }
 TeamWire::Message TeamPlay::Message(uint8_t op)const {
     TeamWire::Message m;m.op=op;auto*r=app->GetRunState();if(!r)return m;
@@ -206,6 +206,7 @@ bool TeamPlay::LocalVoteReady()const {
     return true;
 }
 bool TeamPlay::VoteDue()const {
+    if (app->GetRunState() && app->GetRunState()->IsBossFinale()) return false;
     auto*r=app->GetRunState();if(!r)return false;
     const int previous=r->mLevelIndex?r->LevelForModeIndex(r->mMode,r->mLevelIndex-1):r->GetLevel();
     return r->mTeam.shared.Due(r->mLevelIndex,r->GetSceneIndex(),(previous-1)/10,r->IsEndless());
@@ -233,14 +234,16 @@ void TeamPlay::TryBeginBallot() {
     notice.clear();++viewRevision;Broadcast();
 }
 void TeamPlay::PresentVote() {
-    auto*r=app->GetRunState();if(!r||!wantsVote||!LocalVoteReady())return;
+    auto*r=app->GetRunState();if(!r||!wantsVote)return;
     const auto&b=r->mTeam.shared.ballot;
-    if(!b.open&&!VoteDue()){
+    auto*n=Session();
+    if(!b.open&&((n&&n->IsConnected()&&!HasTeammates())||!VoteDue())){
         // A capped catalogue may commit a skipped ballot without ever opening.
         // Close an earlier waiting surface as well as an actual voting surface.
         if(page==Page::VOTE)TeamPlayUi::Close(app);
         wantsVote=false;page=Page::TEAM_EFFECTS;return;
     }
+    if(!LocalVoteReady())return;
     if(!app->mTeamProgressionDialog||(b.open&&shownBallotRevision!=b.revision)){
         TeamPlayUi::Show(app,Page::VOTE);
         if(app->mTeamProgressionDialog&&b.open)shownBallotRevision=b.revision;

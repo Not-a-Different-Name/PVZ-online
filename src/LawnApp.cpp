@@ -615,6 +615,7 @@ void LawnApp::ShowGameSelector(bool preserveOnlineStart)
 
     ResetZombieVote();
 	KillDialog(DIALOG_GAME_OVER);
+    KillDialog(DIALOG_RUN_DIFFICULTY);
 	KillRunFlowScreen();
 	KillBoard();
     RunHistory::Capture(this,RunHistory::LEFT);
@@ -2485,6 +2486,7 @@ bool LawnApp::IsMiniBossLevel()
 
 bool LawnApp::IsFinalBossLevel()
 {
+    if (IsRunMode()) return false;
 	if (mBoard == nullptr)
 		return false;
 

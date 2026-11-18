@@ -6894,7 +6894,25 @@ ZombieDrawPosition aDrawPos;
 
 bool Zombie::CanTargetPlant(Plant* thePlant, ZombieAttackType theAttackType)
 {
-    if (RunStacking::Enabled(mApp) && RunStacking::Top(mBoard,thePlant->mPlantCol,thePlant->mRow)!=thePlant) return false;
+    const bool stacking = RunStacking::Enabled(mApp);
+    if (!CanTargetPlantType(thePlant, theAttackType, stacking)) return false;
+    if (!stacking) return true;
+
+    const int col = thePlant->mPlantCol;
+    const int row = thePlant->mRow;
+    if (!RunStacking::Covers(mBoard, thePlant, col, row)) return false;
+    Plant* other = nullptr;
+    while (mBoard->IteratePlants(other))
+    {
+        if (other->mRenderOrder > thePlant->mRenderOrder && RunStacking::Covers(mBoard, other, col, row) &&
+            CanTargetPlantType(other, theAttackType, true))
+            return false;
+    }
+    return true;
+}
+
+bool Zombie::CanTargetPlantType(Plant* thePlant, ZombieAttackType theAttackType, bool theStacking)
+{
     if (mMindControlled && (mBossMode == CHOMPER_COPY_MARKER || mBoard->IsRunBossZombie(this))) return false;
     if (mApp->IsWallnutBowlingLevel() && theAttackType != ZombieAttackType::ATTACKTYPE_VAULT)
         return false;
@@ -6977,7 +6995,7 @@ bool Zombie::CanTargetPlant(Plant* thePlant, ZombieAttackType theAttackType)
         }
 
         Plant* aTopPlant = mBoard->GetTopPlantAt(thePlant->mPlantCol, thePlant->mRow, PlantPriority::TOPPLANT_EATING_ORDER);
-        if (aTopPlant != thePlant && aTopPlant && CanTargetPlant(aTopPlant, theAttackType))
+        if (!theStacking && aTopPlant != thePlant && aTopPlant && CanTargetPlant(aTopPlant, theAttackType))
         {
             return false;
         }
@@ -6986,7 +7004,7 @@ bool Zombie::CanTargetPlant(Plant* thePlant, ZombieAttackType theAttackType)
     if (theAttackType == ZombieAttackType::ATTACKTYPE_VAULT)
     {
         Plant* aTopPlant = mBoard->GetTopPlantAt(thePlant->mPlantCol, thePlant->mRow, PlantPriority::TOPPLANT_ONLY_NORMAL_POSITION);
-        if (aTopPlant != thePlant && aTopPlant && CanTargetPlant(aTopPlant, theAttackType))
+        if (!theStacking && aTopPlant != thePlant && aTopPlant && CanTargetPlant(aTopPlant, theAttackType))
         {
             return false;
         }
@@ -7901,12 +7919,23 @@ void Zombie::EatZombie(Zombie* theZombie)
 
 bool Zombie::TrySpawnLevelAward()
 {
-	if (!IsOnBoard() || mBoard->HasLevelAwardDropped() || mBoard->mLevelComplete || mDroppedLoot)
-	{
-		return false;
-	}
+    if (!IsOnBoard() || mBoard->HasLevelAwardDropped() || mBoard->mLevelComplete)
+        return false;
 
-	if (mApp->IsFinalBossLevel())
+    if (mBoard->IsRunBossFinale())
+    {
+        const auto* animation = mApp->ReanimationTryToGet(mBodyReanimID);
+        if (mZombieType != ZOMBIE_BOSS || mZombiePhase != PHASE_ZOMBIE_DYING ||
+            !CanFinishBossDeath() || !animation || animation->mLoopCount <= 0)
+            return false;
+        mBoard->mLevelAwardSpawned = true;
+        mApp->mBoardResult = BOARDRESULT_WON;
+        mBoard->FadeOutLevel();
+        return true;
+    }
+    if (mDroppedLoot) return false;
+
+    if (mApp->IsFinalBossLevel())
 	{
 		if (mZombieType != ZombieType::ZOMBIE_BOSS)
 		{
@@ -8618,6 +8647,19 @@ int Zombie::TakeFlyingDamage(int theDamage, unsigned int theDamageFlags)
 
 void Zombie::TakeBodyDamage(int theDamage, unsigned int theDamageFlags)
 {
+    TakeBodyDamageImpl(theDamage, theDamageFlags, false);
+}
+
+void Zombie::TakeBodyDamageImpl(int theDamage, unsigned int theDamageFlags, bool sharedHealthSync)
+{
+    if (mZombieType == ZOMBIE_BOSS && mBoard->IsRunBossFinale() && mApp->mOnlineSession && mApp->mOnlineSession->IsActive() && !sharedHealthSync) {
+        if (EffectedByDamage(1U)) {
+            mApp->mOnlineSession->TickBossFinale(theDamage);
+            mApp->mDamageStats.Record(this, std::max(0, std::min(mBodyHealth, theDamage)));
+            mJustGotShotCounter = 25;
+        }
+        return;
+    }
 	if (!TestBit(theDamageFlags, static_cast<int>(DamageFlags::DAMAGE_DOESNT_CAUSE_FLASH)))
 	{
 		mJustGotShotCounter = 25;
@@ -10787,6 +10829,10 @@ void Zombie::BossSpawnAttack()
 
 bool Zombie::BossSpawnContact()
 {
+    if (mBoard->RunBossSummonsAtCapacity()) {
+        mBoard->DiscardRunBossSummonBatch();
+        return true; // Finish the summon animation without retrying a capped spawn.
+    }
     if (!mBoard->CanAllocateZombieAnimations(ZombieType::ZOMBIE_NORMAL, 0)) return false;
     if (!mBoard->mZombies.DataArrayCanAllocate(2)) return false;
 
@@ -10818,6 +10864,7 @@ bool Zombie::BossSpawnContact()
 	Zombie* aZombie = mBoard->AddZombieInRow(aZombieType, mTargetRow, 0);
 	if (aZombie == nullptr) return false;
 	aZombie->mPosX = 600.0f;
+    mBoard->QueueRunBossSummons(aZombieType);
     return true;
 }
 
@@ -11201,6 +11248,14 @@ void Zombie::BossStartDeath()
 	BossDie();
 }
 
+bool Zombie::CanFinishBossDeath() const
+{
+    const auto& session = mApp->mOnlineSession;
+    if (mBoard->IsRunBossFinale() && session && session->IsActive())
+        return session->FinaleMaximum() && session->FinaleRemaining() == 0;
+    return mBodyHealth == 1;
+}
+
 void Zombie::UpdateBoss()
 {
 	Reanimation* aBodyReanim = mApp->ReanimationTryToGet(mBodyReanimID);
@@ -11255,7 +11310,7 @@ void Zombie::UpdateBoss()
 	}
 	else if (mZombiePhase == ZombiePhase::PHASE_BOSS_IDLE)
 	{
-		if (mBodyHealth == 1)
+		if (CanFinishBossDeath())
 		{
 			PlayDeathAnim(0U);
 			return;
@@ -11397,7 +11452,7 @@ void Zombie::UpdateBoss()
 	}
 	else if (mZombiePhase == ZombiePhase::PHASE_BOSS_HEAD_IDLE_BEFORE_SPIT)
 	{
-		if (mBodyHealth == 1)
+		if (CanFinishBossDeath())
 		{
 			BossStartDeath();
 		}
@@ -11433,7 +11488,7 @@ void Zombie::UpdateBoss()
 	}
 	else if (mZombiePhase == ZombiePhase::PHASE_BOSS_HEAD_IDLE_AFTER_SPIT)
 	{
-		if (mBodyHealth == 1)
+		if (CanFinishBossDeath())
 		{
 			BossStartDeath();
 		}

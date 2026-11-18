@@ -61,7 +61,9 @@ public:
                 ModText::Tr("每五关", "Every 5 stages") : period == 10 ?
                 ModText::Tr("每十关", "Every 10 stages") : ModText::Tr("关闭", "Off")});
         } else {
-            entries.push_back({ModText::Tr("巨型BOSS", "Giant Boss"), Choice(run->mBossFlag, bosses)});
+            entries.push_back({ModText::Tr("巨型BOSS", "Giant Boss"), Choice(run->GiantBossTier(), bosses)});
+            entries.push_back({ModText::Tr("僵王终章", "Zomboss finale"),
+                (run->mBossFlag & RunState::BOSS_FINALE) ? ModText::Tr("开启", "On") : ModText::Tr("关闭", "Off")});
         }
         entries.push_back({ModText::Tr("增益倍选（屏数）", "Buff pick screens"),
             "x" + std::to_string(RunState::BuffMultValueFor(run->mBuffMult))});

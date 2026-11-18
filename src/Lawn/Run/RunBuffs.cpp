@@ -274,7 +274,7 @@ static const RunPlantUpgradeDef gRunPlantUpgradeDefs[RUN_PLANT_UPGRADE_COUNT] =
 	{ SeedType::SEED_CACTUS,       "Prickly", "锐刺",      "尖刺无限穿透",                       "Spikes pierce all zombies",                          0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
 	{ SeedType::SEED_BLOVER,       "Gale", "余风",         "吹风后全场僵尸减速 5 秒\n（每层）", "Slows all zombies 5 sec after blowing\n(per stack)", 0.00f, 2, false, RUN_UPGRADE_KIND_EFFECT, 2 },
 	{ SeedType::SEED_SPLITPEA,     "Backspike", "背刺",    "背向豌豆每次 +1 颗\n（每层）",      "1 extra backward pea per shot\n(per stack)",         0.00f, 2, false, RUN_UPGRADE_KIND_EFFECT, 2 },
-	{ SeedType::SEED_STARFRUIT,    "Homing Stars", "追踪星", "子弹变为追踪弹",                    "Shots become homing",                                0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
+	{ SeedType::SEED_STARFRUIT,    "Homing Stars", "追踪星", "星弹追踪僵尸，飞行速度翻倍，与穿透星互斥。", "Stars home in at twice the speed. Mutually exclusive with Piercing Stars.",                                0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
 	{ SeedType::SEED_PUMPKINSHELL, "Hard Rind", "硬壳",    "血量 +150%\n（每层）",              "Health +150%\n(per stack)",                          1.50f, 2, false, RUN_UPGRADE_KIND_HEALTH, 2 },
 	{ SeedType::SEED_MAGNETSHROOM, "Magnet Pull", "充磁",  "吸取间隔逐层 ×0.8\n（每层）",       "Recharge interval ×0.8/stack",                       -0.20f, 3, true, RUN_UPGRADE_KIND_EFFECT, 2 },
 	{ SeedType::SEED_CABBAGEPULT,  "Free Toss", "免投",    "种植费用变为 0",                    "Planting cost becomes 0",                            0.00f, 1, false, RUN_UPGRADE_KIND_EFFECT, 1 },
@@ -401,7 +401,7 @@ static const RunPlantUpgradeDef gRunPlantBuff2Defs[RUN_PLANT_BUFF2_COUNT] =
     { SeedType::SEED_CHOMPER, "Borrowed Army", "吞噬军团", "每次击杀生成同强度的魅惑副本，含关底首领。", "A kill creates a full-strength hypnotized copy.", 0.0f, 1, false, RUN_UPGRADE_KIND_EFFECT, 3 },
     { SeedType::SEED_COBCANNON, "Compact Cannon", "单格炮座", "玉米加农炮只占一格。", "Cob Cannon occupies one tile.", 0.0f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
     { SeedType::SEED_GRAVEBUSTER, "Grave Dividend", "墓碑红利", "吞完一座墓碑获得100阳光。", "Finishing a grave yields 100 sun.", 0.0f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
-    { SeedType::SEED_GRAVEBUSTER, "Stone Bastion", "墓碑堡垒", "最大生命12000，吞碑耗时60秒。", "12,000 max HP. Digging takes 60 seconds.", 0.0f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
+    { SeedType::SEED_GRAVEBUSTER, "Stone Bastion", "墓碑堡垒", "最大生命40000，吞碑耗时40秒。", "40,000 max HP. Digging takes 40 seconds.", 0.0f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
     { SeedType::SEED_LILYPAD, "Lily Colony", "睡莲蔓生", "每10秒向四邻空水格和陆地生长，子株也能蔓生。", "Every 10 seconds, each lily spreads to empty orthogonal land and water tiles.", 0.0f, 1, false, RUN_UPGRADE_KIND_EFFECT, 3 },
     { SeedType::SEED_CABBAGEPULT, "Cabbage Bowling", "卷心菜保龄球", "像坚果保龄球一样滚撞反弹，保留费用，冷却3秒。", "Rolls and bounces like a Bowling Nut. Normal cost, 3-second recharge.", 0.0f, 1, false, RUN_UPGRADE_KIND_EFFECT, 3 },
     { SeedType::SEED_STARFRUIT, "Forward Stars", "前扇星阵", "五枚星弹朝前半球扇形发射。", "Fires five stars into the forward half-plane.", 0.0f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
@@ -409,6 +409,8 @@ static const RunPlantUpgradeDef gRunPlantBuff2Defs[RUN_PLANT_BUFF2_COUNT] =
     { SeedType::SEED_CATTAIL, "Sustained Lock", "锁敌升压", "连续攻击同一主目标，伤害和攻速各乘1.15，最高各+200%，换目标清零。", "Repeat main target: 15% compounded damage and fire rate, capped at +200% each.", 0.0f, 1, false, RUN_UPGRADE_KIND_EFFECT, 3 },
     { SeedType::SEED_NONE, "All Bowling", "全员保龄球", "非灰烬植物变成保龄球，可在屋顶直接放置。原价50阳光为基准和下限，碰撞伤害按原价同比增加。", "Non-ash plants become bowling balls and can launch on roofs. Impact damage scales with base sun cost, with 50 as the baseline and minimum.", 0.0f, 1, false, RUN_UPGRADE_KIND_EFFECT, 3 },
     { SEED_NONE, "Fourfold Garden", "四重花园", "每格最多叠种4株，所有层独立作战\n底座计入层数，保留水陆种植条件", "Stack up to 4 plants per tile; all layers act independently\nSupports count; terrain requirements remain", 0.0f, 1, false, RUN_UPGRADE_KIND_EFFECT, 3 },
+    { SEED_SEASHROOM, "Explosive Sea-shroom Bowling", "水兵菇爆炸保龄球", "种下后变成红色爆炸保龄球，撞到僵尸即引爆。保留卡片费用与冷却，可直接在屋顶发射。", "Plants a red explosive bowling nut that detonates on impact. Normal seed cost and recharge. Can launch directly on roofs.", 0.0f, 1, false, RUN_UPGRADE_KIND_EFFECT, 3 },
+    { SEED_STARFRUIT, "Piercing Stars", "穿透星", "星弹穿透僵尸，与追踪星互斥。", "Stars pierce zombies. Mutually exclusive with Homing Stars.", 0.0f, 1, false, RUN_UPGRADE_KIND_EFFECT, 2 },
 };
 
 const RunPlantUpgradeDef& GetRunPlantBuff2Def(int theIndex)

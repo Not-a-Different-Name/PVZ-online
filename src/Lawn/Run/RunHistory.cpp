@@ -44,7 +44,7 @@ bool Capture(LawnApp* app,Status status) {
     r.seed=uint32_t(run.mRunSeed);r.team=run.mAdmission.run;r.started=r.updated=uint64_t(std::time(nullptr));
     r.stage=uint32_t(run.mLevelIndex+1);if(run.IsComplete())r.stage=run.GetLevelCount();
     r.joined=1;r.status=status;r.pool=uint16_t(run.mPool.size());r.buffs=uint16_t(run.mBuffs.size());
-    int failures=0;for(int n:run.mFailCounts)failures=std::min(1000000000,failures+n);r.failures=uint32_t(failures);
+    int failures=run.mFinaleFailures;for(int n:run.mFailCounts)failures=std::min(1000000000,failures+n);r.failures=uint32_t(failures);
     const int settings[]={run.mMode,run.mEndlessScene,run.mDiff,run.mScale,run.mTempo,run.mZombotany,run.mBuffMult,
         run.mBossFlag,run.mLadder,run.mZombieBuffMode,run.mSpeedTier,run.mFirstWave,run.mEndlessOptions,0,0};
     for(int i=0;i<SETTING_COUNT;++i)r.settings[i]=uint8_t(settings[i]);

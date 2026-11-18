@@ -2458,6 +2458,7 @@ static bool LawnLoadGameV4(Board* theBoard, const std::string& theFilePath)
 	theBoard->mApp->mEffectSystem->EffectSystemFreeAll();
 
 	TLVReader aReader(aPayload, aHeader.mPayloadSize);
+	theBoard->mStarPiercingOverflow.clear();
 	theBoard->mRelayedZombieIds.clear(); // Older v4 saves have no marker chunk.
 	bool aBaseLoaded = false;
 	while (aReader.mOk && aReader.mPos < aReader.mSize)
@@ -2975,6 +2976,7 @@ static void SyncBoard(SaveGameContext& theContext, Board* theBoard)
 
 bool LawnLoadGame(Board* theBoard, const std::string& theFilePath)
 {
+	theBoard->mStarPiercingOverflow.clear();
 	theBoard->mRelayedZombieIds.clear(); // Legacy saves also predate relay identity.
     RunSpeciesRuntime::Reset(theBoard);
 	if (LawnLoadGameV4(theBoard, theFilePath))

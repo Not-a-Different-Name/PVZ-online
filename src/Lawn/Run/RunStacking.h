@@ -20,6 +20,7 @@ inline bool Covers(Board* b,Plant* p,int x,int y) {
 inline int Count(Board* b,int x,int y) { int count=0;Plant*p=nullptr;while(b->IteratePlants(p))if(Covers(b,p,x,y))++count;return count; }
 inline Plant* Top(Board* b,int x,int y) { Plant*top=nullptr;Plant*p=nullptr;while(b->IteratePlants(p))if(Covers(b,p,x,y)&&(!top||p->mRenderOrder>top->mRenderOrder))top=p;return top; }
 inline bool Full(Board* b,int x,int y,SeedType seed) {
+ if(RunPlantTraits::RollingBowling(b->mApp,seed))return false;
  if(Count(b,x,y)>=4)return true;
  const bool cob=seed==SEED_COBCANNON || (seed==SEED_KERNELPULT && b->mApp->RunPlantUpgradeCount(SEED_KERNELPULT)>0);
  return cob && !RunPlantTraits::CompactCob(b->mApp) && (x+1>=9 || Count(b,x+1,y)>=4);

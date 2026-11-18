@@ -66,6 +66,8 @@ void LawnApp::StartRun(int mode, int buffMult, int difficulty, int scale, int te
     KillGameSelector();
     mRunState = std::make_unique<RunState>();
     mDamageStats.Reset();
+    if (mOnlineSession && mOnlineSession->IsActive() && !mOnlineSession->SupportsBossFinale())
+        bossFlag &= ~RunState::BOSS_FINALE;
     mRunState->StartNew(Sexy::Rand(), mode, difficulty, scale, tempo, zombotany, endlessScene, bossFlag, buffMult, ladder, zombieBuff,speedTier, firstWave, endlessOptions);
     if(mRunState->IsEndless())mRunState->mAdmission.run=Admission::NewId();
     if(mOnlineSession){mOnlineSession->mEndlessStartingResume=false;mOnlineSession->mEndlessStartingLegacy=false;}
@@ -97,6 +99,13 @@ void LawnApp::ResumeRun(int mode,int scene, uint64_t slot)
     if (!compatible)
     {
         PlayerMessageBox::Show(this, Dialogs::DIALOG_MESSAGE, ModText::Tr("无法继续", "Cannot continue"), ModText::Tr("存档无法读取，请回模式选择页重试。", "Cannot read this save. Return to mode selection and retry."));
+        return;
+    }
+    if ((run->mBossFlag & RunState::BOSS_FINALE) && mOnlineSession && mOnlineSession->IsActive() &&
+        !mOnlineSession->SupportsBossFinale()) {
+        PlayerMessageBox::Show(this, DIALOG_MESSAGE, ModText::Tr("无法继续","Cannot continue"),
+            ModText::Tr("此存档需要支持僵王终章的在线房间。","This save requires a room that supports the Zomboss finale."));
+        
         return;
     }
     SetTeamProgressionController(nullptr);
@@ -143,7 +152,7 @@ void LawnApp::NoteRunFailure()
     mDamageStats.NoteFailure();
     // @pvz-online: endless levels share the same 25-slot failure counter ring as PC.
     PvzpLogLn("[run] failed index={} count={}", mRunState->mLevelIndex,
-        mRunState->mFailCounts[mRunState->mLevelIndex % RunState::RUN_LEVEL_COUNT]);
+        mRunState->LevelFailureCount());
     if (!mRunState->Save(mPlayerInfo->mId))
         PvzpLogLn("[run] could not save failure checkpoint");
     RunHistory::Capture(this,RunHistory::FAILED);

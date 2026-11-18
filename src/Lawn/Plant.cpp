@@ -757,7 +757,7 @@ void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, Se
     if (theSeedType == SeedType::SEED_PUMPKINSHELL && mApp->RunExtraBuffCount(RUN_BUFF2_STEEL_PUMPKIN) > 0)
         mPlantHealth = std::max(1, mPlantHealth / 2);
     mPlantHealth = int(std::min(double(INT_MAX),double(mPlantHealth)*TeamPlay::HealthMultiplier(mApp)+0.5));
-    if (mSeedType == SEED_GRAVEBUSTER && mApp->RunExtraBuffCount(RUN_BUFF2_GRAVE_TANK)) mPlantHealth = 12000;
+    if (mSeedType == SEED_GRAVEBUSTER && mApp->RunExtraBuffCount(RUN_BUFF2_GRAVE_TANK)) mPlantHealth = 40000;
     mPlantMaxHealth = mPlantHealth;
 
     if (mSeedType != SeedType::SEED_FLOWERPOT && IsOnBoard())
@@ -1313,11 +1313,11 @@ void Plant::StarFruitFire()
 
     // @pvz-online: 单株升级「Homing Stars」（杨桃，表行 SEED_STARFRUIT）：子弹变追踪弹
     //（1 层成型、至多 1 层）。星弹照旧是 PROJECTILE_STAR（贴图/伤害不变）、五向散开的
-    // 初速也不动，出膛后走香蒲刺同款的 MOTION_HOMING——转向与命中（只碰锁定目标）都在
+    // 方向不变，锁定后走香蒲刺同款的 MOTION_HOMING，星弹位移翻倍——转向与命中（只碰锁定目标）都在
     // Projectile 的 homing 分支，这里只管发射时锁定目标：距离近者优先、五颗逐颗排除
     // 已锁定、尽量各打各的；场上不够五只时余星全追最前的那只（追远的不如集火）。目标
     // 中途死掉 → 星弹保持当前速度直飞（同香蒲刺）；一颗都锁不上（目标刚死光）就保持
-    // 直线星原样飞完。
+    // 两倍速度沿初始方向直飞。
     int aHomingStacks = mApp->RunPlantUpgradeCount(SeedType::SEED_STARFRUIT);
     int aHomingFlags = GetDamageRangeFlags(PlantWeapon::WEAPON_PRIMARY);
     Zombie* aHomingTargets[5] = { nullptr, nullptr, nullptr, nullptr, nullptr };
@@ -1350,6 +1350,9 @@ void Plant::StarFruitFire()
         if (mApp->RunExtraBuffCount(RUN_BUFF2_STAR_DOUBLE))
             aProjectile->mRunCrystalDamage = aProjectile->GetProjectileDef().mDamage * 2;
 
+        if (aHomingStacks == 0 && mApp->RunExtraBuffCount(RUN_BUFF2_STAR_PIERCE))
+            aProjectile->mPricklyHitsLeft = -1;
+
         if (aHomingStacks >= 1)
         {
             Zombie* aTarget = FindHomingStarTarget(mBoard, mX + 40.0f, mY + 40.0f, aHomingFlags, aHomingTargets, i);
@@ -1362,6 +1365,11 @@ void Plant::StarFruitFire()
             {
                 aProjectile->mMotionType = ProjectileMotion::MOTION_HOMING;
                 aProjectile->mTargetZombieID = mBoard->ZombieGetID(aTarget);
+            }
+            else
+            {
+                aProjectile->mVelX *= 2.0f;
+                aProjectile->mVelY *= 2.0f;
             }
         }
     }
@@ -1634,7 +1642,7 @@ void Plant::UpdateGraveBuster()
     if (mState == STATE_GRAVEBUSTER_EATING && mRunDispatchCursor == 0 &&
         mApp->RunExtraBuffCount(RUN_BUFF2_GRAVE_TANK))
     {
-        mStateCountdown = 6000;
+        mStateCountdown = 4000;
         mRunDispatchCursor = 1;
     }
     if (mState == PlantState::STATE_GRAVEBUSTER_LANDING)
@@ -1647,7 +1655,7 @@ void Plant::UpdateGraveBuster()
             mStateCountdown = (int)(400 * mApp->RunPlantBuff2Mul(SeedType::SEED_GRAVEBUSTER) + 0.5f);
             if (mApp->RunExtraBuffCount(RUN_BUFF2_GRAVE_TANK))
             {
-                mStateCountdown = 6000;
+                mStateCountdown = 4000;
                 mRunDispatchCursor = 1;
             }
             mState = PlantState::STATE_GRAVEBUSTER_EATING;
@@ -6698,7 +6706,7 @@ void Plant::RefreshRunMaxHealth()
 
 int Plant::CoopMaxHealth()
 {
-    if (mSeedType == SEED_GRAVEBUSTER && mApp->RunExtraBuffCount(RUN_BUFF2_GRAVE_TANK)) return 12000;
+    if (mSeedType == SEED_GRAVEBUSTER && mApp->RunExtraBuffCount(RUN_BUFF2_GRAVE_TANK)) return 40000;
     int base=300;
     if(mSeedType==SEED_WALLNUT || mSeedType==SEED_PUMPKINSHELL)base=4000;
     else if(mSeedType==SEED_TALLNUT)base=8000;
