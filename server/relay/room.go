@@ -43,6 +43,7 @@ type Room struct {
 	viewers         [watchRoomLimit]roomViewer
 	viewerHolds     [watchRoomLimit]seatHold
 	flow            roundFlow
+	finale          finaleHealth
 	public          bool
 	started         bool
 	gateManaged     bool

@@ -5,6 +5,7 @@
 #include "../../Resources.h"
 #include "../../ConstEnums.h"
 #include "../Run/RunState.h"
+#include "../Online/NetSession.h"
 #include "../../Sexy.TodLib/TodCommon.h"
 #include "graphics/Font.h"
 #include "graphics/Graphics.h"
@@ -16,9 +17,9 @@
 static const int kGapX = 12;
 static const int kBottomGapX = 20;
 
-static const int kRowCounts[RunOptionsDialog::RUN_OPTIONS_ROW_COUNT] = { 4, 3, 2, 2, 3, 3, 3, 3, 5, 3, 2, 2, 2, 2, 2 };
-static const int kRowPages[RunOptionsDialog::RUN_OPTIONS_ROW_COUNT] = { 0, 0, 0, 3, 1, 1, 1, 2, 2, 2, -1, -1, 4, 4, 4 };
-static const int kRowSlots[RunOptionsDialog::RUN_OPTIONS_ROW_COUNT] = { 0, 1, 2, 0, 0, 1, 2, 0, 1, 2, 0, 0, 0, 1, 2 };
+static const int kRowCounts[RunOptionsDialog::RUN_OPTIONS_ROW_COUNT] = { 4, 3, 2, 2, 3, 3, 3, 3, 5, 3, 2, 2, 2, 2, 2, 2 };
+static const int kRowPages[RunOptionsDialog::RUN_OPTIONS_ROW_COUNT] = { 0, 0, 0, 3, 1, 1, 1, 2, 2, 2, -1, -1, 4, 4, 4, 3 };
+static const int kRowSlots[RunOptionsDialog::RUN_OPTIONS_ROW_COUNT] = { 0, 1, 2, 0, 0, 1, 2, 0, 1, 2, 0, 0, 0, 1, 2, 1 };
 
 static std::string SectionTitle(int page)
 {
@@ -107,7 +108,11 @@ RunOptionsDialog::RunOptionsDialog(LawnApp* theApp, int theScaleSel, int theTemp
 	if (mZombotanySel != 0 && mZombotanySel != 1) mZombotanySel = 0;
 	mSlideSel = theSlideSel;
 	if (mSlideSel != 0 && mSlideSel != 1) mSlideSel = 1;	// 非法档归开（同"默认开"口径）
-	mBossSel = theEndless ? (theEndlessOptions&3) : theBossSel;
+	mBossSel = theEndless ? (theEndlessOptions&3) : (theBossSel & 3);
+    mFinaleSel = !theEndless && (theBossSel & RunState::BOSS_FINALE);
+    mFinaleCaption = ModText::Tr("僵王终章（追加黑夜屋顶）", "Zomboss finale (night roof)");
+    mFinaleLabels[0] = ModText::Tr("关闭", "Off");
+    mFinaleLabels[1] = ModText::Tr("开启", "On");
 	if (mBossSel < 0 || mBossSel > 2) mBossSel = 0;	// 非法档归关（2026-10-16 起三档）
 	mBuffMultSel = theBuffMultSel;
 	if (mBuffMultSel < RunState::RUN_BUFFMULT_X1 || mBuffMultSel > RunState::RUN_BUFFMULT_X3) mBuffMultSel = RunState::RUN_BUFFMULT_X1;
@@ -196,30 +201,30 @@ RunOptionsDialog::RunOptionsDialog(LawnApp* theApp, int theScaleSel, int theTemp
 	const std::string* aLabelSets[RUN_OPTIONS_ROW_COUNT] = {
 		mScaleLabels, mTempoLabels, mZombotanyLabels, mSlideLabels, mBossLabels, mBuffMultLabels,
 		mSpeedLabels, mZombieBuffLabels, mLadderLabels, mFirstWaveLabels, mThemeLabels, mFocusLabels,
-        mDamageScopeLabels, mDamageTotalLabels, mDamageBossLabels
+        mDamageScopeLabels, mDamageTotalLabels, mDamageBossLabels, mFinaleLabels
 	};
 	ButtonWidget** aSlots[RUN_OPTIONS_ROW_COUNT] = {
 		mScaleButtons, mTempoButtons, mZombotanyButtons, mSlideButtons, mBossButtons, mBuffMultButtons,
 		mSpeedButtons, mZombieBuffButtons, mLadderButtons, mFirstWaveButtons, mThemeButtons, mFocusButtons,
-        mDamageScopeButtons, mDamageTotalButtons, mDamageBossButtons
+        mDamageScopeButtons, mDamageTotalButtons, mDamageBossButtons, mFinaleButtons
 	};
 	int* aWidthSets[RUN_OPTIONS_ROW_COUNT] = {
 		mScaleWidths, mTempoWidths, mZombotanyWidths, mSlideWidths, mBossWidths, mBuffMultWidths,
 		mSpeedWidths, mZombieBuffWidths, mLadderWidths, mFirstWaveWidths, mThemeWidths, mFocusWidths,
-        mDamageScopeWidths, mDamageTotalWidths, mDamageBossWidths
+        mDamageScopeWidths, mDamageTotalWidths, mDamageBossWidths, mFinaleWidths
 	};
 	static const int kRowIdBase[RUN_OPTIONS_ROW_COUNT] = {
 		RunOptionsDialog_Scale0, RunOptionsDialog_Tempo0, RunOptionsDialog_Zombotany0,
 		RunOptionsDialog_Slide0, RunOptionsDialog_Boss0, RunOptionsDialog_BuffMult0,
 		RunOptionsDialog_Speed0, RunOptionsDialog_ZombieBuff0, RunOptionsDialog_Ladder0, RunOptionsDialog_FirstWave0, RunOptionsDialog_Theme0, RunOptionsDialog_Focus0,
-        RunOptionsDialog_DamageScope0, RunOptionsDialog_DamageTotal0, RunOptionsDialog_DamageBoss0
+        RunOptionsDialog_DamageScope0, RunOptionsDialog_DamageTotal0, RunOptionsDialog_DamageBoss0, RunOptionsDialog_Finale0
 	};
 	// 每行"选中槽位号"：多数行 = 值本身（枚举顺序 = 按钮顺序）；「场景难度」行例外
 	// （UI 顺序与枚举顺序不同，走 kLadderUiValues 映射）。
 	const int aSelIndex[RUN_OPTIONS_ROW_COUNT] = {
 		mScaleSel, mTempoSel, mZombotanySel, mSlideSel, mBossSel, mBuffMultSel,
 		mSpeedSel, mZombieBuffSel, LadderUiIndex(mLadderSel), FirstWaveUiIndex(mFirstWaveSel), mThemeSel, mFocusSel,
-        mDamageScopeSel, mDamageTotalSel, mDamageBossSel
+        mDamageScopeSel, mDamageTotalSel, mDamageBossSel, mFinaleSel
 	};
 	for (int aRow = 0; aRow < RUN_OPTIONS_ROW_COUNT; aRow++)
 	{
@@ -319,7 +324,7 @@ RunOptionsDialog::~RunOptionsDialog()
 	ButtonWidget** aSlots[RUN_OPTIONS_ROW_COUNT] = {
 		mScaleButtons, mTempoButtons, mZombotanyButtons, mSlideButtons, mBossButtons, mBuffMultButtons,
 		mSpeedButtons, mZombieBuffButtons, mLadderButtons, mFirstWaveButtons, mThemeButtons, mFocusButtons,
-        mDamageScopeButtons, mDamageTotalButtons, mDamageBossButtons
+        mDamageScopeButtons, mDamageTotalButtons, mDamageBossButtons, mFinaleButtons
 	};
 	for (int aRow = 0; aRow < RUN_OPTIONS_ROW_COUNT; aRow++)
 	{
@@ -344,12 +349,12 @@ void RunOptionsDialog::PlaceRows()
 	ButtonWidget** aSlots[RUN_OPTIONS_ROW_COUNT] = {
 		mScaleButtons, mTempoButtons, mZombotanyButtons, mSlideButtons, mBossButtons, mBuffMultButtons,
 		mSpeedButtons, mZombieBuffButtons, mLadderButtons, mFirstWaveButtons, mThemeButtons, mFocusButtons,
-        mDamageScopeButtons, mDamageTotalButtons, mDamageBossButtons
+        mDamageScopeButtons, mDamageTotalButtons, mDamageBossButtons, mFinaleButtons
 	};
 	int* aWidthSets[RUN_OPTIONS_ROW_COUNT] = {
 		mScaleWidths, mTempoWidths, mZombotanyWidths, mSlideWidths, mBossWidths, mBuffMultWidths,
 		mSpeedWidths, mZombieBuffWidths, mLadderWidths, mFirstWaveWidths, mThemeWidths, mFocusWidths,
-        mDamageScopeWidths, mDamageTotalWidths, mDamageBossWidths
+        mDamageScopeWidths, mDamageTotalWidths, mDamageBossWidths, mFinaleWidths
 	};
 
 	int aTitleTop = mContentInsets.mTop + mBackgroundInsets.mTop + DIALOG_HEADER_OFFSET;
@@ -409,7 +414,7 @@ void RunOptionsDialog::AddedToManager(WidgetManager* theWidgetManager)
 	ButtonWidget** aSlots[RUN_OPTIONS_ROW_COUNT] = {
 		mScaleButtons, mTempoButtons, mZombotanyButtons, mSlideButtons, mBossButtons, mBuffMultButtons,
 		mSpeedButtons, mZombieBuffButtons, mLadderButtons, mFirstWaveButtons, mThemeButtons, mFocusButtons,
-        mDamageScopeButtons, mDamageTotalButtons, mDamageBossButtons
+        mDamageScopeButtons, mDamageTotalButtons, mDamageBossButtons, mFinaleButtons
 	};
 	for (int aRow = 0; aRow < RUN_OPTIONS_ROW_COUNT; aRow++)
 	{
@@ -427,7 +432,7 @@ void RunOptionsDialog::RemovedFromManager(WidgetManager* theWidgetManager)
 	ButtonWidget** aSlots[RUN_OPTIONS_ROW_COUNT] = {
 		mScaleButtons, mTempoButtons, mZombotanyButtons, mSlideButtons, mBossButtons, mBuffMultButtons,
 		mSpeedButtons, mZombieBuffButtons, mLadderButtons, mFirstWaveButtons, mThemeButtons, mFocusButtons,
-        mDamageScopeButtons, mDamageTotalButtons, mDamageBossButtons
+        mDamageScopeButtons, mDamageTotalButtons, mDamageBossButtons, mFinaleButtons
 	};
 	for (int aRow = 0; aRow < RUN_OPTIONS_ROW_COUNT; aRow++)
 	{
@@ -458,7 +463,7 @@ void RunOptionsDialog::Draw(Graphics* g)
 	const std::string* aCaptions[RUN_OPTIONS_ROW_COUNT] = {
 		&mScaleCaption, &mTempoCaption, &mZombotanyCaption, &mSlideCaption, &mBossCaption, &mBuffMultCaption,
 		&mSpeedCaption, &mZombieBuffCaption, &mLadderCaption, &mFirstWaveCaption, &mThemeCaption, &mFocusCaption,
-        &mDamageScopeCaption, &mDamageTotalCaption, &mDamageBossCaption
+        &mDamageScopeCaption, &mDamageTotalCaption, &mDamageBossCaption, &mFinaleCaption
 	};
 	for (int aRow = 0; aRow < RUN_OPTIONS_ROW_COUNT; aRow++)
 	{
@@ -488,6 +493,11 @@ void RunOptionsDialog::ButtonPress(int theId)
 
 void RunOptionsDialog::ButtonDepress(int theId)
 {
+    if (theId == RunOptionsDialog_Finale0 || theId == RunOptionsDialog_Finale0 + 1) {
+        mFinaleSel = theId - RunOptionsDialog_Finale0;
+        for (int i = 0; i < 2; ++i) mFinaleButtons[i]->mInverted = (i == mFinaleSel);
+        return;
+    }
     const int damageBases[] = {RunOptionsDialog_DamageScope0, RunOptionsDialog_DamageTotal0, RunOptionsDialog_DamageBoss0};
     int* damageSelections[] = {&mDamageScopeSel, &mDamageTotalSel, &mDamageBossSel};
     ButtonWidget** damageButtons[] = {mDamageScopeButtons, mDamageTotalButtons, mDamageBossButtons};
@@ -606,10 +616,11 @@ void RunOptionsDialog::ButtonDepress(int theId)
 }
 
 int RunOptionsDialog::RowPage(int row) const {
+    if (row == 15 && (mApp->mOnlineSession && !mApp->mOnlineSession->SupportsBossFinale())) return -1;
     if(mShowLadderRow)return kRowPages[row];
-    static const int pages[]={0,0,0,3,1,2,1,1,-1,3,2,2,4,4,4};return pages[row];
+    static const int pages[]={0,0,0,3,1,2,1,1,-1,3,2,2,4,4,4,-1};return pages[row];
 }
 int RunOptionsDialog::RowSlot(int row) const {
     if(mShowLadderRow)return kRowSlots[row];
-    static const int slots[]={0,1,2,1,0,0,1,2,0,0,1,2,0,1,2};return slots[row];
+    static const int slots[]={0,1,2,1,0,0,1,2,0,0,1,2,0,1,2,1};return slots[row];
 }

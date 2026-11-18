@@ -409,7 +409,7 @@ void RunModeDialog::ButtonDepress(int theId)
 			mScaleSel = aDialog->mScaleSel;
 			mTempoSel = aDialog->mTempoSel;
 			mZombotanySel = aDialog->mZombotanySel;
-			mBossSel = aDialog->mBossSel;
+			mBossSel = aDialog->mBossSel | (aDialog->mFinaleSel ? RunState::BOSS_FINALE : 0);
 			mBuffMultSel = aDialog->mBuffMultSel;
 			mLadderSel = aDialog->mLadderSel;
 			mZombieBuffSel = aDialog->mZombieBuffSel;

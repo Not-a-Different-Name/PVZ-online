@@ -120,12 +120,22 @@ class Board : public Widget, public ButtonListener
 {
 public:
     std::unique_ptr<Observer::BoardView> mObserverView;
+    bool IsRunBossFinale() const;
+    void UpdateRunBossFinale();
+    void QueueRunBossSummons(ZombieType type);
+    bool RunBossSummonsAtCapacity();
+    void DiscardRunBossSummonBatch();
+    bool mFinaleSpawned = false;
+    int mFinaleTicks = 0, mFinaleSummonTicks = 0;
+    int64_t mFinaleSummonCredit = 0;
+    int mFinaleWave = 0, mFinaleWaveSlot = 0, mFinaleSummonDelay = 0;
     bool PlantHealthVisible() const;
     bool ZombieHealthVisible() const;
     void SetPlantHealthVisible(bool visible);
     void SetZombieHealthVisible(bool visible);
     // @pvz-online: online-only presentation metadata avoids changing native zombie save layout.
     std::unordered_set<unsigned int> mRelayedZombieIds;
+    std::unordered_map<const Projectile*, std::vector<ZombieID>> mStarPiercingOverflow;
     std::unordered_map<unsigned int,RunDotState> mRunDotStates;
     // Exact wave accounting stays before mPaused: preserve the legacy raw-save suffix.
     WaveHealthState mWaveHealth;

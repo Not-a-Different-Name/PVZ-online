@@ -758,7 +758,7 @@ void Board::PickZombieWaves()
 		}
 		else
 		{
-			mNumWaves = gZombieWaves[ClampInt(mLevel - 1, 0, 49)];
+			mNumWaves = gZombieWaves[ClampInt(mLevel - (IsRunBossFinale() ? 2 : 1), 0, 49)];
 			// @pvz-online: 闯关不吃"+10"这一勺：波数固定是波表的原始值，
 			// 谁玩、在哪个档案上玩都一样。难度靠关卡号、场景阶梯和怪的种类涨。
 			if (!mApp->IsFirstTimeAdventureMode() && !mApp->IsMiniBossLevel() && !mApp->IsRunMode())
@@ -960,7 +960,7 @@ void Board::PickZombieWaves()
 		}
 
 		// 5-10 关卡的最后一波加入一只伽刚特尔
-		if (mLevel == 50 && aIsFinalWave)
+		if (mLevel == 50 && aIsFinalWave && !IsRunBossFinale())
 		{
 			PutZombieInWave(ZombieType::ZOMBIE_GARGANTUAR, aWave, &aZombiePicker);
 		}
@@ -2656,6 +2656,12 @@ void Board::DoPlantingEffects(int theGridX, int theGridY, Plant* thePlant)
 // GOTY @Patoke: 0x40FA10
 Plant* Board::AddPlant(int theGridX, int theGridY, SeedType theSeedType, SeedType theImitaterType)
 {
+    const SeedType effectiveSeed = theSeedType == SEED_IMITATER ? theImitaterType : theSeedType;
+    if (RunPlantTraits::ExplosiveSeaShroomBowling(mApp, effectiveSeed))
+    {
+        theSeedType = SEED_EXPLODE_O_NUT;
+        theImitaterType = SEED_NONE;
+    }
 	Plant* aPlant = NewPlant(theGridX, theGridY, theSeedType, theImitaterType);
 	if (!aPlant) return nullptr;
 	DoPlantingEffects(theGridX, theGridY, aPlant);
@@ -3483,7 +3489,7 @@ PlantingReason Board::CanPlantAt(int theGridX, int theGridY, SeedType theSeedTyp
 		return PlantingReason::PLANTING_NOT_HERE;
 	}
 
-    if (RunStacking::Enabled(mApp) && RunStacking::Full(this,theGridX,theGridY,theSeedType)) return PLANTING_NOT_HERE;
+    if (!RunPlantTraits::ExplosiveSeaShroomBowling(mApp, theSeedType) && RunStacking::Enabled(mApp) && RunStacking::Full(this,theGridX,theGridY,theSeedType)) return PLANTING_NOT_HERE;
 
 	// 从关卡玩法上，判断能否种植
 	PlantingReason aReason = mChallenge->CanPlantAt(theGridX, theGridY, theSeedType);
@@ -3493,7 +3499,7 @@ PlantingReason Board::CanPlantAt(int theGridX, int theGridY, SeedType theSeedTyp
 	}
 
     if (mApp->mGameMode != GAMEMODE_CHALLENGE_ZEN_GARDEN &&
-        (RunPlantTraits::AllBowling(mApp, theSeedType) ||
+        (RunPlantTraits::AllBowling(mApp, theSeedType) || RunPlantTraits::ExplosiveSeaShroomBowling(mApp, theSeedType) ||
          (StageHasRoof() && RunPlantTraits::RollingBowling(mApp, theSeedType))))
     {
         const auto square = mGridSquareType[theGridX][theGridY];
@@ -4814,7 +4820,8 @@ void Board::MouseDownWithPlant(int x, int y, int theClickCount)
 	GetPlantsOnLawn(aGridX, aGridY, &aPlantOnLawn);
 	Plant* aNormalPlant = aPlantOnLawn.mNormalPlant;
 	Plant* aPumpkinPlant = aPlantOnLawn.mPumpkinPlant;
-    if (!RunPlantTraits::RollingBowling(mApp, aPlantingSeedType) && !RunStacking::Enabled(mApp))
+    if (!RunPlantTraits::ExplosiveSeaShroomBowling(mApp, aPlantingSeedType) &&
+        !RunPlantTraits::RollingBowling(mApp, aPlantingSeedType) && !RunStacking::Enabled(mApp))
     {
 		if (aNormalPlant && aNormalPlant->IsUpgradableTo(aPlantingSeedType))
 		{
@@ -6252,12 +6259,12 @@ static int RunBossHpPermille(ZombieType type)
 bool Board::SpawnRunBoss()
 {
 	RunState* aRun = mApp->GetRunState();
-	if (aRun == nullptr) return true;
-	int aBossTier = aRun->IsEndless() ? (aRun->IsEndlessBossLevel()?1:0) : ((aRun->mBossFlag > 0 && aRun->mBossFlag <= 2) ? aRun->mBossFlag : 0);	// 消费端钳（2026-10-16 起三档）
+	if (aRun == nullptr || IsRunBossFinale()) return true;
+	int aBossTier = aRun->IsEndless() ? (aRun->IsEndlessBossLevel()?1:0) : aRun->GiantBossTier();	// 消费端钳（2026-10-16 起三档）
 	if (aBossTier <= 0) return true;
 	if (aRun->IsEndless() && !aRun->IsEndlessBossLevel()) return true;		// 无尽档没有关底
 	// 末关（档 1/2 都出）或场景 3 末关（仅档 2；2026-10-20 起快速第 3 关同样出场）。
-	bool aFinalLevel = aRun->GetPlayingLevelIndex() + 1 >= aRun->GetLevelCount();
+	bool aFinalLevel = aRun->GetPlayingLevelIndex() + 1 >= RunState::LevelCountForMode(aRun->mMode);
 	bool aScene3Final = aBossTier >= 2
 		&& aRun->GetPlayingLevelIndex() + 1 == RunState::LevelsPerScene(aRun->mMode) * 3;
 	if (!aFinalLevel && !aScene3Final && !aRun->IsEndlessBossLevel()) return true;
@@ -6735,8 +6742,129 @@ void Board::NextWaveComing()
 }
 
 //0x413D00
+bool Board::IsRunBossFinale() const
+{
+    const auto* run = mApp->GetRunState();
+    return mApp->IsRunMode() && mLevel == 50 && run && run->IsBossFinale();
+}
+
+bool Board::RunBossSummonsAtCapacity()
+{
+    if (!IsRunBossFinale() || mNumWaves <= 0) return false;
+    int planned = 0;
+    for (auto type : mZombiesInWave[mFinaleWave]) {
+        if (type == ZOMBIE_INVALID) break;
+        if (type != ZOMBIE_FLAG && type != ZOMBIE_BUNGEE) ++planned;
+    }
+
+    const int limit = std::max(6, planned * 2);
+    if (mZombies.mSize < limit) return false;
+    int active = 0;
+    Zombie* zombie = nullptr;
+    while (IterateZombies(zombie)) {
+        if (zombie->mZombieType != ZOMBIE_BOSS &&
+            !zombie->IsDeadOrDying() && !zombie->mMindControlled && ++active >= limit)
+            return true;
+    }
+    return false;
+}
+
+void Board::DiscardRunBossSummonBatch()
+{
+    mFinaleSummonCredit = 0;
+    mFinaleSummonTicks = 0;
+}
+
+void Board::QueueRunBossSummons(ZombieType type)
+{
+    if (!IsRunBossFinale()) return;
+    // The original summon counts toward the same budget.
+    mFinaleSummonTicks = mFinaleTicks;
+    mFinaleSummonCredit = std::max<int64_t>(0, mFinaleSummonCredit - static_cast<int64_t>(std::max(1, GetZombieDefinition(type).mZombieValue)) *
+        std::max(400, 2800 * RunState::TempoPermilleFor(mApp->GetRunState()->mTempo) / 1000) * 100);
+}
+
+void Board::UpdateRunBossFinale()
+{
+    if (mApp->mGameScene != SCENE_PLAYING || mApp->mRunIntroHeld || HasLevelAwardDropped() ||
+        mApp->mBoardResult == BOARDRESULT_LOST) return;
+    const auto* run = mApp->GetRunState();
+    auto* session = mApp->mOnlineSession;
+    if (session && !session->IsActive()) session = nullptr;
+    if (session) {
+        if (!session->IsConnected() || session->InWatchRoom()) return;
+        session->TickBossFinale();
+    }
+    auto* boss = GetBossZombie();
+    if (!mFinaleSpawned && !boss) {
+        const int maximum = session ? session->FinaleMaximum() : run->FinaleHealth();
+        if (!maximum || !CanAllocateZombieAnimations(ZOMBIE_BOSS, 0)) return;
+        boss = AddZombieInRow(ZOMBIE_BOSS, 2, 0);
+        if (!boss) return;
+        boss->mBodyHealth = boss->mBodyMaxHealth = maximum;
+    }
+    bool victory = false;
+    if (boss) {
+        mFinaleSpawned = true;
+        if (session && session->FinaleMaximum()) {
+            boss->mBodyMaxHealth = session->FinaleMaximum();
+            const int remaining = std::max(1, static_cast<int>(session->FinaleRemaining()));
+            if (boss->mBodyHealth > remaining)
+                boss->TakeBodyDamageImpl(boss->mBodyHealth - remaining, 1u << DAMAGE_DOESNT_CAUSE_FLASH, true);
+            victory = session->FinaleRemaining() == 0;
+        } else if (!session) {
+            victory = boss->mBodyHealth == 1;
+        }
+        if (victory && !boss->IsDeadOrDying())
+            boss->PlayDeathAnim(0U);
+    } else if (mFinaleSpawned && (!session || (session->FinaleMaximum() && session->FinaleRemaining() == 0))) {
+        mLevelAwardSpawned = true;
+        mApp->mBoardResult = BOARDRESULT_WON;
+        FadeOutLevel();
+        return;
+    }
+    if (!boss || victory || boss->IsDeadOrDying() || mNumWaves <= 0) return;
+
+    ++mFinaleTicks;
+    if (RunBossSummonsAtCapacity()) {
+        DiscardRunBossSummonBatch();
+        return;
+    }
+    // Use the previous level's generated wave density, with no second seat multiplier.
+    const int tempo = std::max(400, 2800 * RunState::TempoPermilleFor(run->mTempo) / 1000);
+    int pressure = 0;
+    for (int i = 0; i < MAX_ZOMBIES_IN_WAVE && mZombiesInWave[mFinaleWave][i] != ZOMBIE_INVALID; ++i)
+        pressure += std::max(1, GetZombieDefinition(mZombiesInWave[mFinaleWave][i]).mZombieValue);
+    const int intensity = boss->mBodyHealth > boss->mBodyMaxHealth / 2 ? 60 : 80;
+    mFinaleSummonCredit = std::min(mFinaleSummonCredit + pressure * intensity, static_cast<int64_t>(pressure) * tempo * 100);
+    if (mFinaleSummonDelay > 0) --mFinaleSummonDelay;
+    if (!mFinaleSummonTicks || mFinaleTicks - mFinaleSummonTicks > 500 || mFinaleSummonDelay > 0)
+        return;
+    if (mFinaleWaveSlot >= MAX_ZOMBIES_IN_WAVE || mZombiesInWave[mFinaleWave][mFinaleWaveSlot] == ZOMBIE_INVALID) {
+        mFinaleWave = (mFinaleWave + 1) % mNumWaves;
+        mFinaleWaveSlot = 0;
+    }
+    auto type = mZombiesInWave[mFinaleWave][mFinaleWaveSlot];
+    if (type == ZOMBIE_INVALID || type == ZOMBIE_FLAG || type == ZOMBIE_BUNGEE) {
+        ++mFinaleWaveSlot;
+        return;
+    }
+    const int64_t cost = static_cast<int64_t>(std::max(1, GetZombieDefinition(type).mZombieValue)) * tempo * 100;
+    if (mFinaleSummonCredit < cost || RunBossSummonsAtCapacity() ||
+        !CanAllocateZombieAnimations(type, 0)) return;
+    if (AddZombieInRow(type, PickRowForNewZombie(type), 0)) {
+        mFinaleSummonCredit -= cost;
+        ++mFinaleWaveSlot;
+        mFinaleSummonDelay = 25;
+    }
+}
+
 void Board::UpdateZombieSpawning()
 {
+    if (IsRunBossFinale()) {
+        UpdateRunBossFinale();
+        return;
+    }
 	if (mApp->mGameMode == GameMode::GAMEMODE_UPSELL || mApp->mGameMode == GameMode::GAMEMODE_INTRO)
 		return;
 
@@ -6945,7 +7073,7 @@ void Board::UpdateIce()
 //0x414270
 void Board::UpdateProgressMeter()
 {
-	if (mApp->IsFinalBossLevel())
+	if (mApp->IsFinalBossLevel() || IsRunBossFinale())
 	{
 		Zombie* aBoss = GetBossZombie();
 		if (aBoss && !aBoss->IsDeadOrDying())
@@ -8457,6 +8585,7 @@ void Board::DrawGameObjects(Graphics* g)
 //0x4173C0
 bool Board::HasProgressMeter()
 {
+    if (IsRunBossFinale()) return true;
 	if (mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_BEGHOULED || 
 		mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_BEGHOULED_TWIST || 
 		mApp->IsFinalBossLevel() || 
@@ -8499,6 +8628,19 @@ bool Board::ProgressMeterHasFlags()
 // GOTY @Patoke: 0x419E30
 void Board::DrawProgressMeter(Graphics* g)
 {
+    if (IsRunBossFinale()) {
+        auto* boss = GetBossZombie();
+        const int maximum = boss ? boss->mBodyMaxHealth : 0;
+        const int remaining = boss && !boss->IsDeadOrDying() ? boss->mBodyHealth : 0;
+        g->DrawImageCel(Sexy::IMAGE_FLAGMETER, 600, 575, 0);
+        g->SetColor(Color(80, 175, 65));
+        if (maximum > 0)
+            g->FillRect(608, 580, static_cast<int>(143LL * remaining / maximum), 12);
+        const auto label = std::to_string(remaining) + "/" + std::to_string(maximum);
+        TodDrawString(g, label, 679, 590, Sexy::FONT_DWARVENTODCRAFT12, Color(255,255,255),
+            DrawStringJustification::DS_ALIGN_CENTER);
+        return;
+    }
 	if (!HasProgressMeter())
 		return;
 
@@ -8624,6 +8766,14 @@ void Board::DrawHouseDoorTop(Graphics* g)
 // GOTY @Patoke: 0x41A700
 void Board::DrawLevel(Graphics* g)
 {
+    if (IsRunBossFinale()) {
+        const auto label = std::string(ModText::Tr("终章 第 ", "Finale Level ")) + std::to_string(mApp->GetRunState()->GetPlayingLevelIndex() + 1) + ModText::Tr(" 关", "");
+        const auto text = ModText::WideFromUtf8(label.c_str());
+        auto* font = ModText::GetFont(14, false);
+        ModText::DrawTextWide(g, font, 593 - ModText::TextWidth(font, text), 595 - ModText::Ascent(font),
+            text, Color(224,187,98), g->mClipRect);
+        return;
+    }
 	// @pvz-online: 无尽档显示当前关卡数（2026-10-12 用户令）：原行画 "LEVEL 3-1"（引擎原型
 	// 关号——无尽锁场景后只在 5 个原型里循环，看不出打到第几关）。显示「无尽 第 n 关」
 	//（n = 闯关关序号，1 起；补发追赶期间 = 目标关，同 GetPlayingLevelIndex 口径）。

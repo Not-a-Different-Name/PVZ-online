@@ -26,9 +26,15 @@ inline bool AllBowling(const LawnApp* app, SeedType seed)
         return true;
     }
 }
+inline bool ExplosiveSeaShroomBowling(const LawnApp* app, SeedType seed)
+{
+    return seed == SEED_SEASHROOM && app->mGameMode == GAMEMODE_ADVENTURE &&
+        app->RunExtraBuffCount(RUN_BUFF2_SEASHROOM_EXPLOSIVE_BOWLING) > 0;
+}
 inline bool RollingBowling(const LawnApp* app, SeedType seed)
 {
     return AllBowling(app, seed) ||
+        (seed == SEED_EXPLODE_O_NUT && app->mGameMode == GAMEMODE_ADVENTURE) ||
         (seed == SEED_WALLNUT && app->RunExtraBuffCount(RUN_BUFF2_NUT_BOWLING) > 0) ||
         (seed == SEED_CABBAGEPULT && BowlingCabbage(app));
 }

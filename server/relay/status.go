@@ -17,7 +17,7 @@ import (
 	"time"
 )
 
-const relayRelease = "2026-11-16-matchmaking2"
+const relayRelease = "2026-11-18-mod117-finale1"
 const defaultAdminAddress = "127.0.0.1:27778"
 const connectionLimit = 512
 const roomLimit = 256

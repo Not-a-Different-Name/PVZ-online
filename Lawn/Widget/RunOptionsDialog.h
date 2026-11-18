@@ -49,7 +49,8 @@ public:
         RunOptionsDialog_DamageScope0 = 260,
         RunOptionsDialog_DamageTotal0 = 270,
         RunOptionsDialog_DamageBoss0 = 280,
-		RUN_OPTIONS_ROW_COUNT = 15,
+		RunOptionsDialog_Finale0 = 290,
+        RUN_OPTIONS_ROW_COUNT = 16,
 		RUN_OPTIONS_ROWS_PER_PAGE = 3,
 		RUN_OPTIONS_PAGE_COUNT = 5
 	};
@@ -83,6 +84,10 @@ public:
     int mDamageScopeWidths[2], mDamageTotalWidths[2], mDamageBossWidths[2];
     std::string mDamageScopeLabels[2], mDamageTotalLabels[2], mDamageBossLabels[2];
     std::string mDamageScopeCaption, mDamageTotalCaption, mDamageBossCaption;
+    int mFinaleSel;
+    ButtonWidget* mFinaleButtons[2];
+    int mFinaleWidths[2];
+    std::string mFinaleLabels[2], mFinaleCaption;
     ButtonWidget* mThemeButtons[2];ButtonWidget* mFocusButtons[2];
     int mThemeWidths[2],mFocusWidths[2];
     std::string mThemeLabels[2],mFocusLabels[2],mThemeCaption,mFocusCaption;

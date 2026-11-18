@@ -453,7 +453,10 @@ static bool PreflightSavedPools(const SaveGameContext& theSource, Board* theBoar
 //0x4819D0
 void SyncBoard(SaveGameContext& theContext, Board* theBoard)
 {
-	if (theContext.mReading) theBoard->mRelayedZombieIds.clear();
+	if (theContext.mReading) {
+        theBoard->mRelayedZombieIds.clear();
+        theBoard->mStarPiercingOverflow.clear();
+    }
 	// TODO test if gives sane results
 	size_t offset = size_t(&theBoard->mPaused) - size_t(theBoard);
 	theContext.SyncBytes(&theBoard->mPaused, sizeof(Board) - offset);

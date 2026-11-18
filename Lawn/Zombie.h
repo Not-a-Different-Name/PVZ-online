@@ -296,6 +296,7 @@ public:
     void RefreshPlantHat();
     int                             TakeHelmDamage(int theDamage, unsigned int theDamageFlags);
     void                            TakeBodyDamage(int theDamage, unsigned int theDamageFlags);
+    void TakeBodyDamageImpl(int theDamage, unsigned int theDamageFlags, bool sharedHealthSync);
     void                            AttachShield();
     void                            DetachShield();
     void                            UpdateReanim();
@@ -308,6 +309,7 @@ public:
     bool                            IsFlying();
     void                            DropHead(unsigned int theDamageFlags);
     bool                            CanTargetPlant(Plant* thePlant, ZombieAttackType theAttackType);
+    bool                            CanTargetPlantType(Plant* thePlant, ZombieAttackType theAttackType, bool theStacking);
     void                            UpdateZombieCatapult();
     Plant*                          FindCatapultTarget();
     void                            ZombieCatapultFire(Plant* thePlant);
@@ -405,6 +407,7 @@ public:
     void                            DrawBossBackArm(Graphics* g, const ZombieDrawPosition& theDrawPos);
     static void                     PreloadZombieResources(ZombieType theZombieType);
     void                            BossStartDeath();
+    bool                            CanFinishBossDeath() const;
     void                            RemoveColdEffects();
     void                            BossHeadSpitEffect();
     void                            DrawBossFireBall(Graphics* g);

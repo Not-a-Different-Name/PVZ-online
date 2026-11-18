@@ -70,6 +70,7 @@ void Projectile::ProjectileInitialize(int theX, int theY, int theRenderOrder, in
 	// @pvz-online: 单株升级「Prickly」（仙人掌）的穿透标记（见 Projectile.h）；默认 0
 	//（无条），Fire 里只有仙人掌的弹会预置 -1（无限）或有限计数。
 	mPricklyHitsLeft = 0;
+    if (!mBoard->mStarPiercingOverflow.empty()) mBoard->mStarPiercingOverflow.erase(this);
 	mPricklyHitCount = 0;
 	mRunIceSource = false;
 	mRunCactusSource = false;
@@ -736,9 +737,10 @@ void Projectile::UpdateNormalMotion()
 			mRotation = -atan2(mVelY, mVelX);
 		}
 
-		mPosY += mVelY;
-		mPosX += mVelX;
-		mShadowY += mVelY;
+		const float speedScale = mProjectileType == ProjectileType::PROJECTILE_STAR ? 2.0f : 1.0f;
+		mPosY += mVelY * speedScale;
+		mPosX += mVelX * speedScale;
+		mShadowY += mVelY * speedScale;
 		mRow = mBoard->PixelToGridYKeepOnBoard(mPosX, mPosY);
 	}
 	else if (mMotionType == ProjectileMotion::MOTION_STAR)
@@ -926,6 +928,12 @@ int Projectile::GetRunFixedDamageBonus(Zombie* theZombie)
 bool Projectile::WasZombiePricklyHit(Zombie* theZombie)
 {
 	ZombieID aID = mBoard->ZombieGetID(theZombie);
+    if (mProjectileType == PROJECTILE_STAR && mPricklyHitCount >= 16) {
+        const auto overflow = mBoard->mStarPiercingOverflow.find(this);
+        if (overflow != mBoard->mStarPiercingOverflow.end() &&
+            std::find(overflow->second.begin(), overflow->second.end(), aID) != overflow->second.end())
+            return true;
+    }
 	int aSlots = (mPricklyHitCount < 16) ? mPricklyHitCount : 16;
 	for (int i = 0; i < aSlots; i++)
 	{
@@ -939,6 +947,10 @@ bool Projectile::WasZombiePricklyHit(Zombie* theZombie)
 
 void Projectile::RecordPricklyHit(Zombie* theZombie)
 {
+    if (mProjectileType == PROJECTILE_STAR && mPricklyHitCount >= 16) {
+        mBoard->mStarPiercingOverflow[this].push_back(mBoard->ZombieGetID(theZombie));
+        return;
+    }
 	mPricklyHitIds[mPricklyHitCount % 16] = mBoard->ZombieGetID(theZombie);
 	mPricklyHitCount++;
 }
@@ -1488,6 +1500,8 @@ void Projectile::DrawShadow(Graphics* g)
 //0x46EB20
 void Projectile::Die()
 {
+    if (mProjectileType == PROJECTILE_STAR && mPricklyHitCount >= 16)
+        mBoard->mStarPiercingOverflow.erase(this);
 	mDead = true;
 
 	if (mProjectileType == ProjectileType::PROJECTILE_PUFF || mProjectileType == ProjectileType::PROJECTILE_SNOWPEA)

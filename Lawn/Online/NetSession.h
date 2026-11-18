@@ -43,6 +43,13 @@ public:
         if(ok){mMatchRequestedMode=mode;mMatchJoining=true;std::copy(ticket,ticket+16,mMatchTicket);}
         return ok;
     }
+    bool SupportsBossFinale() const { return IsConnected() && IsRelay() && mFlowEnabled && mFinaleCapability && mMatchMode < 0; }
+    void TickBossFinale(int damage = 0);
+    uint32_t FinaleMaximum() const { return mFinaleEpoch == mReadyEpoch ? mFinaleMaximum : 0; }
+    uint32_t FinaleRemaining() const { return mFinaleRemaining; }
+    bool mFinaleCapability = false;
+    uint32_t mFinaleEpoch = 0, mFinaleMaximum = 0, mFinaleRemaining = 0, mFinaleReported = 0;
+    int mFinaleSendDelay = 0;
     void SetLocalNameplate(uint8_t id);
     uint8_t GetSeatNameplate(uint8_t seat) const;
     // Initial create retry information; never infer it from localized text.

@@ -70,7 +70,7 @@ static const unsigned int RUN_CHECKPOINT_MAGIC = 0x314E5552;	// 'RUN1'
 // v19: independent slots, endless rule bits, lineup mask, hashed lawn/retry snapshots,
 // snapshot phase and completed zombie ballot rounds. Older saves retain endless options 0.
 
-static const unsigned short RUN_CHECKPOINT_VERSION = 27; // Adds two zombie buff IDs after the v26 entries.
+static const unsigned short RUN_CHECKPOINT_VERSION = 29; // Stores an unresolved intermission difficulty choice.
 
 static std::vector<unsigned char>& AppendU16(std::vector<unsigned char>& theData, unsigned int theValue)
 {
@@ -140,6 +140,7 @@ private:
 RunState::RunState()
 {
 	memset(mFailCounts, 0, sizeof(mFailCounts));
+    mFinaleFailures = 0;
 	StartNew(0);
 }
 
@@ -174,6 +175,7 @@ void RunState::StartNew(int theRunSeed, int theRunMode, int theRunDiff, int theR
     mTeam=TeamProgression::State{};
 	mMode = theRunMode;
 	mDiff = theRunDiff;
+    mNextDifficultyPending = false;
 	// 无尽档锁定的场景（0..4）：入口链/线传/读档三处都过了闸，这里再夹一次兜底——
 	// 坏场景会让 GetLevel 取出越界引擎关号。
 	mEndlessScene = (theEndlessScene >= 0 && theEndlessScene < RUN_SCENE_COUNT) ? theEndlessScene : 0;
@@ -215,6 +217,7 @@ void RunState::StartNew(int theRunSeed, int theRunMode, int theRunDiff, int theR
 	}
 	mBuffs.clear();
 	memset(mFailCounts, 0, sizeof(mFailCounts));
+    mFinaleFailures = 0;
 	mMowerUsedRows = 0;
 	mPendingPlantPicks = 0;
 	mPendingBuffPicks = 0;
@@ -268,6 +271,10 @@ void RunState::BeginLevelEndPicks()
 	mPickCooldownBuffCount = 0;
 	mPickSeenPlantCount = 0;
 	mPickCooldownPlantCount = 0;
+    if (IsBossFinaleIndex(mLevelIndex)) {
+        mPendingPlantPicks = mPendingBuffPicks = 0;
+        return;
+    }
 
 	// 每关后的植物奖励数（2026-10-09 定案）：完整 2 株/关不变、普通 6→3、快速 10→4——
 	// 大幅收紧让植物保持稀缺（一局拿不满 48 株），单株增益候选池不被一口气铺宽。
@@ -330,6 +337,10 @@ bool RunState::CanOfferPlantPick() const
 static bool RunChoiceBlockedByCounterpart(const RunState* theRun, int theId)
 {
     const int base = RUN_BUFF_COUNT + RUN_PLANT_UPGRADE_COUNT;
+    const int homingStar = RUN_BUFF_COUNT + RUN_UPGRADE_STARFRUIT;
+    const int piercingStar = base + RUN_BUFF2_STAR_PIERCE;
+    if (theId == homingStar) return theRun->GetBuffCount(piercingStar) > 0;
+    if (theId == piercingStar) return theRun->GetBuffCount(homingStar) > 0;
     if (theId == RUN_BUFF_COUNT + RUN_UPGRADE_SNOWPEA)
         return theRun->GetBuffCount(base + RUN_BUFF2_FROSTPIERCE) > 0;
     if (theId == base + RUN_BUFF2_FROSTPIERCE)
@@ -1103,7 +1114,7 @@ int RunState::GetSceneIndex() const
 	if (mMode == RUN_MODE_ENDLESS) return mEndlessScene;
 	int aIndex = GetPlayingLevelIndex();
 	if (aIndex < 0) aIndex = 0;
-	if (aIndex > GetLevelCount() - 1) aIndex = GetLevelCount() - 1;
+	if (aIndex >= LevelCountForMode(mMode)) aIndex = LevelCountForMode(mMode) - 1;
 	return aIndex / LevelsPerScene(mMode);
 }
 
@@ -1168,7 +1179,7 @@ int RunState::GetLevel() const
 		if (aIndex < 0) return -1;
 		return LevelForIndex(mEndlessScene * RUN_LEVELS_PER_SCENE + aIndex % RUN_LEVELS_PER_SCENE);
 	}
-	return LevelForModeIndex(mMode, GetPlayingLevelIndex());
+	return IsBossFinale() ? 50 : LevelForModeIndex(mMode, GetPlayingLevelIndex());
 }
 
 int RunState::GetLevelSeed() const
@@ -1187,6 +1198,10 @@ int RunState::GetLevelSeed() const
 void RunState::NoteLevelFailed()
 {
 	if (mLevelIndex < 0 || mLevelIndex >= GetLevelCount()) return;
+    if (IsBossFinaleIndex(mLevelIndex)) {
+        if (mFinaleFailures < 65535) ++mFinaleFailures;
+        return;
+    }
 	mFailCounts[mLevelIndex % RUN_LEVEL_COUNT]++;
 }
 
@@ -1247,7 +1262,8 @@ std::vector<unsigned char> RunState::EncodeCheckpoint() const
 {
 	std::vector<unsigned char> aData;
 	AppendI32(aData, (int)RUN_CHECKPOINT_MAGIC);
-	AppendU16(aData, RUN_CHECKPOINT_VERSION);
+    const auto version = mNextDifficultyPending ? RUN_CHECKPOINT_VERSION : (mFinaleFailures ? 28 : 27);
+	AppendU16(aData, version);
 	AppendU16(aData, (unsigned int)((mMode & 0xFF) | ((mDiff & 0xFF) << 8)));	// 低字节 = 时长档，高字节 = 出怪难度档
 	AppendI32(aData, mRunSeed);
 	AppendI32(aData, mLevelIndex);
@@ -1325,6 +1341,8 @@ std::vector<unsigned char> RunState::EncodeCheckpoint() const
     const auto team=TeamProgression::Encode(mTeam);
     AppendI32(aData,static_cast<int>(team.size()));aData.insert(aData.end(),team.begin(),team.end());
     AppendI32(aData,static_cast<int>(EndlessRules::Hash(team.data(),team.size())));
+    if (version >= 28) AppendU16(aData, static_cast<unsigned int>(mFinaleFailures));
+    if (version >= 29) AppendU16(aData, 1);
     return aData;
 }
 
@@ -1437,7 +1455,7 @@ bool RunState::Load(int theProfileId, int theMode, int theScene, bool theBackup,
 	{
 		return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam,theSuffix);
 	}
-	if (aLevelIndex < 0 || aLevelIndex > LevelCountForMode(aMode))
+	if (aLevelIndex < 0 || aLevelIndex > LevelCountWithBoss(aMode, BOSS_FINALE))
 	{
 		return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam,theSuffix);
 	}
@@ -1563,7 +1581,9 @@ bool RunState::Load(int theProfileId, int theMode, int theScene, bool theBackup,
 	{
 		return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam,theSuffix);
 	}
-	if (aMode == RUN_MODE_ENDLESS) aBossFlag = 0;
+	if (aMode == RUN_MODE_ENDLESS || !ValidBossOptions(aBossFlag)) aBossFlag = 0;
+    if (aLevelIndex > LevelCountWithBoss(aMode, aBossFlag))
+        return !theBackup && Load(theProfileId, theMode, theScene, true, theTeam, theSuffix);
 
 	// v14 才有僵尸强化字段：8 条层数（u16×8，正常不过 255——读到更大的当伪造/错位，
 	// 钳到 255，饱和口径与运行时一致）+ "上一票投在第几关"（0xFFFF = 没投过）。
@@ -1670,6 +1690,12 @@ bool RunState::Load(int theProfileId, int theMode, int theScene, bool theBackup,
     // 得增益、跨关跨模式串流）。读档一律关票——已得的层数原样保留，下一次准备按现役
     // 名册重新开票。
     if(mTeam.shared.ballot.open)mTeam.shared.ballot.open=false;
+    unsigned int finaleFailures = 0;
+    if (aVersion >= 28 && !aReader.ReadU16(finaleFailures))
+        return !theBackup && Load(theProfileId, theMode, theScene, true, theTeam, theSuffix);
+    unsigned int nextDifficultyPending = 0;
+    if (aVersion >= 29 && (!aReader.ReadU16(nextDifficultyPending) || nextDifficultyPending > 1))
+        return !theBackup && Load(theProfileId, theMode, theScene, true, theTeam, theSuffix);
     if(theTeam && (mAdmission.run!=theTeam || (mAdmission.phase==Admission::NONE && aMode!=RUN_MODE_ENDLESS)))return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam,theSuffix);
     if(theMode==RUN_MODE_ENDLESS ? (aMode!=RUN_MODE_ENDLESS || (int)aEndlessScene!=theScene) : aMode==RUN_MODE_ENDLESS)return !theBackup && Load(theProfileId,theMode,theScene,true,theTeam,theSuffix);
 
@@ -1677,6 +1703,8 @@ bool RunState::Load(int theProfileId, int theMode, int theScene, bool theBackup,
 	mRunSeed = aRunSeed;
 	mMode = aMode;
 	mDiff = aDiff;
+    mNextDifficultyPending = nextDifficultyPending != 0 && aLevelIndex > 0 &&
+        aLevelIndex < LevelCountWithBoss(aMode, aBossFlag);
 	mEndlessScene = (int)aEndlessScene;
 	mScale = (int)(aOptions & 3);
 	mTempo = (int)((aOptions >> 2) & 3);
@@ -1699,9 +1727,10 @@ bool RunState::Load(int theProfileId, int theMode, int theScene, bool theBackup,
 	mZombieVotedLevel = (unsigned short)aZombieVotedLevel;
 	// 关底 boss 档（2026-10-16 起三档 0 关/1 仅末关/2 末关+场景3）：老档的 0/1 读作档 0/1
 	// （旧语义"开"恰好 = 档 1，行为不变）；越界值归 0，消费端 SpawnRunBoss 再兜一道。
-	mBossFlag = (aBossFlag > 0 && aBossFlag <= 2) ? (int)aBossFlag : 0;
+	mBossFlag = (int)aBossFlag;
 	mLevelIndex = aLevelIndex;
 	memcpy(mFailCounts, aFailCounts, sizeof(mFailCounts));
+    mFinaleFailures = (mBossFlag & BOSS_FINALE) ? static_cast<int>(finaleFailures) : 0;
 	mMowerUsedRows = aMowerUsedRows;
 	mPool = aPool;
 	// 无尽档读档补齐全植物（2026-10-11 开局全植物批）：老档是「两株起家」年代存的，
@@ -1713,6 +1742,10 @@ bool RunState::Load(int theProfileId, int theMode, int theScene, bool theBackup,
     std::memcpy(mBuffChoices,picks.mBuffChoices,sizeof(mBuffChoices));
     mPickCounter=picks.mPickCounter; mPickSalt=picks.mPickSalt; mChoicesRolled=picks.mChoicesRolled;
     mPaidRerollCount=picks.mPaidRerollCount; mCatchUpLevel=picks.mCatchUpLevel;
+    if (IsBossFinaleIndex(mLevelIndex)) {
+        mPendingPlantPicks = mPendingBuffPicks = 0;
+        mChoicesRolled = false;
+    }
     auto copySet=[](unsigned short* dst,int& count,const unsigned short* src,int n) {
         count=n;std::memcpy(dst,src,n*sizeof(*dst));
     };
@@ -1765,13 +1798,15 @@ int RunState::GetEffectiveBuffCount(int id) const
 }
 bool RunState::HasUsablePlant(SeedType plant) const
 {
-    return HasPlant(plant) || (!IsEndless()&&mTeam.shared.Has((int)plant)) || (mLoanLevel==mLevelIndex && mLoanPlant==(int)plant);
+    return (IsBossFinale() && plant == SEED_FLOWERPOT) || HasPlant(plant) || (!IsEndless()&&mTeam.shared.Has((int)plant)) || (mLoanLevel==mLevelIndex && mLoanPlant==(int)plant);
 }
 std::vector<SeedType> RunState::GetUsablePool() const
 {
     auto result=mPool;
     for(int p=0;p<48;++p)if((!IsEndless()&&mTeam.shared.Has(p))&&!HasPlant((SeedType)p))result.push_back((SeedType)p);
     if(mLoanLevel==mLevelIndex && mLoanPlant>=0 && !HasPlant((SeedType)mLoanPlant) && !(!IsEndless()&&mTeam.shared.Has(mLoanPlant)))result.push_back((SeedType)mLoanPlant);
+    if (IsBossFinale() && std::find(result.begin(), result.end(), SEED_FLOWERPOT) == result.end())
+        result.push_back(SEED_FLOWERPOT);
     return result;
 }
 bool RunState::ValidateLoan(SeedType plant,const std::vector<BuffStack>& buffs) const

@@ -283,7 +283,30 @@ public:
 	// 无尽档返回完整版值（5），只作静态表尺寸用——无尽档的关卡映射在 GetLevel 另有分支。
 	static int			LevelsPerScene(int theRunMode);
 	static int			LevelCountForMode(int theRunMode);
-	int					GetLevelCount() const { return LevelCountForMode(mMode); }
+	int					GetLevelCount() const { return LevelCountWithBoss(mMode, mBossFlag); }
+    static constexpr int BOSS_FINALE = 4;
+    static bool ValidBossOptions(int flags) { return flags >= 0 && flags <= 6 && (flags & 3) <= 2; }
+    static int LevelCountWithBoss(int mode, int flags) {
+        return LevelCountForMode(mode) + (mode != RUN_MODE_ENDLESS && (flags & BOSS_FINALE) ? 1 : 0);
+    }
+    bool IsBossFinale() const {
+        return IsBossFinaleIndex(GetPlayingLevelIndex());
+    }
+    int GiantBossTier() const { return mBossFlag & 3; }
+    int mFinaleFailures = 0;
+    bool IsBossFinaleIndex(int index) const {
+        return !IsEndless() && (mBossFlag & BOSS_FINALE) && index == LevelCountForMode(mMode);
+    }
+    int LevelFailureCount() const {
+        return IsBossFinaleIndex(mLevelIndex) ? mFinaleFailures : mFailCounts[mLevelIndex % RUN_LEVEL_COUNT];
+    }
+    // Longer modes have more time to stack plant and team damage upgrades.
+    static constexpr int FinaleHealthFor(int mode, int diff, int players = 1) {
+        constexpr int base[] = {480000, 220000, 100000};
+        constexpr int difficulty[] = {80, 100, 125};
+        return base[mode] * difficulty[diff] * (4 + 3 * (players - 1)) / 400;
+    }
+    int FinaleHealth() const { return FinaleHealthFor(mMode, mDiff); }
 
 	// 出怪难度档的千分比（500/1000/1500）。档位非法按标准 1000——盘上的档、线传的字节
 	// 都从这儿过一道，读数的地方不用再操心合法性。
@@ -435,7 +458,12 @@ public:
 	bool				IsComplete() const { return mMode != RUN_MODE_ENDLESS && mLevelIndex >= GetLevelCount(); }
 	// @pvz-online: 无尽档判定（无尽续草坪批）：草坪原地续关的几个分叉口都问这一句。
 	bool				IsEndless() const { return mMode == RUN_MODE_ENDLESS; }
-	void				AdvanceLevel() { if(!IsEndless() || mLevelIndex<RUN_ENDLESS_LEVEL_COUNT-1) ++mLevelIndex; }
+    bool                mNextDifficultyPending = false;
+    void                AdvanceLevel() {
+        if (IsEndless() && mLevelIndex >= RUN_ENDLESS_LEVEL_COUNT - 1) return;
+        ++mLevelIndex;
+        mNextDifficultyPending = !IsComplete();
+    }
 
 	// @pvz-online: 补发追赶（R5）。开始补：目标关序号存下，先把当前这关的奖励屏选完
 	// （HasPendingPick 那套），选完由 AdvanceCatchUp 挪一关、再摆下一屏，直到追平。

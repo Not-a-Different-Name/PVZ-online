@@ -70,6 +70,13 @@ void NetSession::HandleSharedRoster(const uint8_t* bytes,int size) {
     if(mSharedTerm!=term || mSharedEpoch!=epoch)mSharedSourceSent=2;
     mSharedRoom=mWatchRoom=true;
     mSharedTerm=term;mSharedEpoch=epoch;mSharedFlags=flags;mSharedSources=sources;
+    // Roster identities identify seat occupants, while CoopWire HELLO supplies gameplay tokens.
+    for(uint8_t seat=1; (wasObserver || observer) && seat<=NetProto::MAX_PLAYERS; ++seat) {
+        const auto& previous=mSharedMembers[seat];
+        const auto& next=members[seat];
+        if(seat!=local && (!next.identity || (previous.identity && previous.identity!=next.identity)))
+            mCoopPeers[seat]=0;
+    }
     mSharedMembers=std::move(members);mSharedOrder=order;mWatchOrder=combat;mWatchPrivate=!(flags&1);
     if(!observer) {
         mWatchSlot=0;
@@ -84,7 +91,6 @@ void NetSession::HandleSharedRoster(const uint8_t* bytes,int size) {
                 const auto& member=mSharedMembers[seat];auto& entry=mSeats[seat];
                 entry.mOccupied=member.identity && !member.Spectator();
                 entry.mOffline=member.Offline();entry.mName=member.name;entry.mBuild=member.build;
-                mCoopPeers[seat]=member.identity;
             }
             // Re-entering combat needs a new local lawn even in the same epoch.
             mConsumedStartEpoch=0;mStartAckSent=false;mStartAccepted=false;
@@ -108,7 +114,6 @@ void NetSession::HandleSharedRoster(const uint8_t* bytes,int size) {
         auto& entry=mSeats[seat];
         entry.mOccupied=member.identity && !member.Spectator();
         entry.mOffline=member.Offline();entry.mName=member.name;entry.mBuild=member.build;
-        mCoopPeers[seat]=member.identity;
     }
 }
 

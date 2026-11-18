@@ -102,6 +102,9 @@ func (s *Server) publishFlow(r *Room) {
 	for seat := 1; seat <= maxPlayers; seat++ {
 		if c := r.bySeat[seat]; c != nil && c.flow {
 			s.enqueue(c, encodeFrame(msgSrvFlow, p))
+			if r.sharedBuild != 0 && c.build >= finaleBuild {
+				s.enqueue(c, encodeFrame(0xF02C, []byte{1}))
+			}
 		}
 	}
 	s.publishWatchRoster(r)
@@ -195,6 +198,9 @@ func (s *Server) handleFlowProgress(c *Conn, p []byte) {
 			return
 		}
 		if value == 1 {
+			if r.finale.remaining != 0 {
+				return
+			}
 			r.flow.done |= bit
 		} else {
 			r.flow.done &^= bit
@@ -254,7 +260,7 @@ func (s *Server) handleFlowStart(c *Conn, p []byte) {
 	}
 	epoch := binary.LittleEndian.Uint32(p[4:])
 	snapshot := append([]byte(nil), p[8:]...)
-	if !r.matchStartValid(snapshot) {
+	if !r.matchStartValid(snapshot) || (len(snapshot) == eliteWavesStartBytes && snapshot[24]&finaleBossFlag != 0 && (r.sharedBuild == 0 || c.build < finaleBuild)) {
 		return
 	}
 	if epoch == 0 || snapshot[0] != c.seat || binary.LittleEndian.Uint32(snapshot[len(snapshot)-5:len(snapshot)-1]) != epoch {
@@ -279,6 +285,7 @@ func (s *Server) handleFlowStart(c *Conn, p []byte) {
 	r.flow.prepCommitted = false
 	r.flow.started = true
 	r.flow.epoch = epoch
+	r.beginFinale(snapshot)
 	if r.sharedBuild != 0 {
 		r.sharedStart = append(r.sharedStart[:0], snapshot...)
 		r.sharedEndless = nil
@@ -335,6 +342,13 @@ func (s *Server) handleFlowGame(c *Conn, p []byte) {
 	}
 	if c.watchSlot != 0 || c.seatObserver {
 		return
+	}
+	if typ == finaleDamageFrame {
+		s.handleFinaleDamage(r, c, body)
+		return
+	}
+	if typ == finaleHealthFrame {
+		return // Only the relay can publish authoritative health.
 	}
 	if r.sharedBuild != 0 && typ == 26 && c == r.host && len(body) == 35 && body[0] == c.seat && body[2] == 4 &&
 		binary.LittleEndian.Uint32(body[3:]) == r.flow.epoch && binary.LittleEndian.Uint32(body[11:])&256 != 0 &&
@@ -443,6 +457,7 @@ func (s *Server) returnFlowToMenu(r *Room, source *Conn) {
 		return
 	}
 	r.flow.phase = flowLobby
+	r.finale = finaleHealth{}
 	r.started = false
 	r.flow.lost = false
 	r.flow.done, r.flow.ack, r.flow.applied = 0, 0, 0

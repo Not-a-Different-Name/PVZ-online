@@ -18,7 +18,7 @@ inline bool BattleRunning(Board* b) {
         !b->HasLevelAwardDropped();
 }
 inline bool Visible(Board* b) {
-    if(b->mApp->AdmissionBuilding() || !b->mApp->IsRunMode() || b->mApp->mGameScene!=SCENE_PLAYING || CoopHud::Watching(b) ||
+    if(b->IsRunBossFinale() || b->mApp->AdmissionBuilding() || !b->mApp->IsRunMode() || b->mApp->mGameScene!=SCENE_PLAYING || CoopHud::Watching(b) ||
         b->mChatPanelOpen || b->mSunGiftSelectFrames>0 || b->mApp->mDamageStats.mOpen)return false;
 #ifdef __ANDROID__
     if(b->mCoopToolsOpen)return false;
@@ -96,8 +96,8 @@ inline void Draw(Board* b,Graphics* g) {
         bool boss=b->mApp->GetRunState()->IsEndless()?b->mApp->GetRunState()->IsEndlessBossLevel():false;
         // Finite bosses use their original milestone/seat checks in SpawnRunBoss.
         auto* run=b->mApp->GetRunState();
-        if(!run->IsEndless())boss=run->mBossFlag>0 && (run->GetPlayingLevelIndex()+1>=run->GetLevelCount() ||
-            (run->mBossFlag>=2 && run->GetPlayingLevelIndex()+1==RunState::LevelsPerScene(run->mMode)*3));
+        if(!run->IsEndless())boss=run->GiantBossTier()>0 && (run->GetPlayingLevelIndex()+1==RunState::LevelCountForMode(run->mMode) ||
+            (run->GiantBossTier()>=2 && run->GetPlayingLevelIndex()+1==RunState::LevelsPerScene(run->mMode)*3));
         boss=boss && b->IsFlagWave(b->mCurrentWave) && b->mRunBossZombieID==ZombieID::ZOMBIEID_NULL &&
             (!b->mApp->IsOnlineGame() || b->mApp->mOnlineSession->GetLocalSeat()==NetProto::SEAT_HOST);
         detail=(boss?"BOSS ":"")+std::to_string(b->mCurrentWave+1)+"/"+std::to_string(b->mNumWaves);
